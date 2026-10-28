@@ -1,0 +1,7 @@
+#!/bin/sh
+# A commit message cites a decision board verdict as DECISIONS.md#REFERENCE, never by its
+# verdict ID (#536). Git runs this hook before its cleanup, and the hook cannot tell which
+# cleanup mode follows, so it reads every line that a commit can keep: comment lines and a
+# scissors line with the text below it too. A commit --verbose whose staged diff holds a
+# verdict ID is refused as well; commit without --verbose.
+sh "$(git rev-parse --show-toplevel)/scripts/decision-citations.sh" < "$1"

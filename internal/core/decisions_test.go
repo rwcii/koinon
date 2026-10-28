@@ -353,11 +353,11 @@ func TestDecisionListBoundedAtScale(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	states := []string{"active", "in_progress", "archived"}
+	states := []string{"active", "returned", "in_progress", "archived"}
 	for i := 1; i <= 10000; i++ {
 		if _, err := tx.Exec(`INSERT INTO decision_items(reference,item_order,title,location,agent_text,context,recommendation,kind,state,commands,revision,
 			author_family,author_name,created_at,updated_at) VALUES (?,?,?,'','','','',?,?,'[]',1,'codex','synthetic',1,1)`,
-			fmt.Sprintf("S-%d", i), i, title, []string{"decision", "fyi"}[i%2], states[i%3]); err != nil {
+			fmt.Sprintf("S-%d", i), i, title, []string{"decision", "task", "fyi"}[i%3], states[i%4]); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := tx.Exec(`INSERT INTO decision_recipients(item_id,ordinal,name,kind,reason) VALUES (?,0,?,'peer','')`, i, session.Name); err != nil {
@@ -367,7 +367,7 @@ func TestDecisionListBoundedAtScale(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	for _, filter := range []string{"waiting", "active", "in_progress", "archived", "mine"} {
+	for _, filter := range []string{"waiting", "active", "returned", "in_progress", "archived", "mine"} {
 		page, err := s.DecisionList(ctx, caller, filter, 0, 0)
 		if err != nil {
 			t.Fatal(err)
@@ -380,9 +380,11 @@ func TestDecisionListBoundedAtScale(t *testing.T) {
 			t.Fatalf("%s reply holds markup", filter)
 		}
 	}
+	// The plans are those of the production summary projection. The waiting index holds only
+	// waiting items, so a waiting page never passes open fyi items (#537).
 	plans := map[string]string{
-		"waiting": `SELECT id FROM decision_items WHERE state='active' AND kind='decision' AND id>0 ORDER BY id LIMIT 101`,
-		"state":   `SELECT id FROM decision_items WHERE state='archived' AND id>0 ORDER BY id LIMIT 101`,
+		"waiting": strings.NewReplacer("id>?", "id>0", "LIMIT ?", "LIMIT 101").Replace(decisionWaitingQuery),
+		"state":   `SELECT ` + decisionSummaryColumns + ` FROM decision_items WHERE state='archived' AND id>0 ORDER BY id LIMIT 101`,
 		"mine":    `SELECT DISTINCT item_id FROM decision_recipients WHERE name='x' AND item_id>0 ORDER BY item_id LIMIT 101`,
 	}
 	for name, query := range plans {
@@ -401,7 +403,8 @@ func TestDecisionListBoundedAtScale(t *testing.T) {
 		}
 		rows.Close()
 		joined := strings.Join(plan, "; ")
-		if !strings.Contains(joined, "USING") || strings.Contains(joined, "TEMP B-TREE") {
+		if !strings.Contains(joined, "USING") || strings.Contains(joined, "TEMP B-TREE") ||
+			name == "waiting" && !strings.Contains(plan[0], "USING INDEX decision_items_waiting") {
 			t.Fatalf("%s plan: %s", name, joined)
 		}
 	}
@@ -517,7 +520,7 @@ func TestDecisionSchemaUpgradeKeepsRetainedState(t *testing.T) {
 	m := MemoryCaller{Family: "codex", Repository: "/synthetic/schema25/.git", Consumer: "synthetic-schema25", Name: "synthetic-schema25"}
 	note(t, s, m, MemoryRecordRequest{Type: "finding", Body: "synthetic retained schema24 note"})
 	before := rowsOf(t, s.db)
-	if _, err := fixtureExec(s, undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+`PRAGMA user_version=24`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+`PRAGMA user_version=24`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 24); err != nil {

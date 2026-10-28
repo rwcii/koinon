@@ -152,3 +152,431 @@ retained MCP caller identity and the verified cycle result.
 - No native reset, receiving-model pickup, absent-skill bootstrap or prompt-response test
   was run by this planning increment. The DoD native matrix records the evidence required
   before the implementation can declare a family/version/platform available.
+
+## Native compaction check — 2026-10-26 (#509)
+
+Linux, codex-cli 0.164.0, an interactive Codex in a private tmux socket after one short turn.
+The adapter's own `CompactProbe`, `Inspect` and `Compact`, run against that pane with the real
+tmux and process tools:
+
+| Step | Result |
+| --- | --- |
+| `CompactProbe` | `Entry: /compact`, no reason: platform, the thread's rollout and the pane proof pass without a pickup skill or participant address |
+| `Inspect` | `Idle: true` |
+| `Compact` | `submitted=true received=true`: `/compact` typed, read back in the composer, one Enter, then the empty composer |
+| Screen | "Compacting context (… esc to interrupt)", then "Context compacted · 7s" and the empty composer |
+| Rollout | `task_started`, a `compacted` record, `token_count` with `last_token_usage.input_tokens` 0 and the same `model_context_window` (475000), `task_complete`, all in the same thread |
+
+The confirmation rule reads that `token_count`: a fresh reading recorded after the receipt, for the
+same epoch, below the threshold. macOS is checked by the maintainer before release.
+
+## agy cycle adapter (#512)
+
+Antigravity CLI 1.4.7 on Linux, 2026-10-27, in a private tmux server with a scratch Git
+workspace; the redacted captures are `internal/core/testdata/agy-screens`. The maintainer's agy
+settings were restored to their original bytes after each run.
+
+- Screen. The composer is the `>` line between the last two full-width rules; submitted
+  prompts in the transcript are framed by a rule too. Idle: an empty composer and the footer
+  `? for shortcuts`. A draft shows `> TEXT` and no footer hint; a running turn shows a spinner
+  line (`Generating...`, `Running command...`) above the rules and the footer `esc to cancel`.
+  A typed `/` opens a fuzzy menu below the rules, its selected row marked `> `, with the hint
+  `↑/↓ Navigate · enter Select · tab Complete` and `↓ N more` when it scrolls. `C-u` clears
+  the composer. A key sent right after Escape is lost (read as Alt+key). A turn cancelled with
+  Escape ends with `⎿ Interrupted · What should Antigravity CLI do instead?`.
+- `/clear`. With the full command typed, the menu has the one selected row
+  `/clear  Clear conversation and start a new one`; Enter runs it. The screen then shows the
+  banner (`Antigravity CLI 1.4.7`) and an idle composer with no transcript line. The host
+  process, its PID and start time stay; a new conversation starts at once, before any turn
+  (the host's log says `Streaming conversation <new>`, and the host holds an exclusive flock on
+  `~/.gemini/antigravity-cli/presence/<new>.lock`).
+- New conversation proof. agy runs the `statusLine` command as `sh -c` under the host
+  (`hook <- sh <- agy <- tmux server`), on change only. After the `/clear` Enter at t0 it
+  reported the old conversation once more at t0+148 ms, then the new one at t0+461 ms (0 tokens,
+  `idle`), with no turn and no tool call between. Its input carries `agent_state` (`authenticating`,
+  `idle`, `working`, `tool_use`). The flock is Linux-only evidence and is not used.
+- Pickup entry. `~/.gemini/config/skills/koinon-pickup/SKILL.md` is listed as `/koinon-pickup`
+  with its description, cut with `...` at the pane width. A workspace
+  `.agent/skills/koinon-pickup/SKILL.md` or `.agents/skills/koinon-pickup/SKILL.md` replaces it
+  (`.agent` first) and the menu still shows one row, with the workspace description; a workspace
+  `.gemini/skills` does not. Skills reload at each conversation switch.
+- Pickup run, against a disposable daemon (`KOINON_STATE_DIR` and `KOINON_DAEMON_ADDRESS` in
+  agy's environment, checked in its `koinon mcp` child). Enter on the `/koinon-pickup` row
+  submits it: `> /koinon-pickup` becomes the newest prompt above an empty composer, and the
+  skill calls `koinon/library_read`. Started with `koinon agy`, the first conversation registered
+  at that call with the participant address; after `/clear`, the new conversation's first call
+  registered it in the same host, retired the old one and moved the address to it.
+- Dialogs. A command that the permission rules do not allow shows `Requesting permission for:`,
+  the command, `Run this command?`, numbered options (`> ` marks the selected one; long options
+  wrap onto unindented rows; the list scrolls) and the hint
+  `↑/↓ Navigate · tab Amend · ctrl+g edit/expand command`. A digit moves the selection and Enter
+  confirms it; a declined request ends with `⎿ User declined the tool call`. The status line
+  shows `tool_use` meanwhile. The folder-trust question at the first start in a folder is not
+  numbered. With `mcp(koinon/*)` allowed, no MCP tool approval appeared.
+- Process. The launcher execs agy in the pane (`~/.local/bin/agy`, no arguments); agy leads the
+  terminal's foreground group, and its `koinon mcp` child is in that group. A short-lived `agy`
+  child appeared once at start. Terminal naming renamed the tmux session; the pane ID stayed.
+
+- Managed cycle runs, with the branch binary as the daemon (a scratch state directory and
+  `HOME`), as agy's MCP server and as its status-line command, family mode `handoff_cycle` at
+  1%. Each run: `koinon agy` in the private tmux server, one `koinon/peers` call, Enable, a
+  status-line change admits the cycle, and a short turn's Stop hook delivers the request.
+  - Run 1: Enable, admission, the request and the handoff worked; `context_cycle_ready` was
+    refused with `cycle_epoch_unverified`, because `koinon mcp` gave agy no epoch (fixed).
+  - Run 2: ready, `/clear`, the new conversation's witness, `reset_verified`, `/koinon-pickup` and
+    the successor's pickup worked. The successor's pickup raised command dialogs, and each one
+    cost two events (`waiting_prompt`, then `waiting_pickup` `prompt_resolved`); at the fifth
+    the cycle failed with `event_limit` (#520), and the successor's report was refused.
+  - Run 3, with #520: `requested`, `ready`, `clear_intent`, `clear_received` (339 ms later),
+    `reset_verified` (552 ms), `pickup_intent`, `waiting_pickup`, one `waiting_prompt` for the
+    successor's four command dialogs, then `complete` `resumed` with the successor's report:
+    9 events, 101 s from the pickup input to the report. The Enable moved to the successor,
+    which was admitted to a new cycle at once at 1%; Disable cancelled it.
+  - Each dialog was answered in the pane, after reading its whole command (`ctrl+g` shows a
+    long one). After Escape from that view the next key was received.
+
+Not yet verified: macOS; an MCP tool approval dialog.
+
+## OpenCode context source (#513)
+
+OpenCode 1.18.35 on Linux, 2026-10-27: a scratch `opencode serve --hostname 127.0.0.1 --port P
+--mdns=false` with `OPENCODE_SERVER_USERNAME=opencode` and `OPENCODE_SERVER_PASSWORD`, as
+`koinon opencode` starts it, in a scratch Git workspace, with two one-line prompts on
+`opencode/big-pickle`. The probe sessions were deleted afterwards. The redacted page and
+provider list are `internal/core/testdata/opencode`.
+
+- Messages. `GET /session/{id}/message?limit=N` returns the newest N messages, each `info` with
+  its `parts`; no parameter leaves the parts out. An assistant `info` has `role`, `providerID`,
+  `modelID`, `time.created`, `time.completed`, `finish` (`stop`) and `tokens` `{total, input,
+  output, reasoning, cache{read, write}}`. In the first reply, total 22314 = input 20520 +
+  output 2 + reasoning 0 + cache.read 1792 + cache.write 0. A `step-finish` part carries its own
+  token counts.
+- A turn that did not finish (the configured default model stalled, then the turn was
+  aborted) left an assistant message with `time.completed`, `finish` null, no `total` and all
+  counts 0.
+- Session counts. `GET /session/{id}` has `tokens` without `total`, summed over the turns: after
+  two turns, input 82 = 35 + 47 and cache.read 44544 = 2 × 22272. They are not the context.
+- Limits. `GET /config/providers` lists `providers[]` with `id` and `models`, a map from model ID
+  to a model with `id` and `limit` (`big-pickle`: context 200000, input 160000, output 32000). A
+  provider entry also has `key`, `options` and `env`.
+- The v2 `GET /api/session/{id}/message` and `/api/session/{id}/context` returned no data for
+  these sessions.
+
+- Reading, with the branch binary as the daemon (a scratch state directory and `HOME`) and
+  `koinon opencode --model opencode/big-pickle` running the TUI in a private tmux server. One
+  `koinon_peers` call registered the session. After the next round, `peer-status` showed
+  model `opencode/big-pickle` and context 17100 of 200000 (`opencode_server`, source time
+  the reply's completion), the same count as OpenCode's sidebar (`17,100 tokens`, `9% used`).
+  After one more turn both showed 17139. The test session was deleted afterwards.
+
+Not yet verified: macOS; a session after OpenCode's own compaction.
+
+## OpenCode cycle adapter (#513)
+
+opencode 1.18.35 on Linux, 2026-10-27, launched with `koinon opencode` in a private tmux server
+with a scratch Git workspace, against a disposable daemon (a scratch state directory and `HOME`),
+on the person's configured model `openrouter/qwen/qwen3.6-35b-a3b`. The redacted captures are
+`internal/core/testdata/opencode-screens`; the probe sessions were deleted afterwards.
+
+- N1. `POST /session` creates a session and returns its `id` and `title`. `POST
+  /tui/select-session {sessionID}` returns `true` and only publishes a `tui.session.select`
+  event; nothing reads back the session that the TUI shows. A draft in the composer stays
+  through a switch.
+- N2. `GET /command` lists `koinon-pickup` with source `skill`. Its template is the skill body
+  after the front matter, then `Base directory for this skill: DIR` and `Relative paths in this
+  skill (e.g., scripts/, references/) are relative to this base directory.`, with `DIR`
+  `~/.config/opencode/skills/koinon-pickup`. OpenCode also lists skills from `~/.claude/skills`;
+  one `koinon-pickup` is listed when both exist.
+- S1. `POST /session/{id}/command` answers only after the whole turn (27 s, busy throughout).
+  The successor registered through the identity plugin with that session's ID, in the same
+  launch and host.
+- S3, S4. A typed `/new` goes to the home screen (`Ask anything…`, centered); no session exists
+  until the first prompt. The TUI slash menu lists no skill: `/koinon-pickup` shows `No matching
+  items`.
+- S5. A session created by API uses the configured default model, not the TUI's.
+- S6. The sidebar, with the session title, shows only at about 160 columns or wider.
+- S7. The command body is `{command, arguments, messageID, model}`. The given `messageID`
+  (pattern `^msg`) is kept exactly and is the only user message; with empty `arguments` the text
+  is the template, trimmed. OpenCode's own message IDs are `msg_`, 12 hex digits of the creation
+  time in milliseconds times 4096, then 14 base-62 characters.
+- S8. When the client gives up after 5 s, the turn goes on (busy for more than 45 s).
+- S9. `model` `openrouter/qwen/qwen3.6-35b-a3b` gave the user message `providerID` `openrouter`
+  and `modelID` `qwen/qwen3.6-35b-a3b`, and the replies came from that model; the string is
+  split at its first `/`.
+- S10. The TUI renders each Koinon tool call as `⚙ koinon_TOOL [ARGUMENTS]` at a five-space
+  indent, with the identity plugin's `koinon_session=ID` last; the glyph and the call are in the
+  muted color (`38;2;128;128;128`, red `224;108;117` for a failed call), the space between them
+  in another, and reply text in the text color (`38;2;238;238;238`). Long arguments wrap at
+  80 columns onto rows at a seven-space indent in the muted color. User messages and tool output
+  are framed by `┃`. A long final reply scrolls the tool rows out of the current view.
+- Permissions. `GET /permission` lists pending requests with `id`, `sessionID`, `permission` and
+  `patterns`; `POST /permission/{id}/reply {reply: once|always|reject}` returns `true`. A pending
+  permission replaces the composer in the pane.
+
+- Managed cycle runs, with the branch binary as the daemon and as OpenCode's MCP server (a
+  scratch `OPENCODE_CONFIG` that names it), family mode `handoff_cycle`, session threshold 5%.
+  - Run 1: Enable, admission, the request and the handoff worked; `context_cycle_ready` was
+    refused with `cycle_epoch_unverified`, because `koinon mcp` gave OpenCode no epoch (fixed:
+    an OpenCode call's epoch is its own session).
+  - Run 2: `requested`, `ready`, `clear_intent`, `clear_received` (54 ms later),
+    `clear_received` `select_sent`, `reset_verified` (1.0 s after the select),
+    `pickup_intent`, `waiting_pickup` (0.9 s), `waiting_pickup` `pickup_displayed` (1.0 s),
+    then `complete` `resumed` with the successor's report 17 s later: 10 events. The created
+    session had the cycle's title, its first message had the derived ID and the requester's model
+    pair, its first call was `koinon_library_read`, and its last `koinon_context_cycle_pickup`.
+    The participant address and the Enable, with its 5% threshold, moved to it.
+  - In runs 1 and 2 the requester model needed the steps typed in its pane before it wrote
+    its handoff; the cycle does not depend on that model.
+  - Run 3: the successor of run 2, at 5%, was admitted to a new cycle at once and wrote its
+    handoff and ready report itself. Create, select, reset, pickup, receipt and display proof
+    passed (`pickup_displayed` 1.0 s after `waiting_pickup`), but the new successor made no
+    report within the 2-minute stage deadline, and the cycle ended `failed`
+    `waiting_pickup_timeout`. Its session was deleted before its transcript was read, so why it
+    did not report is not known.
+  - Run 4, unattended after Enable: the requester answered the request itself, and its cycle and
+    the chained cycle of its successor both completed `resumed`: 10 events each, the report 37 s
+    and 23 s after `pickup_displayed`. A Disable cancelled the third chained cycle in
+    `waiting_ready`.
+  - Run 5, after the review fixes (a report needs a current view with the successor's row, the
+    replies' model is checked, and the worker reads the receipt), unattended: both chained
+    cycles completed `resumed`, each report accepted on its first call (23 s and 22 s after
+    `pickup_displayed`). In the second, the requester kept working after its ready report twice,
+    so overwatch asked again (`not_idle.turn_running`) before its clear. A Disable cancelled the
+    third.
+
+Not yet verified: macOS; a permission dialog during the pickup; a pane narrower than 80 columns.
+
+## DeepSeek context source (#514)
+
+Read 2026-10-27 from DeepSeek Harness `@deepseek-ai/dsh` 0.2.0-rc.2, in the development
+container that #199 used (the harness does not run on the host). The package files were read
+in the image; the recorded session's log and projection cache were read for event types, seqs,
+times and token and model fields only.
+
+- Reads. `session/projections` reads all projections of a session without starting an agent
+  (`dsh-api-session-controller`). `session/page` returns a contiguous, ascending run of events
+  that ends before `min(throughSeq + 1, beforeSeq)`, each `{type, seq, time, data}`.
+  `session/list` rows have `updatedAt` = max(`createdAt`, the newest user prompt's time), so it
+  is not the time of a reply.
+- Pressure. The token meter (`dsh-token-meter`, in the base composition) keeps
+  `contextPressure`: `pressureTokens` = the newest usage's `inputTokens + cacheReadTokens +
+  cacheWriteTokens`, and `contextWindow` from the newest `request/context`. Its source says
+  the two are independent last-wins values, not one request's observation. `projectedTokens`
+  adds the change in its own surface estimate since that usage.
+- Model. `modelSelection.lastUsed` is the `{provider, model}` that the latest request used.
+  `request/context` is written only when the model or window changes (once in the recorded
+  session, at seq 11).
+- Recorded session (only its model, context and newest usage events are named here):
+  `request/context` seq 11 `openrouter`, `deepseek/deepseek-v4-flash`, `contextWindow`
+  1024000 (the OpenRouter catalog's value; the harness default is 1e6); the newest usage at
+  `assistant/message` seq 58, time 1791916491862, `inputTokens` 728 and `cacheReadTokens` 8960;
+  `turn/end` at seq 60. The projection at `asOfSeq` 60: `pressureTokens` 9688,
+  `projectedTokens` 9808, `contextWindow` 1024000.
+- Reading, with the branch binary (`24a96be`, linux/amd64) as a container-local daemon with a
+  new state directory, and `dsh web` restarted on the existing home volume. The recorded
+  session was registered with `koinon register` and its harness origin and credential file; no
+  model request was made. The harness's own `session/projections` answered the values above.
+  After the next round, `peer-status` showed model `openrouter/deepseek/deepseek-v4-flash` and
+  context 9688 of 1024000 (`dsh_projections`), with source time 1791916491862, the usage
+  event's time. The daemon and the harness were stopped and the container was stopped.
+
+Not yet verified: macOS; a reading that changes during a live turn; a session after the
+harness's own compaction.
+
+## DeepSeek cycle adapter (#514)
+
+Run 2026-10-27 with DeepSeek Harness `@deepseek-ai/dsh` 0.2.0-rc.2 (`dsh web`) in the
+development container that #199 used, on Linux; the harness does not run on the host. The
+branch binary ran as a container-local daemon with a new state directory, and the agents'
+model requests went to `openrouter`/`deepseek/deepseek-v4-flash`, the harness default, through
+the container's OpenRouter key. Only commands, IDs, event types and stage records are named
+here; the agents' text is not.
+
+- API facts. Each method's arguments are named by its descriptor, and any other field is
+  refused with `gateway/arguments-invalid`: `session/list` takes `_request`,
+  `session/modelCatalog` takes none (it returns `default` `{provider, model}`), and
+  `session/projections`, `session/page`, `skills/list`, `session/create` and `session/prompt`
+  take `request`. `session/list` rows carry `sessionId`, `updatedAt`, `running`, `blank` and
+  `cwd`. `skills/list` listed `koinon-pickup` at `$DSH_HOME/skills/koinon-pickup/SKILL.md`,
+  ahead of Codex's entry of the same name in `~/.agents/skills`. A queued prompt appears as
+  `agent/inbox/spliced` `inserted[]` and then, after `turn/start`, as `user/message`, each with
+  `source {kind: user, rpcId}`; `request/header` carries `header.config {provider, model}` and
+  `assistant/message` `message.source {kind: model, provider, model}`.
+- Create. `session/projections` for an unused chosen ID answered `null`. `session/create` with
+  `{sessionId, cwd}` created it, the same request again returned the same session, also after
+  `dsh web` was restarted, and the same ID with another `cwd` answered `session/conflict`.
+- Prompt. `session/prompt` sent twice with one `requestId` was admitted twice (two turns), so
+  the harness does not deduplicate request IDs; the adapter sends the pickup once, and a
+  restart only reads its receipt.
+- Cycle 1. The requester session registered with `--repository`; the family mode was
+  `handoff_cycle` at 1 percent, because the session's context was about 1.5 percent of the
+  1024000-token window. Enable passed the probe. After one turn the reading admitted the cycle;
+  the requester's agent read its inbox, wrote its handoff and ran `koinon cycle-ready`. A queued
+  wake turn ran after the ready report, and the quiet point waited for its end (`clear_intent`
+  24 s after `ready`). The daemon created the session with the cycle's ID in the same `cwd`,
+  recorded `select_sent` without input, proved the reset, sent `/koinon-pickup` and recorded the
+  receipt 0.8 s after `pickup_intent`. The created session registered and took the address
+  with `cycle_session`, and its `koinon cycle-pickup` completed the cycle `resumed` 106 s after
+  the pickup. The Enable moved to it.
+- Cycles 2 and 3. The moved Enable met the 1-percent threshold at once, so the successor ran
+  the next cycle: cycle 2 completed `resumed` 115 s after its pickup; cycle 3's pickup took
+  longer than the 2-minute `waiting_pickup` deadline and the cycle ended `failed`
+  (`waiting_pickup_timeout`), with nothing sent again. The family mode was then set back to
+  `observe`.
+- Cycle 4, with a claim and a restart. With a new state directory, the requester started a
+  work item through the command path (claim generation 1, consumer `participant:deepseek-repo`)
+  and the family threshold was set back to 75 percent right after admission. The daemon was
+  stopped and started again 1 s after `waiting_pickup`. The created session read the
+  cycle's handoff file, registered with `--repository` (`cycle_session`) and reported; the
+  cycle completed `resumed` 81 s after the pickup. The claim stayed active with generation 1,
+  its expiry extended to the cycle deadline plus 60 s, and the created session held
+  `deepseek-repo`.
+- Settings. The harness's `cordis.patch.yml` files kept their 2026-10-13 times through both
+  runs: the adapter changed no harness setting. The daemon, the harness and the container were
+  stopped.
+- Reconstructed persisted-intent recovery (review F5 on #526). This run verifies reconstructed
+  boundary states, not a real crash or lost response. Binary: the branch at e01a86c,
+  `CGO_ENABLED=0` linux/amd64, sha256 `f731d567…38af84`. Each case stopped the daemon at a
+  recorded stage (SIGSTOP, then SIGKILL, within 20 ms of the stage), copied the store out,
+  wrote the cycle row and its events, audit records, revision and credit as `advanceCycle`
+  writes them, and copied the store back without its WAL. Then `dsh web` and the daemon were
+  restarted. The counts are the harness's session count and, for each session, its user
+  prompts in the inbox, in `agent/inbox/spliced` and in `user/message`. The successor and
+  request IDs were derived from the cycle and the intent time, and the derivation gave the
+  successor ID of the earlier completed cycle.
+  - Create absent: `ready` was rewritten to `clear_intent` (7 sessions, no successor). After
+    the restarts: `clear_received` with the derived ID as epoch, 8 sessions, and the created
+    session empty (0/0/0).
+  - Create present: the same cycle was rolled back to `clear_intent` with the created session
+    kept. After the restarts: `clear_received` again, 8 sessions, and the created session
+    unchanged (same sequence, 0/0/0): no second create.
+  - Pickup absent: `clear_received` was rewritten through `select_sent` and `reset_verified`
+    to `pickup_intent`, with no send. After the restarts the cycle ended `uncertain`
+    (`pickup_unreceipted`) 0.9 s later, and the created session still had no prompt.
+  - Pickup present: a new cycle sent its real pickup. The daemon and `dsh web` were stopped
+    18 ms after `waiting_pickup`, and the row was rolled back to `pickup_intent` with its
+    intent time kept. After the harness restart the created session had one admission
+    (1 spliced, 1 `user/message`, empty inbox, not running). After the daemon restart the
+    cycle recorded `waiting_pickup` 0.9 s later, with the same counts and no other prompt. The
+    harness did not resume the killed turn, so no report came, and the cycle ended `failed`
+    (`waiting_pickup_timeout`) at its deadline with the same counts.
+  - No replay: a `complete` cycle, the `uncertain` cycle above, a cycle disabled in
+    `clear_intent` while the harness was stopped (`uncertain`, `disabled`) and a cycle
+    disabled in `ready` (`cancelled`, `disabled`) were each restarted with the harness and the
+    daemon. The session counts and every session's prompt counts stayed the same, and no
+    session was created for the disabled or cancelled cycles.
+  - The family mode was set back to `observe`, and the container was stopped.
+- Effect-time quiet reads (#526 re-review). With the branch at 9491dd6, where the create and
+  the pickup read the quiet point again before they send, one unattended cycle completed
+  `resumed` with `cycle_session`. Its stages were the same as in cycle 1, and the created
+  session had one user prompt, the pickup, admitted once. The report came 81 s after the
+  pickup.
+
+Not yet verified: macOS; a pickup within the 2-minute deadline when the model is slower.
+
+## Grok context source (#515)
+
+Run 2026-10-27 with Grok Build 1.0.50 in the `grok-dev` development container on Linux. The
+branch binary ran as a container-local daemon with a new state directory, and `koinon grok`
+started the session in a private tmux socket. A capture command, set as the person's own
+`[ui.status_line]` command before setup, saved each input and the `GROK_SESSION_ID` that it
+saw. Only field names, types, counts and comparisons of IDs are named here.
+
+- Setup. `koinon setup grok` wrapped the capture command in the existing `[ui.status_line]`
+  table of `~/.grok/config.toml` and changed only its `command` line. Grok rendered the wrapped
+  command's output under its input box. Setup again with a new binary moved the wrapper to it
+  (`set_up`). `koinon setup grok --remove-status-line` restored the table byte for byte; the
+  only other line that differed from the file before setup was the MCP server entry, which
+  `grok mcp add` had rewritten. The container's configuration was then restored from its
+  backup.
+- Input. Fields: `schema_version`, `cwd`, `session_id`, `model {id, display_name}`,
+  `workspace {current_dir, repo_root}`, `version`, `cost {total_duration_ms,
+  total_api_duration_ms}`, `context_window {context_window_size, context_tokens,
+  session_input_tokens, session_output_tokens, used_percentage, remaining_percentage,
+  auto_compact_threshold_percent}` (integers), `effort {level}` and `trigger` (`state` in every
+  input). Grok sent inputs in bursts when its state changed (start, the turn, `/new`,
+  `/compact`) and none while it was idle; the table had no `refresh_interval`. One turn moved
+  `context_tokens` from 1785 to 19142 with a limit of 256000, as the TUI's "19K / 256K".
+- Identity. The command's environment had no `GROK_SESSION_ID` in any input, and the Grok
+  process has none either; Grok sets it for its MCP server. The input's `session_id` was the
+  MCP server's `GROK_SESSION_ID` and the launch's `--session-id`. The first branch head took the
+  caller from the environment, as the agreed criteria said, and `peer_status` showed the
+  context `not_observed`. The hook now takes the caller from the input's `session_id`; then
+  `peer_status` showed model and context from `grok_statusline` (19249 of 256000 tokens).
+- `/new` started a second MCP server with a new `GROK_SESSION_ID`; the inputs then named that
+  session, with `context_tokens` starting again at 1785, and its own peer showed its reading
+  (19409) while the earlier session kept its last one.
+- `/compact` kept the same `session_id`; `context_tokens` fell from 19409 to 19137 (the context
+  was mostly Grok's own instructions), and the reading followed.
+
+Not yet verified: macOS; a session with `refresh_interval` set.
+
+## Grok cycle adapter (#515)
+
+Grok Build 1.0.50 on Linux, 2026-10-27, in the `grok-dev` development container, with the
+session in a private tmux socket started from an interactive `bash -i`, as in a person's pane.
+The redacted captures are `internal/core/testdata/grok-screens`. The container's Grok
+configuration was restored from its backup after each run (`cmp` equal), and the test skills and
+handoffs were removed.
+
+- Skill roots. Three `koinon-pickup` skills with different descriptions: among the user roots
+  `~/.grok/skills` wins over `~/.agents/skills`, which wins over `~/.claude/skills`; a
+  `.agents/skills` in the working directory wins over every user root. `[skills] disabled =
+  ["koinon-pickup"]` removes the entry from the slash menu; `[skills] ignore` on the `~/.grok`
+  copy makes the menu show the `~/.agents` copy. The order of `.cursor` roots and `[skills]
+  paths` was not checked.
+- Process. From `bash -i` the Grok host leads the pane's foreground group, and its `koinon mcp`
+  servers and status-line commands are in their own groups. From a non-interactive `bash -c`,
+  `bash` leads the group instead.
+- Screen. Idle: an empty `❯` input box and the footer `Shift+Tab:mode │ Ctrl+x:shortcuts`. A draft
+  adds `Enter:send │ Alt+Enter:newline`; a running turn shows `Waiting for response…` or
+  `Thinking…` above the box and `Ctrl+c:cancel` in the footer. `C-u` erases the whole box. A
+  typed `/` opens a menu above the box whose upper rule carries a match count (`──1─`); with a
+  long transcript Grok draws a scrollbar thumb ` █` in the last column. The alternate screen
+  keeps 45 lines of history.
+- `/new`. Typed in full, the menu selects `❯ /new  Start a new session`; one Enter runs it.
+  Within 0.4 s the screen shows `Session <id>, use /dashboard to switch between sessions` above
+  an empty input box; the ID is a version-7 UUID. Grok starts a second `koinon mcp` with the new
+  `GROK_SESSION_ID` under the same host, and the earlier session's server keeps running.
+- New session proof. Status-line inputs run as `sh -c` → `koinon hook grok-status` → the wrapped
+  command, children of the host in their own group. After `/new` they name the new session,
+  from the same host PID.
+- Pickup entry. Typed in full, `/koinon-pickup` opens a menu with one row and the skill's
+  description; one Enter submits it as a transcript line `❯ /koinon-pickup` above an empty input
+  box, with a running turn.
+- Dialogs. A shell approval and an MCP approval have one shape: a `┃` box, a title (for example
+  `Allow (Koinon) Peers?`), 4 or 5 rows `N (●) text` or `N (○) text` and the footer
+  `1/N:select │ …`. The preselected row varies; option 1 is always-approve mode. A digit answers
+  at once, with no Enter, and the dialog is gone at the next read; Ctrl+C cancels it.
+- Launch admission. When the first session made no Koinon call before `/new`, the successor's
+  calls were refused with `identity_unavailable`: the launch still admitted only its first ID.
+  In the cycle runs below the predecessor was registered first, and the successor's calls worked.
+
+- Managed cycle runs, with the branch binary as the daemon (a private socket and state
+  directory), as Grok's MCP server and as its status-line command, family mode `handoff_cycle`
+  at 1%, in a scratch Git repository. The requester's handoff turn raised five shell and edit
+  dialogs, each answered in the pane with its plain `Yes` option.
+  - Run 1: `requested`, `ready`, `clear_intent`, then uncertain `pickup_entry_unverified`: the
+    typed `/new` menu did not read back, because the scrollbar thumb ended the menu's upper rule
+    (`──5─ █`). Fixed: the screen reader drops a trailing ` █`; fixture
+    `cycle-new-menu-scrolled.ansi`.
+  - Run 2, with the fix: `requested`, `ready`, `clear_intent`, `clear_received`,
+    `reset_verified`, `pickup_intent`, `waiting_pickup`, one `waiting_prompt` for the
+    successor's dialogs (`native_dialog`, answered in the pane), then `complete` with the
+    successor's report (`paused`: the scratch repository had no assigned work): 9 events, 148 s
+    from creation to finish. The successor took the participant address and its predecessor was
+    retired. The Enable moved to the successor, which was admitted to a new cycle at once at 1%;
+    Disable cancelled it.
+  - Run 3, with the review fixes (the host's executable was `grok-native`, its first argument
+    `/usr/local/bin/grok`), with work assigned in the scratch repository: write 1 to 3 to
+    `count.txt`, one number per turn. The first turn wrote 1 and the cycle was admitted. Cycle 1:
+    the same nine stages as run 2, then `complete` `resumed` (174 s); the successor's report named
+    the handoff, the progress note and the next step, and the successor wrote 2. The Enable moved
+    to it and a second cycle was admitted at once at 1%: it also ended `complete` `resumed`
+    (147 s), and its successor wrote 3; Disable then stopped further cycles. The participant list
+    before the run had the holder `grok-w2-2a`; afterwards `grok-w2-f8`, with the last event
+    `cycle_reset` from `grok-w2-f9` in the same host and pane, and `peers` showed `grok-w2-2a` and
+    `grok-w2-f9` retired. The peer and participant outputs, the cycle records, the handoffs and
+    `count.txt` are kept with the run's evidence outside Git.
+
+Not yet verified: macOS; an MCP approval dialog inside a cycle.

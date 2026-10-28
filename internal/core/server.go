@@ -153,6 +153,10 @@ func Start(c Config) (*Daemon, error) {
 	go d.maintainCycles()
 	d.wg.Add(1)
 	go d.maintainWorkNotices()
+	d.wg.Add(1)
+	go d.maintainOpenCodeContext()
+	d.wg.Add(1)
+	go d.maintainDeepSeekContext()
 	for _, listener := range d.listeners {
 		server := &http.Server{Handler: d.handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
 		d.servers = append(d.servers, server)
@@ -192,6 +196,7 @@ func (d *Daemon) Close() error {
 		}
 		d.wg.Wait()
 		if d.store != nil {
+			d.store.cycleWork.stop()
 			d.store.closeWake()
 			d.closeErr = errors.Join(d.closeErr, d.store.db.Close())
 		}
@@ -448,6 +453,7 @@ func (d *Daemon) handler() http.Handler {
 	d.workRoutes(mux)
 	d.observationRoutes(mux)
 	d.cycleRoutes(mux)
+	d.agyWitnessRoutes(mux)
 	d.contextRoutes(mux)
 	d.participantRoutes(mux)
 	d.cleanupRoutes(mux)

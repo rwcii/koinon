@@ -16,16 +16,16 @@ const (
 	// page; further pages follow by keyset links, so the board never fails at a number of items.
 	decisionBoardCards   = 25
 	decisionBoardArchive = 20
+	// decisionBoardMatches is the number of references that one page of a search lists.
+	decisionBoardMatches = 20
 	// decisionBoardAgents bounds the agent table; the Sessions view lists every session.
 	decisionBoardAgents = 200
 	// decisionAgentRefs is how many waiting references an agent row names before "+N more".
 	decisionAgentRefs = 8
-	// actionForYou is the title marker of an fyi item that asks the maintainer for manual work.
-	actionForYou = "ACTION FOR YOU"
 )
 
-// decisionPriority sorts ACTION FOR YOU fyi items before the other cards.
-const decisionPriority = `CASE WHEN kind='fyi' AND substr(title,1,14)='` + actionForYou + `' THEN 0 ELSE 1 END`
+// decisionPriority sorts tasks, the maintainer's own work, before the other cards (#537).
+const decisionPriority = `CASE WHEN kind='task' THEN 0 ELSE 1 END`
 
 // decisionStatus is one status filter of the board (#411): the label of its empty card list,
 // the fixed SQL condition of its cards ("" when it lists no cards), and whether it lists the
@@ -38,15 +38,16 @@ type decisionStatus struct {
 // decisionStatuses are the board's status filters by their status parameter; "" is all. A
 // request names only a key; the SQL comes from this table.
 var decisionStatuses = map[string]decisionStatus{
-	"":            {"active or in-progress", `state IN ('active','in_progress')`, true},
-	"waiting":     {"waiting", `state='active' AND kind='decision'`, false},
+	"":            {"active, returned or in-progress", `state IN ('active','returned','in_progress')`, true},
+	"waiting":     {"waiting", `state='active' AND kind!='fyi'`, false},
+	"returned":    {"returned", `state='returned'`, false},
 	"in_progress": {"in progress", `state='in_progress'`, false},
 	"fyi":         {"open fyi", `state='active' AND kind='fyi'`, false},
 	"archived":    {"archived", "", true},
 }
 
 type decisionCounts struct {
-	Waiting, InProgress, OpenFYI, Archived int64
+	Waiting, Returned, InProgress, OpenFYI, Archived int64
 }
 
 // decisionAgent is one row of the board's agent table, from daemon data only: the public
@@ -76,13 +77,20 @@ type decisionsData struct {
 	Cards                  []DecisionItem
 	NextCards              string
 	// CardsAt is the cursor of the page shown, which a verdict form returns to.
-	CardsAt   string
-	Archive   DecisionPage
-	Lookup    string
-	Item      *DecisionItem
-	History   *DecisionHistoryPage
-	MovedAt   int64
-	LookupErr string
+	CardsAt string
+	Archive DecisionPage
+	Lookup  string
+	Item    *DecisionItem
+	History *DecisionHistoryPage
+	// WithdrawalPage is the looked-up item's page of all withdrawals, when asked for (#504).
+	WithdrawalPage *DecisionHistoryPage
+	MovedAt        int64
+	LookupErr      string
+	// Matches are the references that contain the looked-up text, ignoring ASCII case, when
+	// no item has it as its exact reference (#505); NextMatches is the last reference of the
+	// page when more follow.
+	Matches     []decisionMatch
+	NextMatches string
 	// LookupCard is set when the looked-up item is waiting, in progress or an open fyi: it
 	// shows as its card, and the grid skips it, so it appears once with one form (#414).
 	// GridSkipped is set when the grid page had that card.
@@ -112,6 +120,12 @@ func (d decisionsData) cardShown() bool {
 // The grid skips a looked-up card (#414), so the notice shows once.
 func (d decisionsData) NoticeOn(reference string) bool {
 	return d.CardNotice != "" && d.Card == reference
+}
+
+// decisionMatch is one reference that a search found, with its item's title, kind and state
+// label; a deep-archived reference has no title or kind.
+type decisionMatch struct {
+	Reference, Title, Kind, State string
 }
 
 // decisionCard is one card of the board: the page that shows it, its item, and whether it is
@@ -165,9 +179,8 @@ func (s *Store) dashboardDecisions(ctx context.Context, q url.Values) (decisions
 		return data, err
 	}
 	defer tx.Rollback()
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(state='active' AND kind='decision'),0),COALESCE(SUM(state='in_progress'),0),
-		COALESCE(SUM(state='active' AND kind='fyi'),0),COALESCE(SUM(state='archived'),0) FROM decision_items`).
-		Scan(&data.Counts.Waiting, &data.Counts.InProgress, &data.Counts.OpenFYI, &data.Counts.Archived); err != nil {
+	if err := tx.QueryRowContext(ctx, decisionCountQuery).
+		Scan(&data.Counts.Waiting, &data.Counts.Returned, &data.Counts.InProgress, &data.Counts.OpenFYI, &data.Counts.Archived); err != nil {
 		return data, err
 	}
 	if data.ShowCards {
@@ -184,7 +197,8 @@ func (s *Store) dashboardDecisions(ctx context.Context, q url.Values) (decisions
 			return data, err
 		}
 	}
-	if reference := q.Get("ref"); reference != "" {
+	// A search ignores the spaces of a pasted reference (#505).
+	if reference := strings.TrimSpace(q.Get("ref")); reference != "" {
 		data.Lookup = reference
 		if checkReference(reference) != nil {
 			data.LookupErr = "not a valid reference"
@@ -193,7 +207,12 @@ func (s *Store) dashboardDecisions(ctx context.Context, q url.Values) (decisions
 		item, err := decisionItem(ctx, tx, reference)
 		switch code := errorCode(err); {
 		case code == "not_found":
-			data.LookupErr = "no decision item has this reference"
+			if err := decisionMatches(ctx, tx, reference, q.Get("found"), &data); err != nil {
+				return data, err
+			}
+			if len(data.Matches) == 0 {
+				data.LookupErr = "no decision item has this reference"
+			}
 			return data, nil
 		case code == "deep_archived":
 			if data.MovedAt, _, err = deepArchived(ctx, tx, reference); err != nil {
@@ -204,7 +223,7 @@ func (s *Store) dashboardDecisions(ctx context.Context, q url.Values) (decisions
 			return data, err
 		}
 		data.Item = &item
-		if data.LookupCard = item.State == "active" || item.State == "in_progress"; data.LookupCard {
+		if data.LookupCard = item.State == "active" || item.State == "returned" || item.State == "in_progress"; data.LookupCard {
 			cards := data.Cards[:0]
 			for _, card := range data.Cards {
 				if card.Reference != reference {
@@ -222,13 +241,68 @@ func (s *Store) dashboardDecisions(ctx context.Context, q url.Values) (decisions
 			return data, err
 		}
 		data.History = &history
+		// withdrawals=ID pages every withdrawal after ID, oldest first (#504).
+		if q.Has("withdrawals") {
+			from, err := strconv.ParseInt(q.Get("withdrawals"), 10, 64)
+			if err != nil || from < 0 {
+				from = 0
+			}
+			page, err := withdrawalHistory(ctx, tx, reference, from, decisionHistoryItems)
+			if err != nil {
+				return data, err
+			}
+			data.WithdrawalPage = &page
+		}
 	}
 	return data, nil
 }
 
+// decisionMatches reads one page of the references that contain text, ignoring ASCII case,
+// after the reference after, from the items and the deep archive, in reference order (#505).
+func decisionMatches(ctx context.Context, tx *sql.Tx, text, after string, data *decisionsData) error {
+	if checkReference(after) != nil {
+		after = ""
+	}
+	pattern := likePattern(text)
+	rows, err := tx.QueryContext(ctx, `SELECT reference,title,kind,state FROM (
+		SELECT reference,title,kind,CASE WHEN state='archived' AND COALESCE((SELECT w.reopened_at=0 FROM decision_withdrawals w
+			WHERE w.item_id=decision_items.id ORDER BY w.id DESC LIMIT 1),0) THEN 'withdrawn' ELSE state END AS state
+			FROM decision_items WHERE reference LIKE ? ESCAPE '\'
+		UNION ALL SELECT reference,'','','deep_archived' FROM decision_deep_archive WHERE reference LIKE ? ESCAPE '\')
+		WHERE reference>? ORDER BY reference LIMIT `+strconv.Itoa(decisionBoardMatches+1), pattern, pattern, after)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var m decisionMatch
+		if err := rows.Scan(&m.Reference, &m.Title, &m.Kind, &m.State); err != nil {
+			return err
+		}
+		switch {
+		case m.State == "active" && m.Kind == "fyi":
+			m.State = "open"
+		case m.State == "active":
+			m.State = "waiting"
+		case m.State == "in_progress":
+			m.State = "in progress"
+		case m.State == "returned":
+			m.State = "returned to author"
+		case m.State == "deep_archived":
+			m.State = "deep archive"
+		}
+		data.Matches = append(data.Matches, m)
+	}
+	if len(data.Matches) > decisionBoardMatches {
+		data.Matches = data.Matches[:decisionBoardMatches]
+		data.NextMatches = data.Matches[len(data.Matches)-1].Reference
+	}
+	return rows.Err()
+}
+
 // decisionCards reads one page of the cards that match a status filter's fixed condition
-// (by default the active and in-progress items): ACTION FOR YOU fyi items first, then item
-// order and reference.
+// (by default the active, returned and in-progress items): tasks first, then item order and
+// reference.
 func (s *Store) decisionCards(ctx context.Context, tx *sql.Tx, match, after string, data *decisionsData) error {
 	where, args := "", []any{}
 	if c, ok := parseCardCursor(after); ok {
@@ -322,11 +396,11 @@ func (s *Store) decisionAgents(ctx context.Context) ([]decisionAgent, bool, erro
 	return agents, more, nil
 }
 
-// waitingReferences returns the first references of the waiting decision items that name
-// one of names as a recipient, and how many more there are.
+// waitingReferences returns the first references of the waiting decision items and tasks
+// that name one of names as a recipient, and how many more there are.
 func waitingReferences(ctx context.Context, tx querier, names []any) ([]string, int64, error) {
 	in := "?" + strings.Repeat(",?", len(names)-1)
-	match := ` FROM decision_items i WHERE i.state='active' AND i.kind='decision'
+	match := ` FROM decision_items i WHERE i.state='active' AND i.kind!='fyi'
 		AND EXISTS (SELECT 1 FROM decision_recipients r WHERE r.item_id=i.id AND r.name IN (` + in + `))`
 	var total int64
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*)`+match, names...).Scan(&total); err != nil || total == 0 {
@@ -348,18 +422,39 @@ func waitingReferences(ctx context.Context, tx querier, names []any) ([]string, 
 	return refs, total - int64(len(refs)), rows.Err()
 }
 
+// decisionActionVerdicts are the dashboard's verdict actions, each with the verdict it gives;
+// Decline gives declined on a decision item and on a task.
+var decisionActionVerdicts = map[string]string{"decision-approve": "approved", "decision-decline": "declined", "decision-feedback": "feedback",
+	"decision-complete": "completed", "decision-acknowledge": "acknowledged"}
+
+// decisionAccepted reports whether a notice code is the answer of an accepted verdict action.
+func decisionAccepted(code string) bool {
+	for _, verdict := range decisionActionVerdicts {
+		if code == "decision_"+verdict {
+			return true
+		}
+	}
+	return false
+}
+
+// decisionCountQuery counts the board's statuses: waiting decision items and tasks, returned,
+// in-progress, open fyi and archived items.
+const decisionCountQuery = `SELECT COALESCE(SUM(state='active' AND kind!='fyi'),0),COALESCE(SUM(state='returned'),0),
+	COALESCE(SUM(state='in_progress'),0),COALESCE(SUM(state='active' AND kind='fyi'),0),COALESCE(SUM(state='archived'),0) FROM decision_items`
+
 // decisionFormLimit fits a 4 KiB note, percent-encoded, with the other fields.
 const decisionFormLimit = 3*decisionNoteLimit + 4096
 
-// decisionActions adds the maintainer's verdicts (#206, chunk 02): Approve and Decline on a
-// decision item and Dismiss on an fyi item, on the revision the page showed, behind the
-// login, Host, Origin and CSRF checks; a maintainer token gives the same verdicts (PDR 009). The answer returns
-// to the board page that showed the card, with its status filter and lookup from the back
-// field, and with the notice on that card.
+// decisionActions adds the maintainer's verdicts (#206, chunk 02; #537): Approve, Decline and
+// Provide feedback on a decision item, Completed, Declined and Provide feedback on a task, and
+// Acknowledge on an fyi item, on the revision the page showed, behind the login, Host, Origin
+// and CSRF checks; a maintainer token gives the same verdicts (PDR 009). The answer returns to
+// the board page that showed the card, with its status filter and lookup from the back field,
+// and with the notice on that card.
 func (d *Daemon) decisionActions(mux *http.ServeMux, authed func(int64, func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc,
 	run func(w http.ResponseWriter, r *http.Request, action, target, view string, query url.Values, valid bool,
 		apply func(ctx context.Context) error, accepted string, refusal func(error) string)) {
-	for action, verdict := range map[string]string{"decision-approve": "approved", "decision-decline": "declined", "decision-dismiss": "dismissed"} {
+	for action, verdict := range decisionActionVerdicts {
 		action, verdict := action, verdict
 		mux.HandleFunc("POST /dashboard/actions/"+action, authed(decisionFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
 			reference, note := r.PostForm.Get("reference"), r.PostForm.Get("note")

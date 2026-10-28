@@ -20,6 +20,45 @@ import (
 // Dashboard action tests (sprint chunk 09): a real daemon on ephemeral loopback ports,
 // temporary state, synthetic sessions and a patched launcher.
 
+// undoSchemaThirtySix rebuilds the decision item and verdict tables as schema 35 left them
+// (#537): the schema 25 and 26 tables with their added columns. A task becomes an fyi item
+// and a returned item an active one; no fixture holds the new verdicts.
+const undoSchemaThirtySix = `ALTER TABLE decision_items RENAME TO decision_items_v36;
+	DROP INDEX decision_items_waiting; DROP INDEX decision_items_state; DROP INDEX decision_items_archive;
+	` + decisionItemsTableV25 + `;
+	ALTER TABLE decision_items ADD COLUMN closed_by TEXT NOT NULL DEFAULT '';
+	ALTER TABLE decision_items ADD COLUMN closed_at INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE decision_items ADD COLUMN outcome_note TEXT NOT NULL DEFAULT '';
+	ALTER TABLE decision_items ADD COLUMN mark_revision INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE decision_items ADD COLUMN mark_file TEXT NOT NULL DEFAULT '';
+	ALTER TABLE decision_items ADD COLUMN mark_offset INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE decision_items ADD COLUMN verdict_count INTEGER NOT NULL DEFAULT 0;
+	ALTER TABLE decision_items ADD COLUMN author_participant TEXT NOT NULL DEFAULT '';
+	UPDATE decision_items_v36 SET kind=CASE kind WHEN 'task' THEN 'fyi' ELSE kind END, state=CASE state WHEN 'returned' THEN 'active' ELSE state END;
+	INSERT INTO decision_items(` + decisionItemColumns + `) SELECT ` + decisionItemColumns + ` FROM decision_items_v36;
+	DROP TABLE decision_items_v36;
+	CREATE INDEX decision_items_waiting ON decision_items(state, kind, id);
+	CREATE INDEX decision_items_state ON decision_items(state, id);
+	CREATE INDEX decision_items_archive ON decision_items(state, archived_at, id);
+	ALTER TABLE decision_verdicts RENAME TO decision_verdicts_v36;
+	DROP INDEX decision_verdicts_item;
+	` + decisionVerdictsTableV26 + `;
+	ALTER TABLE decision_verdicts ADD COLUMN via TEXT NOT NULL DEFAULT '';
+	INSERT INTO decision_verdicts(id,item_id,revision,verdict,note,created_at,snapshot,superseded_at,via)
+		SELECT id,item_id,revision,verdict,note,created_at,snapshot,superseded_at,via FROM decision_verdicts_v36;
+	DROP TABLE decision_verdicts_v36;
+	CREATE INDEX decision_verdicts_item ON decision_verdicts(item_id, id); `
+
+// undoSchemaThirtyFour rebuilds the cycle table without the compaction states (#509), as
+// schema 30 left it: the schema 24 table with its added ready_refusal column.
+const undoSchemaThirtyFour = `ALTER TABLE context_cycles RENAME TO context_cycles_v34; ` + contextCyclesTableV24 + `
+	ALTER TABLE context_cycles ADD COLUMN ready_refusal TEXT NOT NULL DEFAULT '';
+	INSERT INTO context_cycles(` + cycleColumns + `,ready_refusal) SELECT ` + cycleColumns + `,ready_refusal FROM context_cycles_v34;
+	DROP TABLE context_cycles_v34; `
+
+// undoSchemaThirtyThree removes the agent withdrawals of decision items (#504).
+const undoSchemaThirtyThree = `DROP TABLE decision_withdrawals; ALTER TABLE decision_items DROP COLUMN author_participant; `
+
 // undoSchemaThirtyTwo removes the change versions of the maintainer mode (PDR 009, Decision 3).
 const undoSchemaThirtyTwo = `DROP TABLE change_versions; `
 
@@ -577,7 +616,7 @@ func TestSchemaSixMigrationAndRollback(t *testing.T) {
 	}
 	// A schema 6 database that already holds the name maintainer cannot migrate: the
 	// whole step rolls back and the database stays at 6.
-	if _, err := fixtureExec(s, undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+undoSchemaTwentyOne+undoSchemaTwenty+undoSchemaNineteen+undoSchemaEighteen+undoSchemaSeventeen+undoSchemaSixteen+undoSchemaFifteen+undoSchemaFourteen+undoSchemaThirteen+undoSchemaTwelve+undoSchemaEleven+undoSchemaTen+undoSchemaNine+undoSchemaEight+undoSchemaSeven+`INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','codex','x'); PRAGMA user_version=6`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+undoSchemaTwentyOne+undoSchemaTwenty+undoSchemaNineteen+undoSchemaEighteen+undoSchemaSeventeen+undoSchemaSixteen+undoSchemaFifteen+undoSchemaFourteen+undoSchemaThirteen+undoSchemaTwelve+undoSchemaEleven+undoSchemaTen+undoSchemaNine+undoSchemaEight+undoSchemaSeven+`INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','codex','x'); PRAGMA user_version=6`); err != nil {
 		t.Fatal(err)
 	}
 	s.db.Close()

@@ -34,7 +34,10 @@ type decisionRecord struct {
 	Recipients []map[string]any `json:"recipients"`
 	Verdicts   []map[string]any `json:"verdicts"`
 	Deliveries []map[string]any `json:"deliveries"`
-	MovedAt    int64            `json:"moved_at"`
+	// Withdrawals are the item's agent withdrawals (schema 33, #504); a line written before
+	// has none.
+	Withdrawals []map[string]any `json:"withdrawals,omitempty"`
+	MovedAt     int64            `json:"moved_at"`
 }
 
 const decisionRecordMarker = "koinon.decision.v1"
@@ -94,8 +97,11 @@ func readDecisionRecord(ctx context.Context, q querier, id int64) (*decisionReco
 	if r.Verdicts, err = rowsAsMaps(ctx, q, `SELECT * FROM decision_verdicts WHERE item_id=? ORDER BY id`, id); err != nil {
 		return nil, err
 	}
-	r.Deliveries, err = rowsAsMaps(ctx, q, `SELECT d.* FROM decision_deliveries d JOIN decision_verdicts v ON v.id=d.verdict_id
-		WHERE v.item_id=? ORDER BY d.verdict_id,d.ordinal`, id)
+	if r.Deliveries, err = rowsAsMaps(ctx, q, `SELECT d.* FROM decision_deliveries d JOIN decision_verdicts v ON v.id=d.verdict_id
+		WHERE v.item_id=? ORDER BY d.verdict_id,d.ordinal`, id); err != nil {
+		return nil, err
+	}
+	r.Withdrawals, err = rowsAsMaps(ctx, q, `SELECT * FROM decision_withdrawals WHERE item_id=? ORDER BY id`, id)
 	return r, err
 }
 
@@ -342,6 +348,7 @@ func (s *Store) deleteMoved(ctx context.Context, id int64, reference string, rev
 		`DELETE FROM decision_deliveries WHERE verdict_id IN (SELECT id FROM decision_verdicts WHERE item_id=?)`,
 		`DELETE FROM decision_verdicts WHERE item_id=?`,
 		`DELETE FROM decision_recipients WHERE item_id=?`,
+		`DELETE FROM decision_withdrawals WHERE item_id=?`,
 		`DELETE FROM decision_items WHERE id=?`,
 	} {
 		if _, err := tx.ExecContext(ctx, query, id); err != nil {
@@ -429,13 +436,17 @@ func deepArchived(ctx context.Context, q querier, reference string) (int64, bool
 }
 
 // DecisionRestore brings a deep-archived item back as archived, with a new 30-day period.
-// It reads the one line at the locator, and the line stays in the log.
-func (s *Store) DecisionRestore(ctx context.Context, caller Key, reference string) (DecisionItem, error) {
-	if !validKey(caller.Family, caller.ID) {
+// It reads the one line at the locator, and the line stays in the log. An archived item that
+// an agent withdrew is reopened instead (#504), at ifRevision; ifRevision is 0 otherwise.
+func (s *Store) DecisionRestore(ctx context.Context, caller Key, reference string, ifRevision int64) (DecisionItem, error) {
+	if !validKey(caller.Family, caller.ID) || ifRevision < 0 {
 		return DecisionItem{}, ErrInvalid
 	}
 	if err := checkReference(reference); err != nil {
 		return DecisionItem{}, err
+	}
+	if item, reopened, err := s.reopenWithdrawn(ctx, caller, reference, ifRevision); err != nil || reopened {
+		return item, err
 	}
 	var name string
 	var offset, length int64
@@ -477,7 +488,7 @@ func (s *Store) DecisionRestore(ctx context.Context, caller Key, reference strin
 	record.Item["mark_revision"], record.Item["mark_file"], record.Item["mark_offset"] = 0, "", 0
 	record.Item["verdict_count"] = int64(len(record.Verdicts))
 	for table, rows := range map[string][]map[string]any{"decision_items": {record.Item}, "decision_recipients": record.Recipients,
-		"decision_verdicts": record.Verdicts, "decision_deliveries": record.Deliveries} {
+		"decision_verdicts": record.Verdicts, "decision_deliveries": record.Deliveries, "decision_withdrawals": record.Withdrawals} {
 		for _, row := range rows {
 			if err := insertRow(ctx, tx, table, row); err != nil {
 				return DecisionItem{}, err
@@ -491,6 +502,62 @@ func (s *Store) DecisionRestore(ctx context.Context, caller Key, reference strin
 		return DecisionItem{}, err
 	}
 	return s.decisionRead(ctx, reference)
+}
+
+// reopenWithdrawn reopens an archived item whose latest withdrawal is not reopened: it is
+// active again at the next revision, and the withdrawal records the reopen. reopened is
+// false for any other item, which the deep-archive restore then handles.
+func (s *Store) reopenWithdrawn(ctx context.Context, caller Key, reference string, ifRevision int64) (DecisionItem, bool, error) {
+	tx, err := s.begin(ctx, ordinary)
+	if err != nil {
+		return DecisionItem{}, false, err
+	}
+	defer tx.Rollback()
+	now := s.now().UnixMilli()
+	if err := active(ctx, tx.Tx, now, caller); err != nil {
+		return DecisionItem{}, false, err
+	}
+	var id, withdrawal int64
+	var state string
+	err = tx.QueryRowContext(ctx, `SELECT i.id,i.state,COALESCE((SELECT w.id FROM decision_withdrawals w WHERE w.item_id=i.id
+		AND w.reopened_at=0 AND w.id=(SELECT MAX(id) FROM decision_withdrawals WHERE item_id=i.id)),0)
+		FROM decision_items i WHERE i.reference=?`, reference).Scan(&id, &state, &withdrawal)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && (state != "archived" || withdrawal == 0)) {
+		return DecisionItem{}, false, nil
+	}
+	if err != nil {
+		return DecisionItem{}, false, err
+	}
+	_, item, err := decisionRow(ctx, tx.Tx, reference)
+	if err != nil {
+		return DecisionItem{}, false, err
+	}
+	if ifRevision == 0 {
+		return DecisionItem{}, false, decisionInvalid("if_revision", "is required to reopen a withdrawn item")
+	}
+	if item.Revision != ifRevision {
+		return DecisionItem{}, false, WorkRefusal{Code: "stale_revision", Message: "the decision item changed; read it again",
+			Details: map[string]any{"current_revision": item.Revision}}
+	}
+	peer, err := itemParty(ctx, tx.Tx, now, caller, id, item)
+	if err != nil {
+		return DecisionItem{}, false, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE decision_items SET state='active',archived_at=0,mark_revision=0,mark_file='',mark_offset=0,
+		revision=revision+1,updated_at=? WHERE id=?`, now, id); err != nil {
+		return DecisionItem{}, false, tx.fail(err)
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE decision_withdrawals SET reopened_at=?,reopened_by=? WHERE id=?`, now, peer, withdrawal); err != nil {
+		return DecisionItem{}, false, tx.fail(err)
+	}
+	if err := bumpChange(ctx, tx, changeDecisions); err != nil {
+		return DecisionItem{}, false, tx.fail(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return DecisionItem{}, false, err
+	}
+	item, err = s.decisionRead(ctx, reference)
+	return item, true, err
 }
 
 // insertRow inserts a restored row into one of the decision tables. Column names come from

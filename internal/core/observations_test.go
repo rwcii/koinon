@@ -80,15 +80,64 @@ func TestObservationValidationAndAttribution(t *testing.T) {
 	if views["terminal"].Value == nil || views["terminal"].Value.Pane != "%3" || views["model"].Reason != "not_observed" {
 		t.Fatalf("claude views: %+v", views)
 	}
-	// Families without a source say so.
+	// Families without a source say so. A launched OpenCode session has one (#513); a direct
+	// start has none (TestLaunchedTerminalsAndOpenCodeStatus).
 	opencode := join(t, s, "opencode", "synthetic-open", "")
-	if views := s.sessionObservations(ctx, opencode); views["model"].Reason != "no_source" || views["context"].Reason != "no_source" ||
+	if views := s.sessionObservations(ctx, opencode); views["model"].Reason != "not_observed" || views["context"].Reason != "not_observed" ||
 		views["activity"].Reason != "not_observed" || views["terminal"].Reason != "not_observed" {
 		t.Fatalf("opencode views: %+v", views)
 	}
 	agy := join(t, s, "agy", "synthetic-agy", "")
-	if views := s.sessionObservations(ctx, agy); views["context"].Reason != "no_source" || views["model"].Reason != "not_observed" {
+	if views := s.sessionObservations(ctx, agy); views["context"].Reason != "not_observed" || views["model"].Reason != "not_observed" {
 		t.Fatalf("agy views: %+v", views)
+	}
+	// agy's status line reports model and context, with the conversation as its epoch (#512).
+	if err := s.Observe(ctx, Observation{Caller: Key{"agy", "synthetic-agy"},
+		Model:   &ObservedValue{Source: "agy_statusline", At: now, ID: "gemini-synthetic"},
+		Context: &ObservedValue{Source: "agy_statusline", At: now, LimitTokens: int64p(1048576), UsedTokens: int64p(0), UsageAvailable: boolp(true), Epoch: "synthetic-agy"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if views := s.sessionObservations(ctx, agy); views["context"].Value == nil || views["context"].Value.Source != "agy_statusline" ||
+		*views["context"].Value.LimitTokens != 1048576 || *views["context"].Value.UsedTokens != 0 || views["model"].Value.ID != "gemini-synthetic" {
+		t.Fatalf("agy status line views: %+v", views)
+	}
+	if e := s.contextEvidence(Key{"agy", "synthetic-agy"}); e.Epoch != "synthetic-agy" {
+		t.Fatalf("agy epoch: %+v", e)
+	}
+	// The new conversation after /clear is not registered before its first tool call: its
+	// reading is refused, not given to the old conversation.
+	if err := s.Observe(ctx, Observation{Caller: Key{"agy", "synthetic-agy-cleared"}, Context: &ObservedValue{Source: "agy_statusline", At: now,
+		LimitTokens: int64p(1048576), UsedTokens: int64p(0), Epoch: "synthetic-agy-cleared"}}); err == nil {
+		t.Fatal("unregistered conversation's reading accepted")
+	}
+	if e := s.contextEvidence(Key{"agy", "synthetic-agy"}); e.Epoch != "synthetic-agy" {
+		t.Fatalf("agy epoch after a refused reading: %+v", e)
+	}
+	// Grok's status line reports model and context, with the session as its epoch; a later
+	// sample without context leaves the reading as it was (#515).
+	grok := join(t, s, "grok", "synthetic-grok", "")
+	if views := s.sessionObservations(ctx, grok); views["context"].Reason != "not_observed" || views["activity"].Reason != "no_source" {
+		t.Fatalf("grok views: %+v", views)
+	}
+	if err := s.Observe(ctx, Observation{Caller: Key{"grok", "synthetic-grok"},
+		Model:   &ObservedValue{Source: "grok_statusline", At: now, ID: "grok-synthetic"},
+		Context: &ObservedValue{Source: "grok_statusline", At: now, LimitTokens: int64p(2000000), UsedTokens: int64p(13), UsageAvailable: boolp(true), Epoch: "synthetic-grok"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Observe(ctx, Observation{Caller: Key{"grok", "synthetic-grok"}, Model: &ObservedValue{Source: "grok_statusline", At: now + 1, ID: "grok-synthetic"}}); err != nil {
+		t.Fatal(err)
+	}
+	if views := s.sessionObservations(ctx, grok); views["context"].Value == nil || views["context"].Value.Source != "grok_statusline" ||
+		*views["context"].Value.UsedTokens != 13 || views["context"].Value.At != now || views["model"].Value.ID != "grok-synthetic" {
+		t.Fatalf("grok status line views: %+v", views)
+	}
+	if e := s.contextEvidence(Key{"grok", "synthetic-grok"}); e.Epoch != "synthetic-grok" {
+		t.Fatalf("grok epoch: %+v", e)
+	}
+	if err := s.Observe(ctx, Observation{Caller: Key{"grok", "synthetic-grok"}, Activity: &ObservedValue{Source: "grok_statusline", At: now, State: "idle"}}); err == nil {
+		t.Fatal("grok_statusline activity accepted")
 	}
 	// An inactive session shows nothing and takes no report; forgetting drops its values.
 	retired, err := s.Mutate(ctx, Mutation{Family: "codex", ID: "synthetic-codex", IfRevision: codex.Revision}, true)
@@ -187,7 +236,10 @@ func TestLaunchedTerminalsAndOpenCodeStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unlaunched OpenCode session: %v", err)
 	}
-	s.sessionObservations(ctx, plain)
+	views := s.sessionObservations(ctx, plain)
+	if views["context"].Reason != "no_source" || views["model"].Reason != "no_source" {
+		t.Fatalf("plain peer context: %+v", views)
+	}
 	if calls != before {
 		t.Fatal("plain peer queried a provider endpoint")
 	}

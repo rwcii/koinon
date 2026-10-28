@@ -1,14 +1,18 @@
 {{define "list"}}<div class="board">
-<form method="get" action="/dashboard/decisions" class="inline lookup"><label>Reference <input name="ref" maxlength="32" value="{{.Data.Lookup}}"></label>{{with .Data.Status}}<input type="hidden" name="status" value="{{.}}">{{end}} <button type="submit">Find</button></form>
+<form method="get" action="/dashboard/decisions" class="inline lookup" role="search"><label>Reference <input type="search" name="ref" maxlength="32" value="{{.Data.Lookup}}" placeholder="all or part of a reference"></label>{{with .Data.Status}}<input type="hidden" name="status" value="{{.}}">{{end}} <button type="submit">Find</button>{{if .Data.Lookup}} <a href="/dashboard/decisions{{with .Data.Status}}?status={{.}}{{end}}">Clear</a>{{end}}</form>
 {{$s := .Data.Status}}{{with .Data.Counts}}<ul class="tally" aria-label="Show the items of one status">
-<li><a href="/dashboard/decisions"{{if eq $s ""}} aria-current="true"{{end}}>all</a></li><li><a href="/dashboard/decisions?status=waiting"{{if eq $s "waiting"}} aria-current="true"{{end}}><b>{{.Waiting}}</b> waiting</a></li><li><a href="/dashboard/decisions?status=in_progress"{{if eq $s "in_progress"}} aria-current="true"{{end}}><b>{{.InProgress}}</b> in progress</a></li><li><a href="/dashboard/decisions?status=fyi"{{if eq $s "fyi"}} aria-current="true"{{end}}><b>{{.OpenFYI}}</b> open fyi</a></li><li><a href="/dashboard/decisions?status=archived"{{if eq $s "archived"}} aria-current="true"{{end}}><b>{{.Archived}}</b> archived</a></li>
+<li><a href="/dashboard/decisions"{{if eq $s ""}} aria-current="true"{{end}}>all</a></li><li><a href="/dashboard/decisions?status=waiting"{{if eq $s "waiting"}} aria-current="true"{{end}}><b>{{.Waiting}}</b> waiting</a></li><li><a href="/dashboard/decisions?status=returned"{{if eq $s "returned"}} aria-current="true"{{end}}><b>{{.Returned}}</b> returned</a></li><li><a href="/dashboard/decisions?status=in_progress"{{if eq $s "in_progress"}} aria-current="true"{{end}}><b>{{.InProgress}}</b> in progress</a></li><li><a href="/dashboard/decisions?status=fyi"{{if eq $s "fyi"}} aria-current="true"{{end}}><b>{{.OpenFYI}}</b> open fyi</a></li><li><a href="/dashboard/decisions?status=archived"{{if eq $s "archived"}} aria-current="true"{{end}}><b>{{.Archived}}</b> archived</a></li>
 </ul>{{end}}
 {{if .Data.Lookup}}<section class="lookup-result">{{with .Data.LookupErr}}<p class="empty">{{.}}</p>{{end}}
+{{with .Data.Matches}}<h2>References that contain {{$.Data.Lookup}}</h2><div class="scroll"><table>
+<thead><tr><th>Reference</th><th>Title</th><th>Kind</th><th>State</th></tr></thead>
+<tbody>{{range .}}<tr><td><a href="/dashboard/decisions?ref={{.Reference}}{{with $.Data.Status}}&amp;status={{.}}{{end}}">{{.Reference}}</a></td><td>{{with .Title}}{{.}}{{else}}—{{end}}</td><td>{{with .Kind}}{{.}}{{else}}—{{end}}</td><td>{{.State}}</td></tr>{{end}}</tbody></table></div>
+{{with $.Data.NextMatches}}<p><a href="/dashboard/decisions?ref={{$.Data.Lookup}}&amp;found={{.}}{{with $.Data.Status}}&amp;status={{.}}{{end}}">More matches</a></p>{{end}}{{end}}
 {{with .Data.MovedAt}}<p>{{$.Data.Lookup}} moved to the deep archive at {{ms .}}. An agent restores it with <code>decision_restore</code> or <code>koinon decision restore</code>.</p>{{end}}
 {{with .Data.Item}}{{if $.Data.LookupCard}}{{template "card" (decisionCard $ . true)}}
 {{else}}<h2>{{.Reference}}: {{.Title}}</h2>
 {{if $.Data.NoticeOn .Reference}}{{template "card-notice" $.Data}}{{end}}
-<p><small>{{.Kind}}, {{.State}}, revision {{.Revision}}, order {{.Order}}, by {{.AuthorName}} ({{.AuthorFamily}}), updated {{ms .UpdatedAt}}{{with .ArchivedAt}}, archived {{ms .}}{{end}}, {{.Verdicts}} verdict(s) in history. Read only.</small></p>
+<p><small>{{.Kind}}, {{.State}}, revision {{.Revision}}, order {{.Order}}, by {{.AuthorName}} ({{.AuthorFamily}}), updated {{ms .UpdatedAt}}{{with .ArchivedAt}}, archived {{ms .}}{{end}}{{if .Withdrawn}}, withdrawn by an agent{{end}}, {{.Verdicts}} verdict(s) in history. Read only.</small></p>
 {{template "body" .}}
 {{with .ClosedBy}}<p><small>Closed by {{.}}{{with $.Data.Item.ClosedAt}} at {{ms .}}{{end}}</small></p>{{end}}{{with .OutcomeNote}}<h4>Outcome</h4><div class="md">{{markdown .}}</div>{{end}}{{end}}
 {{with $.Data.History}}<h3>Verdict history</h3>{{if not .Verdicts}}<p class="empty">No verdicts.</p>{{end}}
@@ -18,7 +22,10 @@
 {{with .Context}}<h4>Context</h4><div class="md">{{markdown .}}</div>{{end}}
 {{with .Recommendation}}<h4>Recommendation</h4><div class="md">{{markdown .}}</div>{{end}}
 {{range .Commands}}<div class="command"><pre><code>{{.}}</code></pre></div>{{end}}{{end}}</details></article>{{end}}
-{{with .NextAfter}}<p><a href="/dashboard/decisions?ref={{$.Data.Lookup}}&amp;history={{.}}{{with $.Data.Status}}&amp;status={{.}}{{end}}">Older verdicts</a></p>{{end}}{{end}}{{end}}</section>{{end}}
+{{with .NextAfter}}<p><a href="/dashboard/decisions?ref={{$.Data.Lookup}}&amp;history={{.}}{{with $.Data.Status}}&amp;status={{.}}{{end}}">Older verdicts</a></p>{{end}}{{end}}
+{{if gt .WithdrawalCount (len .Withdrawals)}}{{if not $.Data.WithdrawalPage}}<p><a href="/dashboard/decisions?ref={{$.Data.Lookup}}&amp;withdrawals=0{{with $.Data.Status}}&amp;status={{.}}{{end}}">All {{.WithdrawalCount}} withdrawals</a></p>{{end}}{{end}}
+{{with $.Data.WithdrawalPage}}<h3>All withdrawals, oldest first</h3><ul class="withdrawals">{{range .Withdrawals}}{{template "withdrawal" .}}{{end}}</ul>
+{{with .NextAfter}}<p><a href="/dashboard/decisions?ref={{$.Data.Lookup}}&amp;withdrawals={{.}}{{with $.Data.Status}}&amp;status={{.}}{{end}}">More withdrawals</a></p>{{end}}{{end}}{{end}}</section>{{end}}
 <h2>Agents</h2>
 {{if not .Data.Agents}}<p class="empty">No active agent sessions.</p>{{else}}<div class="scroll"><table class="agents">
 <thead><tr><th>Agent</th><th>Activity</th><th>Claimed work</th><th>Context</th><th>Waiting for a verdict</th></tr></thead>
@@ -35,21 +42,26 @@
 {{if .Data.ShowArchive}}<h2>Archive</h2>
 {{if not .Data.Archive.Items}}<p class="empty">No archived items.</p>{{else}}<div class="scroll"><table>
 <thead><tr><th>Reference</th><th>Title</th><th>Kind</th><th>Verdict</th><th>Revision</th></tr></thead>
-<tbody>{{range .Data.Archive.Items}}<tr><td><a href="/dashboard/decisions?ref={{.Reference}}{{with $.Data.Status}}&amp;status={{.}}{{end}}">{{.Reference}}</a></td><td>{{.Title}}</td><td>{{.Kind}}</td><td>{{with .Verdict}}{{.}}{{else}}—{{end}}</td><td>{{.Revision}}</td></tr>{{end}}</tbody></table></div>{{end}}
+<tbody>{{range .Data.Archive.Items}}<tr><td><a href="/dashboard/decisions?ref={{.Reference}}{{with $.Data.Status}}&amp;status={{.}}{{end}}">{{.Reference}}</a></td><td>{{.Title}}</td><td>{{.Kind}}</td><td>{{with .Verdict}}{{.}}{{else}}{{if .Withdrawn}}withdrawn{{else}}—{{end}}{{end}}</td><td>{{.Revision}}</td></tr>{{end}}</tbody></table></div>{{end}}
 {{with .Data.Archive.NextAfter}}<p><a href="/dashboard/decisions?archived={{.}}{{with $.Data.Status}}&amp;status={{.}}{{end}}">More archived items</a></p>{{end}}{{end}}
 <p><small>Agents write these items. Agents read verdicts through Koinon, not from this page.</small></p>
 </div>{{end}}
 {{define "card"}}{{$p := .Page}}{{with .Item}}<article class="card kind-{{.Kind}}{{if $.Lookup}} lookup-card{{end}}" id="{{if $.Lookup}}lookup{{else}}card{{end}}-{{.Reference}}">
-<p class="card-head"><span class="tag">{{.Kind}}</span> <span class="tag state-{{.State}}">{{if eq .State "in_progress"}}in progress{{else if eq .Kind "fyi"}}open{{else}}waiting{{end}}</span> <a href="/dashboard/decisions?ref={{.Reference}}{{with $p.Data.Status}}&amp;status={{.}}{{end}}">{{.Reference}}</a></p>
+<p class="card-head"><span class="tag">{{.Kind}}</span> <span class="tag state-{{.State}}">{{if eq .State "in_progress"}}in progress{{else if eq .State "returned"}}returned{{else if eq .Kind "fyi"}}open{{else}}waiting{{end}}</span> <a href="/dashboard/decisions?ref={{.Reference}}{{with $p.Data.Status}}&amp;status={{.}}{{end}}">{{.Reference}}</a></p>
 <h3>{{.Title}}</h3>
 {{if $p.Data.NoticeOn .Reference}}{{template "card-notice" $p.Data}}{{end}}
 {{template "body" .}}
 {{if eq .State "in_progress"}}{{with .Verdict}}<p><small>Approved on revision {{.Revision}}, {{ms .At}}.</small></p>{{with .Note}}<h4>Your note</h4><div class="md">{{markdown .}}</div>{{end}}
 {{if .Deliveries}}<ul class="deliveries">{{range .Deliveries}}<li>{{.Name}} <small>{{.Outcome}}{{with .Reason}} ({{.}}){{end}}</small></li>{{end}}</ul>{{end}}{{end}}<p><small>An agent closes the item when the work is done.</small></p>{{end}}
+{{if eq .State "returned"}}{{with .Verdict}}<p><small>Returned to the author with your feedback on revision {{.Revision}}, {{ms .At}}.</small></p>{{with .Note}}<h4>Your feedback</h4><div class="md">{{markdown .}}</div>{{end}}
+{{if .Deliveries}}<ul class="deliveries">{{range .Deliveries}}<li>{{.Name}} <small>{{.Outcome}}{{with .Reason}} ({{.}}){{end}}</small></li>{{end}}</ul>{{end}}{{end}}<p><small>The author changes the item into a new revision, which waits for you again, or withdraws it.</small></p>{{end}}
 {{if eq .State "active"}}<form method="post" class="verdict"><input type="hidden" name="csrf" value="{{$p.CSRF}}"><input type="hidden" name="reference" value="{{.Reference}}"><input type="hidden" name="revision" value="{{.Revision}}"><input type="hidden" name="cards" value="{{$p.Data.CardsAt}}">{{template "back" $p}}
-<label>Note (optional) <textarea name="note" rows="2" maxlength="4096"></textarea></label>
-<p class="buttons">{{if eq .Kind "fyi"}}<button type="submit" formaction="/dashboard/actions/decision-dismiss">Dismiss</button>{{else}}<button type="submit" formaction="/dashboard/actions/decision-approve"{{if .HiddenCommands}} disabled{{end}}>Approve</button> <button type="submit" formaction="/dashboard/actions/decision-decline">Decline</button>{{end}}</p></form>
-<p><small>{{if eq .Kind "fyi"}}Dismiss archives this item. It is not an approval.{{else}}Your verdict applies to revision {{.Revision}} as shown here. It is your instruction and approval to the named agents (PDR 005, Decision 3).{{end}}</small></p>{{end}}
+{{if eq .Kind "fyi"}}<label>Note (optional) <textarea name="note" rows="2" maxlength="4096"></textarea></label>
+<p class="buttons"><button type="submit" formaction="/dashboard/actions/decision-acknowledge">Acknowledge</button></p></form>
+<p><small>Acknowledge archives this item and tells the named agents that you read it. It is not an approval.</small></p>
+{{else}}<label>Note, or your feedback (required for Provide feedback) <textarea name="note" rows="2" maxlength="4096"></textarea></label>
+<p class="buttons">{{if eq .Kind "task"}}<button type="submit" formaction="/dashboard/actions/decision-complete">Completed</button> <button type="submit" formaction="/dashboard/actions/decision-decline">Declined</button>{{else}}<button type="submit" formaction="/dashboard/actions/decision-approve"{{if .HiddenCommands}} disabled{{end}}>Approve</button> <button type="submit" formaction="/dashboard/actions/decision-decline">Decline</button>{{end}} <button type="submit" formaction="/dashboard/actions/decision-feedback">Provide feedback</button></p></form>
+<p><small>Your verdict applies to revision {{.Revision}} as shown here. {{if eq .Kind "task"}}Completed says that you did the task; Declined says that you will not do it.{{else}}It is your instruction and approval to the named agents (PDR 005, Decision 3).{{end}} Provide feedback approves and declines nothing: it returns the item to its author with your guidance.</small></p>{{end}}{{end}}
 <p class="card-foot"><small>Revision {{.Revision}}, order {{.Order}}, by {{.AuthorName}}, updated {{ms .UpdatedAt}}</small></p>
 </article>{{end}}{{end}}
 {{define "card-notice"}}<p class="card-notice{{if .CardRefused}} refused{{end}}" role="status">{{.CardNotice}}</p>{{end}}
@@ -59,4 +71,6 @@
 {{with .AgentText}}<h4>Agent text</h4><div class="md">{{markdown .}}</div>{{end}}
 {{if .Commands}}<h4>Commands</h4>{{range .Commands}}<div class="command"><pre><code>{{.}}</code></pre><button type="button" class="copy">Copy</button></div>{{end}}{{end}}
 {{with .HiddenCommands}}<p class="refused">{{.}} stored command(s) fail the printable-ASCII rule and are hidden. This item cannot be approved as shown.</p>{{end}}
+{{with .Withdrawals}}<h4>Withdrawals ({{$.WithdrawalCount}}, newest first)</h4><ul class="withdrawals">{{range .}}{{template "withdrawal" .}}{{end}}</ul>{{end}}
 <h4>Recipients</h4>{{if .Recipients}}<ul class="recipients">{{range .Recipients}}<li>{{.Name}}{{if .Resolved}} <small>{{.Kind}}</small>{{else}} <span class="refused">not resolved: {{.Reason}}</span>{{end}}</li>{{end}}</ul>{{else}}<p class="refused">No recipients named.</p>{{end}}{{end}}
+{{define "withdrawal"}}<li>Withdrawn by {{.By}} ({{.Family}}) on revision {{.Revision}}, {{ms .At}}: {{.Reason}}{{if .ReopenedAt}}. Reopened by {{.ReopenedBy}}, {{ms .ReopenedAt}}.{{end}}</li>{{end}}

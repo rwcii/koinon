@@ -42,6 +42,8 @@ repositories.
 | `POST /v1/library/list` | Page embedded skill/setup catalog metadata for the active caller's family. |
 | `POST /v1/library/read` | Read one catalog item's canonical content and family-specific metadata. |
 | `POST /v1/sessions/observe` | Record allowlisted observations (model, context, activity, terminal) for an active session; see "Dashboard and session observations". |
+| `POST /v1/cycles/agy-witness` | Give one agy status-line conversation with its reporting hook process (`conversation`, `reporter` with `pid` and `start`), kept only for the agy cycle whose pinned host is the reporter's nearest native host; see "agy cycle adapter". |
+| `POST /v1/cycles/grok-witness` | Give one Grok status-line session with its reporting hook process (`conversation` is the session ID; `reporter` with `pid` and `start`), kept only for the Grok cycle whose pinned host is the reporter's nearest native host; see "Grok cycle adapter". |
 | `POST /v1/dashboard/links` | Issue a one-time dashboard login link (`path`, `expires_in`). |
 | `POST /v1/maintainer/secret` | Set, generate or clear the maintainer secret (`action`, `secret`); ends every dashboard login and maintainer token. |
 | `POST /v1/maintainer/session` | Exchange the maintainer secret for a maintainer token (`secret`, `client`); see Maintainer mode. |
@@ -207,7 +209,8 @@ runs yet. The `settings` table holds `context_mode_FAMILY` (0 `observe`, 1
 `native_compaction`, 2 `handoff_cycle`) and `context_threshold_FAMILY` (1–100 percent of the
 context limit) for each supported family. Defaults: Claude `handoff_cycle`, Codex
 `native_compaction`, every other family `observe`; threshold 75. `native_compaction` is
-Codex's only; it leaves compaction to the client, and no mode edits a native setting. A
+Codex's only: at the threshold the daemon enters Codex's own `/compact` in the session's pane
+([Native compaction](#native-compaction)). No mode edits a native setting. A
 stored pair that is not valid keeps the family's default, and the Settings page names the
 error. The action `context-family-settings` (`family`, `mode`, `threshold`) stores one family
 in one transaction with its audit record and applies after the commit; it enables no present
@@ -218,7 +221,8 @@ revision and the session revision, participant address, host and tmux pane it wa
 none of these leave the store. The action `context-enable` (`peer`, `revision` of the session
 as shown, `if_revision` of the Enable, `enabled` `on` or `off`) changes one session with its
 audit record. Enabling needs an active session whose family adapter's Probe passes for its
-pinned host and pane (the cycle adapters below); otherwise it refuses with
+pinned host and pane (the cycle adapters below; in `native_compaction`, the compaction's own
+checks); otherwise it refuses with
 `context_cycle_unavailable` and writes nothing. Disabling is always
 accepted. A changed session refuses `revision_changed`, a changed Enable
 `context_enable_changed`. Deleting a session deletes its Enable.
@@ -259,11 +263,12 @@ percentage of a positive limit (equality and use above the limit included), the 
 source is at most 120 seconds old and its last confirmation at most 90 seconds old, and the
 observation's native epoch has not been selected already. A source or confirmation time later
 than the daemon's clock is `observation_future`. Otherwise it names one reason:
-`session_inactive`, `mode_observe`, `mode_native_compaction`, `not_enabled`,
+`session_inactive`, `mode_observe`, `not_enabled`,
 `context_cycle_unavailable`, `context_unknown`, `context_counts_unavailable`,
 `context_counts_invalid`, `epoch_unverified`, `observation_future`, `source_stale`,
 `confirmation_stale`, `below_threshold` or `already_selected_for_epoch`. A new epoch or a
-fall below the threshold clears the selected epoch. Selection writes nothing; the Sessions
+fall below the threshold clears the selected epoch. `overwatch_name_conflict` applies to the
+handoff cycle only. Selection writes nothing; the Sessions
 page shows its result and the source and confirmation ages. After a restart the observations
 are unknown, so no session is eligible until fresh native reports arrive.
 
@@ -272,8 +277,8 @@ are unknown, so no session is eligible until fresh native reports arrive.
 Chunk 02 adds the durable cycle. A context observation that makes an enabled session
 eligible admits a cycle when the family has a registered cycle adapter, the session still has
 the host and tmux pane that its Enable pinned, it has no unfinished cycle (nor has its host),
-and fewer than 16 cycles are unfinished. Chunk 03 registers the Claude Code adapter and chunk
-04 the Codex adapter; the other families have none, so their Enable is refused. Admission is one ordinary transaction:
+and fewer than 16 cycles are unfinished. Chunk 03 registers the Claude Code adapter, chunk
+04 the Codex adapter, #512 the agy adapter, #513 the OpenCode adapter and #514 the DeepSeek adapter; the other families have none, so their Enable is refused. Admission is one ordinary transaction:
 the cycle row, its first event `requested admitted`, an audit record and the typed request in
 the session's own inbox. The request's sender is the reserved system identity `overwatch`
 (`sender_family` and `sender_id` `overwatch`, `sender_name` `overwatch`), with `system_kind`
@@ -306,7 +311,8 @@ binary left in `bootstrap_intent` ends `uncertain` (`bootstrap_unreceipted`), an
 
 The session reports through three own-cycle calls. The native client names the caller and
 attaches its current native epoch: Claude's transcript session from the registry record of
-its pinned host process, Codex's thread, a DeepSeek session's own ID. No argument names a
+its pinned host process, Codex's thread, agy's conversation, an OpenCode session's own ID, which
+the identity plugin names (#513), a DeepSeek session's own ID. No argument names a
 caller, epoch, host, pane, socket or another session.
 
 - `POST /v1/cycles/status` (`context_cycle_status`, `koinon cycle-status --as deepseek:ID`)
@@ -341,11 +347,12 @@ caller, epoch, host, pane, socket or another session.
   `waiting_pickup` cycle completes when the caller runs under a new epoch (the epoch that the
   adapter proved) and is the requester itself or a managed successor: an active session of the
   same family in the same host and pane that holds the cycle's participant address. The
-  `revision` is that of one of the cycle's `waiting_pickup` stages. The report is also accepted
-  in a prompt wait that began in `waiting_pickup` (`waiting_prompt` or `prompt_intent` with
+  `revision` is one that the caller read while the cycle awaited the report: that of its
+  `waiting_pickup` stage or of a later stage of the prompt wait that began there (#520). The
+  report is also accepted in that prompt wait (`waiting_prompt` or `prompt_intent` with
   `prompt_from` `waiting_pickup`), because the call that the prompt approves can be the report
-  itself; the wait and its return change the revision, and the approved call can arrive after
-  either, so the report keeps the `waiting_pickup` revision that it read. A
+  itself; an answer changes the revision, and the approved call can arrive after it, so the
+  report keeps the revision that it read. A
   successor's completion moves the Enable to it. The report is private runtime data; status,
   audit and the dashboard show its size only.
 
@@ -358,8 +365,9 @@ An identical retry of an accepted report returns the current cycle without a wri
 retry while the reported file is unchanged, a pickup retry with the same successor, epoch,
 file, outcome and report. A stale or conflicting one is refused with `cycle_changed` (HTTP 409) and the current cycle in
 `details`. Another session's call is `cycle_not_found`, an epoch that does not fit
-`cycle_epoch_unverified`, a file that fails a check `cycle_artifact_invalid`, whose `error`
-names the check that failed and, for the directory, the directory it expects, with each path
+`cycle_epoch_unverified`, a file or file name that fails a check `cycle_artifact_invalid`, in
+the ready and the pickup report alike, whose `error` names the check that failed, for a name the
+form `YYYY-MM-DD-HHMMSS[-LABEL].md` (#535), and, for the directory, the directory it expects, with each path
 cut to 240 bytes so the text stays within the 1024 bytes a client passes on (#468). The
 request message names the session's directory and its ready deadline as a UTC time, the stage
 deadline: 15 minutes after the request, or the end of the cycle's lifetime when that comes first
@@ -375,13 +383,18 @@ again; another one, or none, fails the cycle with `epoch_changed`, so a second c
 the pending pickup. A recognized prompt records `waiting_prompt` and its preceding stage, in
 `waiting_pickup` too (a native approval of the successor's first calls); the response is
 entered after its recorded `prompt_intent`, and one that is read back returns to that stage. A
+prompt wait that began in `waiting_pickup` does not return: every dialog of the successor's
+pickup is handled in it, until the report or the wait's deadline (#520). A dialog that the
+native session answers there records no event, and a dashboard answer records its
+`prompt_intent` and the return to `waiting_prompt`; neither changes the deadline of the wait's
+first dialog. Between two dialogs the dashboard shows nothing to answer. A
 dashboard answer whose approved call completed the cycle first counts as received. Just before the clear or the pickup input, the daemon checks the reported file
 again: a changed or missing file returns a `ready` cycle to `waiting_ready`
 (`artifact_changed`) under the current request's readiness deadline (that of the newest
 repeat, #431), and fails a `reset_verified` one. An input that fails or is not received is `uncertain`. An intent found without its
 receipt, as after a restart, is never sent again: a clear is reconciled only by a proven new
 epoch, otherwise it is `uncertain`. Deadlines: 15 minutes from the request for
-`waiting_ready`, two minutes for each other stage (`waiting_pickup` included, for the report),
+`waiting_ready`, five minutes for `waiting_pickup` (the report, #525), two minutes for each other stage,
 ten for a prompt, and 30 minutes for the whole cycle; no stage deadline passes the cycle's. A
 report at or after a deadline is `cycle_changed`. While a cycle is in `ready` through
 `waiting_pickup`, ordinary wakes to its pane wait, still due and not delivered, so peer
@@ -423,7 +436,8 @@ cycle ends; the pickup procedure renews the claims as it reconciles them.
 
 A new native epoch of the requester before the managed clear (`waiting_ready`, `ready`, or a
 stored `bootstrap_intent` or `bootstrap_verified`) cancels the cycle (`epoch_changed`; uncertain
-in `bootstrap_intent`, whose input is unproven). Disable, a family mode without the cycle, retiring or purging the
+in `bootstrap_intent`, whose input is unproven). Disable, a family mode change (it ends the
+family's cycles of the other modes), retiring or purging the
 requester or successor, deleting it and the maintainer's holder choice for its address end
 the cycle in their own transaction. A cycle that ends after an input whose effect is not
 proven (an intent, or `clear_received` without a proven reset) is `uncertain`, with the
@@ -484,7 +498,13 @@ The adapter is ready for input when the registry `status` is `idle` or `shell` a
 line (`❯` followed by a no-break space) is empty. `shell` is the prompt with a background shell
 task running, such as a monitor of the session's inbox; Claude Code 2.1.303 takes `/clear`
 there without a dialog, and the task, with its `shell` status, stays through the clear (#417).
-`busy` (a turn in progress) and `waiting` (a native wait) are not ready; text drawn dim there is a placeholder or a suggestion,
+`busy` is also the prompt while a background subagent runs after the turn ended: the panel
+below the input line then shows the subagent's row (`◯`) and no `esc to interrupt`, and the
+subagent's records show it running (its meta file has no `"finished": true`). That is ready
+too: Claude Code 2.1.311 takes `/clear` there at once, and the subagent runs on and gives its
+result to the new conversation as a message (#533). Before the clear, a subagent that finished
+after the ready report asks again (#456); one that still runs does not. Another `busy` (a turn
+in progress) and `waiting` (a native wait) are not ready; text drawn dim there is a placeholder or a suggestion,
 any other text a draft, and the cycle waits. A pane in copy mode is returned to its prompt
 first. The clear and the pickup type the command, read it back (for `/koinon-pickup`, the
 menu's first entry must have the skill's description, with or without a scope such as
@@ -554,6 +574,363 @@ the read-back and one Enter. A dialog (an MCP tool approval or a command approva
 adapter: the cycle shows it in `waiting_prompt`, and a dashboard option is one digit, entered
 only while the same dialog shows.
 
+### agy cycle adapter
+
+#512 adds the adapter for agy (version `agy-tmux-1`), on the facts of Antigravity CLI 1.4.7 on
+Linux ([evidence](docs/sprints/2026-10-12-context-handoff/evidence.md#agy-cycle-adapter-512)). It
+acts only in the session's own tmux pane. Before every key it proves the pane and that the pane's
+terminal gives input to the host: the host leads the terminal's foreground process group, and
+every other member of that group is an ancestor of the host or a descendant that is no agent CLI
+(agy keeps its `koinon mcp` server and its status-line command in its own group). It passes the
+cycle's fence. Typed text that is not submitted is cleared with `C-u`, only while a fresh read
+shows exactly that text.
+
+Probe needs Linux (`platform_unverified` elsewhere: macOS has no native evidence yet); the
+host's `HOME` (`native_registry_unavailable`); the pane (`pane_unproven`, or `tmux_unavailable`);
+the session's participant address held (`participant_unheld`: the conversation after `/clear` is
+a new session, which takes the address over at its first tool call); before the clear, the
+session's own conversation as its latest context epoch (`epoch_unverified`); Koinon's status
+line: the `statusLine` entry of the host's `~/.gemini/antigravity-cli/settings.json` must equal the
+enabled entry that `agy-statusline.json` records and run `hook agy-status`
+(`statusline_unverified`, with the setup step); and the effective pickup entry. agy lists
+`~/.gemini/config/skills/koinon-pickup/SKILL.md` as `/koinon-pickup` unless the session's
+directory has `.agent/skills/koinon-pickup/SKILL.md` or `.agents/skills/koinon-pickup/SKILL.md`,
+which replaces it (in that order; a workspace `.gemini/skills` does not). The personal file must
+be the binary's skill byte for byte (`pickup_entry_missing`, `pickup_entry_differs`,
+`pickup_entry_unreadable`, each with the install step), and a workspace file must be too
+(`pickup_entry_shadowed`, naming the file); an unknown directory is `pickup_entry_unverified`.
+The pickup checks the entry again, after the clear reloaded the skills.
+
+The adapter is ready for input when the composer between the last two rules holds no text, no
+menu is open, the footer shows `? for shortcuts` (a running turn shows `esc to cancel`) and no
+dialog shows; after the clear the screen must still be the cleared one. A draft is reported as
+`input_not_empty` and left as it is. The clear types `/clear` and submits it with one Enter only
+while the composer holds exactly it and the menu selects its one `/clear` row; the receipt is an
+idle composer below the latest banner, with nothing of a turn between them.
+
+The reset is proven by a witness. The agy status-line hook sends each conversation it reports to
+`POST /v1/cycles/agy-witness` with its own PID and start; agy runs it as `sh -c` under the host.
+The daemon keeps a report, in memory, only for an agy cycle from `clear_intent` to the pickup. It
+reads the reporter's start, the process ancestry itself and the reporter's start again; the
+reporter's nearest ancestor that hosts a live session or such a cycle, or runs an agent CLI, must
+be that cycle's pinned agy host with its pinned start; an ancestor whose command cannot be read
+proves nothing. A conversation that is already an agy session, live or retired, must have been
+registered in that host. Otherwise the report is refused with `witness_host_unverified`. A witness registers no
+session and moves no holder, claim or cursor. agy starts the new conversation at `/clear`, and its
+status line reported it about 0.5 s after the Enter, before any turn or tool call; the report can
+come before the receipt is recorded, so reports are kept from the intent. In `clear_intent` no
+report proves the reset, so an unreceipted clear ends `uncertain` and is never entered again. In
+`clear_received` exactly one conversation other than the cycle's epoch proves it; two or more, or
+more than 8 in all, prove nothing. Before the pickup the newest one must still be the proven
+successor. A restarted daemon has no witnesses and proves no reset.
+
+The pickup types `/koinon-pickup` and submits it with one Enter only while the menu selects its
+one row and that row shows the skill's description, as far as the pane shows it before its `...`
+cut; the receipt is the command as a new submitted prompt above an empty composer. A dialog is
+never answered by the adapter. The evidenced command approval (`Requesting permission for:`,
+`Run this command?`, numbered options and the `↑/↓ Navigate · tab Amend` hint) is shown in
+`waiting_prompt` with its visible options; a dashboard option is its digit, which moves the
+selection and is read back, then one Enter while the same request still shows it selected with
+the same option text (the list may scroll), and the end of the request is read back. Any other dialog, such as an MCP tool approval (not observed) or
+the folder-trust question, stays in the pane for the native session or the maintainer.
+
+### Grok cycle adapter
+
+#515 adds the adapter for Grok (version `grok-tmux-1`), on the facts of Grok Build 1.0.50 on
+Linux ([evidence](docs/sprints/2026-10-12-context-handoff/evidence.md#grok-cycle-adapter-515)). It
+acts only in the session's own tmux pane, with the agy adapter's proof before every key: the pane,
+the host leading the terminal's foreground process group, every other member of that group an
+ancestor of the host or a descendant that is no agent CLI (Grok keeps its `koinon mcp` servers
+and its status-line command in their own groups), and the cycle's fence. The host's command is
+also read at each proof, because an exec keeps the PID and start: it must be a Grok terminal
+session, `grok-native` or the `grok` link, and not Grok's leader (`grok-native agent leader`).
+Typed text that is not submitted is cleared with `C-u`, which clears the whole input box, only
+while a fresh read shows exactly that text.
+
+Probe needs Linux (`platform_unverified` elsewhere); the host's `HOME`, and its environment read
+for `GROK_HOME` (`native_registry_unavailable`: a failed read is not an unset variable); the pane (`pane_unproven`, or `tmux_unavailable`); the participant address held
+(`participant_unheld`: the session after `/new` is a new Koinon session, which takes the address
+over at its first tool call); before the reset, the session itself as its latest context epoch
+(`epoch_unverified`); Koinon's status line: the `[ui.status_line]` `type` and `command` of the
+host's Grok `config.toml` (in the host's `$GROK_HOME`, else `~/.grok`) must equal the enabled
+wrapper that `grok-statusline.json` records and run `hook grok-status` (`statusline_unverified`,
+with the setup step); and the effective pickup entry. Grok lists skills from several roots and
+keeps one per name: the session directory's `.agents/skills` copy wins over every user copy, and
+among the user skills `~/.grok/skills` (the Grok home's) wins over `~/.agents/skills`, which wins
+over `~/.claude/skills`. The effective entry is the first of these that exists. It must be the binary's skill byte for byte (`pickup_entry_missing`,
+`pickup_entry_differs`, `pickup_entry_unreadable` for the Grok home's own file, each with the
+install step; `pickup_entry_shadowed` for another root); a later user skill is replaced and is not
+checked. A copy whose order is not verified (other project skills and `commands/koinon-pickup.md`
+files in `.grok`, `.agents`, `.claude` and `.cursor` up to the repository root, the user `.cursor`
+skill and commands files, and `koinon-pickup` under a `[skills] paths` entry) may be the effective
+entry, so it must be the skill too (`pickup_entry_shadowed`, naming the file); without a verified
+copy, such a copy is the entry. A copy that `[skills] ignore` names is no candidate. `[skills] disabled` with
+`koinon-pickup` removes the entry from the menu (`pickup_entry_disabled`). A config that is not
+valid TOML, or an unknown directory, is `pickup_entry_unverified`. The pickup checks the entry again.
+
+The adapter is ready for input when the input box holds no text, no menu is open, no turn runs
+(the shortcut bar below the box shows `Ctrl+c:cancel` during a turn) and no dialog shows; after the
+reset the screen must show the successor's `/new` notice. A draft is reported as `input_not_empty`
+and left as it is. The clear types `/new` and submits it with one Enter only while the input box
+holds exactly it and the menu above it selects its `/new` row, `Start a new session`. Grok then
+starts a new session in the same host and keeps the earlier one live. The receipt is the notice
+`Session ID, use /dashboard to switch between sessions` above an empty input box, naming a session
+other than the cycle's epoch and other than any that the screen named before the Enter.
+
+The reset is proven by a witness, with the agy contract: the Grok status-line hook sends each
+session it reports to `POST /v1/cycles/grok-witness` with its own PID and start, also for an input
+without usable counts; Grok runs it as `sh -c` under the host. A report is kept only for a Grok
+cycle, and the session after `/new` is not registered yet when it sends its first input. After
+`/new` the inputs named the new session from the same host PID. The rules of `clear_intent`,
+`clear_received`, the bound of 8, the successor check before the pickup and a restarted daemon are
+those of the agy adapter.
+
+The pickup types `/koinon-pickup` and submits it with one Enter only while the menu selects its
+one row and that row shows the skill's description; the receipt is one more submitted
+`❯ /koinon-pickup` line than the screen showed before the Enter, above an empty input box. A
+dialog is never answered by the adapter. A Grok approval dialog (a shell command or an MCP tool) is
+a `┃` box above the footer `1/N:select`, with N numbered options `N (●) text` or `N (○) text`;
+the preselected option varies, and option 1 is always-approve mode. It is shown in
+`waiting_prompt` with its options; a dashboard option is its digit, entered while a fresh read
+shows the same dialog. In Grok the digit answers the dialog at once: no Enter follows, and the
+receipt is the dialog gone.
+
+### OpenCode cycle adapter
+
+#513 adds the adapter for OpenCode (version `opencode-server-1`), on the facts of opencode 1.18.35
+on Linux ([evidence](docs/sprints/2026-10-12-context-handoff/evidence.md#opencode-cycle-adapter-513)).
+It acts through the session's own loopback server, the one that `koinon opencode` started, with
+the launch password, and reads the pinned tmux pane without input. Each request has a two-second
+timeout, an exact 200, no redirect and at most 8 MiB; the pickup's own request is the exception
+below. OpenCode's TUI has no `/clear` that the cycle can use and lists no skill as a slash
+command (a typed `/koinon-pickup` shows `No matching items`), so the reset creates a new session
+and the pickup runs the skill command by API.
+
+Probe needs Linux (`platform_unverified` elsewhere); the session's launched server
+(`native_registry_unavailable`); the pane (`pane_unproven`, or `tmux_unavailable`); the
+session's participant address held (`participant_unheld`: the created session is a new session,
+which takes the address over at its first tool call); the model that the pickup asks for
+(`model_unavailable`): the `providerID` and `modelID` of the requester's newest finished reply,
+with no `/` in the provider, so that the command's `provider/model` string gives them back
+unchanged; and the effective pickup entry. `GET /command` must list exactly one
+`koinon-pickup` (two give `pickup_entry_unverified`, none `pickup_entry_missing`), with source
+`skill` and the template that OpenCode makes from the skill: the binary's skill body, then
+`Base directory for this skill: DIR` and OpenCode's line on relative paths
+(`pickup_entry_differs` otherwise). `DIR` must be `koinon-pickup` in a skill root that OpenCode
+reads for the session (its configuration root's `skills`, `~/.claude/skills`, `~/.agents/skills`,
+or `.opencode/skills`, `.claude/skills` or `.agents/skills` in the session's directory;
+`pickup_entry_unverified` otherwise), and its `SKILL.md` must be the binary's skill byte for
+byte (`pickup_entry_missing`, `pickup_entry_differs`, `pickup_entry_unreadable`, each with the
+install step). An equal copy in another root is allowed.
+
+The adapter is ready for input when the subject session (the requester, and after the proven
+reset the created session) has no pending permission or question (`GET /permission` and `GET
+/question`, filtered by its exact ID), the pane shows a session view whose composer holds no
+text, and `GET /session/status` shows the subject idle; after the reset the created session must
+also have no messages and an empty view. A draft is reported as `input_not_empty` and left as it
+is. The session view is read from the current screen (`capture-pane -p -e -J`, no history): the
+composer is the last block of `┃` rows at the left margin above its `╹▀` rule; the rule's width
+is the message column's, left of the sidebar. The home screen's centered composer is no session
+view (`input_line_not_found`).
+
+The clear stage creates the successor (`POST /session` with the title `koinon-cycle-CYCLE`,
+after a fresh read and the fence). The created ID is recorded with the receipt, in the write that
+enters `clear_received`; a create whose response is lost has no recorded ID and ends `uncertain`,
+and nothing is created again. In `clear_received` the select's intent is recorded first, as the
+same-state event `clear_received` `select_sent`, then `POST /tui/select-session` with the created
+ID is sent once; a refusal ends `uncertain` (`select_unreceived`), and a restart never selects
+again. OpenCode accepts the select with `true` but gives no read-back of the session that the
+TUI shows. The reset is proven by the server and the pane: the recorded session exists with the
+cycle's title and no messages, and the pane shows an empty session view with an empty composer.
+That proves the creation, not the display: another empty session looks the same. The pre-pickup
+recheck reads the same proof.
+
+The pickup is sent from a worker, never under the wake lock, because OpenCode answers `POST
+/session/{id}/command` only after the whole turn. Under the freshly recorded `pickup_intent`, one
+worker per cycle (at most 4 at once; without a free one the cycle waits in `reset_verified`,
+recording nothing) checks the entry, the model and a fresh read again, passes the fence and
+sends `{command: koinon-pickup, arguments: "", messageID, model: "PROVIDER/MODEL"}` once, with a
+5-second timeout; the turn goes on without it. The daemon's stop cancels the workers and waits
+for them. The message ID sorts as OpenCode's own: `msg_`, 12 hex digits of the intent's time in
+milliseconds times 4096, then 14 base-62 digits from the cycle and the created session, so a
+restarted daemon derives it again. The worker then reads the receipt back by API, every 250 ms,
+until it is there or a read made after the request ended shows that it is not; a failed read is
+tried again for at most 30 seconds. The receipt is the created session's only user message with
+that ID, the requester's `providerID` and `modelID`, and one text part that is the entry's
+template as OpenCode enters it (trimmed); the text is compared and never kept. The worker
+publishes the result, and the next controller step applies it under the cycle's revision,
+making no request itself, so a slow server delays no other cycle. With the receipt the cycle
+moves to `waiting_pickup`; without it, the cycle ends `uncertain` (`pickup_unreceipted`), and the
+pickup is never sent again. After a restart, which has no worker and no result, a worker reads
+the receipt back, sending nothing.
+
+The pickup report needs the pane's own proof that it shows the created session. The identity
+plugin adds `koinon_session=ID` as the last argument of each Koinon tool call, and the TUI
+renders the call as a row at a five-space indent: the `⚙` glyph alone in one color, a space in
+another, then `koinon_TOOL [ARGUMENTS]` in the glyph's color; long arguments wrap onto rows at a
+seven-space indent in the same color. A user or tool-output row (`┃`) and reply text in the
+text's own color are no such row. While the cycle waits for the report, each controller step
+reads the current view without input, and the first view with a row of the created session and
+none of another session is recorded once, as the same-state event `waiting_pickup`
+`pickup_displayed`. The report itself needs a current view that shows the created session and
+no other: the daemon reads the pane again for at most 2 seconds, so that the report call's own
+row can render, and never past the stage's or the cycle's deadline; a view read after that does
+not count. A recorded earlier view
+proves nothing about the current one, because another empty session looks the same. Without it
+the report is refused with `cycle_display_unproven` (HTTP 409), the cycle stays in its stage and
+the report may be sent again. The report also needs the created session's replies from the model
+that its pickup asked for: the receipted message's `model` pair, and at least one assistant
+message, each with the same `providerID` and `modelID` (OpenCode runs a command whose model it
+cannot resolve on another one). A known other model ends the cycle `uncertain`
+(`model_changed`) and the report is refused with `cycle_model_changed`; a read that fails can be
+retried. The report's write checks the deadlines at the time after these reads. Until the
+display proof has been recorded once, a deadline, a Disable or another end of a waiting pickup is
+`uncertain`, not `failed` or `cancelled`. An identical retry of a completed report stays valid
+when the pane changed later.
+
+A dialog is never answered by the adapter. A pending permission of the subject session shows in
+`waiting_prompt` as `OpenCode asks permission: PERMISSION`, its patterns and the options `1`
+(once), `2` (always) and `3` (reject); a dashboard option is sent as `POST
+/permission/{id}/reply` while the same request is pending, and its end is read back. A pending
+question shows with no option and is answered in the pane.
+
+### DeepSeek cycle adapter
+
+#514 adds the adapter for DeepSeek (version `dsh-session-1`), on the facts of DeepSeek Harness
+0.2.0-rc.2 on Linux ([evidence](docs/sprints/2026-10-12-context-handoff/evidence.md#deepseek-cycle-adapter-514)).
+A DeepSeek session has no host process and no pane: the adapter acts only through the session's
+harness API, with the wake's pinned loopback origin and signed cookie and the transport of the
+`dsh_projections` source (each request names its arguments as the method's descriptor does:
+`session/list` takes `_request`, `session/modelCatalog` none, the others `request`). Its Enable
+and cycle pin no host or pane, and one unfinished cycle is allowed per session. No harness
+request runs on the controller's tick or under the wake lock: the quiet point and the probe
+(`ready`, `reset_verified`), the create (`clear_intent`) and the reset's proof
+(`clear_received`) each run in one of the bounded cycle workers, as the pickup does, and a later
+step applies the result only while the cycle is still at the revision and stage that started
+it; at a stage timeout the tick reads no harness. Each effect's fence also checks that the
+requester still holds the address and is still registered with the pinned harness target. The cycle's
+request asks the session to run `koinon cycle-ready`, and the ready reply says that overwatch
+starts a new harness session once this one is idle.
+
+Probe needs Linux (`platform_unverified`), the session's harness target
+(`harness_target_missing`, `harness_unreachable`), its participant address held
+(`participant_unheld`), its `session/list` row with an absolute `cwd`
+(`harness_session_unknown`), and its model, `modelSelection.next` or else `lastUsed` from
+`session/projections`, equal in provider, model and reasoning effort to the harness default of
+`session/modelCatalog` (`model_unknown`, `model_not_default`). A new harness session takes that
+default, and `session/selectModel` would also save a new default, so the adapter never calls it
+and changes no harness setting; the step of `model_not_default` names the harness setting that
+the person can change. `skills/list` for the session must list one `koinon-pickup`
+(`pickup_entry_missing`, `pickup_entry_unverified`) whose `SKILL.md` is DeepSeek's entry byte for
+byte (`pickup_entry_differs`), in whichever root the harness lists it. Admission stores the pin,
+schema 35's `adapter_pin` of at most 640 bytes: SHA-256 fingerprints of the harness target and
+the `cwd`, and the model. Every later Probe, before each input, compares it:
+another target or `cwd` fails the cycle with `target_changed`, another model with
+`model_changed`.
+
+The quiet point, before the reset (the requester) and before the pickup (the created session),
+is one stable read: `running` false in the session's `session/list` row, empty `next-turn` and
+`next-step` inbox lists and no active user question at one `asOfSeq`, and the history pinned at
+that `asOfSeq` (`session/page` `throughSeq`) back to the newest `turn/start`, which must have a
+later `turn/end`, with no `compaction/start` without its `compaction/end` after it; then the
+projections and the row are read again unchanged (`harness_changed` otherwise). A budget of 4
+pages of 200 messages that ends before the newest `turn/start` proves nothing. An
+`approval/asked` without its `approval/decided` inside a closed turn is a crash orphan and does
+not block. A created session is ready for its pickup only while it has no turn and no user
+message (`successor_not_empty`). The harness has no client read of a running `/compact` other
+than these events.
+
+The reset creates the successor: under the recorded `clear_intent` and after the pin, the
+fence and a read that shows no session with the chosen ID, `session/create` with
+`{sessionId, cwd}`: `session-` and a UUID derived from the cycle ID, and the requester's `cwd`.
+The created ID is recorded with the receipt in the write that enters `clear_received`. A lost
+or failed response leaves the cycle in `clear_intent`: the next step reads the chosen ID first.
+Only a verified successful null from `session/projections` proves that it does not exist, and
+then the same create is sent again; a session with that ID in the pinned `cwd` without a turn or
+user message is the created one, and any other is `session_conflict`, never adopted. Before the
+fence the create's worker reads the requester's quiet point again, because the ready step
+applied an earlier read: a requester that is no longer quiet gets no create, and the cycle waits
+in `clear_intent` and ends `uncertain` with that code at the stage deadline. An
+unreadable harness waits until the stage deadline, then ends `uncertain` (`reset_unproven`). The
+`select_sent` event is recorded and nothing is sent: the harness has no server record of the
+session that a browser shows. The reset is proven when the created session exists in the
+pinned `cwd`.
+
+The pickup runs from a worker, as OpenCode's does, under the recorded `pickup_intent`: after the
+pin, the fence, a read that shows no receipt yet, a new read of the created session that is
+still quiet and without a user prompt, and the created session's own selection
+(`modelSelection.next`, else `lastUsed`, else the default that the pin already matched) equal to
+the pinned model, `session/prompt` `{requestId, sessionId,
+mode: queue, content: [{type: text, text: "/koinon-pickup"}], clientTimeZone: UTC}`, whose
+request ID is a UUID derived from the cycle and the intent's time. The prompt is sent at most
+once: the harness admits a repeated request ID again as another prompt, so a lost response is
+never answered by a resend, only by reading the receipt back. The receipt is the
+created session's only user prompt, with `source.kind` `user`, that `source.rpcId` and exactly
+that text. Each admission is in the inbox while queued and then in one `agent/inbox/spliced`
+entry, before its turn's `user/message`: the inbox and spliced entries with the request ID must
+be exactly one, the `user/message` entries at most one, and any other user prompt fails it. A
+created session that is no longer quiet, or has a user prompt, gets no pickup, and the receipt
+read ends the cycle `uncertain` (`pickup_unreceipted`). The worker bounds and the step that
+applies the result are OpenCode's; a restart reads the receipt back and sends nothing.
+
+The created session runs `koinon-pickup`, DeepSeek's entry, which reads `skill.pickup` with
+`koinon library read`, registers with `koinon register` (see Verified succession) and reports
+with `koinon cycle-pickup`. A report from it before it holds the address is refused with
+`cycle_receipt_pending` (HTTP 409), and the cycle stays in its stage: it registers again and
+reports again. From the create on, its `koinon cycle-status` returns the cycle as its successor,
+also before it holds the address. The report needs the created session and the requester still
+registered with the pinned target, and reads the harness again within the deadlines: the
+created session's `request/header` configs and the `message.source` of each `assistant/message`
+name the pinned provider and model (and reasoning effort for the headers), with at least one of
+each; without them the report proves nothing yet and can be retried. A known other model ends the cycle `uncertain` (`model_changed`) and the
+report is refused with `cycle_model_changed`; a harness that cannot be read refuses it with
+`cycle_harness_unreadable` (HTTP 409), which can be retried. The Sessions page names the created
+session's ID and the harness's loopback web origin, where the person can open it.
+
+### Native compaction
+
+In `native_compaction` (#509) a Codex session's crossing admits a compaction, a cycle row with
+mode `native_compaction` under the same trigger, Enable, host and pane pins, limits and audit
+as the handoff cycle. It sends no request, protects no claim and needs no pickup skill or
+participant address: the compaction's Probe checks the platform, the thread's rollout and the
+pane only (the Sessions page shows `compaction through /compact`), and there is no Codex
+version gate (PDR 006, Decision 5). Schema 34 rebuilds `context_cycles` with its three states,
+copying every row unchanged:
+
+- `compact_waiting`: admitted, holding no pane. Each controller step inspects the pane; while
+  it is not ready (a dialog, a draft, a running turn) the compaction waits and records what the
+  pane showed. Right before the input the session's newest reading must still select it under
+  the trigger's rules (fresh source and confirmation, same epoch, at the threshold); the
+  crossing's own latch does not count. Without a reading or a recent confirmation, such as after
+  a restart, it waits (`context_unknown`, `confirmation_stale`). It ends `cancelled` with
+  `mode_changed`, `threshold_changed`, `epoch_changed` or the trigger's reason (such as
+  `source_stale` or `below_threshold`) when the mode, the threshold or the reading no longer
+  admit it, and `failed` with the Probe's reason. A compaction whose pane is not ready within 15
+  minutes of its admission ends `cancelled` (`compact_waiting_timeout.SEEN`).
+- `compact_intent`: recorded before the first key. The adapter types `/compact` only while the
+  composer is empty and the thread's rollout shows its last turn ended, reads it back and
+  submits it with one Enter while the composer holds exactly it. Text that is not submitted is
+  erased and the compaction returns to `compact_waiting` with the step's reason, to retry when
+  the pane is idle. The fence before each key also holds the family mode and the session's
+  threshold, so a mode or threshold change during the input stops it. An Enter that may have been sent without its receipt (the empty composer)
+  ends the compaction `uncertain`, and a compaction found in `compact_intent`, also after a
+  restart, ends `uncertain` (`compact_unreceipted`); neither is entered again.
+- `compact_sent`: holds the pane, so no wake notice interleaves. Before the stage and cycle
+  deadlines, a fresh context reading (source and confirmation within the trigger's ages, neither
+  later than the daemon's clock) of the same epoch, that its source recorded after the
+  submission's receipt and below the threshold that the compaction recorded, completes it
+  (`complete`, `compacted`). Codex 0.164.0 runs `/compact` as a turn
+  that writes a `compacted` record and then a `token_count` of 0 input tokens in the same
+  thread. Without that reading within 10 minutes it ends `failed` (`compact_unconfirmed`).
+
+A reading of another epoch ends a compaction `cancelled` (`epoch_changed`). A compaction that
+ended in `compact_waiting` (whatever the reason, a Probe failure included) or with
+`epoch_changed` keeps the session's Enable, and its crossing is cleared, so the next fresh
+reading at the threshold admits another; every other end turns
+the Enable off as for the handoff cycle. One cycle runs per session and host at a time, so a
+compaction and a handoff cycle never type into the same pane. The Sessions page shows the
+newest compaction with its stages, times and result.
+
 ### Verified succession
 
 Schema 13 adds a private host record to each session: host PID, process start value,
@@ -571,6 +948,26 @@ pane matches `%` followed by 1–9 digits. The optional `executable` (#418) is t
 that the session's own terminal runs, with the same path rules as the socket. Invalid values
 return `invalid_request`.
 
+Schema 36 rebuilds `decision_items` and `decision_verdicts` (#537), because SQLite cannot widen
+a CHECK in place: `kind` adds `task`, `state` adds `returned`, and `verdict` adds `feedback`,
+`completed` and `acknowledged`. Every row is copied with its ID, each table keeps its
+AUTOINCREMENT high-water mark, so an ID of a deep-archived item or verdict is never used again,
+and the indexes are created again; the waiting index becomes `(id)` over only the waiting
+items (`state='active' AND kind!='fyi'`), so a waiting page reads one range in item ID order
+and never passes open fyi items. An `active` `fyi` item whose title starts with
+`ACTION FOR YOU` becomes a `task`; its title does not change.
+
+Schema 34 rebuilds `context_cycles` with the native compaction states `compact_waiting`,
+`compact_intent` and `compact_sent` (#509, [Native compaction](#native-compaction)), copying
+every row unchanged.
+
+Schema 33 adds the table `decision_withdrawals` (#504): each agent withdrawal of a decision
+item with the item, the revision it withdrew, the withdrawing peer's family and name, the
+reason, the time, and the time and peer of the reopen that undid it. An upgrade starts it empty.
+It also adds `decision_items.author_participant`, the author's participant (family, repository
+and role) at create, or `''` for an author without one. The upgrade fills it from the author's
+session where that session is still stored.
+
 Schema 32 adds the table `change_versions` of the maintainer mode's change notices (PDR 009,
 Decision 3): one row each for `inbox` and `decisions` and one for each room by its ID, each with
 a 20-digit counter as text. The upgrade starts a row at `00000000000000000001` for the
@@ -578,8 +975,8 @@ maintainer's inbox, the decision board and each existing room; a room's creation
 row and its deletion deletes it. Each write that changes what the maintainer's read of a topic
 shows moves its counter in the same transaction: an inbox message to the maintainer, the daemon's
 notices, a work notice to the maintainer, an acknowledgement of the maintainer's inbox and the
-retention of its messages; a decision create, edit (also a reopen), verdict, close, restore and
-the move to the deep archive; a room's add, remove, post and post retention. A write that rolls
+retention of its messages; a decision create, edit (also a reopen), verdict, close, withdrawal,
+restore (also a reopen of a withdrawn item) and the move to the deep archive; a room's add, remove, post and post retention. A write that rolls
 back, a retry that writes nothing and a refused write move nothing. The counter has a fixed
 width, so an increment overwrites it in place and allocates no page, also in a control write.
 
@@ -642,10 +1039,22 @@ below), so it runs as the new thread's first turn.
 The session and `peers` expose `succession: {result, reason, address, holder, at,
 retry_after_ms}` when present; `at` is daemon Unix milliseconds and `holder` is the former or
 retained holder's peer name. Success reports `result: succeeded` with `same_host`,
-`host_cleared`, `cycle_reset` or `same_pane`. Refusal reports `result: refused` with `no_host`, `host_running`, `other_pane`,
-`subagent`, `holder_active`, `fenced` or `other_participant`. `no_host` covers missing host
+`host_cleared`, `cycle_reset`, `cycle_session` or `same_pane`. Refusal reports `result: refused` with `no_host`, `host_running`, `other_pane`,
+`subagent`, `holder_active`, `cycle_receipt_pending`, `fenced` or `other_participant`. `no_host` covers missing host
 records; `host_running` includes a former host that cannot be proven ended; `other_pane`
 includes missing pane evidence. A refused succession still registers the native peer.
+
+A DeepSeek session has no host record, so `no_host` would refuse every DeepSeek candidate. A
+DeepSeek cycle's created session succeeds with `cycle_session` (#514), checked first, before
+`no_host`, only when, in the registration's transaction: the holder's unfinished cycle of this
+address has the DeepSeek adapter (`dsh-session-1`), no host or pane, and the candidate's ID as
+the session that its reset created; the cycle is in `waiting_pickup` or a prompt wait that began
+there, under the Enable revision that admitted it and before both deadlines; the candidate's
+registered harness target is the one that the cycle pinned; and it is not fenced, not a
+sub-agent and holds no other alias, and the holder is still registered with that target too. In `pickup_intent`, before the pickup's receipt is recorded,
+the same candidate is refused with `cycle_receipt_pending` and `retry_after_ms` 1000: it registers
+again after that. A DeepSeek `koinon register` is the session's own call (`tool_call`), so it can
+succeed; its renewals are registrations too.
 
 For `holder_active`, the daemon returns a remaining `retry_after_ms`. MCP waits that duration
 from receipt, rather than comparing client and daemon wall clocks, then registers at the
@@ -1199,6 +1608,12 @@ inactive claim bundle and one finished item past its 30-day retention. Memory st
 `expired_items`, `inactive_bundles`, `fault`, `fault_at`, `skipped_submissions`) and
 `work_debt` (`overdue_credits`, `end_credits`, `verdict_credits`).
 
+A create in a store that holds its 128 items first removes the oldest finished item (earliest
+expiry, then work ID), with its inactive claim bundle, also before its 30 days (#529). Open,
+active, blocked and reported items are never removed; a store without a finished item refuses
+the create with `capacity`. A replayed create removes nothing. A finished item thus stays for up
+to 30 days, and `work_not_found` answers for it after its removal.
+
 The limits are those of the implementation design per store (128 items, 16 claim bundles, 64
 scope revisions per item and 1,024 in all, 2,048 events, 12 MiB of work usage inside the shared
 32 MiB, work entries counted in the 5,000 entries) and at most 32 retained claim bundles across
@@ -1450,7 +1865,7 @@ work depends on its limit, not on the number of stored items. There is no limit 
 of items. Reads move no inbox read or acknowledgement marker and no memory cursor.
 
 - `POST /v1/decisions/create` takes `caller`, `reference` (1–32 characters of `A-Z`, `a-z`,
-  `0-9` and `-`, unique), `title` (1–256 bytes), `kind` (`decision` or `fyi`), optional
+  `0-9` and `-`, unique), `title` (1–256 bytes), `kind` (`decision`, `task` or `fyi`, #537), optional
   `order` (integer), `where` (256 bytes), `agent_text` (8 KiB), `context` (16 KiB),
   `recommendation` (8 KiB), `commands` (at most 8) and `recipients` (at most 32 names of at
   most 256 bytes), and `key` (1–256 bytes) with `deadline`. A new item is `active` at
@@ -1463,12 +1878,12 @@ of items. Reads move no inbox read or acknowledgement marker and no memory curso
   deletions.
 - `POST /v1/decisions/edit` takes `caller`, `reference`, `if_revision` and at least one
   field to change; a list field replaces the stored list. Another revision is
-  `stale_revision` with `current_revision`. An edit of an `in_progress` or `archived` item
-  reopens it: the item becomes `active`, its current verdict gets `superseded_at`, in the
+  `stale_revision` with `current_revision`. An edit of a `returned`, `in_progress` or
+  `archived` item reopens it: the item becomes `active`, its current verdict gets `superseded_at`, in the
   same transaction; the verdict's deliveries do not change. The result is the full item at
   its new revision.
-- `POST /v1/decisions/list` takes `caller`, `filter` (`waiting`: active `decision` items;
-  `active`, `in_progress`, `archived`; or `mine`: items with a recipient name that is now the
+- `POST /v1/decisions/list` takes `caller`, `filter` (`waiting`: active `decision` and
+  `task` items; `active`, `returned`, `in_progress`, `archived`; or `mine`: items with a recipient name that is now the
   caller's peer name or the participant address it holds, also when the name did not resolve
   at the write), optional `after` (an item ID) and
   `limit` (1–100, default 100). Items come in item ID order, keyset-paged: a page holds at
@@ -1510,21 +1925,36 @@ number of verdicts in the item's history, so `decision_get` reads it and the cur
 
 **Verdicts.** The maintainer gives a verdict on the dashboard (see Dashboard actions) or with a
 maintainer token (`decision-verdict`, see Maintainer mode); the agent routes, agent MCP tools
-and commands have no verdict. The verdict stores the client that gave it as `via`. Approve and Decline apply to a `decision` item, Dismiss to an
-`fyi` item; another combination is `invalid_verdict`, a revision other than the one the page
-showed is `stale_revision`, an item that is not `active` is `decided`, and an item with a
-hidden command cannot be approved (`hidden_command`); Decline and Dismiss still apply. An optional note is Markdown of at
-most 4 KiB with the credential check. One ordinary write stores the verdict, a snapshot of
-the item's title, context, recommendation and commands at that revision, the item's new
-state (`in_progress` after Approve; `archived` after Decline or Dismiss), and for Approve and
-Decline one delivery per named recipient, resolved now, and the audit record with target
+and commands have no verdict. The verdict stores the client that gave it as `via`. A
+`decision` item takes `approved`, `declined` or `feedback`; a `task` takes `completed`,
+`declined` or `feedback`; an `fyi` item takes `acknowledged` (#537). Another combination is
+`invalid_verdict`, an unknown verdict, also `dismissed`, is `invalid_request`, a revision other
+than the one the page showed is `stale_revision`, an item that is not `active` is `decided`,
+and an item with a hidden command cannot be approved (`hidden_command`); the other verdicts
+still apply. A note is Markdown of at most 4 KiB with the credential check; it is optional,
+except for `feedback`, whose note is the maintainer's guidance and must not be blank
+(`feedback_required`). Feedback approves and declines nothing. One ordinary write stores the
+verdict, a snapshot of the item's title, where, context, recommendation and commands at that
+revision, the item's new state (`in_progress` after `approved`; `returned` after `feedback`;
+`archived` after `declined`, `completed` or `acknowledged`), one delivery per named
+recipient, resolved now, for every verdict, and one to the item's author unless a recipient
+reaches it: an author whose participant has an address gets it at that address unless a
+recipient is the address or the peer name of an active session that holds it now (the
+author's own peer name, which can be retired, does not count), and an author without one at
+its peer name unless a recipient names it; and the audit record with target
 `decision REF revision N VERDICT verdict ID` (no card text); a failure of any part stores
 nothing. A delivery to a participant address is `queued` with one message in the
 participant inbox, read by its current holder also after a holder change; to an active
 peer it is `queued` with one message in that session's inbox. Otherwise it is `skipped`
 with `reason` `unknown_name`, `maintainer` or `recipient_inactive`. The message comes from
-`maintainer` with `system_kind` `decision_verdict`, the typed `decision_verdict` ID and the
-fixed body `Decision REF has a verdict (ID). Read it with decision_get.` A wake whose range
+`maintainer` with `system_kind` `decision_verdict`, the typed `decision_verdict` ID and a
+body that holds the reference, the ID and, for a recorded verdict, its entry (see Repository
+record); it holds no other card text. The body starts with `Decision REF has a verdict (ID).`
+and the instruction to read it with `decision_get`, record it with `decision_record` and commit
+`DECISIONS.md`; for `feedback`, with `Item REF has the maintainer's feedback (ID) and is
+returned to its author.` and the instruction to record it and then edit or withdraw the item;
+for `acknowledged`, with `Fyi item REF was acknowledged (ID).` and the note that nothing is
+recorded. A wake whose range
 holds such messages ends its notice with ` Decision verdicts ID, ID.`: at most 8 IDs in
 sequence order, then ` +N more`; target selection, coalescing, retries and inbox reads and
 acknowledgements do not change.
@@ -1538,8 +1968,9 @@ acknowledgements do not change.
 - `POST /v1/decisions/pending` takes `caller`, optional `after` (a verdict ID) and `limit`
   (1–100) and returns the caller's `queued` deliveries (its peer name and the participant
   address it holds) as `deliveries` (`verdict_id`, `reference`, `verdict`, `revision`, `at`,
-  `superseded_at`) with `more` and `next_after`, also after the inbox message failed or aged
-  out. A reopen does not acknowledge a delivery; `superseded_at` shows it.
+  `superseded_at`, and `entry` for a recorded verdict, #536) with `more` and `next_after`,
+  also after the inbox message failed or aged out. A reopen or a withdrawal does not acknowledge
+  a delivery; `superseded_at` shows it.
 - `POST /v1/decisions/ack` takes `caller` and `verdict_ids` (1–32) and sets the caller's
   queued deliveries of those verdicts `acknowledged` with the time; it returns
   `acknowledged`, the IDs it changed. A repeated or late acknowledgement changes nothing. It
@@ -1551,6 +1982,28 @@ acknowledgements do not change.
   with the same key returns the item as this close returned it, also after a later edit or
   verdict. Create and close keep separate key spaces; create keys are unchanged from schema
   25, so a create receipt from before the upgrade still answers its retry.
+- `POST /v1/decisions/withdraw` (#504) takes `caller`, `reference`, `if_revision`, `reason`
+  (one line, 1–512 bytes, not blank, no known key format), `key` and `deadline`. It moves an
+  `active` item (a waiting decision item or task, or an open fyi item) or a `returned` item to
+  `archived` and records the
+  withdrawal with the caller's peer name and family, the revision, the reason and the time; it
+  writes no verdict, delivery or audit record, and the item keeps its revision. The caller is
+  the item's author, a session of the participant that the item stored for its author at create
+  (the same family, repository and role of a launched session or DeepSeek, not a sub-agent;
+  a successor after a context cycle qualifies, also after the author's session was deleted, and
+  a plain peer has no participant) or a recipient that names the caller's peer name or held
+  address; another caller is `not_item_party`. A changed revision is
+  `stale_revision` and another state is `not_active`; a verdict and a withdrawal on the same
+  revision are serialized writes, so the second is refused. A retry with the same key returns
+  the item as this withdrawal returned it; withdraw keys are a key space of their own. An item
+  read (`decision_get`, the lookup) carries `withdrawals`, the newest 8 newest first (`id`,
+  `revision`, `by`, `family`, `reason`, `at`, `reopened_at`, `reopened_by`), `withdrawal_count` and
+  `withdrawn`, set while the latest withdrawal archives the item; a summary carries
+  `withdrawn`. `POST /v1/decisions/history` with `withdrawals: true` pages all of an item's
+  withdrawals in ID order (`after`, `limit` up to 16, `more`, `next_after`) instead of its
+  verdicts, and the board lookup links to them (`withdrawals=ID`). An edit that reopens a
+  withdrawn item records the reopen on the withdrawal, as a restore does. The withdrawal of a
+  `returned` item supersedes its feedback verdict, which stays in the history (#537).
 
 **Deep archive.** Nothing deletes a decision record. 30 days after an item was archived,
 once every delivery is `acknowledged` or `skipped`, the maintenance sweep moves its whole
@@ -1572,6 +2025,45 @@ with `reference_in_use`.
   locator, checks its reference and length, and inserts the record again as `archived` with
   a new 30-day period, removing the locator, in one transaction; the line stays in the log.
   An unknown reference is `not_found`; a line that does not match is `decision_unavailable`.
+  The line holds the item's withdrawals too. For an `archived` item whose latest withdrawal is
+  not reopened, restore takes `if_revision` (#504) and reopens the item instead: it is
+  `active` at the next revision, and the withdrawal records the reopen's time and peer name.
+  The caller is a party of the item as for withdraw. Without `if_revision` it is
+  `invalid_request`, and a changed revision is `stale_revision`. Restore of any other item
+  that is not deep-archived is `not_found`.
+
+**Repository record (#536).** A decided item read (`decision_get`, the lookup) with a current
+verdict that is not an fyi acknowledgement or dismissal carries `record`: `path`
+(`DECISIONS.md`), `instruction` and `entry`, the current verdict's entry as `decision_record`
+writes it. A pending page with a delivery that is not an fyi acknowledgement or dismissal
+carries `record` with `path` and `instruction`, and each such delivery carries `entry`; a page
+stops before the delivery that would take the serialized reply past 512 KiB and always holds
+one, which the largest entry fits. The verdict message of such a verdict holds the notice, then
+`Path: DECISIONS.md` and `Entry:` with the entry. An entry that would take the message past 64
+KiB, which only stored hidden commands can cause, is left out, and the message says that
+`decision_get` and `decision_pending` give it. An item read carries
+`author_repository`, the repository of the participant that the item stored for its author at
+create; a plain peer's item has none. A snapshot stores the item's `where` since #536; an
+older snapshot has none.
+
+`decision_record` (`reference`, optional `directory`) and `koinon decision record --reference
+REF [--directory DIR]` read the item and its history through these routes and append to
+`DECISIONS.md` at the root of the checkout of the MCP working directory or of `directory`,
+which must share its Git common directory (else `repo_unresolved`). The item's
+`author_repository` must be that Git common directory: another is
+`decision_other_repository`, none is `decision_repository_unknown`. The file starts with the
+Koinon header when it is created; a file that does not start with it is
+`decision_record_foreign`, and a symbolic link, a non-regular file or a file over 64 MiB is
+`decision_record_invalid`. Nothing is written on a refusal. Under an exclusive lock on the
+file, each verdict that is not an fyi acknowledgement or dismissal and whose marker line is
+absent is appended, in
+verdict order: the reference's anchor (`<a id="ref"></a>`, the reference in lower case, as GitHub writes its
+anchors) before its first entry, then a
+`## REF` heading, the marker `<!-- koinon-decision REF revision N VERDICT MS -->`, the verdict,
+revision and UTC time, the title and where, and the context, recommendation and note (labeled
+`Feedback` for a feedback verdict) as block quotes, with the commands as an indented code block. The result gives `path`, `reference` and
+the verdict IDs `appended`, `present` and `skipped`, and an `instruction` when it appended. An
+item with no recordable verdict creates no file.
 
 ### MCP server
 
@@ -1595,15 +2087,18 @@ decisions and bounded reads in that same native client.
 (`room_id`, `body`, `key`, `deadline`) and `room_read` (`room_id`, `after`, `limit`) call the
 room routes.
 `decision_create`, `decision_edit`, `decision_list`, `decision_get`, `decision_history`,
-`decision_pending`, `decision_ack`, `decision_close` and `decision_restore` take the fields of the
-decision routes, refuse any other argument by name and call those routes.
+`decision_pending`, `decision_ack`, `decision_close`, `decision_withdraw` and `decision_restore` take the fields of the
+decision routes, refuse any other argument by name and call those routes. `decision_record`
+writes the repository record as described above.
 They take no model-supplied consumer or caller identity. A tool
 error is a result with `isError` and a JSON text `{"ok": false, "code": ...}`: the daemon's code,
 `daemon_unavailable`, `identity_unavailable`, `grok_leader_mode`, `invalid_arguments` or `unknown_tool`, with the
 `details` of a work refusal. When the daemon or the MCP server states the rule that refused the
 call, such as `renew_for is 60 to 3600 seconds` or `missing argument work_id`, the result also
 carries it as `error` (at most 1 KiB). The tool schemas state the lease bounds (60 to 3,600
-seconds), work/message list limits (1 to 100) and catalog list limit (maximum 32). Every
+seconds), work/message list limits (1 to 100), catalog list limit (maximum 32) and, for each
+`deadline` that goes with a `key`, its form: a Unix time in seconds, at most the 86,400 s
+idempotency horizon ahead, sent unchanged on each retry (#534). Every
 initialize response offers the catalog and its query paths; this informational offer
 performs no query, inspection, registration or adoption. The server
 writes only protocol messages to stdout and never logs a secret, session ID or message body.
@@ -1741,15 +2236,16 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   token. Each route `POST /v1/maintainer/ROUTE` takes `token` with its fields, refuses unknown
   fields, and refuses an unknown or ended token with `maintainer_token_expired`; an accepted
   request moves the token's idle limit. A reply is `{"ok": true, "result": ...}`.
-  - `board-list` (`filter` `waiting` (default), `active`, `in_progress` or `archived`;
-    `after`; `limit`): `counts` (`waiting`, `in_progress`, `open_fyi`, `archived`) and a page
+  - `board-list` (`filter` `waiting` (default), `active`, `returned`, `in_progress` or
+    `archived`; `after`; `limit`): `counts` (`waiting`, `returned`, `in_progress`, `open_fyi`,
+    `archived`) and a page
     of summaries as `decision_list` returns it.
   - `decision-get` (`reference`) and `decision-history` (`reference`, `after`, `limit`): as
     the agents' routes, without a caller; each history verdict adds `via`.
-  - `decision-verdict` (`reference`, `revision`, `verdict` `approved`, `declined` or
-    `dismissed`, optional `note`): the dashboard's verdict, with its refusals
-    (`stale_revision` with `current_revision`, `not_found`, `decided`, `invalid_verdict`,
-    `hidden_command`). The result is the verdict with `via`.
+  - `decision-verdict` (`reference`, `revision`, `verdict` `approved`, `declined`,
+    `feedback`, `completed` or `acknowledged`, `note`, required for `feedback`): the
+    dashboard's verdict, with its refusals (`stale_revision` with `current_revision`,
+    `not_found`, `decided`, `invalid_verdict`, `feedback_required`, `hidden_command`). The result is the verdict with `via`.
   - `inbox` (`after`, `limit` 1–100) reads the maintainer's own inbox as an agent's inbox read
     pages its own; `ack` (`through`) acknowledges it (`ack_beyond_last`).
   - `send` (`to`, `body`): the dashboard's send (`peer_not_found`, `alias_unheld`,
@@ -1778,8 +2274,8 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     client waits as long. Ordinary requests keep 10 seconds.
 
   Each action writes its audit record as the dashboard's does, also when it is refused, with
-  the dashboard's action name (`decision-approve`, `decision-decline`, `decision-dismiss`,
-  `acknowledge`, `send`, `room-post`, `room-create`, `room-add`, `room-remove`) and a target
+  the dashboard's action name (`decision-approve`, `decision-decline`, `decision-feedback`,
+  `decision-complete`, `decision-acknowledge`, `acknowledge`, `send`, `room-post`, `room-create`, `room-add`, `room-remove`) and a target
   that ends with ` by mcp:NAME`. A read writes no record. `koinon mcp --maintainer --client NAME
   --secret-stdin|--secret-file PATH` reads the secret from the first line of standard input,
   one byte at a time so that the MCP stream after it stays unread, or from a regular file that
@@ -1847,16 +2343,21 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   were at the post, by address or peer name and family: queued with the inbox copy's delivery
   state and acknowledgement, skipped with the reason, or `not retained` with unknown
   acknowledgement once the copy is deleted; the view reads one snapshot and acknowledges
-  nothing), `decisions` (the counts of waiting, in-progress, open fyi and archived items; the
-  agent table; 25 active and in-progress cards per page, `ACTION FOR YOU` items first, then
-  item order and reference, with `cards=CURSOR` links; 20 archived items per page with
+  nothing), `decisions` (the counts of waiting (decision items and tasks), returned,
+  in-progress, open fyi and archived items; the agent table; 25 active, returned and
+  in-progress cards per page, tasks first, then item order and reference, with `cards=CURSOR` links; 20 archived items per page with
   `archived=ID` links; `ref=REFERENCE` shows one item at full width above the agent table,
-  with its verdict history 16 verdicts at a time through `history=ID`: a waiting, in-progress
-  or open fyi item as its card with the card's verdict form, which the cards below then skip,
-  and an archived item read only. A verdict's redirect keeps `ref`, so it returns to the
-  lookup with the notice on that item.
+  with its verdict history 16 verdicts at a time through `history=ID`: a waiting, returned,
+  in-progress or open fyi item as its card with the card's verdict form (a returned card shows
+  the feedback and has no form), which the cards below then skip,
+  and an archived item read only. The daemon removes the spaces around `ref`. When no item has
+  `ref` as its exact reference, the view lists the references of the items and the deep
+  archive that contain it, ignoring ASCII case, 20 per page in reference order with
+  `found=REFERENCE` links, each with its title, kind and state (#505). A verdict's redirect
+  keeps `ref`, so it returns to the lookup or the search with the notice on that item. While
+  `ref` is set, a Clear link returns to the view without it.
   Each count links to `status=waiting`,
-  `in_progress`, `fyi` or `archived`, which lists only the cards of that status, or only the
+  `returned`, `in_progress`, `fyi` or `archived`, which lists only the cards of that status, or only the
   archive for `archived`; an `all` link removes it. The counts stay totals under a filter, the
   current filter's link carries `aria-current="true"`, and the lookup form, reference and page
   links and a verdict's redirect keep it. An unknown `status` is 400), `memory` (per store:
@@ -1878,9 +2379,18 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   `fragment=1` a view returns its list alone; the page script fetches it every 5 seconds while the
   page is visible, with the page's own query. The search and recipient filter forms sit outside
   the list, so a refresh never resets them. A refresh also waits while a disclosure in the list is
-  open or a form field in it has focus, and drops an answer that arrives once one is, so an
-  open confirmation or edit form stays as it is.
-  Views never write.
+  open, a form field in it has focus, or a field in it holds input that is not sent (a text
+  value, select or checkbox that differs from the loaded one, with or without focus, #510), and
+  drops an answer that arrives once one is, so an open confirmation, an edit form or a typed
+  verdict note stays as it is. While unsent input holds it, the list shows "Not refreshed: a
+  form on this page has input that is not sent."
+  Views never write. A view query that the daemon refuses as invalid answers 400 with "The
+  request was not valid." A view read that fails in the daemon (storage, Git, a stored record
+  that cannot be read, such as `decision_unavailable`, or another server error) answers 500
+  with "The daemon could not read this view." under the view's title, keeps the navigation and
+  the refresh, and logs `dashboard_view_failed` with the view and the error; the page shows no
+  internal detail (#507). Its list carries `data-reload`: once the list reads again, the
+  refresh loads the whole view, with its actions and filters.
 - **Sorting and paging.** Each table header with a sortable value links to `sort=COLUMN&dir=asc`
   or `dir=desc`; the current column carries `aria-sort` and its link reverses the direction.
   Columns: sessions `state` (default, ascending: active, then expired, then retired, each with
@@ -1978,12 +2488,15 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     Room posts). It reaches every active member. The form takes up to
     3 × 65,536 + 4,096 bytes, as the send form does, and each rendered form has its own key, so
     a resubmitted form repeats the first post. The notice is `room_posted`.
-  - `decision-approve` and `decision-decline` on a `decision` item and `decision-dismiss` on an
-    `fyi` item (`reference`, `revision`, optional `note`): the maintainer's verdict on the
-    revision the page showed (see Decision items). The form takes up to 3 × 4,096 + 4,096
-    bytes. The verdict is the maintainer's instruction and approval (PDR 005, Decision 3). The
-    notices are `decision_approved`, `decision_declined` and `decision_dismissed`; refusals
-    are `stale_revision`, `decided`, `invalid_verdict` and `hidden_command`.
+  - `decision-approve` (Approve), `decision-decline` (Decline) and `decision-feedback` (Provide
+    feedback) on a `decision` item; `decision-complete` (Completed), `decision-decline`
+    (Declined) and `decision-feedback` on a `task`; `decision-acknowledge` (Acknowledge) on an
+    `fyi` item (`reference`, `revision`, `note`, required for feedback): the maintainer's
+    verdict on the revision the page showed (see Decision items, #537). The form takes up to
+    3 × 4,096 + 4,096 bytes. The verdict is the maintainer's instruction and approval (PDR 005,
+    Decision 3). The notices are `decision_approved`, `decision_declined`, `decision_feedback`,
+    `decision_completed` and `decision_acknowledged`; refusals are `stale_revision`,
+    `decided`, `invalid_verdict`, `feedback_required` and `hidden_command`.
   - `send` (`to`, `body`): a message from `maintainer`; the recipient's wake works as for any
     message.
   - `launch` (`family` `claude`, `codex`, `agy`, `opencode` or `grok`; `directory`; optional `name`): the daemon runs
@@ -2045,11 +2558,52 @@ activity. Message delivery and acknowledgement do not establish activity or inbo
 
 | Group | Sources |
 | --- | --- |
-| Model | `claude_statusline`; `codex_rollout` (the session's own rollout under `CODEX_HOME`) and `codex_mcp_meta` (`x-codex-turn-metadata.model` of a tool call); `agy_hook` (`modelName` of the Stop hook) |
-| Context | `claude_statusline` (`context_window_size`, `total_input_tokens`; epoch: the transcript `session_id`); `codex_rollout` (`model_context_window`, `last_token_usage.input_tokens`; epoch: the rollout's thread) |
-| Activity | `claude_registry` (the parent Claude process's registry record for this session, `entrypoint: cli`; `shell`, the prompt with a background shell task running, is idle); `codex_rollout` (task started and completed); `agy_hook` (idle at Stop) and `mcp_call` (an agy tool call); `opencode_status` (`GET /session/status` on a launched OpenCode server, with its password, cached 5 seconds) |
+| Model | `claude_statusline`; `codex_rollout` (the session's own rollout under `CODEX_HOME`) and `codex_mcp_meta` (`x-codex-turn-metadata.model` of a tool call); `agy_hook` (`modelName` of the Stop hook) and `agy_statusline` (`model.id` of the status-line input); `opencode_server` (`providerID/modelID` of the newest finished assistant message, see below); `dsh_projections` (`modelSelection.lastUsed` `provider/model` of a DeepSeek session's harness, see below); `grok_statusline` (`model.id` of the Grok status-line input) |
+| Context | `claude_statusline` (`context_window_size`, `total_input_tokens`; epoch: the transcript `session_id`); `codex_rollout` (`model_context_window`, `last_token_usage.input_tokens`; epoch: the rollout's thread); `agy_statusline` (`context_window.context_window_size`, `context_window.total_input_tokens`; epoch: the `conversation_id`); `opencode_server` (a launched OpenCode session's newest finished assistant message and its model's `limit.context`; epoch: the OpenCode session ID; see below); `dsh_projections` (a DeepSeek session's `contextPressure` and the usage event that it came from; epoch: the harness session ID; see below); `grok_statusline` (`context_window.context_window_size`, `context_window.context_tokens`; epoch: the Grok session ID) |
+| Activity | `claude_registry` (the parent Claude process's registry record for this session, `entrypoint: cli`; `shell`, the prompt with a background shell task running, is idle); `codex_rollout` (task started and completed); `agy_hook` (idle at Stop), `agy_statusline` (`agent_state`: `idle`; `working` and `tool_use` are busy) and `mcp_call` (an agy tool call); `opencode_status` (`GET /session/status` on a launched OpenCode server, with its password, cached 5 seconds) |
 | Terminal | `tmux_env`: the MCP server's `TMUX` and `TMUX_PANE`, and the pane's session name |
 | Naming | `koinon_mcp`: the last terminal naming result and the published name it was computed for; no socket or pane required |
+
+`opencode_server` is read by the daemon, every 15 seconds, from each active OpenCode session
+that `koinon opencode` launched, on its own loopback server with the launch password: `GET
+/session/{id}/message?limit=4` and `GET /config/providers`, each with a one-second timeout, an
+exact 200, no redirect and at most 8 MiB. The reading is the assistant message with the newest
+`time.completed` and a non-empty `finish`: `used_tokens` is the sum of its `tokens.input`,
+`output`, `reasoning`, `cache.read` and `cache.write`, each a JSON integer from 0 to
+2^53-1, and `tokens.total`, when present, must equal that sum. `limit_tokens` is the context
+limit of the message's `providerID` and `modelID` in the provider list, and the source time is
+`time.completed`. Without a finished assistant message there is no reading. A newest finished
+message that cannot be read gives none either, never an older one, and a failed read confirms
+nothing. A changed reading is recorded at once, an unchanged one once a minute. Only these
+counts and IDs are decoded; the message parts that the server sends with them are not kept. The
+session's own `tokens` are a sum over its turns, so they are not used. A direct `opencode` start
+has no launch password, so it has no reading, and no cycle: the cycle adapter acts through the
+same server (see "OpenCode cycle adapter").
+
+`dsh_projections` is read by the daemon, every 15 seconds, from each active DeepSeek session
+registered with its harness origin and credential file, through the wake's pinned loopback
+origin and signed cookie: `POST /api/session/projections` and `POST /api/session/page`, which
+start no agent. Each request has a one-second timeout, an exact 200 with an `ok` result that
+echoes its `rpcId`, no redirect and at most 8 MiB; one reading reads at most 16 MiB and four
+pages in five seconds. The projections give `asOfSeq`, `contextPressure.pressureTokens` (the
+newest usage's `inputTokens` plus `cacheReadTokens` and `cacheWriteTokens`), `contextWindow` and
+`modelSelection.lastUsed`. The pages, read back from `asOfSeq`, must be contiguous; each page is
+checked whole, before any of its events counts, and is then scanned to the newest
+`assistant/message` or `assistant/attempt` with a usage sample (the message's `usage`, or else
+its stream's last `usage` chunk). That sample's prompt-side count
+must equal `pressureTokens`, and no `request/context` or `model/selection` event may follow it,
+because the harness keeps the pressure and the window as independent values. Then
+`used_tokens` is `pressureTokens`, `limit_tokens` is `contextWindow`, and the source time is the
+usage event's `time`, which an unrelated event, such as a title or a prompt, does not change.
+`inputTokens` is required; an absent cache count is 0, and every count is a JSON integer from 0
+to 2^53-1. Before the first usage there is no reading; any other mismatch or invalid field gives
+none either, never an older one, and a failed read confirms nothing. A changed reading is
+recorded at once, an unchanged one once a minute; a new usage event is a new reading even with
+the same counts and time. Only event types, seqs, times, usage counts and the model and context
+fields are decoded; message text and other projections are not kept.
+`projectedTokens` is the harness's estimate for its next request, so it is not used. A DeepSeek
+session registered without a harness target has `no_source`. The cycle is under "DeepSeek cycle
+adapter". The native source was read with DeepSeek Harness 0.2.0-rc.2.
 
 One MCP server can serve several sessions, so its environment proves nothing about a session.
 The daemon accepts a terminal only for a session registered with a verified launch ID or a
@@ -2101,15 +2655,74 @@ name the session, at most 4 MiB are read per check, records longer than 1 MiB ar
 pieces across checks, and no conversation text is kept or sent.
 
 `koinon hook claude-status [--command COMMAND]` is the Claude Code `statusLine` command. It runs
-`COMMAND` through `/bin/sh -c` with the same input and returns its output and exit status, or
+`COMMAND` through `/bin/sh -c` with the whole input, of which the hook itself reads at most
+1 MiB, and returns its output and exit status, or
 prints the model's display name without one, and reports the model and context of the input's
 `session_id`. `koinon setup claude` makes it the `statusLine` entry, keeping the entry's other
 fields and wrapping its previous command. The previous entry is saved once, before the settings
 change, in `claude-statusline.json` in the Go state root. `koinon setup claude --remove-status-line`
-restores it while the entry is still Koinon's, and keeps an entry the user changed. Only the
-`statusLine` member changes; member order and the file mode are kept; a symbolic link, a file
-not owned by the user, a file over 1 MiB or invalid JSON is refused, and a file that changes
+restores it while the entry is still Koinon's, and keeps an entry the user changed. Setup leaves
+a wrapper that the user edited alone (`statusline_changed`), also when it runs an earlier Koinon
+binary and after a removal that kept it; only a wrapper spelled as setup writes it, the hook
+alone or around one quoted, non-empty `--command`, is set up again then, around that command.
+Only the `statusLine` member changes; member order and the file mode are kept; a symbolic link, a
+file not owned by the user, a file over 1 MiB or invalid JSON is refused, and a file that changes
 while Koinon edits it is a `settings_conflict` that keeps the other change.
+
+`koinon hook agy-status [--command COMMAND]` is the agy `statusLine` command, with the same
+command handling; without a command it prints nothing. It reports for the input's
+`conversation_id`, never its `session_id`, and an input with an empty `conversation_id`, as
+before agy's first turn, gives no report. A report for a conversation that is not registered,
+such as the new one after `/clear` before its first Koinon tool call, is refused. Counts that are
+absent, null, not integers from 0 to 2^53-1, or a `context_window_size` that is not positive, are
+unknown; Koinon makes no reading of its own, so after `/compact` the context is the last reading
+until agy's next status-line input. `koinon setup agy` makes it the `statusLine` entry of the
+Antigravity CLI settings file (`antigravity-cli/settings.json` beside the `--agy-config` root,
+default `~/.gemini/antigravity-cli/settings.json`) with the same rules, saving the previous entry
+in `agy-statusline.json` in the Go state root. Without a previous entry it writes
+`"stack_with_default": true`, so agy keeps its own status line. `koinon setup agy
+--remove-status-line` and the agy removal restore it; the Claude and agy status lines are set up
+and removed independently. The hook also reports `agent_state` as activity (`idle`; `working` and
+`tool_use` as busy; any other state, such as `authenticating`, is unknown) and gives each
+conversation to the agy cycle witness (see "agy cycle adapter").
+
+`koinon hook grok-status [--command COMMAND]` is the Grok status-line command (#515), with the
+same command handling: the wrapped command runs once with the whole input, and its output, exit
+status and signal are returned unchanged; without a command it prints nothing and exits 0.
+Koinon's own failures never change that result. The caller is `grok:` and the input's
+`session_id`, which is the session's Grok MCP identity: Grok Build 1.0.50 gives `GROK_SESSION_ID`
+to its MCP server but not to the status-line command. A `session_id` that is absent, null,
+empty, not a string or not a session ID gives no report, and so does one that differs from a
+`GROK_SESSION_ID` in the hook's environment. A report for a session that is not registered is
+refused, as for the other status lines. Each input whose `session_id` passes these checks is
+also given to the Grok cycle witness, with or without counts (see "Grok cycle adapter"). Only an
+input of at most 64 KiB is decoded. The model is `model.id`. The context needs both
+`context_window.context_tokens` (used) and `context_window.context_window_size` (the limit), as
+integers from 0 to 2^53-1 with a positive limit; otherwise there is no context report, and the
+last reading stands until it is stale. `used_percentage` and the cumulative `session_*` counts
+are not used. The input has no time of its own, so the source time is the hook's. Grok sends
+the input when its state changes (at start, during and at the end of a turn, after `/new` and
+`/compact`), not while it is idle, unless the table's `refresh_interval` is set, so an idle
+session's reading becomes stale after 30 minutes. `koinon setup
+grok` makes `'BINARY' hook grok-status` the `command` of a `[ui.status_line]` table with
+`type = "command"` in Grok's `config.toml` (`--grok-home`, else `$GROK_HOME`, else `~/.grok`).
+Setup owns only the table's `type` and `command`: it edits those lines as text, parses the file
+before and after, and refuses an edit whose meaning differs anywhere else; other keys, tables,
+comments and the table's other options, such as `refresh_interval`, stay as they were. An owned
+line keeps its key spelling, its spacing and its comment; only its value changes. The text
+editor supports a plain `[ui.status_line]` table only: invalid TOML is `settings_invalid`, and an
+inline table, a dotted key, an owned value that is a multiline string or another shape it
+cannot prove is `settings_unusual`; the file is not changed. The previous `type` and `command`,
+their values as spelled, and whether setup added the table, are saved
+once in `grok-statusline.json` in the Go state root, with the file's path. `koinon setup grok
+--remove-status-line` and the Grok removal restore them in that file while it still holds the
+exact wrapper, and remove the table only when setup added it and no other key is in it. A
+saved spelling is used only when it is a TOML spelling of the saved value; otherwise the value
+is written as a basic string. A
+wrapper that the user edited is left alone (`statusline_changed`), also when it runs an earlier
+Koinon binary and after a removal that kept it, with the Claude Code rule. Setup
+for another `config.toml` while one is set up reports `changed` (`statusline_other_file`). A
+missing Grok home is skipped (`grok_config_missing`).
 
 `koinon setup FAMILY` also reports, in `permissions`, the family's recommended permission
 rules of docs/PERMISSIONS.md: `family`, `settings_file`, `outcome` and, by outcome, `missing`,

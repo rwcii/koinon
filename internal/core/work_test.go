@@ -768,6 +768,55 @@ func TestWorkMalformedOrUnknownRequestDoesNotReconcile(t *testing.T) {
 	}
 }
 
+// At the item limit, a create first removes the oldest finished item, also before its 30 days;
+// other items are never removed (#529).
+func TestWorkCreateAtTheLimitRemovesTheOldestFinishedItem(t *testing.T) {
+	s, clock, m := workStore(t)
+	s.memory.limits.workItems = 4
+	finish := func(id string) {
+		generation := mustStart(t, s, m, id, nil)
+		mustWork(t, s, m, "work-finish", map[string]any{"work_id": id, "if_revision": revision(t, s, m, id),
+			"claim_generation": generation, "outcome": "completed", "references": []string{"synthetic-pr"}})
+		*clock = clock.Add(time.Second)
+	}
+	oldest, newer := create(t, s, m, "oldest"), create(t, s, m, "newer")
+	finish(oldest)
+	finish(newer)
+	active := create(t, s, m, "active")
+	mustStart(t, s, m, active, nil)
+	open := create(t, s, m, "open")
+	// A replayed create in a full store needs no room and removes nothing.
+	fields := map[string]any{"title": "t", "criteria": "c", "non_goals": "n", "key": key(), "deadline": now(s) + 600}
+	s.memory.limits.workItems = 5
+	first := mustWork(t, s, m, "work-create", fields)
+	if again := mustWork(t, s, m, "work-create", fields); again["duplicate"] != true || again["work_id"] != first["work_id"] {
+		t.Fatalf("replay: %v", again)
+	}
+	get(t, s, m, oldest)
+	// The store is full: the next create removes the oldest finished item, with its inactive
+	// claim bundle, and then the newer one.
+	create(t, s, m, "first at the limit")
+	if _, err := work(s, m, "work-get", map[string]any{"work_id": oldest}); wcode(err) != "work_not_found" {
+		t.Fatalf("oldest finished item kept: %v", err)
+	}
+	get(t, s, m, newer)
+	create(t, s, m, "second at the limit")
+	if _, err := work(s, m, "work-get", map[string]any{"work_id": newer}); wcode(err) != "work_not_found" {
+		t.Fatalf("newer finished item kept: %v", err)
+	}
+	// Without a finished item, the create is refused and no item is removed.
+	if _, err := work(s, m, "work-create", map[string]any{"title": "t", "criteria": "c", "non_goals": "n", "key": key(),
+		"deadline": now(s) + 600}); code(err) != "capacity" {
+		t.Fatalf("full of unfinished items: %v", err)
+	}
+	for _, id := range []string{active, open, first["work_id"].(string)} {
+		get(t, s, m, id)
+	}
+	if n := count(t, s, `SELECT COUNT(*) FROM work_items`); n != 5 {
+		t.Fatalf("items: %d", n)
+	}
+}
+
 func TestWorkCountLimitsAndDaemonBundleCap(t *testing.T) {
 	s, _, m := workStore(t)
 	s.memory.limits.workItems = 2
@@ -970,7 +1019,7 @@ func TestWorkSchemaFormatHeaderAndMigration(t *testing.T) {
 	m := MemoryCaller{Repository: "/synthetic/repo/.git", Family: "codex", Name: "codex-repo-01", Consumer: "c"}
 	seq := note(t, s, m, MemoryRecordRequest{Type: "decision", Body: "kept across migration"})
 	// Schema 4: the memory runtime without work tables or counters.
-	if _, err := fixtureExec(s, undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+undoSchemaTwentyOne+undoSchemaTwenty+undoSchemaNineteen+undoSchemaEighteen+undoSchemaSeventeen+undoSchemaSixteen+undoSchemaFifteen+undoSchemaFourteen+undoSchemaThirteen+undoSchemaTwelve+undoSchemaEleven+undoSchemaTen+undoSchemaNine+undoSchemaEight+undoSchemaSeven+`DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; DROP TABLE work_items; DROP TABLE work_scope_revisions; DROP TABLE claim_bundles; DROP TABLE claim_resources;
+	if _, err := fixtureExec(s, undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+undoSchemaTwentyOne+undoSchemaTwenty+undoSchemaNineteen+undoSchemaEighteen+undoSchemaSeventeen+undoSchemaSixteen+undoSchemaFifteen+undoSchemaFourteen+undoSchemaThirteen+undoSchemaTwelve+undoSchemaEleven+undoSchemaTen+undoSchemaNine+undoSchemaEight+undoSchemaSeven+`DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; DROP TABLE work_items; DROP TABLE work_scope_revisions; DROP TABLE claim_bundles; DROP TABLE claim_resources;
 		DROP TABLE work_events; DROP TABLE work_replays; ALTER TABLE memory_stores DROP COLUMN work_counter;
 		ALTER TABLE memory_stores DROP COLUMN claim_counter; PRAGMA user_version=4`); err != nil {
 		t.Fatal(err)
@@ -1237,7 +1286,7 @@ func TestWorkCatalogRefusesExtraObjects(t *testing.T) {
 	}
 	// An extra object in an older schema is refused before its migration.
 	s, root := testStore(t)
-	if _, err := fixtureExec(s, undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+undoSchemaTwentyOne+undoSchemaTwenty+undoSchemaNineteen+undoSchemaEighteen+undoSchemaSeventeen+undoSchemaSixteen+undoSchemaFifteen+undoSchemaFourteen+undoSchemaThirteen+undoSchemaTwelve+undoSchemaEleven+undoSchemaTen+undoSchemaNine+undoSchemaEight+undoSchemaSeven+`DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; DROP TABLE work_items; DROP TABLE work_scope_revisions; DROP TABLE claim_bundles; DROP TABLE claim_resources;
+	if _, err := fixtureExec(s, undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+undoSchemaTwentyOne+undoSchemaTwenty+undoSchemaNineteen+undoSchemaEighteen+undoSchemaSeventeen+undoSchemaSixteen+undoSchemaFifteen+undoSchemaFourteen+undoSchemaThirteen+undoSchemaTwelve+undoSchemaEleven+undoSchemaTen+undoSchemaNine+undoSchemaEight+undoSchemaSeven+`DROP INDEX messages_wake; ALTER TABLE messages DROP COLUMN wake_attempts; ALTER TABLE messages DROP COLUMN wake_next_at; ALTER TABLE messages DROP COLUMN wake_reason; DROP TABLE work_items; DROP TABLE work_scope_revisions; DROP TABLE claim_bundles; DROP TABLE claim_resources;
 		DROP TABLE work_events; DROP TABLE work_replays; ALTER TABLE memory_stores DROP COLUMN work_counter;
 		ALTER TABLE memory_stores DROP COLUMN claim_counter; CREATE INDEX unexpected ON memory_stores(head); PRAGMA user_version=4`); err != nil {
 		t.Fatal(err)

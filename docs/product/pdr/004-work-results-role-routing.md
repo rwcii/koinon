@@ -3,7 +3,7 @@ pdr: "004"
 title: "Coordinated Work Results and Role Routing"
 status: modified
 created: "2026-10-12"
-updated: "2026-10-25"
+updated: "2026-10-27"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -140,8 +140,9 @@ The worker reports a result with evidence references. A different consumer then 
 accepted or rejected. Reject returns the item to open with a corrected scope revision and
 keeps the report and both scopes. Accept finishes the item as completed. A `reported`
 lifecycle state lies between active and finished, with `work_report`, `work_accept` and
-`work_reject`. Reported items do not expire; the 30-day finished retention starts at
-acceptance. A report reserves storage for its later verdict, with at most 16 pending
+`work_reject`. Reported items do not expire; the finished retention of up to 30 days starts
+at acceptance. A create in a store that holds its item limit first removes the oldest finished
+item, also before its 30 days; open, active, blocked and reported items are never removed. A report reserves storage for its later verdict, with at most 16 pending
 reservations per store and 32 per daemon. Unreported v1 finish and withdrawal stay available.
 
 **Provenance:** Requested in #140 (issue body, gap 2 and acceptance criteria), which
@@ -158,6 +159,20 @@ you adding more complications." ([#487 comment 6401405382](https://github.com/rw
 Reason: limit text with no source makes agents of different families refuse each other's work.
 Scope: agent-facing text, skills, setup blocks and the docs and records that restate them. The #487 audit lists the code
 refusals for a separate decision (#493). The verdict rule of Decision 3 keeps its source and stays.
+
+Early removal of finished items: Maintainer, 2026-10-27, decision board item WORK-LIMIT-529
+(revision 1), [DECISIONS.md#WORK-LIMIT-529](../../../DECISIONS.md#work-limit-529), "approved". The question: "Let new work items replace old finished
+items when a store is full? (#529)". The card said that the koinon store held 128 items (116
+finished), so `work_create` was refused with `capacity` until the first finished item reached
+30 days on 2026-11-05, and recommended: "When a new item would go past the limit, Koinon
+removes the oldest finished item first, also before its 30 days. Koinon never removes an item
+that is open, active, blocked or reported. The limit of 128 and the storage bounds do not
+change. A finished item then stays for up to 30 days, or until the store needs its space." The
+other choice was to decline and name another change, such as a higher limit or a shorter
+retention. Reason: a store full of finished items blocked all new work for up to 30 days.
+Scope: the per-store item limit only; the other limits and the 30-day retention stay. That
+"oldest" means the earliest expiry and that a replayed create removes nothing are
+implementation details of #529; no maintainer decision.
 
 ### Alternatives Considered
 
@@ -271,3 +286,4 @@ maintainer decided the verdict rule (Decision 3) and approved the plan's mechani
 | 2026-10-12 | Role routing and the reported state with its verdict are built; discovery is not |
 | 2026-10-12 | Built production work discovery and coalesced notices under the approved chunk 03 plan |
 | 2026-10-25 | Decision 2 and the requirements: removed the unsourced "grants no authority" and "grants approval or permission" text; status modified (#487) |
+| 2026-10-27 | Decision 2: a create at the item limit removes the oldest finished item, approved on the decision board (WORK-LIMIT-529) (#529) |

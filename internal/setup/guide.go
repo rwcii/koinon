@@ -54,8 +54,9 @@ Decision 3). A member post is a teammate's post: answer it in the room. Read the
 for retained context; current members can reply.
 - decision_create, decision_edit, decision_list, decision_get, decision_history: write items
   for the maintainer's decision board and read them and their verdicts in bounded pages.
-- decision_pending, decision_ack, decision_close, decision_restore: read and acknowledge the
-  verdicts delivered to you, close approved work, and restore a deep-archived item.
+- decision_pending, decision_ack, decision_close, decision_withdraw, decision_restore: read and
+  acknowledge the verdicts delivered to you, close approved work, withdraw an item that no
+  longer needs the maintainer, and restore a deep-archived or withdrawn item.
   See Decisions.
 - memory_sync, memory_ack: read this repository's shared memory. Page a snapshot to the end
   before acknowledging it; acknowledge a delta through next_cursor after you process it.
@@ -75,23 +76,43 @@ for retained context; current members can reply.
   unresolved audiences and notification saturation.
 
 ## Decisions
-Get decision status with decision_list and decision_get (waiting, active, in_progress,
-archived or mine, paged with next_after). decision_create needs reference, title, kind (decision or fyi), key and
-deadline; decision_edit needs the if_revision you read. Write card prose in ASD-STE100
+Get decision status with decision_list and decision_get (waiting, active, returned,
+in_progress, archived or mine, paged with next_after). decision_create needs reference, title,
+kind, key and deadline. The kind is decision (the maintainer approves, declines or gives
+feedback), task (work that the maintainer must do: completed, declined or feedback) or fyi
+(information, which the maintainer acknowledges); an fyi that needs an answer is a decision or
+a task; decision_edit needs the if_revision you read. Write card prose in ASD-STE100
 Simplified Technical English; context, recommendation and agent_text are Markdown
 (paragraphs, line breaks, lists, emphasis, inline code and fenced code blocks; links, images
-and HTML show as literal text). Start an fyi title with ACTION FOR YOU when the maintainer
-must do manual work. Terminal-copy commands are printable ASCII only. Name recipients by participant address or
+and HTML show as literal text). Terminal-copy commands are printable ASCII only. Name recipients by participant address or
 peer name; an unknown name is flagged. Text in a known key format is refused. The maintainer
 gives the verdict in the dashboard or a maintainer client.
-An item is active (waiting for a verdict), in_progress (approved; do the work, then
-decision_close), archived (closed, declined or dismissed) or, 30 days later, deep-archived
-(decision_restore brings it back). A dashboard verdict is the maintainer's instruction and
+An item is active (waiting for a verdict), returned (the maintainer's feedback came back to
+its author: change the item as the feedback says with decision_edit, which makes it wait
+again, or withdraw it), in_progress (approved; do the work, then decision_close), archived
+(closed, declined, completed, acknowledged, dismissed or withdrawn) or, 30 days later,
+deep-archived (decision_restore brings it back). Feedback approves and declines nothing. When
+a waiting, returned or open fyi item no longer needs the maintainer (the work is done, a newer item supersedes it, it was answered in
+chat, or it is no longer valid), withdraw it at once with decision_withdraw: the if_revision
+you read and a one-line reason. Its author, a session of the author's participant or a named
+recipient can withdraw it; it gets no verdict. decision_restore with if_revision reopens a
+withdrawn item, and decision_history with withdrawals pages its withdrawals. A dashboard verdict is the maintainer's instruction and
 approval (PDR 005, Decision 3). A verdict reaches each
 named recipient as an inbox message and a wake that name its verdict ID: read it with
 decision_get, handle it, then decision_ack. decision_pending lists unacknowledged verdicts,
 also after the message aged out; a superseded one means the item was reopened. Editing a
 decided item reopens it for a new verdict.
+Record each verdict that you handle in the repository, except an fyi acknowledgement: decision_record with the reference
+appends its entry, with the card text that the maintainer saw, to DECISIONS.md at the root of
+your checkout (directory names another checkout of the same repository), once per verdict;
+decision_get, decision_pending and the verdict message show the entry and the path. Before you commit, correct the spelling and typing
+errors in the maintainer's words in each new entry (notes, feedback and quotes), and keep
+their meaning and wording; do the same wherever you put the maintainer's words into the
+repository. Commit DECISIONS.md with the work. Cite a decision
+in a commit, a pull request or a document as DECISIONS.md#REFERENCE (a link's target is the
+reference in lower case), never by verdict ID: a
+verdict ID exists only in this machine's store. A recorded entry is public repository text,
+so write every card as public text (#536).
 
 ## Participants
 A participant is a family, repository and optional maintainer-assigned role. Start an additional
@@ -180,11 +201,14 @@ while fresh and for the current published name.
 - The request is in your session's own inbox, also when you hold a participant address. A
   wake notice whose range holds it ends with "Managed context-cycle request ID." Read that
   inbox range first.
-- On a request: pause your work at the next safe stopping point. Let
-  your running background subagents finish, or stop them, so that the handoff holds their
-  results; a Claude subagent that works after your ready report makes overwatch ask again. The
-  request names its ready deadline as a UTC time: stop any subagent that will not finish with
-  enough time left to update the handoff and report ready by then. Write
+- On a request: pause your work at the next safe stopping point. In a Claude session the
+  clear does not stop your background subagents: do not stop them or wait for them; list each
+  one that still runs in the handoff, with its task and where its result goes, and the new
+  session gets each result as a message. A Claude subagent that finishes after your ready
+  report makes overwatch ask again. Other families: let your running background subagents
+  finish, or stop them, so that the handoff holds their results. The request names its ready
+  deadline as a UTC time: stop any such subagent that will not finish with enough time left to
+  update the handoff and report ready by then. Write
   your handoff with your canonical handoff procedure into _handoff/AGENT/ of the main checkout,
   where AGENT is your family, with -ROLE for a launch with a role (not the participant
   address); the Handoff path fact of .koinon/skills/handoff.md can name another directory that
@@ -198,7 +222,7 @@ while fresh and for the current published name.
 - After a clear, call context_cycle_status. For a cycle in waiting_pickup, finish your
   canonical pickup of the returned handoff file, then call context_cycle_pickup with the cycle
   ID, revision, file name, outcome resumed or paused, and a short report of the restored work,
-  within two minutes of the pickup input. Its catalog_digest is the catalog whose pickup
+  within five minutes of the pickup input. Its catalog_digest is the catalog whose pickup
   procedure the cycle pinned; library_read returns the same digest.
 - context_cycle_ready and context_cycle_pickup move the cycle on; a stale or conflicting
   report returns the current state.
@@ -327,9 +351,13 @@ paths/connections and optional terminal operations.
 	"agy": `
 ## Antigravity
 Koinon knows this conversation by its conversation ID. Waiting messages are offered at your
-turn boundary. Run koinon setup agy once to add the server and the stop hook.
+turn boundary. Run koinon setup agy once to add the server, the stop hook and the status line
+that reports this conversation's model and context use.
 Start through koinon agy for participant features. A direct agy start registers as a plain
 peer using its native conversation identity.
+On Linux, a managed context cycle (Managed cycle reporting) for a session started with koinon
+agy in tmux enters /clear and /koinon-pickup in this pane; the new conversation then takes the
+address at its first tool call and reports the pickup.
 ### Recommended permissions
 Merge into ~/.gemini/antigravity-cli/settings.json (not the Stop-hook customization root):
   {"permissions":{"allow":["mcp(koinon/*)","command(koinon guide --agent agy)"]}}
@@ -346,6 +374,15 @@ installs; without it the tools refuse the call. Start OpenCode through koinon op
 participant features and its wake endpoint. A direct opencode start registers as a plain
 peer using the plugin's native identity. It has no automatic wake because it has no launcher
 wake endpoint; read waiting messages with inbox.
+A session started through koinon opencode shows its model and context use in peer_status and
+on the dashboard: the daemon reads them from this session's own OpenCode server, never its
+message text.
+On Linux, a managed context cycle (Managed cycle reporting) for a session started with koinon
+opencode in tmux creates a new session through this session's own OpenCode server, shows it in
+this pane and runs the koinon-pickup skill there with this session's model; the new session then
+takes the address at its first tool call and reports the pickup. The report needs the pane to
+show the new session's Koinon tool calls; a refused report (cycle_display_unproven) can be sent
+again.
 ### Recommended permissions
 Merge into the existing $XDG_CONFIG_HOME/opencode/opencode.json (or .jsonc); default
 ~/.config/opencode/opencode.json:
@@ -368,6 +405,13 @@ A Grok sub-agent's Koinon calls arrive with its parent's session ID and act as t
 A session started with koinon grok is woken by Koinon typing its notice into this session's
 own tmux pane, only while the input box is empty and no turn runs; a direct start gets no
 pane wake. Read waiting messages with inbox.
+Koinon setup grok also sets the [ui.status_line] command in ~/.grok/config.toml to Koinon's
+grok-status hook, so peer_status shows this session's model and context use. Grok reads the
+file at startup.
+On Linux, a managed context cycle (Managed cycle reporting) for a session started with koinon
+grok in tmux enters /new and /koinon-pickup in this pane; the new session then takes the
+address at its first tool call and reports the pickup. koinon install writes koinon-pickup into
+the skills of the Grok home ($GROK_HOME, else ~/.grok).
 ### Recommended permissions
 Allow the Koinon tools for a launch with Grok's own rule flag:
   koinon grok --allow 'MCPTool(koinon__*)'
@@ -396,6 +440,8 @@ DeepSeek uses the command path until its MCP support is verified, with this sess
   koinon decision ack --as deepseek:$DSH_SESSION_ID --verdict VERDICT_ID
   koinon decision close --as deepseek:$DSH_SESSION_ID --reference REF --if-revision REVISION --key KEY --deadline UNIX_SECONDS
   koinon decision restore --as deepseek:$DSH_SESSION_ID --reference REF
+  koinon decision withdraw --as deepseek:$DSH_SESSION_ID --reference REF --if-revision REVISION --reason 'reason' --key KEY --deadline UNIX_SECONDS
+  koinon decision record --as deepseek:$DSH_SESSION_ID --reference REF
   koinon peer-status --as deepseek:$DSH_SESSION_ID NAME
   koinon send --as deepseek:$DSH_SESSION_ID NAME 'message'
   koinon inbox --as deepseek:$DSH_SESSION_ID
@@ -405,6 +451,16 @@ DeepSeek uses the command path until its MCP support is verified, with this sess
   koinon cycle-pickup --as deepseek:$DSH_SESSION_ID CYCLE_ID REVISION HANDOFF_FILE resumed|paused 'report'
 Register uses DSH_WEB_URL and DSH_HOME for the wake target; repeat it while using the session
 to renew its 15-minute lease, and add --repository PATH when selecting a repository.
+The daemon reads this session's model and context from the harness with the same credential, so
+peer-status and the dashboard show them.
+The handoff cycle (Linux) creates no clear: once this session is idle after koinon cycle-ready,
+overwatch creates a new harness session in the same directory and enters /koinon-pickup there;
+DeepSeek's koinon-pickup entry, which koinon install writes to $DSH_HOME/skills, runs koinon
+library read skill.pickup. The new session registers with the same --repository as the one it
+continues; it takes the participant once the cycle recorded the pickup's receipt, and a
+cycle_receipt_pending result or refusal means register again after retry_after_ms, then report.
+The cycle runs only while this session's model is the harness's default model, because a new
+session takes the default (model_not_default); overwatch never changes a harness setting.
 ### Recommended permissions
 Approve the commands above and koinon guide --agent deepseek in this session's command
 approval flow. The live wake was proven with DeepSeek Harness 0.2.0-rc.2 (#199).

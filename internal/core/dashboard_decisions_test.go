@@ -50,7 +50,8 @@ func TestDecisionBoard(t *testing.T) {
 		Recommendation: ptr("- one\n- two"),
 		Commands:       &[]string{"koinon status", "go test ./..."}})
 	create("F-2", 0, "Plain notice", "fyi", DecisionFields{})
-	create("F-1", 5, actionForYou+": restart the synthetic service", "fyi", DecisionFields{})
+	create("F-1", 5, "Second notice", "fyi", DecisionFields{})
+	create("T-1", 7, "Restart the synthetic service", "task", DecisionFields{})
 	create("P-1", 3, "Approved work", "decision", DecisionFields{})
 	create("A-1", 4, "Declined work", "decision", DecisionFields{})
 	create("U-1", 6, "Nobody named", "decision", DecisionFields{Recipients: &[]string{"synthetic-nobody"}})
@@ -76,12 +77,12 @@ func TestDecisionBoard(t *testing.T) {
 		t.Fatalf("board: %d %s", page.status, page.body)
 	}
 	body := page.body
-	for _, want := range []string{"<b>3</b> waiting", "<b>1</b> in progress", "<b>2</b> open fyi", "<b>1</b> archived"} {
+	for _, want := range []string{"<b>4</b> waiting", "<b>0</b> returned", "<b>1</b> in progress", "<b>2</b> open fyi", "<b>1</b> archived"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("counts: no %q", want)
 		}
 	}
-	if got := strings.Join(boardCards(body), " "); got != "F-1 F-2 D-1 D-2 P-1 U-1" {
+	if got := strings.Join(boardCards(body), " "); got != "T-1 F-2 D-1 D-2 P-1 F-1 U-1" {
 		t.Errorf("card order: %s", got)
 	}
 	d1 := cardOf(t, body, "D-1")
@@ -98,8 +99,15 @@ func TestDecisionBoard(t *testing.T) {
 		t.Errorf("hidden command card: %s", d2)
 	}
 	f1 := cardOf(t, body, "F-1")
-	if !strings.Contains(f1, "decision-dismiss") || strings.Contains(f1, "decision-approve") || strings.Contains(f1, "decision-decline") {
+	if !strings.Contains(f1, "decision-acknowledge") || strings.Contains(f1, "decision-approve") || strings.Contains(f1, "decision-decline") ||
+		strings.Contains(f1, "decision-feedback") {
 		t.Errorf("fyi card: %s", f1)
+	}
+	// A task waits with Completed, Declined and Provide feedback (#537).
+	t1 := cardOf(t, body, "T-1")
+	if !strings.Contains(t1, `<button type="submit" formaction="/dashboard/actions/decision-complete">Completed</button> <button type="submit" formaction="/dashboard/actions/decision-decline">Declined</button> <button type="submit" formaction="/dashboard/actions/decision-feedback">Provide feedback</button>`) ||
+		!strings.Contains(t1, ">waiting</span>") || strings.Contains(t1, "decision-approve") || strings.Contains(t1, "decision-acknowledge") {
+		t.Errorf("task card: %s", t1)
 	}
 	p1 := cardOf(t, body, "P-1")
 	if strings.Contains(p1, "<form") || !strings.Contains(p1, "Use the <strong>small</strong> fix.") || !strings.Contains(p1, "in progress") {
@@ -115,7 +123,7 @@ func TestDecisionBoard(t *testing.T) {
 	// with no native ID, repository path or wake target.
 	row := body[strings.Index(body, `<table class="agents">`):]
 	row = row[:strings.Index(row, "</table>")]
-	for _, want := range []string{peer.Name, "Synthetic claimed work", "?ref=D-1", "?ref=D-2", "not reported"} {
+	for _, want := range []string{peer.Name, "Synthetic claimed work", "?ref=D-1", "?ref=D-2", "?ref=T-1", "not reported"} {
 		if !strings.Contains(row, want) {
 			t.Errorf("agent row: no %q in %s", want, row)
 		}
@@ -348,8 +356,8 @@ func TestDecisionBoardStatusFilter(t *testing.T) {
 	for i := 0; i < decisionBoardArchive; i++ {
 		ref := fmt.Sprintf("Z-%02d", i)
 		mustCreate(t, d.store, key, ref, decisionFields("Dismissed "+ref, "fyi"))
-		if got := client.do("decision-dismiss", url.Values{"reference": {ref}, "revision": {"1"}}); got != "decision_dismissed" {
-			t.Fatalf("dismiss %s: %s", ref, got)
+		if got := client.do("decision-acknowledge", url.Values{"reference": {ref}, "revision": {"1"}}); got != "decision_acknowledged" {
+			t.Fatalf("acknowledge %s: %s", ref, got)
 		}
 	}
 	archived := dashboardDo(t, d, "GET", "/dashboard/decisions?status=archived", client.cookie, nil, nil).body
@@ -448,10 +456,10 @@ func TestDecisionLookupCard(t *testing.T) {
 		reference, status, want string
 		absent                  []string
 	}{
-		{"D-1", "waiting", `<button type="submit" formaction="/dashboard/actions/decision-approve">Approve</button> <button type="submit" formaction="/dashboard/actions/decision-decline">Decline</button>`,
-			[]string{"decision-dismiss"}},
-		{"F-1", "fyi", `<button type="submit" formaction="/dashboard/actions/decision-dismiss">Dismiss</button>`,
-			[]string{"decision-approve", "decision-decline"}},
+		{"D-1", "waiting", `<button type="submit" formaction="/dashboard/actions/decision-approve">Approve</button> <button type="submit" formaction="/dashboard/actions/decision-decline">Decline</button> <button type="submit" formaction="/dashboard/actions/decision-feedback">Provide feedback</button>`,
+			[]string{"decision-acknowledge", "decision-complete"}},
+		{"F-1", "fyi", `<button type="submit" formaction="/dashboard/actions/decision-acknowledge">Acknowledge</button>`,
+			[]string{"decision-approve", "decision-decline", "decision-feedback"}},
 		{"P-1", "in_progress", "Go <strong>ahead</strong>.", []string{"<form", "Read only."}},
 	} {
 		for _, path := range []string{"/dashboard/decisions?ref=" + c.reference + "&status=" + c.status,
@@ -541,18 +549,18 @@ func TestDecisionLookupCard(t *testing.T) {
 	if got := strings.Join(boardCards(body), " "); got != "D-2" || !strings.Contains(body, `aria-current="true">`) || !strings.Contains(body, "<h2>Items: waiting</h2>") {
 		t.Errorf("after approve: grid %q", got)
 	}
-	// Dismiss F-1 from its lookup: the item is archived, so the lookup is read only and
+	// Acknowledge F-1 from its lookup: the item is archived, so the lookup is read only and
 	// carries the notice.
-	location = post("decision-dismiss", url.Values{"reference": {"F-1"}, "revision": {"1"}, "back": {"ref=F-1&status=fyi"}})
-	if q := location.Query(); q.Get("ref") != "F-1" || q.Get("status") != "fyi" || q.Get("notice") != "decision_dismissed" {
-		t.Fatalf("dismiss redirect: %s", location)
+	location = post("decision-acknowledge", url.Values{"reference": {"F-1"}, "revision": {"1"}, "back": {"ref=F-1&status=fyi"}})
+	if q := location.Query(); q.Get("ref") != "F-1" || q.Get("status") != "fyi" || q.Get("notice") != "decision_acknowledged" {
+		t.Fatalf("acknowledge redirect: %s", location)
 	}
 	body = get(location.String())
 	section = lookupSection(t, body)
 	if !strings.Contains(section, "<h2>F-1: Item F-1</h2>") || !strings.Contains(section, "Read only.") || strings.Contains(section, "<form") ||
 		strings.Contains(section, "lookup-card") || !strings.Contains(section, `<p class="card-notice" role="status">`) ||
-		strings.Count(body, `class="card-notice`) != 1 || strings.Contains(body, `<p class="notice"`) || !strings.Contains(section, "<strong>dismissed</strong> on revision 1") {
-		t.Errorf("after dismiss: %s", body)
+		strings.Count(body, `class="card-notice`) != 1 || strings.Contains(body, `<p class="notice"`) || !strings.Contains(section, "<strong>acknowledged</strong> on revision 1") {
+		t.Errorf("after acknowledge: %s", body)
 	}
 
 	// An archived item stays read only with its history; a deep-archived item names the
@@ -571,5 +579,120 @@ func TestDecisionLookupCard(t *testing.T) {
 		if !strings.Contains(section, `<p class="empty">`+want+`</p>`) || strings.Contains(section, "<form") || strings.Contains(section, "<article") {
 			t.Errorf("%s lookup: %s", ref, section)
 		}
+	}
+}
+
+// matchRow is one reference of a search's match list.
+var matchRow = regexp.MustCompile(`<tr><td><a href="/dashboard/decisions\?ref=([A-Za-z0-9-]+)[^"]*">[^<]*</a></td><td>[^<]*</td><td>[^<]*</td><td>([^<]*)</td></tr>`)
+
+func boardMatches(section string) []string {
+	var rows []string
+	for _, m := range matchRow.FindAllStringSubmatch(section, -1) {
+		rows = append(rows, m[1]+"="+m[2])
+	}
+	return rows
+}
+
+// TestDecisionBoardSearch finds items by all or part of a reference, ignoring ASCII case and
+// the spaces around it (#505). Only an exact reference opens the item; other matches list
+// their references, deep-archived ones too, in pages. A Clear link ends the search and keeps
+// the status filter, and a refresh and a verdict keep the search.
+func TestDecisionBoardSearch(t *testing.T) {
+	d, root := startTestDaemon(t)
+	client := newActionClient(t, d, root)
+	peer := join(t, d.store, "claude", "synthetic-search", "")
+	key := Key{"claude", peer.ID}
+	create := func(reference, kind string) {
+		f := decisionFields("Item "+reference, kind)
+		f.Recipients = &[]string{peer.Name}
+		mustCreate(t, d.store, key, reference, f)
+	}
+	create("tools-4", "decision")
+	create("tools-5", "fyi")
+	create("Other-1", "decision")
+	for i := 1; i <= decisionBoardMatches+2; i++ {
+		create(fmt.Sprintf("page-%02d", i), "decision")
+	}
+	if _, err := fixtureExec(d.store, `INSERT INTO decision_deep_archive(reference,file,offset,length,moved_at) VALUES ('tools-old','synthetic.jsonl',0,1,1700000000000)`); err != nil {
+		t.Fatal(err)
+	}
+	get := func(path string) string {
+		t.Helper()
+		page := dashboardDo(t, d, "GET", path, client.cookie, nil, nil)
+		if page.status != 200 {
+			t.Fatalf("%s: %d %s", path, page.status, page.body)
+		}
+		return page.body
+	}
+
+	// An exact reference opens the item, also with spaces around it.
+	for _, ref := range []string{"tools-4", "%20tools-4%20"} {
+		body := get("/dashboard/decisions?ref=" + ref)
+		section := lookupSection(t, body)
+		if !strings.Contains(section, `id="lookup-tools-4"`) || boardMatches(section) != nil || !strings.Contains(body, `name="ref" maxlength="32" value="tools-4"`) {
+			t.Errorf("%s: exact lookup: %s", ref, section)
+		}
+	}
+	// Part of a reference, in any case, lists the matches with their states, the deep
+	// archive included; a case-different whole reference is a one-row list.
+	for ref, want := range map[string]string{
+		"tools":     "tools-4=waiting tools-5=open tools-old=deep archive",
+		"TOOLS-":    "tools-4=waiting tools-5=open tools-old=deep archive",
+		"%20ols%20": "tools-4=waiting tools-5=open tools-old=deep archive",
+		"other-1":   "Other-1=waiting",
+		"-5":        "tools-5=open",
+	} {
+		section := lookupSection(t, get("/dashboard/decisions?ref="+ref))
+		if got := strings.Join(boardMatches(section), " "); got != want || strings.Contains(section, "<article") || strings.Contains(section, `class="empty"`) {
+			t.Errorf("%s: matches %q, want %q: %s", ref, got, want, section)
+		}
+	}
+	// No match keeps the message.
+	if section := lookupSection(t, get("/dashboard/decisions?ref=zzz")); !strings.Contains(section, `<p class="empty">no decision item has this reference</p>`) || boardMatches(section) != nil {
+		t.Errorf("no match: %s", section)
+	}
+
+	// The matches come in pages of decisionBoardMatches, in reference order.
+	section := lookupSection(t, get("/dashboard/decisions?ref=page"))
+	rows := boardMatches(section)
+	more := regexp.MustCompile(`<a href="(/dashboard/decisions\?ref=page&amp;found=page-20)">More matches</a>`).FindStringSubmatch(section)
+	if len(rows) != decisionBoardMatches || rows[0] != "page-01=waiting" || more == nil {
+		t.Fatalf("first page: %q: %s", rows, section)
+	}
+	section = lookupSection(t, get(strings.ReplaceAll(more[1], "&amp;", "&")))
+	if got := strings.Join(boardMatches(section), " "); got != "page-21=waiting page-22=waiting" || strings.Contains(section, "More matches") {
+		t.Errorf("second page: %q: %s", got, section)
+	}
+
+	// The search keeps the status filter, and Clear returns to that filter without it. A
+	// refresh fragment keeps the search.
+	for _, path := range []string{"/dashboard/decisions?ref=tools&status=waiting", "/dashboard/decisions?fragment=1&ref=tools&status=waiting"} {
+		body := get(path)
+		for _, want := range []string{`<input type="hidden" name="status" value="waiting">`, `<a href="/dashboard/decisions?status=waiting">Clear</a>`,
+			`<a href="/dashboard/decisions?ref=tools-5&amp;status=waiting">tools-5</a>`, `aria-current="true">`} {
+			if !strings.Contains(body, want) {
+				t.Errorf("%s: no %q in %s", path, want, body)
+			}
+		}
+		if got := strings.Join(boardMatches(lookupSection(t, body)), " "); got != "tools-4=waiting tools-5=open tools-old=deep archive" {
+			t.Errorf("%s: matches %q", path, got)
+		}
+	}
+	if body := get("/dashboard/decisions?ref=tools"); !strings.Contains(body, `<a href="/dashboard/decisions">Clear</a>`) {
+		t.Errorf("Clear without a filter: %s", body)
+	}
+	if body := get("/dashboard/decisions"); strings.Contains(body, ">Clear</a>") || strings.Contains(body, "lookup-result") {
+		t.Errorf("Clear without a search: %s", body)
+	}
+
+	// A verdict from the grid returns to the search.
+	form := url.Values{"reference": {"tools-4"}, "revision": {"1"}, "back": {"ref=tools&status=waiting"}, "csrf": {client.csrf}}
+	r := dashboardDo(t, d, "POST", "/dashboard/actions/decision-approve", client.cookie, client.sameOrigin, form)
+	location, err := url.Parse(r.header.Get("Location"))
+	if r.status != 303 || err != nil || location.Query().Get("ref") != "tools" || location.Query().Get("status") != "waiting" {
+		t.Fatalf("approve: %d %q", r.status, r.header.Get("Location"))
+	}
+	if got := strings.Join(boardMatches(lookupSection(t, get(location.String()))), " "); got != "tools-4=in progress tools-5=open tools-old=deep archive" {
+		t.Errorf("after approve: matches %q", got)
 	}
 }

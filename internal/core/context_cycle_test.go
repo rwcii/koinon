@@ -32,6 +32,8 @@ type fakeAdapter struct {
 	dialog      CycleDialog
 	// afterChoose runs once the option is entered: the call that the dialog approved.
 	afterChoose func()
+	// beforeChoose runs as Choose starts, before its digest check: the pane's next dialog.
+	beforeChoose func()
 }
 
 func (f *fakeAdapter) Version() string { return "synthetic-1" }
@@ -90,6 +92,9 @@ func (f *fakeAdapter) Dialog(context.Context, CycleTarget) (CycleDialog, error) 
 	return f.dialog, nil
 }
 func (f *fakeAdapter) Choose(ctx context.Context, _ CycleTarget, digest, option string, fence CycleFence) (bool, error) {
+	if f.beforeChoose != nil {
+		f.beforeChoose()
+	}
 	if digest != f.dialog.Digest {
 		return false, ErrCycleDialogChanged
 	}
@@ -288,6 +293,10 @@ func TestContextCycleRetainedCallerFlow(t *testing.T) {
 	if _, err := f.s.ContextCyclePickup(context.Background(), f.k, "synthetic-epoch-1", v.ID, v.Revision, name, "resumed", "synthetic report"); !errors.Is(err, ErrCycleEpoch) {
 		t.Fatalf("old epoch pickup: %v", err)
 	}
+	// A bad name is refused with the canonical form (#535).
+	if _, err := f.s.ContextCyclePickup(context.Background(), f.k, "synthetic-epoch-2", v.ID, v.Revision, "2026-10-27T211500Z-handoff.md", "resumed", "synthetic report"); !artifactRefused(err, "YYYY-MM-DD-HHMMSS[-LABEL].md") {
+		t.Fatalf("bad name pickup: %v", err)
+	}
 	done, err := f.s.ContextCyclePickup(context.Background(), f.k, "synthetic-epoch-2", v.ID, v.Revision, name, "resumed", "synthetic restored work")
 	if err != nil || done.State != cycleComplete || done.Outcome != cycleComplete || done.ReportBytes == 0 {
 		t.Fatalf("pickup: %v %+v", err, done)
@@ -362,7 +371,7 @@ func TestContextCycleArtifactChecks(t *testing.T) {
 	os.WriteFile(outside, []byte("synthetic"), 0o600)
 	os.Symlink(outside, filepath.Join(f.repo, "_handoff", "claude", "2026-10-13-120002.md"))
 	for _, name := range []string{"2026-10-13-120000.md", "2026-10-13-120001.md", "2026-10-13-120002.md", "2026-10-13-120003.md", "../x.md", "notes.md"} {
-		if err := ready(name); !artifactRefused(err, "") && !errors.Is(err, ErrInvalid) {
+		if err := ready(name); !artifactRefused(err, "") {
 			t.Fatalf("%s: %v", name, err)
 		}
 	}
@@ -426,7 +435,13 @@ func TestContextCycleArtifactRefusalsNameTheCheck(t *testing.T) {
 	if err := ready("2026-10-13-120000.md"); !artifactRefused(err, "_handoff/claude/2026-10-13-120000.md is not a regular file") {
 		t.Fatalf("missing file: %v", err)
 	}
-	// The ready call refuses a bad name as an invalid request first; the check itself names it.
+	// A bad name is refused with the canonical form, both in the ready report and in the
+	// check itself (#535).
+	for _, name := range []string{"notes.md", "2026-10-27T211500Z-handoff.md"} {
+		if err := ready(name); !artifactRefused(err, `is not a handoff file name, YYYY-MM-DD-HHMMSS[-LABEL].md`) {
+			t.Fatalf("ready name %s: %v", name, err)
+		}
+	}
 	if _, err := f.s.verifyArtifact(context.Background(), f.cycle(t, v.ID), "notes.md"); !artifactRefused(err, `name "notes.md" is not a handoff file name`) {
 		t.Fatalf("name: %v", err)
 	}
@@ -1041,7 +1056,7 @@ func TestContextCycleSchemaTwentyThreeKeepsExistingState(t *testing.T) {
 	room := mustRoom(t, s, "synthetic kept room")
 	mustHumanPost(t, s, room, "synthetic kept post")
 	before := rowsOf(t, s.db)
-	if _, err := fixtureExec(s, undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+`PRAGMA user_version=22`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+`PRAGMA user_version=22`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 22); err != nil {
@@ -1077,7 +1092,7 @@ func TestContextCycleSchemaTwentyFourKeepsCycles(t *testing.T) {
 		return text
 	}
 	before, rows := rowText(f.s.db), rowsOf(t, f.s.db)
-	if _, err := fixtureExec(f.s, undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+`PRAGMA user_version=23`); err != nil {
+	if _, err := fixtureExec(f.s, undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+`PRAGMA user_version=23`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(f.s.db, 23); err != nil {

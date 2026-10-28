@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"unicode"
 	"unicode/utf8"
 )
@@ -45,16 +46,7 @@ const (
 // namespace, so a recipient name names the caller exactly when it is the caller's peer name
 // or held address now, also when it did not resolve at the write. (state, archived_at, id) serves
 // the deep-archive sweep (chunk 02).
-const decisionTables = `
-	CREATE TABLE decision_items (
-		id INTEGER PRIMARY KEY AUTOINCREMENT, reference TEXT NOT NULL UNIQUE,
-		item_order INTEGER NOT NULL, title TEXT NOT NULL, location TEXT NOT NULL,
-		agent_text TEXT NOT NULL, context TEXT NOT NULL, recommendation TEXT NOT NULL,
-		kind TEXT NOT NULL CHECK (kind IN ('decision','fyi')),
-		state TEXT NOT NULL CHECK (state IN ('active','in_progress','archived')),
-		commands TEXT NOT NULL, revision INTEGER NOT NULL CHECK (revision>0),
-		author_family TEXT NOT NULL, author_name TEXT NOT NULL,
-		created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, archived_at INTEGER NOT NULL DEFAULT 0);
+const decisionTables = decisionItemsTableV25 + `;
 	CREATE INDEX decision_items_waiting ON decision_items(state, kind, id);
 	CREATE INDEX decision_items_state ON decision_items(state, id);
 	CREATE INDEX decision_items_archive ON decision_items(state, archived_at, id);
@@ -67,6 +59,78 @@ const decisionTables = `
 		family TEXT NOT NULL, caller_id TEXT NOT NULL, key TEXT NOT NULL,
 		fingerprint TEXT NOT NULL, deadline REAL NOT NULL, result TEXT NOT NULL,
 		PRIMARY KEY (family, caller_id, key));`
+
+// decisionItemsTableV25 is the item table of schema 25, which later versions extend.
+const decisionItemsTableV25 = `
+	CREATE TABLE decision_items (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, reference TEXT NOT NULL UNIQUE,
+		item_order INTEGER NOT NULL, title TEXT NOT NULL, location TEXT NOT NULL,
+		agent_text TEXT NOT NULL, context TEXT NOT NULL, recommendation TEXT NOT NULL,
+		kind TEXT NOT NULL CHECK (kind IN ('decision','fyi')),
+		state TEXT NOT NULL CHECK (state IN ('active','in_progress','archived')),
+		commands TEXT NOT NULL, revision INTEGER NOT NULL CHECK (revision>0),
+		author_family TEXT NOT NULL, author_name TEXT NOT NULL,
+		created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, archived_at INTEGER NOT NULL DEFAULT 0)`
+
+// decisionWithdrawalsTable (schema 33, #504) keeps each agent withdrawal of an active item:
+// the revision, the withdrawing peer, its reason and time, and the reopen that undid it.
+const decisionWithdrawalsTable = `CREATE TABLE decision_withdrawals (
+	id INTEGER PRIMARY KEY AUTOINCREMENT, item_id INTEGER NOT NULL, revision INTEGER NOT NULL,
+	family TEXT NOT NULL, name TEXT NOT NULL, reason TEXT NOT NULL, at INTEGER NOT NULL,
+	reopened_at INTEGER NOT NULL DEFAULT 0, reopened_by TEXT NOT NULL DEFAULT '');
+	CREATE INDEX decision_withdrawals_item ON decision_withdrawals(item_id, id);`
+
+// decisionBoardTablesV36 (schema 36, #537) rebuild the item and verdict tables under their own
+// names, because SQLite cannot widen a CHECK in place: an item can be a task and can be
+// returned to its author, and a verdict can be feedback, completed or acknowledged. Every
+// row is copied unchanged with its ID, each table keeps its AUTOINCREMENT high-water mark,
+// so a deep-archived item's ID is never reused, and open fyi items whose title starts with
+// ACTION FOR YOU become tasks. The waiting index holds only the waiting items, decision items
+// and tasks, so a waiting page reads one range in item ID order and never passes open fyi
+// items.
+const decisionBoardTablesV36 = `
+	ALTER TABLE decision_items RENAME TO decision_items_v35;
+	DROP INDEX decision_items_waiting; DROP INDEX decision_items_state; DROP INDEX decision_items_archive;
+	CREATE TABLE decision_items (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, reference TEXT NOT NULL UNIQUE,
+		item_order INTEGER NOT NULL, title TEXT NOT NULL, location TEXT NOT NULL,
+		agent_text TEXT NOT NULL, context TEXT NOT NULL, recommendation TEXT NOT NULL,
+		kind TEXT NOT NULL CHECK (kind IN ('decision','task','fyi')),
+		state TEXT NOT NULL CHECK (state IN ('active','returned','in_progress','archived')),
+		commands TEXT NOT NULL, revision INTEGER NOT NULL CHECK (revision>0),
+		author_family TEXT NOT NULL, author_name TEXT NOT NULL,
+		created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, archived_at INTEGER NOT NULL DEFAULT 0,
+		closed_by TEXT NOT NULL DEFAULT '', closed_at INTEGER NOT NULL DEFAULT 0, outcome_note TEXT NOT NULL DEFAULT '',
+		mark_revision INTEGER NOT NULL DEFAULT 0, mark_file TEXT NOT NULL DEFAULT '', mark_offset INTEGER NOT NULL DEFAULT 0,
+		verdict_count INTEGER NOT NULL DEFAULT 0, author_participant TEXT NOT NULL DEFAULT '');
+	INSERT INTO decision_items(` + decisionItemColumns + `) SELECT ` + decisionItemColumns + ` FROM decision_items_v35;
+	UPDATE sqlite_sequence SET seq=(SELECT MAX(seq) FROM sqlite_sequence WHERE name IN ('decision_items','decision_items_v35')) WHERE name='decision_items';
+	INSERT INTO sqlite_sequence(name,seq) SELECT 'decision_items',seq FROM sqlite_sequence WHERE name='decision_items_v35'
+		AND NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name='decision_items');
+	DROP TABLE decision_items_v35;
+	CREATE INDEX decision_items_waiting ON decision_items(id) WHERE state='active' AND kind!='fyi';
+	CREATE INDEX decision_items_state ON decision_items(state, id);
+	CREATE INDEX decision_items_archive ON decision_items(state, archived_at, id);
+	UPDATE decision_items SET kind='task' WHERE kind='fyi' AND state='active' AND substr(title,1,14)='ACTION FOR YOU';
+	ALTER TABLE decision_verdicts RENAME TO decision_verdicts_v35;
+	DROP INDEX decision_verdicts_item;
+	CREATE TABLE decision_verdicts (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, item_id INTEGER NOT NULL, revision INTEGER NOT NULL,
+		verdict TEXT NOT NULL CHECK (verdict IN ('approved','declined','feedback','completed','acknowledged','dismissed')),
+		note TEXT NOT NULL, created_at INTEGER NOT NULL, snapshot TEXT NOT NULL,
+		superseded_at INTEGER NOT NULL DEFAULT 0, via TEXT NOT NULL DEFAULT '');
+	INSERT INTO decision_verdicts(id,item_id,revision,verdict,note,created_at,snapshot,superseded_at,via)
+		SELECT id,item_id,revision,verdict,note,created_at,snapshot,superseded_at,via FROM decision_verdicts_v35;
+	UPDATE sqlite_sequence SET seq=(SELECT MAX(seq) FROM sqlite_sequence WHERE name IN ('decision_verdicts','decision_verdicts_v35')) WHERE name='decision_verdicts';
+	INSERT INTO sqlite_sequence(name,seq) SELECT 'decision_verdicts',seq FROM sqlite_sequence WHERE name='decision_verdicts_v35'
+		AND NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name='decision_verdicts');
+	DROP TABLE decision_verdicts_v35;
+	CREATE INDEX decision_verdicts_item ON decision_verdicts(item_id, id);`
+
+// decisionItemColumns are the item columns that the schema 36 rebuild copies.
+const decisionItemColumns = `id,reference,item_order,title,location,agent_text,context,recommendation,kind,state,commands,revision,
+	author_family,author_name,created_at,updated_at,archived_at,closed_by,closed_at,outcome_note,mark_revision,mark_file,mark_offset,
+	verdict_count,author_participant`
 
 var decisionReference = regexp.MustCompile(`^[A-Za-z0-9-]{1,32}$`)
 
@@ -110,9 +174,12 @@ type DecisionItem struct {
 	Recipients     []DecisionRecipient `json:"recipients"`
 	AuthorFamily   string              `json:"author_family"`
 	AuthorName     string              `json:"author_name"`
-	CreatedAt      int64               `json:"created_at"`
-	UpdatedAt      int64               `json:"updated_at"`
-	ArchivedAt     int64               `json:"archived_at,omitempty"`
+	// AuthorRepository is the repository of the author\'s participant, where the item is
+	// recorded (#536); a plain peer\'s item has none.
+	AuthorRepository string `json:"author_repository,omitempty"`
+	CreatedAt        int64  `json:"created_at"`
+	UpdatedAt        int64  `json:"updated_at"`
+	ArchivedAt       int64  `json:"archived_at,omitempty"`
 	// ClosedBy, ClosedAt and OutcomeNote record the last close of the work (chunk 02).
 	ClosedBy    string `json:"closed_by,omitempty"`
 	ClosedAt    int64  `json:"closed_at,omitempty"`
@@ -121,6 +188,27 @@ type DecisionItem struct {
 	// verdicts in the item's history (decision_history pages them).
 	Verdict  *DecisionVerdict `json:"verdict"`
 	Verdicts int64            `json:"verdicts"`
+	// Withdrawals are the newest agent withdrawals, newest first, and WithdrawalCount the
+	// number in the item's history (#504). Withdrawn is set while the latest one is not
+	// reopened.
+	Withdrawals     []DecisionWithdrawal `json:"withdrawals,omitempty"`
+	WithdrawalCount int64                `json:"withdrawal_count,omitempty"`
+	// Record asks the reader to record the item's verdicts in the repository (#536).
+	Record    *DecisionRecord `json:"record,omitempty"`
+	Withdrawn bool            `json:"withdrawn,omitempty"`
+}
+
+// DecisionWithdrawal is one agent withdrawal of an item: the revision it withdrew, the
+// withdrawing peer, the reason and time, and the reopen that undid it, if any.
+type DecisionWithdrawal struct {
+	ID         int64  `json:"id"`
+	Revision   int64  `json:"revision"`
+	By         string `json:"by"`
+	Family     string `json:"family"`
+	Reason     string `json:"reason"`
+	At         int64  `json:"at"`
+	ReopenedAt int64  `json:"reopened_at,omitempty"`
+	ReopenedBy string `json:"reopened_by,omitempty"`
 }
 
 // DecisionSummary is one list row: never the full text.
@@ -131,9 +219,11 @@ type DecisionSummary struct {
 	State     string `json:"state"`
 	Revision  int64  `json:"revision"`
 	Order     int64  `json:"order"`
-	// Verdict is the current verdict: approved, declined, dismissed or empty (chunk 02).
+	// Verdict is the current verdict, or empty (chunk 02, #537).
 	Verdict string `json:"verdict,omitempty"`
-	id      int64
+	// Withdrawn is set while an agent's withdrawal archives the item (#504).
+	Withdrawn bool `json:"withdrawn,omitempty"`
+	id        int64
 }
 
 // DecisionPage is one keyset page of summaries in item ID order.
@@ -253,8 +343,8 @@ func (f DecisionFields) validate(create bool) error {
 			}
 		}
 	}
-	if f.Kind != nil && *f.Kind != "decision" && *f.Kind != "fyi" {
-		return decisionInvalid("kind", "must be decision or fyi")
+	if f.Kind != nil && *f.Kind != "decision" && *f.Kind != "task" && *f.Kind != "fyi" {
+		return decisionInvalid("kind", "must be decision, task or fyi")
 	}
 	if f.Commands != nil {
 		if len(*f.Commands) > decisionCommandCount {
@@ -405,7 +495,7 @@ func (s *Store) DecisionCreate(ctx context.Context, caller Key, reference string
 	}
 	clock := s.clock()
 	if math.IsNaN(deadline) || math.IsInf(deadline, 0) || deadline > clock+s.limits().idemTTL {
-		return DecisionCreated{}, decisionInvalid("deadline", fmt.Sprintf("must be within %.0f s", s.limits().idemTTL))
+		return DecisionCreated{}, decisionInvalid("deadline", fmt.Sprintf("must be a Unix time in seconds at most %.0f s ahead", s.limits().idemTTL))
 	}
 	if deadline <= clock {
 		return DecisionCreated{}, workError("retry_deadline_expired", "the retry deadline has passed")
@@ -453,6 +543,11 @@ func (s *Store) DecisionCreate(ctx context.Context, caller Key, reference string
 	if err != nil {
 		return DecisionCreated{}, err
 	}
+	// The author's participant lets a later session of it withdraw the item (#504).
+	participant, err := authorParticipantOf(ctx, tx.Tx, caller)
+	if err != nil {
+		return DecisionCreated{}, err
+	}
 	names := []string{}
 	if f.Recipients != nil {
 		names = *f.Recipients
@@ -467,9 +562,9 @@ func (s *Store) DecisionCreate(ctx context.Context, caller Key, reference string
 	}
 	encoded, _ := json.Marshal(commands)
 	inserted, err := tx.ExecContext(ctx, `INSERT INTO decision_items(reference,item_order,title,location,agent_text,context,recommendation,
-		kind,state,commands,revision,author_family,author_name,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,'active',?,1,?,?,?,?)`,
+		kind,state,commands,revision,author_family,author_name,author_participant,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,'active',?,1,?,?,?,?,?)`,
 		reference, derefOrder(f.Order), *f.Title, deref(f.Where), deref(f.AgentText), deref(f.Context),
-		deref(f.Recommendation), *f.Kind, string(encoded), caller.Family, author, now, now)
+		deref(f.Recommendation), *f.Kind, string(encoded), caller.Family, author, participant, now, now)
 	if err != nil {
 		return DecisionCreated{}, tx.fail(err)
 	}
@@ -506,8 +601,8 @@ func derefOrder(v *int64) int64 {
 	return *v
 }
 
-// DecisionEdit changes the present fields of an item at revision ifRevision. An edit of an
-// in-progress or archived item reopens it for a new verdict: the item becomes active, its
+// DecisionEdit changes the present fields of an item at revision ifRevision. An edit of a
+// returned, in-progress or archived item reopens it for a new verdict: the item becomes active, its
 // current verdict is superseded and any deep-archive mark is cleared, in the same
 // transaction. The verdict's deliveries do not change; an unacknowledged one stays queued.
 func (s *Store) DecisionEdit(ctx context.Context, caller Key, reference string, ifRevision int64, f DecisionFields) (DecisionItem, error) {
@@ -545,6 +640,14 @@ func (s *Store) DecisionEdit(ctx context.Context, caller Key, reference string, 
 			return DecisionItem{}, tx.fail(err)
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE decision_items SET state='active',archived_at=0,mark_revision=0,mark_file='',mark_offset=0 WHERE id=?`, id); err != nil {
+			return DecisionItem{}, tx.fail(err)
+		}
+		// An edit that reopens a withdrawn item ends its withdrawal as a restore does (#504).
+		editor, err := peerOf(ctx, tx.Tx, caller.Family, caller.ID)
+		if err != nil {
+			return DecisionItem{}, err
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE decision_withdrawals SET reopened_at=?,reopened_by=? WHERE item_id=? AND reopened_at=0`, now, editor, id); err != nil {
 			return DecisionItem{}, tx.fail(err)
 		}
 	}
@@ -639,6 +742,14 @@ func decisionItem(ctx context.Context, q querier, reference string) (DecisionIte
 		}
 	}
 	item.Commands = shown
+	// The author's participant holds the repository that the item was created in (#536).
+	var participant string
+	if err := q.QueryRowContext(ctx, `SELECT author_participant FROM decision_items WHERE id=?`, id).Scan(&participant); err != nil {
+		return item, err
+	}
+	if parts := strings.Split(participant, "\x1f"); len(parts) == 3 {
+		item.AuthorRepository = parts[1]
+	}
 	rows, err := q.QueryContext(ctx, `SELECT name FROM decision_recipients WHERE item_id=? ORDER BY ordinal`, id)
 	if err != nil {
 		return item, err
@@ -660,8 +771,67 @@ func decisionItem(ctx context.Context, q querier, reference string) (DecisionIte
 		return item, err
 	}
 	// The verdict count is stored on the item, so a read does not count the history.
-	item.Verdict, err = currentVerdict(ctx, q, id, true)
+	if item.Verdict, err = currentVerdict(ctx, q, id, true); err != nil {
+		return item, err
+	}
+	if item.Verdict != nil && recordedVerdict(item.Verdict.Verdict) {
+		item.Record = &DecisionRecord{Path: DecisionRecordFile, Instruction: decisionRecordInstruction,
+			Entry: DecisionRecordEntry(item.Reference, item.Where, *item.Verdict)}
+	}
+	item.Withdrawals, item.WithdrawalCount, err = decisionWithdrawals(ctx, q, id)
+	item.Withdrawn = item.State == "archived" && len(item.Withdrawals) > 0 && item.Withdrawals[0].ReopenedAt == 0
 	return item, err
+}
+
+// decisionWithdrawalItems bounds the withdrawals that an item read shows.
+const decisionWithdrawalItems = 8
+
+// decisionWithdrawals reads an item's newest withdrawals and their number.
+func decisionWithdrawals(ctx context.Context, q querier, id int64) ([]DecisionWithdrawal, int64, error) {
+	var total int64
+	if err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM decision_withdrawals WHERE item_id=?`, id).Scan(&total); err != nil || total == 0 {
+		return nil, 0, err
+	}
+	out, err := scanWithdrawals(q.QueryContext(ctx, `SELECT id,revision,name,family,reason,at,reopened_at,reopened_by FROM decision_withdrawals
+		WHERE item_id=? ORDER BY id DESC LIMIT `+strconv.Itoa(decisionWithdrawalItems), id))
+	return out, total, err
+}
+
+func scanWithdrawals(rows *sql.Rows, err error) ([]DecisionWithdrawal, error) {
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []DecisionWithdrawal{}
+	for rows.Next() {
+		var w DecisionWithdrawal
+		if err := rows.Scan(&w.ID, &w.Revision, &w.By, &w.Family, &w.Reason, &w.At, &w.ReopenedAt, &w.ReopenedBy); err != nil {
+			return nil, err
+		}
+		out = append(out, w)
+	}
+	return out, rows.Err()
+}
+
+// withdrawalHistory reads one page of an item's withdrawals in ID order after after, at most
+// limit; an item read shows only the newest (#504).
+func withdrawalHistory(ctx context.Context, q querier, reference string, after int64, limit int) (DecisionHistoryPage, error) {
+	id, _, err := decisionRow(ctx, q, reference)
+	if err != nil {
+		return DecisionHistoryPage{}, err
+	}
+	withdrawals, err := scanWithdrawals(q.QueryContext(ctx, `SELECT id,revision,name,family,reason,at,reopened_at,reopened_by FROM decision_withdrawals
+		WHERE item_id=? AND id>? ORDER BY id LIMIT ?`, id, after, limit+1))
+	if err != nil {
+		return DecisionHistoryPage{}, err
+	}
+	page := DecisionHistoryPage{Reference: reference, Verdicts: []DecisionVerdict{}, Withdrawals: withdrawals}
+	if len(withdrawals) > limit {
+		page.Withdrawals = withdrawals[:limit]
+		last := page.Withdrawals[limit-1].ID
+		page.More, page.NextAfter = true, &last
+	}
+	return page, nil
 }
 
 func (s *Store) decisionRead(ctx context.Context, reference string) (DecisionItem, error) {
@@ -689,12 +859,12 @@ func (s *Store) DecisionGet(ctx context.Context, caller Key, reference string) (
 	return decisionItem(ctx, tx, reference)
 }
 
-var decisionFilters = map[string]bool{"waiting": true, "active": true, "in_progress": true, "archived": true, "mine": true}
+var decisionFilters = map[string]bool{"waiting": true, "active": true, "returned": true, "in_progress": true, "archived": true, "mine": true}
 
 // DecisionList returns one page of summaries for an active caller.
 func (s *Store) DecisionList(ctx context.Context, caller Key, filter string, after int64, limit int) (DecisionPage, error) {
 	if !decisionFilters[filter] {
-		return DecisionPage{}, decisionInvalid("filter", "must be waiting, active, in_progress, archived or mine")
+		return DecisionPage{}, decisionInvalid("filter", "must be waiting, active, returned, in_progress, archived or mine")
 	}
 	if after < 0 || limit < 0 {
 		return DecisionPage{}, decisionInvalid("after and limit", "must not be negative")
@@ -730,6 +900,18 @@ func (s *Store) DecisionList(ctx context.Context, caller Key, filter string, aft
 // decisionPage reads one index range in item ID order. The page stops at limit items or
 // before the summary that would take the serialized reply past decisionPageBytes, and
 // always holds at least one summary.
+// decisionSummaryColumns are a summary's columns: the current verdict, and whether an
+// agent's withdrawal archives the item now (#504).
+const decisionSummaryColumns = `id,reference,title,kind,state,revision,item_order,COALESCE((SELECT CASE WHEN v.superseded_at=0 THEN v.verdict ELSE '' END
+	FROM decision_verdicts v WHERE v.item_id=decision_items.id ORDER BY v.id DESC LIMIT 1),''),
+	state='archived' AND COALESCE((SELECT w.reopened_at=0 FROM decision_withdrawals w WHERE w.item_id=decision_items.id ORDER BY w.id DESC LIMIT 1),0)`
+
+// decisionWaitingQuery reads one page of waiting items, decision items and tasks. The waiting
+// index holds only those; naming it keeps the page off the state index, whose range also holds
+// the open fyi items (#537).
+const decisionWaitingQuery = `SELECT ` + decisionSummaryColumns + ` FROM decision_items INDEXED BY decision_items_waiting
+	WHERE state='active' AND kind!='fyi' AND id>? ORDER BY id LIMIT ?`
+
 func decisionPage(ctx context.Context, q querier, filter string, targets []string, after int64, limit int) (DecisionPage, error) {
 	if limit <= 0 || limit > decisionPageItems {
 		limit = decisionPageItems
@@ -767,21 +949,17 @@ func decisionPage(ctx context.Context, q querier, filter string, targets []strin
 		}
 		for _, id := range ids {
 			var s DecisionSummary
-			if err := q.QueryRowContext(ctx, `SELECT id,reference,title,kind,state,revision,item_order,COALESCE((SELECT CASE WHEN v.superseded_at=0 THEN v.verdict ELSE '' END FROM decision_verdicts v WHERE v.item_id=decision_items.id
-				ORDER BY v.id DESC LIMIT 1),'') FROM decision_items WHERE id=?`, id).
-				Scan(&s.id, &s.Reference, &s.Title, &s.Kind, &s.State, &s.Revision, &s.Order, &s.Verdict); err != nil {
+			if err := q.QueryRowContext(ctx, `SELECT `+decisionSummaryColumns+` FROM decision_items WHERE id=?`, id).
+				Scan(&s.id, &s.Reference, &s.Title, &s.Kind, &s.State, &s.Revision, &s.Order, &s.Verdict, &s.Withdrawn); err != nil {
 				return DecisionPage{}, err
 			}
 			summaries = append(summaries, s)
 		}
 	} else {
-		query, args := `SELECT id,reference,title,kind,state,revision,item_order,COALESCE((SELECT CASE WHEN v.superseded_at=0 THEN v.verdict ELSE '' END FROM decision_verdicts v WHERE v.item_id=decision_items.id
-				ORDER BY v.id DESC LIMIT 1),'') FROM decision_items WHERE state=? AND id>? ORDER BY id LIMIT ?`,
+		query, args := `SELECT `+decisionSummaryColumns+` FROM decision_items WHERE state=? AND id>? ORDER BY id LIMIT ?`,
 			[]any{filter, after, limit + 1}
 		if filter == "waiting" {
-			query, args = `SELECT id,reference,title,kind,state,revision,item_order,COALESCE((SELECT CASE WHEN v.superseded_at=0 THEN v.verdict ELSE '' END FROM decision_verdicts v WHERE v.item_id=decision_items.id
-				ORDER BY v.id DESC LIMIT 1),'') FROM decision_items WHERE state='active' AND kind='decision'
-				AND id>? ORDER BY id LIMIT ?`, []any{after, limit + 1}
+			query, args = decisionWaitingQuery, []any{after, limit + 1}
 		}
 		rows, err := q.QueryContext(ctx, query, args...)
 		if err != nil {
@@ -789,7 +967,7 @@ func decisionPage(ctx context.Context, q querier, filter string, targets []strin
 		}
 		for rows.Next() {
 			var s DecisionSummary
-			if err := rows.Scan(&s.id, &s.Reference, &s.Title, &s.Kind, &s.State, &s.Revision, &s.Order, &s.Verdict); err != nil {
+			if err := rows.Scan(&s.id, &s.Reference, &s.Title, &s.Kind, &s.State, &s.Revision, &s.Order, &s.Verdict, &s.Withdrawn); err != nil {
 				rows.Close()
 				return DecisionPage{}, err
 			}

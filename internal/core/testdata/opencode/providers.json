@@ -1,0 +1,12 @@
+{
+  "providers": [
+    {"id": "opencode", "name": "OpenCode Zen", "source": "api", "env": ["OPENCODE_API_KEY"], "key": "SYNTHETIC-KEY-SENTINEL", "options": {},
+     "models": {
+       "big-pickle": {"id": "big-pickle", "providerID": "opencode", "name": "Big Pickle", "limit": {"context": 200000, "input": 160000, "output": 32000}},
+       "gpt-5.4-nano": {"id": "gpt-5.4-nano", "providerID": "opencode", "name": "GPT-5.4 Nano", "limit": {"context": 400000, "output": 128000}}
+     }},
+    {"id": "opencode-go", "name": "OpenCode Go", "source": "api", "env": [], "options": {},
+     "models": {"minimax-m3": {"id": "minimax-m3", "providerID": "opencode-go", "name": "MiniMax M3", "limit": {"context": 1000000, "output": 131072}}}}
+  ],
+  "default": {"opencode": "big-pickle"}
+}

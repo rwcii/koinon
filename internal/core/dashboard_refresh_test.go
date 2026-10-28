@@ -19,11 +19,20 @@ function run(name, script) {
   // The list's disclosures: one with a form, one read-only with a data-key, one read-only
   // without. Replacing the list's HTML replaces them with closed ones.
   const fresh = () => [{ form: true, open: false }, { key: 'k', open: false }, { open: false }];
+  // The list's form fields as loaded: a note, a hidden field, a select and a checkbox.
+  const fields = () => [{ tagName: 'TEXTAREA', type: 'textarea', value: '', defaultValue: '' },
+    { tagName: 'INPUT', type: 'hidden', value: 'csrf', defaultValue: 'csrf' },
+    { tagName: 'SELECT', multiple: false, selectedIndex: 0, options: [{ selected: true, defaultSelected: true }, { selected: false, defaultSelected: false }] },
+    // A select without a selected attribute shows its first enabled option, as the work view's
+    // outcome select does; HTML sets no defaultSelected on it.
+    { tagName: 'SELECT', multiple: false, selectedIndex: 1, options: [{ disabled: true, selected: false, defaultSelected: false },
+      { selected: true, defaultSelected: false }, { selected: false, defaultSelected: false }] },
+    { tagName: 'INPUT', type: 'checkbox', checked: false, defaultChecked: false }];
   let html = 'unsaved edit form';
   const list = {
-    dataset: { refresh: '5000' }, details: fresh(), checked: false,
+    dataset: { refresh: '5000' }, details: fresh(), fields: fields(), checked: false, held: false,
     get innerHTML() { return html; },
-    set innerHTML(v) { html = v; this.details = fresh(); },
+    set innerHTML(v) { html = v; this.details = fresh(); this.fields = fields(); },
     querySelector(selector) {
       const match = {
         'details[open]:not([data-key])': d => d.open && !d.key,
@@ -41,10 +50,12 @@ function run(name, script) {
         get open() { return d.open; }, set open(v) { d.open = v; } }));
       if (selector === 'details[data-key]') { return all; }
       if (selector === 'details[open][data-key]') { return all.filter(e => e.open); }
+      if (selector === 'input, textarea, select') { return this.fields; }
       throw new Error('unmodelled selector ' + selector);
     },
     contains(node) { return node === input; },
-    removeAttribute() {}, setAttribute() {}
+    removeAttribute(name) { if (name === 'data-held') { this.held = false; } },
+    setAttribute(name) { if (name === 'data-held') { this.held = true; } }
   };
   Object.defineProperty(state, 'open', { set(v) { list.details[0].open = v; } });
   let tick;
@@ -52,7 +63,7 @@ function run(name, script) {
     getElementById() { return list; }, visibilityState: 'visible', addEventListener() {},
     get activeElement() { return state.focused ? input : null; }
   };
-  const context = { document, URL, window: { location: { href: 'http://localhost/dashboard/memory' }, setInterval(f) { tick = f; } },
+  const context = { document, URL, window: { location: { href: 'http://localhost/dashboard/memory', reload() { state.reloaded = true; } }, setInterval(f) { tick = f; } },
     fetch() { state.requests++; return new Promise(resolve => { state.complete = resolve; }); } };
   vm.runInNewContext(fs.readFileSync(process.argv[2], 'utf8'), context);
   return script(state, () => tick(), list).then(result => console.log(name + ' ' + result));
@@ -68,13 +79,27 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
   await run('unkeyed-open', async (state, tick, list) => { list.details[2].open = true; tick(); return state.requests + ' ' + list.innerHTML; });
   await run('checked-before', async (state, tick, list) => { list.checked = true; tick(); return state.requests + ' ' + list.innerHTML; });
   await run('checked-in-flight', async (state, tick, list) => { tick(); list.checked = true; answer(state); await settle(); return list.innerHTML; });
+  // A typed note, a changed select or a changed checkbox holds the refresh without focus, and
+  // the list is marked as held; unchanged fields do not hold it (#510).
+  await run('typed-unfocused', async (state, tick, list) => { list.fields[0].value = 'my note'; tick(); return state.requests + ' ' + list.innerHTML + ' held ' + list.held; });
+  await run('typed-in-flight', async (state, tick, list) => { tick(); list.fields[0].value = 'my note'; answer(state); await settle(); return list.innerHTML + ' held ' + list.held; });
+  await run('select-changed', async (state, tick, list) => { list.fields[2].selectedIndex = 1; list.fields[2].options[0].selected = false; list.fields[2].options[1].selected = true; tick(); return state.requests + ' ' + list.innerHTML; });
+  await run('implicit-select-changed', async (state, tick, list) => { list.fields[3].selectedIndex = 2; tick(); return state.requests + ' ' + list.innerHTML; });
+  await run('implicit-select-reset', async (state, tick, list) => { list.fields[3].selectedIndex = 2; tick(); list.fields[3].selectedIndex = 1; tick(); answer(state); await settle(); return list.innerHTML + ' held ' + list.held; });
+  await run('checkbox-changed', async (state, tick, list) => { list.fields[4].checked = true; tick(); return state.requests + ' ' + list.innerHTML; });
+  await run('typed-then-cleared', async (state, tick, list) => { list.fields[0].value = 'x'; tick(); list.fields[0].value = ''; tick(); answer(state); await settle(); return list.innerHTML + ' held ' + list.held; });
+  // A fault page loads the whole view once its list reads again (#507).
+  await run('fault-recovers', async (state, tick, list) => { list.dataset.reload = 'true'; tick(); answer(state); await settle(); return list.innerHTML + ' reloaded ' + (state.reloaded === true); });
+  await run('fault-persists', async (state, tick, list) => { list.dataset.reload = 'true'; tick(); state.complete({ ok: false }); await settle(); return list.innerHTML + ' reloaded ' + (state.reloaded === true); });
 })();
 `
 
 // The 5-second refresh never replaces a list whose disclosure is open or whose form field
 // has focus, also when the person opens it while a refresh is in flight (#243 review). An
 // open read-only disclosure with a data-key does not hold it and is open again after (#373).
-// A session selected for a bulk action holds it, so the selection stays (#429).
+// A session selected for a bulk action holds it, so the selection stays (#429). A field with
+// input not yet sent holds it also without focus, and the list is marked held (#510). A fault
+// page loads the whole view once the list reads again (#507).
 func TestRefreshKeepsFormsInUse(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -100,7 +125,12 @@ func TestRefreshKeepsFormsInUse(t *testing.T) {
 	}
 	want := "idle replacement fragment\nopen-before 0 unsaved edit form\nopen-in-flight unsaved edit form\nfocus-in-flight unsaved edit form\n" +
 		"keyed-open replacement fragment reopened true\nunkeyed-open 0 unsaved edit form\n" +
-		"checked-before 0 unsaved edit form\nchecked-in-flight unsaved edit form\n"
+		"checked-before 0 unsaved edit form\nchecked-in-flight unsaved edit form\n" +
+		"typed-unfocused 0 unsaved edit form held true\ntyped-in-flight unsaved edit form held true\n" +
+		"select-changed 0 unsaved edit form\nimplicit-select-changed 0 unsaved edit form\n" +
+		"implicit-select-reset replacement fragment held false\ncheckbox-changed 0 unsaved edit form\n" +
+		"typed-then-cleared replacement fragment held false\n" +
+		"fault-recovers unsaved edit form reloaded true\nfault-persists unsaved edit form reloaded false\n"
 	if string(out) != want {
 		t.Fatalf("refresh:\n%s\nwant:\n%s", out, strings.TrimSpace(want))
 	}

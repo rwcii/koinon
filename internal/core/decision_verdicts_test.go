@@ -76,7 +76,7 @@ func TestDecisionVerdictStoresSnapshotAndDeliveries(t *testing.T) {
 	var body, kind string
 	var typed int64
 	if err := s.db.QueryRow(`SELECT body,system_kind,decision_verdict FROM messages WHERE recipient_id=?`, participantKey(f.address)).
-		Scan(&body, &kind, &typed); err != nil || kind != decisionVerdictKind || typed != v.ID || body != verdictNoticeBody("V-1", v.ID) {
+		Scan(&body, &kind, &typed); err != nil || kind != decisionVerdictKind || typed != v.ID || body != verdictMessageBody("V-1", "approved", v.ID, DecisionRecordEntry("V-1", "", v)) {
 		t.Fatalf("participant message: %q %q %d %v", body, kind, typed, err)
 	}
 	if count(t, s, `SELECT COUNT(*) FROM audit WHERE action='decision-verdict' AND target=? AND result='accepted'`,
@@ -121,10 +121,14 @@ func TestDecisionVerdictRefusals(t *testing.T) {
 		verdict   string
 		code      string
 	}{
-		"stale":            {"R-1", 2, "approved", "stale_revision"},
-		"dismiss decision": {"R-1", 1, "dismissed", "invalid_verdict"},
-		"approve fyi":      {"R-2", 1, "approved", "invalid_verdict"},
-		"unknown":          {"R-9", 1, "approved", "not_found"},
+		"stale":                {"R-1", 2, "approved", "stale_revision"},
+		"dismiss fyi":          {"R-2", 1, "dismissed", "invalid_request"},
+		"approve fyi":          {"R-2", 1, "approved", "invalid_verdict"},
+		"feedback on fyi":      {"R-2", 1, "feedback", "feedback_required"},
+		"complete decision":    {"R-1", 1, "completed", "invalid_verdict"},
+		"acknowledge decision": {"R-1", 1, "acknowledged", "invalid_verdict"},
+		"feedback, no note":    {"R-1", 1, "feedback", "feedback_required"},
+		"unknown":              {"R-9", 1, "approved", "not_found"},
 	} {
 		if _, err := s.DecisionVerdict(verdictCtx(), c.reference, c.revision, c.verdict, ""); refusalCode(err) != c.code {
 			t.Errorf("%s: %v", name, err)
@@ -142,12 +146,17 @@ func TestDecisionVerdictRefusals(t *testing.T) {
 	if count(t, s, `SELECT COUNT(*) FROM decision_verdicts`) != 0 {
 		t.Fatal("a refused verdict was stored")
 	}
-	dismissed := mustVerdict(t, s, "R-2", 1, "dismissed")
-	got, err := s.DecisionGet(context.Background(), f.peerKey, "R-2")
-	if err != nil || got.State != "archived" || got.ArchivedAt == 0 || len(dismissed.Deliveries) != 0 {
-		t.Fatalf("dismiss: %+v %v", got, err)
+	if _, err := s.DecisionVerdict(verdictCtx(), "R-2", 1, "feedback", "Make it a task."); refusalCode(err) != "invalid_verdict" {
+		t.Fatalf("feedback on fyi: %v", err)
 	}
-	if _, err := s.DecisionVerdict(verdictCtx(), "R-2", 1, "dismissed", ""); refusalCode(err) != "decided" {
+	acknowledged := mustVerdict(t, s, "R-2", 1, "acknowledged")
+	got, err := s.DecisionGet(context.Background(), f.peerKey, "R-2")
+	// R-2 names no recipient, so only its author, a plain peer, is told (#537).
+	if err != nil || got.State != "archived" || got.ArchivedAt == 0 || len(acknowledged.Deliveries) != 1 ||
+		acknowledged.Deliveries[0].Name != f.peer.Name || acknowledged.Deliveries[0].Outcome != "queued" {
+		t.Fatalf("acknowledge: %+v %v", got, err)
+	}
+	if _, err := s.DecisionVerdict(verdictCtx(), "R-2", 1, "acknowledged", ""); refusalCode(err) != "decided" {
 		t.Fatalf("second verdict: %v", err)
 	}
 }
@@ -196,7 +205,7 @@ func TestDecisionReopenAndHistory(t *testing.T) {
 		t.Fatalf("verdict on the old text: %v", err)
 	}
 	second := mustVerdict(t, s, "H-1", 2, "declined")
-	page, err := s.DecisionHistory(ctx, f.peerKey, "H-1", 0, 0)
+	page, err := s.DecisionHistory(ctx, f.peerKey, "H-1", 0, 0, false)
 	if err != nil || len(page.Verdicts) != 2 || page.Verdicts[0].ID != first.ID || page.Verdicts[0].Snapshot.Title != "First text" ||
 		page.Verdicts[0].SupersededAt == 0 || page.Verdicts[1].ID != second.ID || page.Verdicts[1].Snapshot.Title != "Second text" {
 		t.Fatalf("history: %+v %v", page, err)
@@ -213,7 +222,7 @@ func TestDecisionReopenAndHistory(t *testing.T) {
 	}
 	var seen int
 	for after := int64(0); ; {
-		page, err := s.DecisionHistory(ctx, f.peerKey, "H-1", after, 0)
+		page, err := s.DecisionHistory(ctx, f.peerKey, "H-1", after, 0, false)
 		if err != nil || len(page.Verdicts) > decisionHistoryItems {
 			t.Fatalf("page: %d %v", len(page.Verdicts), err)
 		}
@@ -242,7 +251,7 @@ func TestDecisionHistoryLargestVerdictFitsAPage(t *testing.T) {
 	if _, err := s.DecisionVerdict(verdictCtx(), "B-1", 1, "approved", strings.Repeat("<", decisionNoteLimit)); err != nil {
 		t.Fatal(err)
 	}
-	page, err := s.DecisionHistory(ctx, f.peerKey, "B-1", 0, 0)
+	page, err := s.DecisionHistory(ctx, f.peerKey, "B-1", 0, 0, false)
 	if err != nil || len(page.Verdicts) != 1 {
 		t.Fatalf("largest verdict: %+v %v", page, err)
 	}
@@ -461,7 +470,7 @@ func TestDecisionDeepArchiveAndRestore(t *testing.T) {
 	if _, err := s.DecisionCreate(ctx, f.peerKey, "D-1", decisionFields("t", "fyi"), "reuse", s.clock()+60); refusalCode(err) != "reference_in_use" {
 		t.Fatalf("reference reuse: %v", err)
 	}
-	restored, err := s.DecisionRestore(ctx, f.peerKey, "D-1")
+	restored, err := s.DecisionRestore(ctx, f.peerKey, "D-1", 0)
 	if err != nil || restored.State != "archived" || restored.Context != "Old facts." || restored.Verdict == nil || restored.Verdict.ID != v.ID ||
 		restored.ArchivedAt != s.now().UnixMilli() || len(restored.Recipients) != 2 {
 		t.Fatalf("restore: %+v %v", restored, err)
@@ -469,7 +478,7 @@ func TestDecisionDeepArchiveAndRestore(t *testing.T) {
 	if count(t, s, `SELECT COUNT(*) FROM decision_deep_archive`) != 0 || len(logLines(t, s)) != 1 {
 		t.Fatal("restore changed the log or kept the locator")
 	}
-	if _, err := s.DecisionRestore(ctx, f.peerKey, "D-1"); refusalCode(err) != "not_found" {
+	if _, err := s.DecisionRestore(ctx, f.peerKey, "D-1", 0); refusalCode(err) != "not_found" {
 		t.Fatalf("second restore: %v", err)
 	}
 	// The restored item starts a new 30-day period.
@@ -523,7 +532,7 @@ func TestDecisionDeepArchiveCrashAndEdit(t *testing.T) {
 		if count(t, f.s, `SELECT COUNT(*) FROM decision_items`) != 0 || len(logLines(t, f.s)) != 1 {
 			t.Fatalf("finish after append wrote %d lines", len(logLines(t, f.s)))
 		}
-		if _, err := f.s.DecisionRestore(context.Background(), f.peerKey, "D-1"); err != nil {
+		if _, err := f.s.DecisionRestore(context.Background(), f.peerKey, "D-1", 0); err != nil {
 			t.Fatal(err)
 		}
 	})
@@ -547,7 +556,7 @@ func TestDecisionDeepArchiveCrashAndEdit(t *testing.T) {
 		if count(t, f.s, `SELECT COUNT(*) FROM decision_items`) != 0 || len(lines) != 2 || !strings.HasPrefix(lines[0], `{"record":"koinon.decision.v1","id":`) {
 			t.Fatalf("partial line: %v", lines)
 		}
-		restored, err := f.s.DecisionRestore(context.Background(), f.peerKey, "D-1")
+		restored, err := f.s.DecisionRestore(context.Background(), f.peerKey, "D-1", 0)
 		if err != nil || restored.Title != "Archive me" {
 			t.Fatalf("restore after a partial line: %+v %v", restored, err)
 		}
@@ -615,8 +624,8 @@ func TestDecisionVerdictDashboardActions(t *testing.T) {
 	if got := client.do("decision-approve", approve); got != "decided" {
 		t.Fatalf("second approve: %s", got)
 	}
-	if got := client.do("decision-dismiss", url.Values{"reference": {"W-2"}, "revision": {"1"}}); got != "decision_dismissed" {
-		t.Fatalf("dismiss: %s", got)
+	if got := client.do("decision-acknowledge", url.Values{"reference": {"W-2"}, "revision": {"1"}}); got != "decision_acknowledged" {
+		t.Fatalf("acknowledge: %s", got)
 	}
 	got, err := d.store.DecisionGet(context.Background(), key, "W-1")
 	if err != nil || got.Verdict == nil || got.Verdict.Note != "Go ahead." || got.State != "in_progress" {

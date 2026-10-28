@@ -145,6 +145,14 @@ type Store struct {
 	observed observations
 	openCode openCodeCache
 	wake     wakeState
+	// agyWitness holds the agy cycles' host-linked conversation reports, memory-only (#512).
+	agyWitness agyWitnessState
+	// openCodeContext holds the last OpenCode context reading recorded per session (#513).
+	openCodeContext openCodeContextState
+	// cycleWork runs the asynchronous cycle pickups (#513).
+	cycleWork cycleWorkers
+	// deepSeekContext holds the last DeepSeek context reading recorded per session (#514).
+	deepSeekContext openCodeContextState
 	// retention holds the last retention sweep's results (#216).
 	retention retentionState
 	// calls holds each session's last tool call; processStart reads a host process's start
@@ -356,7 +364,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 32
+const schemaVersion = 36
 
 // workItemsV16Columns are the work item columns before schema 17, which its rebuild copies.
 const workItemsV16Columns = `store,work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,created_at,created_consumer,
@@ -821,7 +829,7 @@ func migrate(db *sql.DB, version, target int) error {
 		// widen a CHECK in place, so the cycle table is rebuilt under its own name; every row
 		// is copied unchanged.
 		if _, err := tx.Exec(`ALTER TABLE context_cycles RENAME TO context_cycles_v23;
-			` + contextCyclesTable + `
+			` + contextCyclesTableV24 + `
 			INSERT INTO context_cycles(` + cycleColumns + `) SELECT ` + cycleColumns + ` FROM context_cycles_v23;
 			DROP TABLE context_cycles_v23;`); err != nil {
 			return err
@@ -889,6 +897,40 @@ func migrate(db *sql.DB, version, target int) error {
 		// row for the maintainer's inbox, one for the decision board and one for each room.
 		if _, err := tx.Exec(changeVersionsTable + `INSERT INTO change_versions(topic,version) VALUES ('inbox',` + firstVersion + `),
 			('decisions',` + firstVersion + `); INSERT INTO change_versions(topic,version) SELECT room_id,` + firstVersion + ` FROM rooms;`); err != nil {
+			return err
+		}
+	}
+	if version < 33 && target >= 33 {
+		// Version 33: each agent withdrawal of a decision item, with its reason, and its reopen,
+		// and each item's author participant, filled from the author's session where it is
+		// still stored (#504).
+		if _, err := tx.Exec(decisionWithdrawalsTable + `ALTER TABLE decision_items ADD COLUMN author_participant TEXT NOT NULL DEFAULT '';
+			UPDATE decision_items SET author_participant=COALESCE((SELECT ` + participantIdentity + ` FROM names a JOIN sessions s
+				ON s.family=a.family AND s.id=a.session_id WHERE a.kind='peer' AND a.name=decision_items.author_name
+				AND a.family=decision_items.author_family AND ` + participantSession + `),'');`); err != nil {
+			return err
+		}
+	}
+	if version < 34 && target >= 34 {
+		// Version 34: the native compaction states (#509). The cycle table is rebuilt under its
+		// own name, as in version 24; every row is copied unchanged.
+		if _, err := tx.Exec(`ALTER TABLE context_cycles RENAME TO context_cycles_v33;
+			` + contextCyclesTable + `
+			INSERT INTO context_cycles(` + cycleColumns + `,ready_refusal) SELECT ` + cycleColumns + `,ready_refusal FROM context_cycles_v33;
+			DROP TABLE context_cycles_v33;`); err != nil {
+			return err
+		}
+	}
+	if version < 35 && target >= 35 {
+		// Version 35: a host-less cycle's adapter pin (#514), at most cyclePinMax bytes.
+		if _, err := tx.Exec(`ALTER TABLE context_cycles ADD COLUMN adapter_pin TEXT NOT NULL DEFAULT '';`); err != nil {
+			return err
+		}
+	}
+	if version < 36 && target >= 36 {
+		// Version 36: task items, items returned to their author, and the feedback,
+		// completed and acknowledged verdicts (#537).
+		if _, err := tx.Exec(decisionBoardTablesV36); err != nil {
 			return err
 		}
 	}

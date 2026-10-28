@@ -92,7 +92,26 @@ func Remove(ctx context.Context, o Options) (Report, error) {
 	case "codex":
 		return report, removeCodexHook(o, &report)
 	case "agy":
-		return report, removeAgyHook(o, &report)
+		if err := removeAgyHook(o, &report); err != nil {
+			return report, err
+		}
+		if o.StateDir == "" {
+			if o.StateDir, err = platform.DefaultStateDir(); err != nil {
+				return report, err
+			}
+		}
+		result, err := AgyStatusLine(o.Binary, o.StateDir, agySettingsFile(o), true)
+		report.StatusLine = &result
+		return report, err
+	case "grok":
+		if o.StateDir == "" {
+			if o.StateDir, err = platform.DefaultStateDir(); err != nil {
+				return report, err
+			}
+		}
+		result, err := GrokStatusLine(o.Binary, o.StateDir, grokConfigFile(o), true)
+		report.StatusLine = &result
+		return report, err
 	}
 	return report, nil
 }

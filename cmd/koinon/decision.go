@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -14,12 +15,13 @@ import (
 
 // decisionCommand is the command path of decision_create, decision_edit, decision_list and
 // decision_get (#206, chunk 01) and decision_history, decision_pending, decision_ack,
-// decision_close and decision_restore (chunk 02).
+// decision_close and decision_restore (chunk 02), decision_withdraw (#504) and
+// decision_record (#536).
 func decisionCommand(ctx context.Context, args []string, out io.Writer) error {
 	ops := map[string]bool{"create": true, "edit": true, "list": true, "get": true, "history": true, "pending": true,
-		"ack": true, "close": true, "restore": true}
+		"ack": true, "close": true, "withdraw": true, "restore": true, "record": true}
 	if len(args) == 0 || !ops[args[0]] {
-		return usageError{"invalid_request", "use koinon decision create, edit, list, get, history, pending, ack, close or restore"}
+		return usageError{"invalid_request", "use koinon decision create, edit, list, get, history, pending, ack, close, withdraw, restore or record"}
 	}
 	op, rest := args[0], args[1:]
 	root, err := platform.DefaultStateDir()
@@ -36,7 +38,7 @@ func decisionCommand(ctx context.Context, args []string, out io.Writer) error {
 	var commands, recipients, verdicts repeated
 	var deadline *float64
 	var limit *int
-	noCommands, noRecipients := new(bool), new(bool)
+	noCommands, noRecipients, withdrawals := new(bool), new(bool), new(bool)
 	text := func(name, usage string) { strs[name] = flags.String(name, "", usage) }
 	switch op {
 	case "create", "edit":
@@ -59,11 +61,18 @@ func decisionCommand(ctx context.Context, args []string, out io.Writer) error {
 		text("filter", "waiting, active, in_progress, archived or mine")
 		ints["after"] = flags.Int64("after", 0, "item ID from the previous page's next_after")
 		limit = flags.Int("limit", 0, "page size (default and maximum 100)")
-	case "get", "restore":
+	case "get":
 		text("reference", "item reference")
+	case "record":
+		text("reference", "item reference")
+		text("directory", "a checkout of the repository whose DECISIONS.md gets the entries (default: the current directory)")
+	case "restore":
+		text("reference", "item reference")
+		ints["if-revision"] = flags.Int64("if-revision", 0, "the revision that was read, to reopen a withdrawn item")
 	case "history":
 		text("reference", "item reference")
-		ints["after"] = flags.Int64("after", 0, "verdict ID from the previous page's next_after")
+		withdrawals = flags.Bool("withdrawals", false, "page the item's agent withdrawals instead of its verdicts")
+		ints["after"] = flags.Int64("after", 0, "verdict or withdrawal ID from the previous page's next_after")
 		limit = flags.Int("limit", 0, "page size (default and maximum 16)")
 	case "pending":
 		ints["after"] = flags.Int64("after", 0, "verdict ID from the previous page's next_after")
@@ -74,6 +83,12 @@ func decisionCommand(ctx context.Context, args []string, out io.Writer) error {
 		text("reference", "item reference")
 		ints["if-revision"] = flags.Int64("if-revision", 0, "the revision that was read")
 		text("note", "optional Markdown outcome note")
+		text("key", "idempotency key, fixed before the first attempt")
+		deadline = flags.Float64("deadline", 0, "retry deadline in Unix seconds, at most 24 hours ahead")
+	case "withdraw":
+		text("reference", "item reference")
+		ints["if-revision"] = flags.Int64("if-revision", 0, "the revision that was read")
+		text("reason", "one-line reason: done, superseded by REF, answered in chat or no longer valid")
 		text("key", "idempotency key, fixed before the first attempt")
 		deadline = flags.Float64("deadline", 0, "retry deadline in Unix seconds, at most 24 hours ahead")
 	}
@@ -121,6 +136,9 @@ func decisionCommand(ctx context.Context, args []string, out io.Writer) error {
 		}
 	case "list", "history", "pending":
 		body["limit"] = *limit
+		if *withdrawals {
+			body["withdrawals"] = true
+		}
 	case "ack":
 		ids := []int64{}
 		for _, v := range verdicts {
@@ -136,6 +154,11 @@ func decisionCommand(ctx context.Context, args []string, out io.Writer) error {
 			return usageError{"invalid_request", "koinon decision close needs --if-revision, --key and --deadline"}
 		}
 		body["deadline"] = *deadline
+	case "withdraw":
+		if !set["if-revision"] || !set["reason"] || !set["key"] || !set["deadline"] {
+			return usageError{"invalid_request", "koinon decision withdraw needs --if-revision, --reason, --key and --deadline"}
+		}
+		body["deadline"] = *deadline
 	}
 	if err := resolveAddress(flags); err != nil {
 		return err
@@ -144,7 +167,45 @@ func decisionCommand(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if op == "record" {
+		return decisionRecord(ctx, out, *address, secret, body)
+	}
 	data, err := core.Call(ctx, *address, secret, "/v1/decisions/"+op, body)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(out, string(data))
+	return err
+}
+
+// decisionRecord appends the item's verdicts to DECISIONS.md at the root of the checkout that
+// --directory names, or of the current directory (#536).
+func decisionRecord(ctx context.Context, out io.Writer, address, secret string, body map[string]any) error {
+	reference, _ := body["reference"].(string)
+	directory, _ := body["directory"].(string)
+	if reference == "" {
+		return usageError{"invalid_request", "koinon decision record needs --reference"}
+	}
+	checkout, err := core.CheckoutResource(ctx, directory)
+	if err != nil {
+		return usageError{"repo_unresolved", "--directory or the current directory must be in a Git checkout"}
+	}
+	call := func(ctx context.Context, path string, request map[string]any) ([]byte, error) {
+		request["caller"] = body["caller"]
+		return core.Call(ctx, address, secret, path, request)
+	}
+	item, verdicts, err := core.CollectDecisionRecord(ctx, call, reference)
+	if err != nil {
+		return err
+	}
+	if err := core.CheckRecordRepository(item, checkout.Repository); err != nil {
+		return err
+	}
+	recorded, err := core.RecordDecision(checkout.Directory, reference, item.Where, verdicts)
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(map[string]any{"ok": true, "result": recorded})
 	if err != nil {
 		return err
 	}

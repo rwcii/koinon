@@ -16,8 +16,10 @@ terminal outcome, so at most 14 non-terminal stages follow admission. Every one 
 funded, as the plan's shared contract requires:
 
 - Each non-terminal stage (`ready`, the intents and receipts, `reset_verified`,
-  `waiting_pickup`, `waiting_prompt`, and the return to `waiting_ready` or a prompt's preceding
-  stage) is a control write that debits **280 pages** from the cycle's credit in its own
+  `waiting_pickup`, `waiting_prompt`, and the return to `waiting_ready`, to a prompt's preceding
+  stage or, in the prompt wait of a pickup, to `waiting_prompt` (#520), and an OpenCode cycle's
+  same-state events `clear_received` `select_sent` and `waiting_pickup` `pickup_displayed` (#513),
+  which a DeepSeek cycle shares (#514)) is a control write that debits **280 pages** from the cycle's credit in its own
   transaction.
 - The terminal outcome is a control write that sets the credit to 0. Every control that ends a
   cycle (Disable, a family mode without the cycle, retirement, purge, deletion, the
@@ -33,7 +35,7 @@ the rest at its terminal commit.
 
 | Changed object | Pages |
 | --- | ---: |
-| `context_cycles` row rewrite (at most about 7.4 KB: a 4,096-byte socket path, a 1,024-byte report, three 256-byte keys and names, the 96-byte refusal slot) | 69 + 2 |
+| `context_cycles` row rewrite (at most about 8.0 KB: a 4,096-byte socket path, a 1,024-byte report, three 256-byte keys and names, the 96-byte refusal slot, the 640-byte adapter pin of schema 35) | 69 + 2 |
 | `context_cycle_events` row (a `WITHOUT ROWID` table: its key is its row, under 300 bytes) | 69 |
 | `audit` row (fixed codes and the cycle ID and peer name) | 69 |
 | its `audit_at` index entry | 69 |
@@ -74,6 +76,18 @@ cycle with a bootstrap still has at most 14 stages under the 16-event bound, so 
 unchanged. The migration rebuilds `context_cycles` and returns the old table's pages before the
 first write. Since #406 no cycle enters these stages; the schema keeps them for cycles that an
 earlier binary stored in them.
+
+Schema 34 (#509) adds the native compaction stages `compact_waiting`, `compact_intent` and
+`compact_sent`, by the same rebuild. A compaction is a cycle row with the same credit: its
+admission writes no request message and protects no claim, so it writes less than a handoff
+cycle's, and each of its stages and its terminal outcome is funded as above. A return from
+`compact_intent` to `compact_waiting` is a stage like any other, so the 16-event bound also
+bounds the retries of one compaction.
+
+Schema 35 (#514) adds `adapter_pin`, a host-less adapter's pinned facts of its requester, at
+most 640 bytes (DeepSeek's harness target and cwd fingerprints and its model). Admission writes
+it in the row write that it already makes, and no later write changes it, so it adds no stage
+write; the largest row rewrite stays within the 69 + 2 pages above.
 
 ## Refused ready reports
 

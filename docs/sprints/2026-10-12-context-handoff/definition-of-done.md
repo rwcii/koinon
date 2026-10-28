@@ -64,7 +64,7 @@ built because a specification names it.
 | Claude | `claude_statusline`; registry activity; same-host post-clear observations corrected by #304 | Candidate first adapter. Dedicated Linux/macOS clear, epoch, installed/missing-skill pickup and prompt proof must pass before Enable is available. |
 | Codex | `codex_rollout`; native compaction; thread changes on clear | Monitoring and proposed native-compaction default. Chunk 04 adds the cycle adapter after #275's code: the Linux matrix passed with Codex CLI 0.162.0 ([native-evidence.md](native-evidence.md)); on macOS, X0, X1 and X3 passed with 0.162.1 and the approval case X2 is open, so macOS stays unverified. |
 | Antigravity | No admitted context source | Show context-source unavailable; no cycle support claim. |
-| OpenCode | No admitted context source | Show context-source unavailable; no cycle support claim. |
+| OpenCode | `opencode_server` (a launched session's own server, #513) | #513 adds the cycle adapter: the Linux cycle passed with opencode 1.18.35 ([evidence.md](evidence.md#opencode-cycle-adapter-513)); macOS stays unverified. |
 | Grok | No admitted context source; leader support separately tracked by #329 | Show context-source unavailable; no cycle support claim. |
 | DeepSeek | No admitted context source; live wake proven under #199 | Show the missing source/proof; command identity continues to guard its existing tools. |
 

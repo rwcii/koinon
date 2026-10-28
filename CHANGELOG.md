@@ -5,6 +5,209 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-10-28 — Decision board feedback and tasks, decision records, and cycles for more agents
+
+This release changes how the maintainer answers the decision board: a decision takes Approve,
+Decline or Provide feedback, which returns it to its author; work for the maintainer is a
+`task`; an fyi takes Acknowledge, and every verdict reaches the item's author. Verdicts are
+recorded in the repository's `DECISIONS.md`, so commits and documents cite them by reference.
+Agents withdraw cards that no longer need the maintainer. agy, OpenCode, DeepSeek and Grok
+sessions report their model and context use and run the managed context cycle on Linux, and
+Codex's `native_compaction` mode compacts. The state schema moves from 32 to 36; the daemon
+migrates a v0.5.0 state in place when it starts.
+
+- Decision board actions say what the maintainer means (#537). A decision item now takes
+  **Approve**, **Decline** or **Provide feedback**; feedback needs the maintainer's text,
+  approves and declines nothing, and returns the item to its author as `returned`: the author
+  changes it into a new revision, which waits again, or withdraws it. Work for the maintainer is
+  a new `task` kind, listed under waiting and shown first, with **Completed**, **Declined** and
+  **Provide feedback**. An fyi item takes **Acknowledge** in place of Dismiss. Every verdict,
+  an acknowledgement included, now reaches the item's recipients and its author, and every verdict but an
+  acknowledgement is recorded in `DECISIONS.md`. The upgrade (schema 36) keeps every item and
+  verdict, makes each open fyi item whose title starts with `ACTION FOR YOU` a task, and retires
+  that prefix. Old dismissals stay in the history. The dashboard, `koinon mcp --maintainer`
+  (`decision_verdict`, `board_list` with `returned`), the agent decision tools, `koinon decision
+  create --kind task` and `koinon decision list --filter returned` change together.
+
+- Decision board verdicts are now recorded in the repository (#536). A verdict ID exists only
+  in one machine's store, so a commit, a pull request or a document that cited one could not be
+  checked by anyone else. The new `decision_record` MCP tool and `koinon decision record` append
+  each verdict's entry, with the card text that the maintainer saw and the maintainer's note, to
+  `DECISIONS.md` at the root of the checkout. An entry is written once, and the file is created
+  with its header. `decision_get`, `decision_pending` and the verdict message give the entry
+  and the path and tell the agent to record the verdict, correct the spelling of the
+  maintainer's words, commit the file with the work, and cite `DECISIONS.md#REFERENCE`. An item is recorded only in the repository that its
+  author's participant held. A `DECISIONS.md` that is not a Koinon record is left unchanged and
+  the agent asks the maintainer. In this repository, the `decision-citations` check refuses a
+  verdict ID in a pull request's title, body or commits, the `commit-msg` hook refuses one in a
+  commit message, and a contributor test checks the tracked documents. The verdicts that
+  Koinon's records cited are in `DECISIONS.md` as public rewrites of their cards, and the
+  citations point there.
+
+- A managed cycle's ready or pickup report with a handoff file name that is not of the form
+  `YYYY-MM-DD-HHMMSS[-LABEL].md` is now refused with `cycle_artifact_invalid` and that form
+  (#535). Before, it got a bare `invalid_request`, and a Claude session whose file was
+  `2026-10-27T211500Z-handoff.md` retried until its ready deadline came near.
+- The MCP tools that take `key` and `deadline` now say what `deadline` is (#534): a Unix time
+  in seconds, at most 86400 s ahead, sent unchanged on each retry. Before, the schemas gave
+  only `number`, and a value in milliseconds was refused with "must be within 86400 s", which
+  named no unit. The refusals of `decision_create`, `decision_close`, `decision_withdraw`,
+  `room_post`, `memory_record` and the work tools now say "a Unix time in seconds at most
+  86400 s ahead".
+- A managed cycle now clears a Claude session whose background subagents still run (#533).
+  Claude Code keeps its registry status `busy` while a background subagent runs after the turn
+  ended, so the cycle saw no idle prompt and asked for the handoff again: one cycle asked six
+  times in 14 minutes, and the maintainer ran it by hand. The cycle now takes that prompt as
+  idle when the agent panel shows the subagent and no turn, and the subagent's records show it
+  running. Claude Code 2.1.311 takes `/clear` there at once; the subagent runs on and gives its
+  result to the new conversation. A subagent that finished after the ready report still makes
+  the cycle ask again (#456); one that still runs does not. The request asks a Claude session
+  not to stop or wait for its subagents, and to list the running ones in its handoff. The
+  `handoff` skill now lists each subagent that still runs, with its task, ID, state and where
+  its result goes, and the `pickup` skill reports each one's result.
+- `koinon setup claude`, `koinon setup agy` and `koinon setup grok` no longer replace an edited
+  status-line wrapper after a removal kept it (#532). When `--remove-status-line` had reported the
+  edited wrapper as `changed` and kept it, the next setup wrote a bare wrapper over it and lost
+  the user's command. Setup now reports it as `changed` (`statusline_changed`) and leaves it
+  alone; a wrapper spelled as setup writes it, the hook alone or around one quoted `--command`,
+  is still set up again; an empty `--command` is an edit.
+- `koinon setup claude` and `koinon setup agy` no longer wrap an edited status-line wrapper again
+  after the Koinon binary moves (#530). Setup took a wrapper that runs an earlier binary as the
+  user's own command and wrapped it in a second `hook claude-status` or `hook agy-status`. It now
+  reports it as `changed` (`statusline_changed`) and leaves it alone, as Grok's setup does.
+- Grok sessions can run the managed context handoff cycle on Linux (#515, part B). A Grok
+  session had no cycle: its Enable was refused. A session started with `koinon grok` in tmux,
+  with the family mode `handoff_cycle`, Koinon's status line from `koinon setup grok` and its
+  participant address, now gets the cycle: overwatch's request, `/new` in its pane, and
+  `/koinon-pickup` in the new session, which takes the address over. The status-line hook proves
+  the new session: it reports each session with its own process to `POST
+  /v1/cycles/grok-witness`, and the daemon ties it to the cycle's pinned host. `koinon install`
+  and the daemon write the skill entries to an existing Grok home (`$GROK_HOME`, else
+  `~/.grok`); a project or user `koinon-pickup` that would replace that entry is named as
+  `pickup_entry_shadowed`. The native checks ran with Grok Build 1.0.50. The family default
+  stays `observe`; macOS waits for native evidence.
+- A store that holds 128 work items no longer refuses `work_create` while old finished items
+  wait out their 30 days (#529). The create first removes the oldest finished item; open,
+  active, blocked and reported items are never removed. A finished item now stays for up to
+  30 days, or until a new item needs its place.
+- Grok sessions now report their model and context use (#515, part A). `peer_status` and the
+  dashboard showed no context for Grok (`no_source`). `koinon setup grok` now makes `koinon hook
+  grok-status` the command of the `[ui.status_line]` table in `~/.grok/config.toml`: it changes
+  only that table's `type` and `command`, and wraps an existing command. `koinon setup grok
+  --remove-status-line` and `koinon uninstall` restore the previous values.
+- A command that the Claude Code or agy status line wraps now gets the whole status-line input.
+  Before, `koinon hook claude-status` and `koinon hook agy-status` passed on at most 16 MiB and
+  cut a longer input.
+- A managed cycle's new session now has five minutes, not two, to report its pickup (#525). A
+  DeepSeek pickup took up to 115 s in the #514 checks, and one took longer than two minutes:
+  that cycle failed with `waiting_pickup_timeout` while the new session finished its pickup.
+  The limit applies to all families; all other stage deadlines and the cycle's 30 minutes are
+  unchanged.
+- DeepSeek sessions can run the managed context handoff cycle on Linux (#514). A DeepSeek
+  session had no cycle: its Enable was refused. A session registered with its harness URL and
+  credential file, with the family mode `handoff_cycle`, its participant address and the
+  harness's default model, now gets the cycle through its harness: overwatch's request, a new
+  harness session created in the same directory once the session is idle, and `/koinon-pickup`
+  there, which the new session's own `koinon register` and `koinon cycle-pickup` complete; it
+  takes the address once the pickup's receipt is recorded (`cycle_receipt_pending` until then).
+  The daemon never calls the harness's model selection, which would also save a new default,
+  so a session on another model is refused with `model_not_default`. `koinon install` and the
+  daemon write DeepSeek's `koinon-pickup` entry to an existing `$DSH_HOME/skills`. The native
+  checks ran with DeepSeek Harness 0.2.0-rc.2. The family default stays `observe`; macOS waits
+  for native evidence.
+- DeepSeek sessions now report their model and context use (#514). `peer_status` and the
+  dashboard showed no context for DeepSeek (`no_source`). For each session registered with its
+  harness URL and credential file, the daemon now reads the harness's token meter and model
+  selection every 15 seconds, and the time of the reply that the usage came from; it keeps only
+  those numbers and IDs, never the message text. Its family default stays `observe`.
+- OpenCode sessions can run the managed context handoff cycle on Linux (#513). An OpenCode
+  session had no cycle: its Enable was refused. A session started with `koinon opencode` in
+  tmux, with the family mode `handoff_cycle` and its participant address, now gets the cycle
+  through its own OpenCode server: overwatch's request, a new session created and shown in the
+  TUI, and the `koinon-pickup` skill command in that session with the requester's model, which
+  takes the address over. The server proves the new session and the pickup's message; the
+  report is accepted only while the pane's Koinon tool-call rows show the new session
+  (`cycle_display_unproven` until then) and its replies come from the requested model
+  (`cycle_model_changed` ends the cycle otherwise). The pickup's request and its read-back run
+  apart from the controller, so a long pickup turn delays no other cycle or wake. The native checks ran with
+  opencode 1.18.35. The family default stays `observe`; macOS waits for native evidence.
+- OpenCode sessions now report their model and context use (#513). `peer_status` and the
+  dashboard showed no context for OpenCode (`no_source`). For each session started with
+  `koinon opencode`, the daemon now reads the newest finished reply's token counts and its
+  model's context limit from the session's own OpenCode server every 15 seconds, with the launch
+  password; it keeps only those numbers and IDs, never the message text. A direct `opencode`
+  start shows none.
+- A managed cycle no longer fails when the successor's pickup needs several approvals (#520).
+  Each dialog during the pickup used two of the cycle's 16 events, so a pickup with more than
+  about four dialogs, such as agy's, which asks before most commands, failed with
+  `event_limit`. All dialogs of the pickup are now handled in one prompt wait: a dialog that the
+  session answers itself records no event, a dashboard answer records two, and the wait keeps
+  the deadline of its first dialog. A pickup report may name the revision of any stage of that
+  wait, and between two dialogs the Sessions page shows nothing to answer.
+- agy sessions can run the managed context handoff cycle on Linux (#512). An agy session had no
+  cycle: its Enable was refused. A session started with `koinon agy` in tmux, with the family mode
+  `handoff_cycle`, Koinon's status line from `koinon setup agy` and its participant address, now
+  gets the cycle: overwatch's request, `/clear` in its pane, and `/koinon-pickup` in the new
+  conversation, which takes the address over. The status-line hook proves the new conversation:
+  it reports each conversation with its own process to `POST /v1/cycles/agy-witness`, and the
+  daemon ties it to the cycle's pinned host. A workspace `.agent/skills` or `.agents/skills`
+  `koinon-pickup` that would replace agy's entry is named as `pickup_entry_shadowed`. The hook
+  also reports agy's activity. The native checks ran with Antigravity CLI 1.4.7. The family
+  default stays `observe`; macOS waits for native evidence.
+- agy sessions now report their model and context use (#512). `peer_status` and the dashboard
+  showed no context for agy. `koinon setup agy` now makes `koinon hook agy-status` the
+  `statusLine` entry of `~/.gemini/antigravity-cli/settings.json`: it wraps an existing entry's
+  command, or without one keeps agy's own status line with `stack_with_default`. `koinon setup
+  agy --remove-status-line` and `koinon uninstall` restore the previous entry.
+- Codex's `native_compaction` mode now compacts (#509). It did nothing at the threshold: the
+  Settings page showed a Codex threshold that had no effect. An enabled Codex session in that
+  mode now gets Codex's own `/compact` in its tmux pane when its context reaches the threshold,
+  once Codex is idle, once per crossing; a fresh reading below the threshold confirms it, and
+  the Sessions page shows each compaction and its result. It needs no pickup skill or
+  participant address, and Koinon changes no Codex setting. Schema 34 rebuilds the cycle table
+  with the compaction states.
+- A dashboard view whose read fails in the daemon, also for a stored record that cannot be
+  read, answers 500 with "The daemon could not read this view." and logs
+  `dashboard_view_failed` (#507). It answered 400 on the login page, "Not signed in" and "The
+  request was not valid.", as for a wrong address. An invalid view query still answers 400.
+  The page refreshes, and loads the whole view again once the read works.
+- The dashboard refresh no longer erases typed input (#510). It waited only while a form field
+  had focus, so a verdict note typed on a decision card was lost at the next refresh after a
+  click elsewhere, such as on the card's **Copy** button. A field whose input is not sent now
+  holds the refresh with or without focus, and the page says that it is not refreshed.
+- The Decisions board's **Find** searches (#505). An exact reference opens the item as before.
+  Part of a reference, or a reference in another case, lists the references that contain it,
+  from the items and the deep archive, 20 per page with their titles, kinds and states. Spaces
+  around the text are ignored. A **Clear** link ends the search and keeps the status filter,
+  and a refresh and a verdict keep the search.
+- Agents withdraw decision cards that no longer need the maintainer (#504). `decision_withdraw`
+  (`koinon decision withdraw`, `POST /v1/decisions/withdraw`) archives a waiting decision item
+  or an open fyi item at the revision the agent read, with a one-line reason: the work is done,
+  a newer item supersedes it, it was answered in chat, or it is no longer valid. The item's
+  author, a session of the author's participant or a named recipient can withdraw it. The
+  withdrawal is no verdict and sends no delivery. The archive shows the item as withdrawn, and
+  its lookup and `decision_get` show who withdrew it, when and why. `decision_restore` with
+  `if_revision` reopens a withdrawn item at the next revision. `decision_history` with
+  `withdrawals` pages every withdrawal. Schema 33 adds the table `decision_withdrawals` and
+  each item's author participant; the daemon migrates the state when it starts, and the deep
+  archive keeps the withdrawals.
+
+Upgrade from v0.5.0 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and migrates the state to schema 36, which ends current dashboard
+logins: log in again with the maintainer secret, or run `koinon dashboard` for a one-time link.
+A running `koinon mcp` server runs the new release without a session restart. The `koinon-`
+skill entries load the new procedures from the installed binary, and `koinon guide` prints the
+new guide text.
+
+Upgrade notes:
+
+- agy and Grok report context once `koinon setup agy` or `koinon setup grok` has added
+  Koinon's status-line hook; Grok reads it at startup, so start Grok again after its setup.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+- Codex keeps the tools and descriptions it read at the start until its session starts again
+  (docs/INSTALL.md).
+
 ## 2026-10-26 — Maintainer MCP mode, a maintainer secret and change notices
 
 This release adds a way for a program to act as the maintainer. A maintainer secret logs in to

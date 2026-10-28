@@ -35,9 +35,25 @@ type Options struct {
 	StateDir         string
 	ClaudeConfig     string
 	RemoveStatusLine bool
-	// AgySettings is the Antigravity CLI settings file that holds its permission rules;
-	// default ~/.gemini/antigravity-cli/settings.json.
+	// AgySettings is the Antigravity CLI settings file that holds its permission rules and
+	// status line; default antigravity-cli/settings.json beside AgyRoot, else
+	// ~/.gemini/antigravity-cli/settings.json.
 	AgySettings string
+	// GrokHome holds Grok's config.toml and its status line (#515); default $GROK_HOME, else
+	// ~/.grok.
+	GrokHome string
+}
+
+func agySettingsFile(o Options) string {
+	if o.AgySettings != "" {
+		return o.AgySettings
+	}
+	if o.AgyRoot != "" {
+		// Clean first: Dir of "config/" or "config/." is config itself.
+		return filepath.Join(filepath.Dir(filepath.Clean(o.AgyRoot)), "antigravity-cli", "settings.json")
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".gemini", "antigravity-cli", "settings.json")
 }
 
 // Report lists what setup changed and what it found already in place.
@@ -48,7 +64,7 @@ type Report struct {
 	Changed   []string `json:"changed"`
 	Unchanged []string `json:"unchanged"`
 	Note      string   `json:"note,omitempty"`
-	// StatusLine reports the Claude status-line set-up or removal.
+	// StatusLine reports the Claude, agy or Grok status-line set-up or removal.
 	StatusLine *StatusLineResult `json:"status_line,omitempty"`
 	// Permissions reports the family's recommended permission rules; setup changes none.
 	Permissions *PermissionsResult `json:"permissions,omitempty"`
@@ -89,10 +105,17 @@ func Run(ctx context.Context, o Options) (Report, error) {
 		}
 	}
 	if o.RemoveStatusLine {
-		if o.Family != "claude" {
-			return report, errors.New("--remove-status-line applies to claude only")
+		var result StatusLineResult
+		switch o.Family {
+		case "claude":
+			result, err = ClaudeStatusLine(o.Binary, o.StateDir, o.ClaudeConfig, true)
+		case "agy":
+			result, err = AgyStatusLine(o.Binary, o.StateDir, agySettingsFile(o), true)
+		case "grok":
+			result, err = GrokStatusLine(o.Binary, o.StateDir, grokConfigFile(o), true)
+		default:
+			return report, errors.New("--remove-status-line applies to claude, agy and grok only")
 		}
-		result, err := ClaudeStatusLine(o.Binary, o.StateDir, o.ClaudeConfig, true)
 		report.StatusLine = &result
 		return report, err
 	}
@@ -155,11 +178,24 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	case "codex":
 		err = codexHook(o, &report)
 	case "agy":
-		err = agyHook(o, &report)
+		if err = agyHook(o, &report); err == nil {
+			var result StatusLineResult
+			result, err = AgyStatusLine(o.Binary, o.StateDir, agySettingsFile(o), false)
+			report.StatusLine = &result
+			if err == nil && result.Outcome == "changed" {
+				report.Note = "The agy statusLine entry runs an edited Koinon hook; it was left unchanged."
+			}
+		}
 	case "opencode":
 		err = openCodePlugin(o, &report)
 	case "grok":
 		report.Note = grokNote(ctx, cli)
+		var result StatusLineResult
+		result, err = GrokStatusLine(o.Binary, o.StateDir, grokConfigFile(o), false)
+		report.StatusLine = &result
+		if err == nil && result.Outcome == "changed" {
+			report.Note += " The Grok [ui.status_line] command runs an edited Koinon hook, or Koinon's status line is set up in another config.toml; it was left unchanged."
+		}
 	}
 	if err == nil {
 		// Reported only: the person adds the rules at install's or setup's question.

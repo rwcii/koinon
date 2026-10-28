@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"sync"
 	"time"
@@ -70,6 +71,8 @@ func inspectSeen(err error) string {
 		return "pane_unproven"
 	case errors.Is(err, errPaneInMode):
 		return "pane_in_mode"
+	case errors.Is(err, errDeepSeekHarness):
+		return "harness_unreadable"
 	}
 	return "pane_unreadable"
 }
@@ -92,6 +95,9 @@ func (s *Store) timeoutSeen(ctx context.Context, c cycleRow) string {
 	adapter := cycleAdapterOf(c.Family)
 	if adapter == nil {
 		return ""
+	}
+	if _, hostless := adapter.(HostlessAdapter); hostless {
+		return "" // its workers record what they read; the tick reads no harness (#514)
 	}
 	t := s.cycleTarget(ctx, c)
 	s.wake.mu.Lock()
@@ -126,8 +132,59 @@ func (s *Store) contextObserved(ctx context.Context, k Key) {
 			c.State == cycleBootstrapIntent || c.State == cycleBootstrapVerified) {
 			s.endCycle(ctx, c.ID, c.Revision, cycleCancelled, "epoch_changed")
 		}
+		if c.Mode == ContextNativeCompaction {
+			s.compactionObserved(ctx, c, evidence)
+		}
 	}
 	s.admitContextCycle(ctx, k)
+}
+
+// compactionObserved applies a context reading to a compaction (#509). Another epoch ends it
+// as epoch_changed, and the new epoch can cross again. Before its deadlines, a fresh reading
+// (the trigger's source and confirmation ages, neither in the future) of the same epoch that
+// its source recorded after the submission's receipt, below the threshold that the compaction
+// recorded, confirms it.
+func (s *Store) compactionObserved(ctx context.Context, c cycleRow, e ContextEvidence) {
+	if e.Epoch != "" && e.Epoch != c.Epoch {
+		s.endCycle(ctx, c.ID, c.Revision, cycleCancelled, "epoch_changed")
+		return
+	}
+	now := s.now().UnixMilli()
+	if c.State != cycleCompactSent || now >= c.StageDeadline || now >= c.CycleDeadline || !freshEvidence(e, now) {
+		return
+	}
+	sent, err := compactSentAt(ctx, s.db, c)
+	if err != nil || e.SourceAt <= sent || *e.UsedTokens*100 >= c.Threshold**e.LimitTokens {
+		return
+	}
+	s.endCycle(ctx, c.ID, c.Revision, cycleComplete, "compacted")
+}
+
+// freshEvidence reports a context reading with an epoch and valid counts whose source and
+// confirmation are within the trigger's ages and not later than now.
+func freshEvidence(e ContextEvidence, now int64) bool {
+	return e.Found && e.Epoch != "" && e.UsedTokens != nil && e.LimitTokens != nil && *e.LimitTokens > 0 && *e.UsedTokens >= 0 &&
+		e.SourceAt <= now && e.ConfirmedAt <= now && now-e.SourceAt <= contextSourceMaxAge.Milliseconds() &&
+		now-e.ConfirmedAt <= contextConfirmationMaxAge.Milliseconds()
+}
+
+// compactSentAt is when c recorded its submission's receipt, after the Enter.
+func compactSentAt(ctx context.Context, q querier, c cycleRow) (int64, error) {
+	var at sql.NullInt64
+	err := q.QueryRowContext(ctx, `SELECT MAX(at) FROM context_cycle_events WHERE cycle_id=? AND stage=?`, c.ID, cycleCompactSent).Scan(&at)
+	if err == nil && !at.Valid {
+		err = sql.ErrNoRows
+	}
+	return at.Int64, err
+}
+
+// rearm forgets the crossing that admitted a compaction that ended keeping its Enable (before
+// its input or under another epoch), so the session's next fresh reading at its threshold
+// admits another. endCycleTx calls it once its transaction commits.
+func (s *Store) rearm(k Key) {
+	s.observed.mu.Lock()
+	defer s.observed.mu.Unlock()
+	delete(s.latches.epochs, k)
 }
 
 // cycleStep advances every unfinished cycle by at most one external effect: deadlines end
@@ -140,6 +197,7 @@ func (s *Store) cycleStep(ctx context.Context) error {
 		return err
 	}
 	s.paneSeen.keep(cycles)
+	s.cycleWork.keep(cycles)
 	for _, c := range cycles {
 		if err := ctx.Err(); err != nil {
 			return err
@@ -167,6 +225,18 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 			}
 		}
 		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, reason)
+		return err
+	case now >= c.StageDeadline && c.State == cycleCompactWaiting:
+		// A compaction whose pane was never ready got no input: it ends with what the pane
+		// showed, and the next fresh reading at the threshold admits another (#509).
+		reason := cycleCompactWaiting + "_timeout"
+		if seen, ok := s.paneSeen.get(c.ID); ok && seen != "" {
+			reason += "." + seen
+		}
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleCancelled, reason)
+		return err
+	case now >= c.StageDeadline && c.State == cycleCompactSent:
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, "compact_unconfirmed")
 		return err
 	case now >= c.StageDeadline && !cycleInputUnproven(c.State):
 		// A stage that waited for the pane names what the pane last showed. A requester that
@@ -227,9 +297,30 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 		return err
 	}
 	t := s.cycleTarget(ctx, c)
+	// An asynchronous pickup's receipt is read by API only, without the wake lock, so a
+	// pending request delays no other cycle or wake (#513).
+	if async, ok := adapter.(AsyncPickupAdapter); ok && c.State == cyclePickupIntent {
+		return s.pickupReceipt(ctx, c, t, async)
+	}
+	// A host-less cycle's harness reads and effects run in workers, without the wake lock: the
+	// session has no pane, and its requester's wakes are held from ready on (#514).
+	if _, hostless := adapter.(HostlessAdapter); hostless {
+		switch c.State {
+		case cycleReady, cycleResetVerified, cycleClearIntent, cycleClearReceived, cycleWaitingPickup:
+			return s.stepHostless(ctx, c, t, adapter)
+		}
+	}
 	s.wake.mu.Lock()
 	defer s.wake.mu.Unlock()
 	switch c.State {
+	case cycleCompactWaiting:
+		return s.stepCompaction(ctx, c, t, adapter)
+	case cycleCompactIntent:
+		// An intent without its receipt is never entered again (#509).
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "compact_unreceipted")
+		return err
+	case cycleCompactSent:
+		return nil // a context reading confirms it (compactionObserved), or its deadline ends it
 	case cycleReady, cycleBootstrapVerified, cycleResetVerified:
 		pane, err := adapter.Inspect(ctx, t, s.cycleFence(c))
 		if err != nil {
@@ -282,6 +373,9 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 		}
 		switch {
 		case c.State == cycleReady || c.State == cycleBootstrapVerified:
+			if create, ok := adapter.(SessionAdapter); ok {
+				return s.createSuccessor(ctx, c, t, create)
+			}
 			return s.enterInput(ctx, c, cycleClearIntent, cycleClearReceived, pinnedRequester(ctx),
 				func(fence CycleFence) (bool, error) { return adapter.Clear(ctx, t, fence) })
 		}
@@ -293,9 +387,18 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 			_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, "epoch_changed")
 			return err
 		}
+		if async, ok := adapter.(AsyncPickupAdapter); ok {
+			return s.startPickup(ctx, c, t, async)
+		}
 		return s.enterInput(ctx, c, cyclePickupIntent, cycleWaitingPickup, nil,
 			func(fence CycleFence) (bool, error) { return adapter.Pickup(ctx, t, fence) })
 	case cycleWaitingPickup:
+		// The pane's proof that it shows the successor is recorded once, before the report.
+		if display, ok := adapter.(DisplayAdapter); ok {
+			if recorded, err := s.recordDisplay(ctx, c, t, display); recorded || err != nil {
+				return err
+			}
+		}
 		// A dialog that the successor's first calls raise, such as a tool approval, waits for
 		// the native session or the maintainer like any other; the report may come during it.
 		// The read sends nothing: the maintainer may be reading the pane in copy mode.
@@ -305,6 +408,12 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 		_, err := s.advanceCycle(ctx, c.ID, c.Revision, c.State, cycleWaitingPrompt, "native_dialog", nil, func(n *cycleRow) { n.PromptFrom = c.State })
 		return err
 	case cycleClearIntent, cycleClearReceived:
+		// A created session is shown in the pane once before its proof (#513).
+		if create, ok := adapter.(SessionAdapter); ok && c.State == cycleClearReceived {
+			if sent, err := s.selectSuccessor(ctx, c, t, create); !sent || err != nil {
+				return err
+			}
+		}
 		// An intent without its receipt is reconciled only by proof, never by sending again.
 		epoch, err := adapter.NewEpoch(ctx, t)
 		if err == nil && epoch != "" && epoch != c.Epoch && nativeEpoch.MatchString(epoch) {
@@ -325,9 +434,14 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "prompt_unreceipted")
 		return err
 	case cycleWaitingPrompt:
-		if !adapter.Answerable(c.Reason) {
+		if !adapter.Answerable(cyclePrompt(c)) {
 			// The native session's own settings, or the maintainer, answer this dialog; the
 			// cycle returns to its stage once the dialog is gone, or the prompt wait ends it.
+			// A wait that began in waiting_pickup stays: the report is accepted in it, and
+			// each later dialog of the pickup is one more in the same wait (#520).
+			if c.PromptFrom == cycleWaitingPickup {
+				return nil
+			}
 			pane, err := adapter.Inspect(ctx, t, s.cycleFence(c))
 			if err != nil || pane.Prompt != "" {
 				return nil
@@ -337,19 +451,137 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 		}
 		// The response is an input like any other: its intent is recorded first, and it is
 		// never entered again without proof.
-		c, err := s.advanceCycle(ctx, c.ID, c.Revision, cycleWaitingPrompt, cyclePromptIntent, c.Reason, nil, nil)
+		prompt := cyclePrompt(c)
+		c, err := s.advanceCycle(ctx, c.ID, c.Revision, cycleWaitingPrompt, cyclePromptIntent, prompt, nil, nil)
 		if err != nil {
 			return err
 		}
-		answered, err := adapter.Answer(ctx, t, c.Reason, s.cycleFence(c))
+		answered, err := adapter.Answer(ctx, t, prompt, s.cycleFence(c))
 		if err != nil || !answered {
 			_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "prompt_unanswered")
 			return err
 		}
-		_, err = s.advanceCycle(ctx, c.ID, c.Revision, cyclePromptIntent, c.PromptFrom, "prompt_answered", nil, func(n *cycleRow) { n.PromptFrom = "" })
+		to, change := promptReturn(c)
+		_, err = s.advanceCycle(ctx, c.ID, c.Revision, cyclePromptIntent, to, "prompt_answered", nil, change)
 		return err
 	}
 	return nil
+}
+
+// cyclePrompt is the code of the dialog that a prompt wait waits on. A wait that began in
+// waiting_pickup waits on the native dialogs of the pickup; its reason can name its last
+// answer instead (#520).
+func cyclePrompt(c cycleRow) string {
+	if c.PromptFrom == cycleWaitingPickup {
+		return "native_dialog"
+	}
+	return c.Reason
+}
+
+// promptReturn is the stage that an answered dialog returns its cycle to, with the change
+// that ends the wait. A wait that began in waiting_pickup goes on, for the pickup's next
+// dialog or its report (#520).
+func promptReturn(c cycleRow) (string, func(*cycleRow)) {
+	if c.PromptFrom == cycleWaitingPickup {
+		return cycleWaitingPrompt, nil
+	}
+	return c.PromptFrom, func(n *cycleRow) { n.PromptFrom = "" }
+}
+
+// stepCompaction enters the native compaction of a waiting compaction once its pane is idle,
+// its compaction checks pass and its context is still at the threshold that admitted it. A
+// pane that is not ready leaves it waiting. The input intent is recorded first: a submission
+// that may have happened is never entered again, and one that surely did not happen, such as
+// typed text that was erased, returns the compaction to waiting.
+func (s *Store) stepCompaction(ctx context.Context, c cycleRow, t CycleTarget, adapter CycleAdapter) error {
+	compact, ok := adapter.(CompactAdapter)
+	if !ok {
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleCancelled, "adapter_unavailable")
+		return err
+	}
+	pane, err := adapter.Inspect(ctx, t, s.cycleFence(c))
+	switch {
+	case err != nil:
+		s.paneSeen.set(c.ID, inspectSeen(err))
+		return nil
+	case pane.Prompt != "":
+		s.paneSeen.set(c.ID, "native_dialog")
+		return nil
+	case !pane.Idle:
+		if pane.Seen == "" || !cycleCode.MatchString(pane.Seen) {
+			pane.Seen = "pane_not_ready"
+		}
+		s.paneSeen.set(c.ID, pane.Seen)
+		return nil
+	}
+	s.paneSeen.set(c.ID, "")
+	k := Key{c.Family, c.SessionID}
+	enables, err := s.contextEnables(ctx)
+	if err != nil {
+		return err
+	}
+	// The input needs a fresh reading at the threshold that admitted the compaction: without a
+	// reading or a recent confirmation, such as after a restart, it waits; a changed mode or
+	// threshold, or a reading that no longer selects it, ends it before any input. The fence
+	// holds the mode and threshold through the input, so the confirmation compares with the
+	// threshold in force at the send.
+	policy, e := s.sessionContextPolicy(c.Family, enables[k]), s.contextEvidence(k)
+	switch reason := compactionStale(c, policy, e, s.now().UnixMilli()); reason {
+	case "":
+	case "context_unknown", "confirmation_stale":
+		s.paneSeen.set(c.ID, reason)
+		return nil
+	default:
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleCancelled, reason)
+		return err
+	}
+	if probe := compact.CompactProbe(ctx, t); probe.Reason != "" {
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, probe.Reason)
+		return err
+	}
+	c, err = s.advanceCycle(ctx, c.ID, c.Revision, cycleCompactWaiting, cycleCompactIntent, "", pinnedRequester(ctx), nil)
+	if err != nil {
+		return err
+	}
+	submitted, received, err := compact.Compact(ctx, t, s.cycleFence(c))
+	switch {
+	case !submitted:
+		_, err = s.advanceCycle(ctx, c.ID, c.Revision, cycleCompactIntent, cycleCompactWaiting, inputReason(cycleCompactIntent, err), nil, nil)
+	case !received:
+		_, err = s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, inputReason(cycleCompactIntent, err))
+	default:
+		_, err = s.advanceCycle(ctx, c.ID, c.Revision, cycleCompactIntent, cycleCompactSent, "", nil, nil)
+	}
+	return err
+}
+
+// compactionStale is the fixed reason that a waiting compaction may not enter its input now:
+// the session's mode or threshold changed, its reading is of another epoch, or the trigger
+// does not select its newest reading (context_unknown, source_stale, below_threshold and the
+// others; the crossing's own latch does not count). "" when the input may go.
+func compactionStale(c cycleRow, policy ContextFamilyPolicy, e ContextEvidence, now int64) string {
+	switch {
+	case policy.Mode != ContextNativeCompaction:
+		return "mode_changed"
+	case policy.Threshold != c.Threshold:
+		return "threshold_changed"
+	case e.Found && e.Epoch != "" && e.Epoch != c.Epoch:
+		return "epoch_changed"
+	}
+	_, reason := SelectContextTrigger(ContextTriggerInput{Active: true, Enabled: true, Policy: policy, CycleAvailable: true, Evidence: e, Now: now})
+	return reason
+}
+
+// compactionPolicyHolds reports whether c's session is still in native_compaction at the
+// threshold that c recorded: the family mode, and the session's own threshold read in q.
+func (s *Store) compactionPolicyHolds(ctx context.Context, q querier, c cycleRow) (bool, error) {
+	var threshold int64
+	err := q.QueryRowContext(ctx, `SELECT threshold FROM context_enables WHERE family=? AND session_id=?`, c.Family, c.SessionID).Scan(&threshold)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	policy := s.sessionContextPolicy(c.Family, ContextEnable{Threshold: threshold})
+	return policy.Mode == ContextNativeCompaction && policy.Threshold == c.Threshold, nil
 }
 
 // cycleWaitsForPane reports a stage that waits for the pane to take input.
@@ -388,6 +620,448 @@ func (s *Store) enterInput(ctx context.Context, c cycleRow, intent, received str
 	return err
 }
 
+// createSuccessor records the clear intent and creates the successor session (#513). The
+// created ID is recorded with the receipt, in the same write that enters clear_received, so a
+// restart proves that exact session or nothing; a create without its recorded ID is never sent
+// again.
+func (s *Store) createSuccessor(ctx context.Context, c cycleRow, t CycleTarget, create SessionAdapter) error {
+	c, err := s.advanceCycle(ctx, c.ID, c.Revision, c.State, cycleClearIntent, "", pinnedRequester(ctx), nil)
+	if err != nil {
+		return err
+	}
+	id, err := create.Create(ctx, t, s.cycleFence(c))
+	if err != nil || id == "" || id == c.Epoch || !nativeEpoch.MatchString(id) {
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, inputReason(cycleClearIntent, err))
+		return err
+	}
+	_, err = s.advanceCycle(ctx, c.ID, c.Revision, cycleClearIntent, cycleClearReceived, "", nil, func(n *cycleRow) { n.SuccessorEpoch = id })
+	return err
+}
+
+// hostlessResult is one worker's harness read or effect for a host-less cycle (#514), for the
+// revision and stage that started it.
+type hostlessResult struct {
+	revision int64
+	state    string
+	pane     PaneState
+	probe    CycleProbe
+	epoch    string // NewEpoch's proof, or the created ID in clear_intent
+	err      error
+}
+
+// stepHostless advances a host-less cycle without a request on the controller's tick: a
+// worker reads the harness, or makes the stage's one effect, and publishes its result; a
+// later step applies a result of the cycle's current revision and stage through the same
+// revision-checked writes. Without a free worker the cycle waits in its stage.
+func (s *Store) stepHostless(ctx context.Context, c cycleRow, t CycleTarget, adapter CycleAdapter) error {
+	create := adapter.(SessionAdapter)
+	if c.State == cycleWaitingPickup {
+		return nil // no pane and no dialog: the report completes the cycle
+	}
+	if c.State == cycleClearReceived {
+		// The select records its intent and sends nothing (Select is a no-op for the harness).
+		if sent, err := s.selectSuccessor(ctx, c, t, create); !sent || err != nil {
+			return err
+		}
+	}
+	value, done := s.cycleWork.take(c.ID)
+	r, ok := value.(hostlessResult)
+	if !done || !ok || r.revision != c.Revision || r.state != c.State {
+		if !s.cycleWork.running(c.ID) {
+			s.cycleWork.start(c.ID, func(ctx context.Context, publish func(any)) {
+				publish(hostlessWork(ctx, c, t, adapter, s.cycleFence(c)))
+			})
+		}
+		return nil
+	}
+	now := s.now().UnixMilli()
+	switch c.State {
+	case cycleClearIntent:
+		// The create reads the chosen ID first and sends the same create only after a verified
+		// null and a quiet requester; an unreadable harness or a busy requester waits within the
+		// stage deadline. An intent's end is uncertain (endCycle); a busy requester's names its code.
+		var busy deepSeekNotQuiet
+		switch {
+		case errors.Is(r.err, errDeepSeekConflict):
+			_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, "session_conflict")
+			return err
+		case errors.As(r.err, &busy):
+			if now >= c.StageDeadline {
+				reason := string(busy)
+				if !cycleCode.MatchString(reason) {
+					reason = "pane_not_ready"
+				}
+				_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, reason)
+				return err
+			}
+			s.paneSeen.set(c.ID, string(busy))
+			return nil
+		case r.err != nil || r.epoch == "":
+			if now >= c.StageDeadline {
+				_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "reset_unproven")
+				return err
+			}
+			return nil
+		case r.epoch == c.Epoch || !nativeEpoch.MatchString(r.epoch):
+			_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "reset_unproven")
+			return err
+		}
+		s.paneSeen.set(c.ID, "")
+		_, err := s.advanceCycle(ctx, c.ID, c.Revision, cycleClearIntent, cycleClearReceived, "", nil, func(n *cycleRow) { n.SuccessorEpoch = r.epoch })
+		return err
+	case cycleClearReceived:
+		if r.err == nil && r.epoch != "" && r.epoch == c.SuccessorEpoch && nativeEpoch.MatchString(r.epoch) {
+			_, err := s.advanceCycle(ctx, c.ID, c.Revision, c.State, cycleResetVerified, "", nil, nil)
+			return err
+		}
+		if now >= c.StageDeadline {
+			_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "reset_unproven")
+			return err
+		}
+		return nil
+	}
+	// ready or reset_verified: the quiet point, the probe and, after the reset, the epoch.
+	if r.err != nil {
+		s.paneSeen.set(c.ID, inspectSeen(r.err))
+		return nil
+	}
+	if !r.pane.Idle {
+		if r.pane.Seen == "" || !cycleCode.MatchString(r.pane.Seen) {
+			r.pane.Seen = "pane_not_ready"
+		}
+		s.paneSeen.set(c.ID, r.pane.Seen)
+		return nil
+	}
+	s.paneSeen.set(c.ID, "")
+	if _, err := s.verifyArtifact(ctx, c, c.Artifact); err != nil {
+		if c.State == cycleReady {
+			_, err = s.advanceCycle(ctx, c.ID, c.Revision, c.State, cycleWaitingReady, "artifact_changed", nil, func(n *cycleRow) {
+				n.Artifact, n.ArtifactDev, n.ArtifactIno, n.ArtifactSize, n.ArtifactMtime = "", 0, 0, 0, 0
+			})
+		} else {
+			_, err = s.endCycle(ctx, c.ID, c.Revision, cycleFailed, "artifact_changed")
+		}
+		return err
+	}
+	if r.probe.Reason != "" {
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, r.probe.Reason)
+		return err
+	}
+	if c.State == cycleReady {
+		// The intent is recorded here; the next step's worker makes the create.
+		_, err := s.advanceCycle(ctx, c.ID, c.Revision, c.State, cycleClearIntent, "", pinnedRequester(ctx), nil)
+		return err
+	}
+	if r.epoch != c.SuccessorEpoch {
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, "epoch_changed")
+		return err
+	}
+	return s.startPickup(ctx, c, t, adapter.(AsyncPickupAdapter))
+}
+
+// hostlessWork is a host-less cycle's worker for its stage: the quiet point and the probe in
+// ready and reset_verified (with the epoch there), the create in clear_intent, the epoch in
+// clear_received.
+func hostlessWork(ctx context.Context, c cycleRow, t CycleTarget, adapter CycleAdapter, fence CycleFence) hostlessResult {
+	r := hostlessResult{revision: c.Revision, state: c.State}
+	switch c.State {
+	case cycleClearIntent:
+		r.epoch, r.err = adapter.(SessionAdapter).Create(ctx, t, fence)
+	case cycleClearReceived:
+		r.epoch, r.err = adapter.NewEpoch(ctx, t)
+	default:
+		if r.pane, r.err = adapter.Inspect(ctx, t, fence); r.err != nil || !r.pane.Idle {
+			return r
+		}
+		r.probe = adapter.Probe(ctx, t)
+		if r.probe.Reason == "" && c.State == cycleResetVerified {
+			r.epoch, r.err = adapter.NewEpoch(ctx, t)
+		}
+	}
+	return r
+}
+
+// selectReason is the reason of the same-state clear_received event that records the
+// select's intent (#513).
+const selectReason = "select_sent"
+
+// selectSuccessor shows the created session in the pane once: its intent is recorded first,
+// so a restart never selects again. It reports whether the select was sent before this step,
+// so that the reset's proof can be read.
+func (s *Store) selectSuccessor(ctx context.Context, c cycleRow, t CycleTarget, create SessionAdapter) (bool, error) {
+	if c.SuccessorEpoch == "" {
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "reset_unproven")
+		return false, err
+	}
+	var sent int
+	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM context_cycle_events WHERE cycle_id=? AND stage=? AND reason=? LIMIT 1`,
+		c.ID, cycleClearReceived, selectReason).Scan(&sent)
+	if err == nil {
+		return true, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return false, err
+	}
+	c, err = s.advanceCycle(ctx, c.ID, c.Revision, cycleClearReceived, cycleClearReceived, selectReason, pinnedRequester(ctx), nil)
+	if err != nil {
+		return false, err
+	}
+	if ok, err := create.Select(ctx, t, s.cycleFence(c)); err != nil || !ok {
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, inputReason("select", err))
+		return false, err
+	}
+	return false, nil
+}
+
+// startPickup records the pickup intent and sends the pickup from a worker, which then reads
+// its receipt back (#513). Without a free worker the cycle waits in its stage, with nothing
+// recorded.
+func (s *Store) startPickup(ctx context.Context, c cycleRow, t CycleTarget, async AsyncPickupAdapter) error {
+	if !s.cycleWork.free() {
+		return nil
+	}
+	c, err := s.advanceCycle(ctx, c.ID, c.Revision, c.State, cyclePickupIntent, "", nil, nil)
+	if err != nil {
+		return err
+	}
+	t.State, t.pickupAt = c.State, c.UpdatedAt
+	fence := s.cycleFence(c)
+	// A worker that cannot start sends nothing: a later step reads that no receipt exists.
+	s.cycleWork.start(c.ID, func(ctx context.Context, publish func(any)) {
+		sent := make(chan struct{})
+		go func() {
+			defer close(sent)
+			async.SendPickup(ctx, t, fence)
+		}()
+		publish(awaitReceipt(ctx, async, t, sent))
+		<-sent
+	})
+	return nil
+}
+
+var (
+	// cycleReceiptPoll is the pause between a worker's receipt reads; cycleReceiptBound bounds
+	// the reads after the request started (#513).
+	cycleReceiptPoll  = 250 * time.Millisecond
+	cycleReceiptBound = 30 * time.Second
+)
+
+// awaitReceipt reads an asynchronous pickup's receipt until it is there, or until a read made
+// after the request ended (sent closed; nil after a restart, which sent nothing) shows that it
+// is not. A failed read is tried again within cycleReceiptBound.
+func awaitReceipt(ctx context.Context, async AsyncPickupAdapter, t CycleTarget, sent <-chan struct{}) bool {
+	deadline := time.Now().Add(cycleReceiptBound)
+	for {
+		ended := sent == nil
+		if !ended {
+			select {
+			case <-sent:
+				ended = true
+			default:
+			}
+		}
+		received, err := async.PickupReceipt(ctx, t)
+		if err == nil && (received || ended) {
+			return received
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(cycleReceiptPoll):
+		}
+	}
+}
+
+// pickupReceipt applies an asynchronous pickup's receipt, which its worker read: with it the
+// cycle waits for the report; without it the pickup is uncertain and is never sent again. A
+// restarted daemon has no worker and no result: a worker reads the receipt back, sending
+// nothing. The step itself makes no request, so a slow server delays no other cycle.
+func (s *Store) pickupReceipt(ctx context.Context, c cycleRow, t CycleTarget, async AsyncPickupAdapter) error {
+	received, published := s.cycleWork.result(c.ID)
+	switch {
+	case published && received:
+		_, err := s.advanceCycle(ctx, c.ID, c.Revision, cyclePickupIntent, cycleWaitingPickup, "", nil, nil)
+		return err
+	case published:
+		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "pickup_unreceipted")
+		return err
+	case !s.cycleWork.running(c.ID):
+		s.cycleWork.start(c.ID, func(ctx context.Context, publish func(any)) { publish(awaitReceipt(ctx, async, t, nil)) })
+	}
+	return nil
+}
+
+// recordDisplay records, once, a current view of the pane that shows the successor and no
+// other session (#513), and reports whether it did.
+func (s *Store) recordDisplay(ctx context.Context, c cycleRow, t CycleTarget, display DisplayAdapter) (bool, error) {
+	if shown, err := pickupDisplayed(ctx, s.db, c.ID); err != nil || shown {
+		return false, err
+	}
+	if shown, foreign, err := display.PickupDisplay(ctx, t); err != nil || !shown || foreign {
+		return false, nil
+	}
+	_, err := s.advanceCycle(ctx, c.ID, c.Revision, cycleWaitingPickup, cycleWaitingPickup, pickupDisplayedReason, nil, nil)
+	return err == nil, err
+}
+
+// displayWait bounds the pickup report's reads of the pane: the report call's own tool-call
+// row renders while the call runs (#513).
+var displayWait = 2 * time.Second
+
+// displayProof is the pane's and the server's proof for a DisplayAdapter's pickup report
+// (#513): a current view that shows the successor and no other session, read again for at
+// most displayWait, and the successor's replies from the model that the pickup asked for. A
+// recorded earlier view proves nothing about the current one. A known other model ends the
+// cycle uncertain.
+func (s *Store) displayProof(ctx context.Context, c cycleRow, display DisplayAdapter) error {
+	t := s.cycleTarget(ctx, c)
+	// The reads end at the stage's and the cycle's deadlines too, which they never extend.
+	limit := min(c.StageDeadline, c.CycleDeadline)
+	read, cancel := context.WithTimeout(ctx, time.Duration(limit-s.now().UnixMilli())*time.Millisecond)
+	defer cancel()
+	// The pane's reads also end at displayWait, and a view read after it is too late to count.
+	view, stop := context.WithTimeout(read, displayWait)
+	defer stop()
+	for {
+		shown, foreign, err := display.PickupDisplay(view, t)
+		if view.Err() != nil || s.now().UnixMilli() >= limit || err == nil && foreign {
+			return ErrCycleDisplay
+		}
+		if err == nil && shown {
+			break
+		}
+		select {
+		case <-view.Done():
+			return ErrCycleDisplay
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	matched, err := display.PickupModel(read, t)
+	if err != nil {
+		return err
+	}
+	if !matched {
+		if _, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "model_changed"); err != nil {
+			return err
+		}
+		return ErrCycleModel
+	}
+	return nil
+}
+
+// maxCycleWorkers bounds the asynchronous pickups that run at once (#513).
+const maxCycleWorkers = 4
+
+// cycleWorkers runs the asynchronous pickups (#513): one per cycle and at most
+// maxCycleWorkers at a time, each under a context that the daemon's Close cancels before it
+// waits for them. A worker publishes its receipt result, which stays until its cycle ends.
+type cycleWorkers struct {
+	mu      sync.Mutex
+	wg      sync.WaitGroup
+	ctx     context.Context
+	cancel  context.CancelFunc
+	active  map[string]bool
+	results map[string]any
+	stopped bool
+}
+
+// free reports whether a worker can start.
+func (w *cycleWorkers) free() bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return !w.stopped && len(w.active) < maxCycleWorkers
+}
+
+// running reports whether the cycle's worker runs.
+func (w *cycleWorkers) running(id string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.active[id]
+}
+
+// result returns the receipt result that the cycle's worker published.
+func (w *cycleWorkers) result(id string) (received, published bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	value, published := w.results[id]
+	received, receipt := value.(bool)
+	return received, published && receipt
+}
+
+// take returns and forgets the result that the cycle's worker published, once it returned.
+func (w *cycleWorkers) take(id string) (any, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	value, published := w.results[id]
+	if !published || w.active[id] {
+		return nil, false
+	}
+	delete(w.results, id)
+	return value, true
+}
+
+// keep forgets the results of every cycle that is not in active.
+func (w *cycleWorkers) keep(active []cycleRow) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	ids := map[string]bool{}
+	for _, c := range active {
+		ids[c.ID] = true
+	}
+	for id := range w.results {
+		if !ids[id] && !w.active[id] {
+			delete(w.results, id)
+		}
+	}
+}
+
+// start runs one worker for the cycle, unless one runs or none is free or the workers stopped.
+// The worker publishes its result once; a later publish changes nothing.
+func (w *cycleWorkers) start(id string, run func(context.Context, func(any))) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.stopped || w.active[id] || len(w.active) >= maxCycleWorkers {
+		return false
+	}
+	if w.ctx == nil {
+		w.ctx, w.cancel = context.WithCancel(context.Background())
+		w.active, w.results = map[string]bool{}, map[string]any{}
+	}
+	w.active[id] = true
+	w.wg.Add(1)
+	publish := func(value any) {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		if _, done := w.results[id]; !done {
+			w.results[id] = value
+		}
+	}
+	go func() {
+		defer w.wg.Done()
+		defer func() {
+			w.mu.Lock()
+			delete(w.active, id)
+			w.mu.Unlock()
+		}()
+		run(w.ctx, publish)
+	}()
+	return true
+}
+
+// stop cancels the workers and waits until each one returned.
+func (w *cycleWorkers) stop() {
+	w.mu.Lock()
+	w.stopped = true
+	if w.cancel != nil {
+		w.cancel()
+	}
+	w.mu.Unlock()
+	w.wg.Wait()
+}
+
 // cycleFence holds an input to the cycle as c records it: in one read transaction, the cycle
 // is still at c's revision and stage, before its deadlines, under the admitting Enable.
 func (s *Store) cycleFence(c cycleRow) CycleFence {
@@ -411,6 +1085,31 @@ func (s *Store) cycleFence(c cycleRow) CycleFence {
 			}
 			return err
 		}
+		// A host-less cycle's input also stops when its requester no longer holds the address or
+		// registered another harness target (#514).
+		if _, hostless := cycleAdapterOf(current.Family).(HostlessAdapter); hostless {
+			var holder string
+			if err := tx.QueryRowContext(ctx, `SELECT holder_id FROM names WHERE kind='alias' AND name=? AND family=?`,
+				current.Address, current.Family).Scan(&holder); err != nil && !errors.Is(err, sql.ErrNoRows) {
+				return err
+			}
+			ok, err := hostlessTargets(ctx, tx, current.ID, Key{current.Family, current.SessionID})
+			if err != nil {
+				return err
+			}
+			if !ok || holder != current.SessionID {
+				return ErrCycleChanged
+			}
+		}
+		// A compaction's input also stops when the session's mode or threshold changed (#509).
+		if current.Mode == ContextNativeCompaction {
+			if ok, err := s.compactionPolicyHolds(ctx, tx, current); err != nil || !ok {
+				if err == nil {
+					err = ErrCycleChanged
+				}
+				return err
+			}
+		}
 		return nil
 	}
 }
@@ -422,9 +1121,49 @@ func (s *Store) cycleTarget(ctx context.Context, c cycleRow) CycleTarget {
 	t := c.target()
 	var executable string
 	// A session row that cannot be read leaves "": tmux from PATH.
-	_ = s.db.QueryRowContext(ctx, `SELECT tmux_path FROM sessions WHERE family=? AND id=?`, c.Family, c.SessionID).Scan(&executable)
+	_ = s.db.QueryRowContext(ctx, `SELECT tmux_path,directory FROM sessions WHERE family=? AND id=?`, c.Family, c.SessionID).Scan(&executable, &t.Directory)
 	t.tools = s.hostTools(executable)
+	if c.Family == "agy" || c.Family == "grok" {
+		t.witnesses = s.agyWitness.of(c.ID)
+		t.observedEpoch = s.contextEvidence(Key{c.Family, c.SessionID}).Epoch
+		t.stateRoot = s.root
+	}
+	if c.Family == "deepseek" {
+		// The requester's harness, which also hosts the created successor, and the pin (#514).
+		var raw []byte
+		var target wakeTarget
+		if s.db.QueryRowContext(ctx, `SELECT wake_target FROM sessions WHERE family=? AND id=?`, c.Family, c.SessionID).Scan(&raw) == nil &&
+			json.Unmarshal(raw, &target) == nil && target.DSHURL != "" && target.DSHCredentials != "" {
+			t.deepSeek = &target
+		}
+		if c.ID != "" {
+			_ = s.db.QueryRowContext(ctx, `SELECT adapter_pin FROM context_cycles WHERE cycle_id=?`, c.ID).Scan(&t.pin)
+		}
+	}
+	if c.Family == "opencode" || c.Family == "deepseek" {
+		// The pickup's intent time, from which the message or request ID derives (#513, #514).
+		var at sql.NullInt64
+		if s.db.QueryRowContext(ctx, `SELECT MAX(at) FROM context_cycle_events WHERE cycle_id=? AND stage=?`, c.ID, cyclePickupIntent).Scan(&at) == nil && at.Valid {
+			t.pickupAt = at.Int64
+		}
+	}
+	if c.Family == "opencode" {
+		// The requester's launched server, which also hosts the created successor (#513).
+		var raw []byte
+		var wake struct {
+			LaunchID string `json:"launch_id"`
+		}
+		if s.db.QueryRowContext(ctx, `SELECT wake_target FROM sessions WHERE family=? AND id=?`, c.Family, c.SessionID).Scan(&raw) == nil &&
+			json.Unmarshal(raw, &wake) == nil {
+			if target, err := s.openCodeTarget(ctx, wake.LaunchID); err == nil {
+				t.openCode = &target
+			}
+		}
+	}
 	t.Pickup = pickupSkillEntry()
+	if c.Family == "deepseek" {
+		t.Pickup = deepSeekPickupEntry()
+	}
 	var held int
 	t.Holds = s.db.QueryRowContext(ctx, `SELECT 1 FROM names WHERE kind='alias' AND family=? AND holder_id=? LIMIT 1`, c.Family, c.SessionID).Scan(&held) == nil
 	if c.State == cycleReady {
@@ -442,13 +1181,15 @@ func (s *Store) cycleTarget(ctx context.Context, c cycleRow) CycleTarget {
 }
 
 // paneHeldByCycle reports whether an unfinished cycle owns the target session's pane, so
-// its ordinary wake waits without being marked delivered.
+// its ordinary wake waits without being marked delivered. A host-less cycle (#514) holds only
+// its own requester's wake: a prompt queued in it would end its quiet point.
 func (s *Store) paneHeldByCycle(ctx context.Context, target Key) (bool, error) {
 	var held int
 	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM context_cycles c JOIN sessions s ON s.family=? AND s.id=?
 		WHERE c.state IN ('ready','bootstrap_intent','bootstrap_verified','clear_intent','clear_received','reset_verified','pickup_intent',
-			'waiting_pickup','waiting_prompt','prompt_intent')
-		AND c.host_pid=s.host_pid AND c.host_start=s.host_start AND c.tmux_socket=s.tmux_socket AND c.tmux_pane=s.tmux_pane`,
+			'waiting_pickup','waiting_prompt','prompt_intent','compact_intent','compact_sent')
+		AND (c.host_start>0 AND c.host_pid=s.host_pid AND c.host_start=s.host_start AND c.tmux_socket=s.tmux_socket AND c.tmux_pane=s.tmux_pane
+			OR c.host_start=0 AND c.family=s.family AND c.session_id=s.id)`,
 		target.Family, target.ID).Scan(&held)
 	return held > 0, err
 }
@@ -516,7 +1257,7 @@ func (s *Store) CycleDialogOf(ctx context.Context, id string) (CycleDialog, erro
 		return CycleDialog{}, ErrCycleChanged
 	}
 	adapter := cycleAdapterOf(c.Family)
-	if adapter == nil || adapter.Answerable(c.Reason) {
+	if adapter == nil || adapter.Answerable(cyclePrompt(c)) {
 		return CycleDialog{}, ErrCycleChanged
 	}
 	return adapter.Dialog(ctx, s.cycleTarget(ctx, c))
@@ -535,7 +1276,7 @@ func (s *Store) AnswerCycleDialog(ctx context.Context, id string, revision int64
 		return err
 	}
 	adapter := cycleAdapterOf(c.Family)
-	if c.State != cycleWaitingPrompt || c.Revision != revision || adapter == nil || adapter.Answerable(c.Reason) {
+	if c.State != cycleWaitingPrompt || c.Revision != revision || adapter == nil || adapter.Answerable(cyclePrompt(c)) {
 		return ErrCycleChanged
 	}
 	t := s.cycleTarget(ctx, c)
@@ -564,7 +1305,8 @@ func (s *Store) AnswerCycleDialog(ctx context.Context, id string, revision int64
 		}
 		return err
 	}
-	_, err = s.advanceCycle(ctx, id, c.Revision, cyclePromptIntent, c.PromptFrom, "prompt_answered", nil, func(n *cycleRow) { n.PromptFrom = "" })
+	to, change := promptReturn(c)
+	_, err = s.advanceCycle(ctx, id, c.Revision, cyclePromptIntent, to, "prompt_answered", nil, change)
 	if errors.Is(err, ErrCycleChanged) {
 		// The approved call can be the pickup report itself, which completes the cycle
 		// before the return to its stage is recorded: the answer was received.

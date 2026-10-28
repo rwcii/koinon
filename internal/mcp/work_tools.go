@@ -44,7 +44,7 @@ var workSchema = map[string]map[string]any{
 	"revision": integer, "if_revision": integer, "claim_generation": integer, "if_claim_revision": integer, "report_seq": integer,
 	"limit":         {"type": "integer", "minimum": 1, "maximum": 100},
 	"lease_seconds": lease, "renew_for": lease,
-	"progress_deadline": number, "deadline": number,
+	"progress_deadline": number, "deadline": retryDeadline,
 	"stale": {"type": "boolean"}, "blocked": {"type": "boolean"}, "assigned_to_me": {"type": "boolean"}, "created_by_me": {"type": "boolean"},
 	"references": {"type": "array", "items": text, "maxItems": 8},
 	"resources":  {"type": "array", "maxItems": 8, "items": map[string]any{"type": "array", "items": text, "minItems": 2, "maxItems": 2}},

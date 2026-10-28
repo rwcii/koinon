@@ -556,7 +556,7 @@ func storeOf(ctx context.Context, q querier, repo string) (string, error) {
 func current(ctx context.Context, q querier, store, workID string, now float64) (workItem, error) {
 	w, err := scanWork(q.QueryRowContext(ctx, `SELECT `+workColumns+` FROM work_items WHERE store=? AND work_id=?`, store, workID))
 	if errors.Is(err, sql.ErrNoRows) || err == nil && w.ExpiresAt != nil && *w.ExpiresAt <= now {
-		return w, workError("work_not_found", "the work item is absent or its retention has expired")
+		return w, workError("work_not_found", "the work item is absent or no longer retained")
 	}
 	return w, err
 }
@@ -1085,7 +1085,7 @@ func (s *Store) replay(ctx context.Context, m MemoryCaller, r *workRequest, now 
 		return "", nil, workError("retry_deadline_expired", "the retry deadline has passed; query the item to reconcile")
 	}
 	if deadline > now+l.idemTTL {
-		return "", nil, invalid(fmt.Sprintf("the retry deadline is beyond the %.0f s horizon", l.idemTTL))
+		return "", nil, invalid(fmt.Sprintf("the retry deadline must be a Unix time in seconds at most %.0f s ahead", l.idemTTL))
 	}
 	print := r.fingerprint(m.Consumer)
 	store, err := storeOf(ctx, tx, m.Repository)
@@ -1176,6 +1176,8 @@ func (s *Store) workMutation(ctx context.Context, m MemoryCaller, r *workRequest
 		if err := s.reconcile(ctx, m.Repository, workID, now, advanced); err != nil {
 			return nil, err
 		}
+	} else if err := s.makeRoom(ctx, m.Repository); err != nil {
+		return nil, err
 	}
 	if r.op == "work-start" {
 		if err := s.reclaimInactive(ctx, m.Repository, workID); err != nil {
@@ -1535,9 +1537,41 @@ func (s *Store) reconcile(ctx context.Context, repo, workID string, now float64,
 	})
 }
 
-// reclaimFinished removes one entire finished item past its retention: its record, scope
-// history, events and stream entries, raising the floor. The head and the counters stay;
-// snapshots and replay results keep their own lifetimes.
+// makeRoom removes the oldest finished item of a store at its item limit before a create,
+// also before its 30-day retention ends (#529). Open, active, blocked and reported items
+// stay, and a store without a finished item keeps refusing the create.
+func (s *Store) makeRoom(ctx context.Context, repo string) error {
+	store, err := storeOf(ctx, s.db, repo)
+	if err != nil || store == "" {
+		return err
+	}
+	var items int64
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM work_items WHERE store=?`, store).Scan(&items); err != nil {
+		return err
+	}
+	if items < s.limits().workItems {
+		return nil
+	}
+	var oldest string
+	err = s.db.QueryRowContext(ctx, `SELECT work_id FROM work_items WHERE store=? AND lifecycle='finished'
+		ORDER BY expires_at,work_id LIMIT 1`, store).Scan(&oldest)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	// Its inactive claim bundle goes first, as the maintenance sweep does.
+	if err := s.reclaimInactive(ctx, repo, oldest); err != nil {
+		return err
+	}
+	_, err = s.reclaimFinished(ctx, repo, store, math.MaxFloat64)
+	return err
+}
+
+// reclaimFinished removes one entire finished item that expires by now, the oldest first: its
+// record, scope history, events and stream entries, raising the floor. The head and the
+// counters stay; snapshots and replay results keep their own lifetimes.
 func (s *Store) reclaimFinished(ctx context.Context, repo, store string, now float64) (bool, error) {
 	var workID string
 	err := s.db.QueryRowContext(ctx, `SELECT work_id FROM work_items WHERE store=? AND lifecycle='finished' AND expires_at<=?

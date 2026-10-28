@@ -90,11 +90,11 @@ func TestContextCycleDeadlinesHold(t *testing.T) {
 	if err != nil || ready.StageDeadline != g.clock.UnixMilli()+cycleReceiptWait.Milliseconds() {
 		t.Fatalf("ready before the deadline: %v %+v", err, ready)
 	}
-	// Pickup has the two-minute receipt wait, and no stage outlasts the cycle.
+	// Pickup has the five-minute pickup wait (#525), and no stage outlasts the cycle.
 	g.step(t)
 	g.step(t)
 	g.step(t)
-	if v = g.status(t, g.k); v.State != cycleWaitingPickup || v.StageDeadline != min(v.UpdatedAt+cycleReceiptWait.Milliseconds(), v.CycleDeadline) {
+	if v = g.status(t, g.k); v.State != cycleWaitingPickup || v.StageDeadline != min(v.UpdatedAt+cyclePickupWait.Milliseconds(), v.CycleDeadline) {
 		t.Fatalf("waiting_pickup deadline: %+v", v)
 	}
 	// A prompt late in the cycle (after earlier prompt rounds) waits only until its end.
@@ -717,18 +717,29 @@ func TestContextCycleRequestAsksToPauseAndStayIdle(t *testing.T) {
 	f.observe(t, f.k, 900, "synthetic-epoch-1")
 	v := f.status(t, f.k)
 	requests := f.overwatchRequests(t)
-	if len(requests) != 1 || requests[0] != cycleRequestBody(v.ID, v.Revision, f.k.Family, v.StageDeadline) {
+	if len(requests) != 1 || requests[0] != cycleRequestBody(v.ID, v.Revision, f.k.Family, f.k.Family, v.StageDeadline) {
 		t.Fatalf("requests: %q", requests)
 	}
 	for _, want := range []string{"managed context cycle " + v.ID + " revision 1 requests your handoff",
-		"Pause your work at the next safe stopping point. Let running background subagents",
-		"Let running background subagents finish, or stop them", "call context_cycle_ready",
+		"Pause your work at the next safe stopping point. The clear does not stop your background subagents",
+		"do not stop them or wait for them", "list each one that still runs, with its task and where its result goes",
+		"the new session gets each result as a message", "call context_cycle_ready",
 		"Report ready by " + time.UnixMilli(v.StageDeadline).UTC().Format("2006-01-02 15:04:05 UTC") + ".",
-		"stop any that will not finish with enough time left to update the handoff and report ready by",
 		"into _handoff/" + f.k.Family + "/ of the main checkout (outside a Git checkout, of the directory where this session started), or into the directory that the Handoff path fact of .koinon/skills/handoff.md names",
 		"Then end your turn and stay idle", "overwatch clears your context at your idle prompt", "asks again"} {
 		if !strings.Contains(requests[0], want) {
 			t.Fatalf("request lacks %q: %s", want, requests[0])
+		}
+	}
+	if strings.Contains(requests[0], "stop any that will not finish") {
+		t.Fatalf("a Claude request asks to stop subagents (#533): %s", requests[0])
+	}
+	// Other families keep the stop rule with the deadline (#467).
+	other := cycleRequestBody(v.ID, v.Revision, "codex", "codex", v.StageDeadline)
+	for _, want := range []string{"Let running background subagents finish, or stop them",
+		"stop any that will not finish with enough time left to update the handoff and report ready by"} {
+		if !strings.Contains(other, want) || strings.Contains(other, "The clear does not stop") {
+			t.Fatalf("codex request lacks %q: %s", want, other)
 		}
 	}
 	if cycleAgent("codex", "review") != "codex-review" || cycleAgent("claude", "") != "claude" {
@@ -772,7 +783,7 @@ func TestContextCycleAsksAgainAfterSubagentWork(t *testing.T) {
 		again.Artifact != "" || f.adapter.count("clear") != 0 {
 		t.Fatalf("asked again: %+v clears %d", again, f.adapter.count("clear"))
 	}
-	if requests := f.overwatchRequests(t); len(requests) != 2 || requests[1] != cycleRequestBody(again.ID, again.Revision, f.k.Family, again.StageDeadline) {
+	if requests := f.overwatchRequests(t); len(requests) != 2 || requests[1] != cycleRequestBody(again.ID, again.Revision, f.k.Family, f.k.Family, again.StageDeadline) {
 		t.Fatalf("requests: %q", requests)
 	}
 	// A waiting_ready cycle reports no ready time, so the same observation repeats nothing.
@@ -847,7 +858,7 @@ func TestContextCycleAsksAgainWhenThePaneStaysBusy(t *testing.T) {
 		t.Fatalf("asked again: %+v", again)
 	}
 	requests := f.overwatchRequests(t)
-	if len(requests) != 2 || requests[1] != cycleRequestBody(again.ID, again.Revision, f.k.Family, again.StageDeadline) {
+	if len(requests) != 2 || requests[1] != cycleRequestBody(again.ID, again.Revision, f.k.Family, f.k.Family, again.StageDeadline) {
 		t.Fatalf("requests: %q", requests)
 	}
 	// The cycle no longer owns the pane, so the new request's wake goes out.

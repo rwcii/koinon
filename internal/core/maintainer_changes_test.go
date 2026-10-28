@@ -134,7 +134,18 @@ func TestChangeVersionsMoveWithEachWrite(t *testing.T) {
 	})
 	t.Run("decision restore", func(t *testing.T) {
 		decisionMoves(func() {
-			_, err := s.DecisionRestore(ctx, f.peerKey, "C-1")
+			_, err := s.DecisionRestore(ctx, f.peerKey, "C-1", 0)
+			must(err)
+		})
+	})
+	t.Run("decision withdraw and reopen", func(t *testing.T) {
+		mustCreate(t, s, f.peerKey, "C-2", decisionFields("Withdraw me", "fyi"))
+		decisionMoves(func() {
+			_, err := s.DecisionWithdraw(ctx, f.peerKey, "C-2", 1, "done", "withdraw-1", s.clock()+600)
+			must(err)
+		})
+		decisionMoves(func() {
+			_, err := s.DecisionRestore(ctx, f.peerKey, "C-2", 1)
 			must(err)
 		})
 	})
@@ -422,7 +433,7 @@ func TestSchemaThirtyTwoStartsCounters(t *testing.T) {
 	if _, err := s.Send(context.Background(), Key{"codex", a.ID}, "maintainer", "a synthetic report"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixtureExec(s, undoSchemaThirtyTwo+`PRAGMA user_version=31`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+`PRAGMA user_version=31`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 31); err != nil {

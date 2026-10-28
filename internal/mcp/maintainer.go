@@ -54,21 +54,21 @@ func MaintainerSession(ctx context.Context, stateDir, address, secret, client st
 }
 
 var (
-	verdictField = map[string]any{"type": "string", "enum": []string{"approved", "declined", "dismissed"}}
-	boardFilter  = map[string]any{"type": "string", "enum": []string{"waiting", "active", "in_progress", "archived"}}
+	verdictField = map[string]any{"type": "string", "enum": []string{"approved", "declined", "feedback", "completed", "acknowledged"}}
+	boardFilter  = map[string]any{"type": "string", "enum": []string{"waiting", "active", "returned", "in_progress", "archived"}}
 	pageLimit    = map[string]any{"type": "integer", "minimum": 0, "maximum": 100}
 )
 
 // maintainerTools are the tools of the maintainer mode. Each one calls the daemon route with
 // its name, with - for _, under /v1/maintainer/.
 var maintainerTools = []map[string]any{
-	{"name": "board_list", "description": "Read the decision board as the maintainer: the counts of waiting, in-progress, open fyi and archived items, and one page of item summaries for a filter (waiting by default). Page with next_after.",
+	{"name": "board_list", "description": "Read the decision board as the maintainer: the counts of waiting, returned, in-progress, open fyi and archived items, and one page of item summaries for a filter (waiting by default). Page with next_after.",
 		"inputSchema": object(map[string]any{"filter": boardFilter, "after": integer, "limit": pageLimit})},
 	{"name": "decision_get", "description": "Read one decision item by reference with its full text, recipients, current revision and current verdict.",
 		"inputSchema": object(map[string]any{"reference": text}, "reference")},
 	{"name": "decision_history", "description": "Read an item's verdicts in order, each with the text that the maintainer saw and via, the client that gave it (dashboard or mcp:NAME). Page with next_after.",
 		"inputSchema": object(map[string]any{"reference": text, "after": integer, "limit": map[string]any{"type": "integer", "minimum": 0, "maximum": 16}}, "reference")},
-	{"name": "decision_verdict", "description": "Give the maintainer's verdict on an item at the revision that decision_get showed: approved or declined for a decision item, dismissed for an fyi item, with an optional note. stale_revision means the item changed; read it again. Each named agent gets the verdict.",
+	{"name": "decision_verdict", "description": "Give the maintainer's verdict on an item at the revision that decision_get showed: approved, declined or feedback for a decision item; completed, declined or feedback for a task; acknowledged for an fyi item. The note is optional, except for feedback, where it holds the maintainer's guidance; feedback approves and declines nothing and returns the item to its author for a new revision. stale_revision means the item changed; read it again. Each named agent and the item's author get the verdict.",
 		"inputSchema": object(map[string]any{"reference": text, "revision": integer, "verdict": verdictField, "note": text}, "reference", "revision", "verdict")},
 	{"name": "inbox", "description": "Read the maintainer's own inbox after a sequence number: the messages that agents sent to the maintainer. Reading acknowledges nothing.",
 		"inputSchema": object(map[string]any{"after": integer, "limit": pageLimit})},
@@ -81,7 +81,7 @@ var maintainerTools = []map[string]any{
 	{"name": "room_read", "description": "Read a room's retained posts after a sequence, in order, with sender, typed origin and time. Page with next_after; gaps name sequences that retention no longer holds.",
 		"inputSchema": object(map[string]any{"room_id": text, "after": integer, "limit": pageLimit}, "room_id")},
 	{"name": "room_post", "description": "Post to a room as the maintainer. It reaches every active member. key and deadline (Unix seconds) make a retry safe.",
-		"inputSchema": object(map[string]any{"room_id": text, "body": text, "key": text, "deadline": number}, "room_id", "body", "key", "deadline")},
+		"inputSchema": object(map[string]any{"room_id": text, "body": text, "key": text, "deadline": retryDeadline}, "room_id", "body", "key", "deadline")},
 	{"name": "room_create", "description": "Create an empty room with a name. key makes a retry return the same room.",
 		"inputSchema": object(map[string]any{"name": text, "key": text}, "name", "key")},
 	{"name": "room_add", "description": "Add an active session to a room by its peer name: as the participant whose address it holds, otherwise as that session.",

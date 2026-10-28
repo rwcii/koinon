@@ -270,8 +270,8 @@ func serve(ctx context.Context, state string, listen []string, lockWait time.Dur
 // ensurePickupSkills writes the managed cycle's koinon-pickup skill for the person the daemon
 // runs as, when a file is missing or holds other content (#406): under the Claude Code
 // configuration root of the daemon's environment ($CLAUDE_CONFIG_DIR, else ~/.claude), in
-// ~/.agents/skills for Codex, and in OpenCode's and agy's configuration directories when they
-// exist (#461). It runs at each start, so a brew upgrade, which restarts the
+// ~/.agents/skills for Codex, in OpenCode's and agy's configuration directories when they
+// exist (#461), and in the Grok home when it exists (#515). It runs at each start, so a brew upgrade, which restarts the
 // daemon, writes it too. A failure is logged and never stops the daemon; the adapter's Probe
 // then names the install step for that session.
 func ensurePickupSkills(logEvent func(string, map[string]any)) {
@@ -281,12 +281,19 @@ func ensurePickupSkills(logEvent func(string, map[string]any)) {
 		return
 	}
 	roots := core.SkillRoots(core.ClaudeConfigRoot(os.Getenv("CLAUDE_CONFIG_DIR"), home), home,
-		core.OpenCodeConfigRoot(os.Getenv("XDG_CONFIG_HOME"), home), core.AgyConfigRoot(home))
+		core.OpenCodeConfigRoot(os.Getenv("XDG_CONFIG_HOME"), home), core.AgyConfigRoot(home), core.GrokHome(os.Getenv("GROK_HOME"), home))
 	roots = slices.DeleteFunc(roots, func(root core.SkillRoot) bool { return !root.Present() })
 	for _, root := range roots {
 		path := root.Path(core.PickupSkillName)
 		if _, err := core.InstallPickupSkill(path); err != nil {
 			logEvent("pickup_skill", map[string]any{"family": root.Family, "path": path, "result": "failed", "code": "write_failed"})
+		}
+	}
+	// DeepSeek's entry, in an existing harness home only (#514).
+	if dsh := core.DeepSeekHome(os.Getenv("DSH_HOME"), home); dirExists(dsh) {
+		path := core.DeepSeekPickupSkillPath(dsh)
+		if _, err := core.InstallSkillFile(path, core.DeepSeekPickupSkill()); err != nil {
+			logEvent("pickup_skill", map[string]any{"family": "deepseek", "path": path, "result": "failed", "code": "write_failed"})
 		}
 	}
 	// The retired Python runtime's instructions leave the Codex AGENTS.md (#487).
@@ -371,10 +378,14 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N]
        koinon mcp --maintainer --client NAME --secret-stdin|--secret-file PATH [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon setup <claude|codex|agy|opencode|grok|deepseek> [--cli ABS_PATH] [--binary ABS_PATH]
        koinon setup claude --remove-status-line [--claude-config DIR] [--state-dir DIR]
+       koinon setup agy --remove-status-line [--agy-config DIR] [--state-dir DIR]
+       koinon setup grok --remove-status-line [--grok-home DIR] [--state-dir DIR]
        koinon guide --agent <claude|codex|agy|opencode|grok|deepseek>
        koinon hook agy-stop
        koinon hook codex-session-start
        koinon hook claude-status [--command COMMAND]
+       koinon hook agy-status [--command COMMAND]
+       koinon hook grok-status [--command COMMAND]
        koinon memory <status|sync|ack|record|recall> --as FAMILY:ID [--consumer KEY] [options]
        koinon library list --as FAMILY:ID [--after ITEM_ID] [--limit N]
        koinon library read ITEM_ID --as FAMILY:ID
@@ -385,15 +396,16 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N]
        koinon room members ROOM_ID --as FAMILY:ID [--after ORDINAL] [--limit N]
        koinon room post ROOM_ID BODY --as FAMILY:ID --key KEY --deadline UNIX_SECONDS
        koinon room read ROOM_ID --as FAMILY:ID [--after SEQ] [--limit N]
-       koinon decision create --as FAMILY:ID --reference REF --title TITLE --kind decision|fyi --key KEY --deadline UNIX_SECONDS [--order N] [--where TEXT] [--agent-text TEXT] [--context TEXT] [--recommendation TEXT] [--command CMD]... [--recipient NAME]... [--no-commands] [--no-recipients]
+       koinon decision create --as FAMILY:ID --reference REF --title TITLE --kind decision|task|fyi --key KEY --deadline UNIX_SECONDS [--order N] [--where TEXT] [--agent-text TEXT] [--context TEXT] [--recommendation TEXT] [--command CMD]... [--recipient NAME]... [--no-commands] [--no-recipients]
        koinon decision edit --as FAMILY:ID --reference REF --if-revision N [field flags as for create]
-       koinon decision list --as FAMILY:ID --filter waiting|active|in_progress|archived|mine [--after ID] [--limit N]
+       koinon decision list --as FAMILY:ID --filter waiting|active|returned|in_progress|archived|mine [--after ID] [--limit N]
        koinon decision get --as FAMILY:ID --reference REF
-       koinon decision history --as FAMILY:ID --reference REF [--after VERDICT_ID] [--limit N]
+       koinon decision history --as FAMILY:ID --reference REF [--withdrawals] [--after ID] [--limit N]
        koinon decision pending --as FAMILY:ID [--after VERDICT_ID] [--limit N]
        koinon decision ack --as FAMILY:ID --verdict VERDICT_ID...
        koinon decision close --as FAMILY:ID --reference REF --if-revision N [--note TEXT] --key KEY --deadline UNIX_SECONDS
-       koinon decision restore --as FAMILY:ID --reference REF
+       koinon decision withdraw --as FAMILY:ID --reference REF --if-revision N --reason TEXT --key KEY --deadline UNIX_SECONDS
+       koinon decision restore --as FAMILY:ID --reference REF [--if-revision N]
        koinon context show [--json] [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon context set FAMILY --mode observe|native_compaction|handoff_cycle --threshold PERCENT
        koinon context enable|disable NAME
@@ -426,7 +438,9 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N]
 A BODY of - reads the message body from standard input; a REPORT of - reads the pickup report.`
 
 // DeepSeek's MCP support remains unverified. The harness's command path registers
-// its exact native session and wake metadata explicitly, without creating a session.
+// its exact native session and wake metadata explicitly, without creating a session. The
+// session runs the command itself, so the registration is its own call, which can take its
+// participant as a managed cycle's created session (#514).
 func registerDeepSeek(ctx context.Context, args []string, out io.Writer) error {
 	root, err := platform.DefaultStateDir()
 	if err != nil {
@@ -464,7 +478,8 @@ func registerDeepSeek(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	data, err := core.Call(ctx, *address, secret, "/v1/sessions/register", core.Registration{Family: family, ID: id, Directory: *dir, Repository: *repo, WakeTarget: wake})
+	data, err := core.Call(ctx, *address, secret, "/v1/sessions/register", core.Registration{Family: family, ID: id, Directory: *dir, Repository: *repo, WakeTarget: wake,
+		ToolCall: true})
 	if err != nil {
 		return err
 	}
@@ -707,7 +722,7 @@ func agentCommand(ctx context.Context, args []string, in io.Reader, out io.Write
 			return nil
 		}
 		if len(args) != 2 || args[1] != "agy-stop" {
-			return errors.New("unknown hook; use koinon hook agy-stop, codex-session-start or claude-status")
+			return errors.New("unknown hook; use koinon hook agy-stop, agy-status, codex-session-start, claude-status or grok-status")
 		}
 		return setup.AgyStop(in, out, setup.HookEnv{Getenv: os.Getenv, Now: time.Now})
 	case "guide":
@@ -726,8 +741,9 @@ func agentCommand(ctx context.Context, args []string, in io.Reader, out io.Write
 	flags.StringVar(&o.AgyRoot, "agy-config", "", "agy global customization root")
 	flags.StringVar(&o.Opencode, "opencode-config", "", "OpenCode global configuration directory")
 	flags.StringVar(&o.ClaudeConfig, "claude-config", "", "Claude configuration directory")
+	flags.StringVar(&o.GrokHome, "grok-home", "", "Grok home directory that holds config.toml")
 	flags.StringVar(&o.StateDir, "state-dir", "", "private Go state directory")
-	flags.BoolVar(&o.RemoveStatusLine, "remove-status-line", false, "restore the Claude status line that setup replaced")
+	flags.BoolVar(&o.RemoveStatusLine, "remove-status-line", false, "restore the Claude, agy or Grok status line that setup replaced")
 	if err := flags.Parse(args[2:]); err != nil || flags.NArg() != 0 {
 		return errors.New("invalid setup options; use koinon --help")
 	}
@@ -755,35 +771,57 @@ func main() {
 	if len(os.Args) >= 3 && os.Args[1] == "hook" && os.Args[2] == "claude-status" {
 		os.Exit(setup.ClaudeStatus(os.Args[3:], os.Stdin, os.Stdout, os.Stderr, setup.HookEnv{Getenv: os.Getenv, Now: time.Now}))
 	}
+	if len(os.Args) >= 3 && os.Args[1] == "hook" && os.Args[2] == "agy-status" {
+		os.Exit(setup.AgyStatus(os.Args[3:], os.Stdin, os.Stdout, os.Stderr, setup.HookEnv{Getenv: os.Getenv, Now: time.Now}))
+	}
+	if len(os.Args) >= 3 && os.Args[1] == "hook" && os.Args[2] == "grok-status" {
+		os.Exit(setup.GrokStatus(os.Args[3:], os.Stdin, os.Stdout, os.Stderr, setup.HookEnv{Getenv: os.Getenv, Now: time.Now}))
+	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	if err := run(ctx, os.Args[1:], os.Stdin, os.Stdout); err != nil {
-		// Startup errors must never include the authentication secret.
-		code := "daemon_error"
-		report := map[string]any{"ok": false, "detail": err.Error()}
-		var refused core.RefusedError
-		var usage usageError
-		var down unavailable
-		switch {
-		case errors.As(err, &down):
-			code, report["service"] = "daemon_unavailable", down.mode
-			if down.command != "" {
-				report["restart_command"] = down.command
-			}
-			if down.note != "" {
-				report["note"] = down.note
-			}
-		case errors.As(err, &usage):
-			code, report["error"] = usage.code, usage.message
-			delete(report, "detail")
-		case errors.As(err, &refused):
-			code = refused.Code
-			if len(refused.Details) > 0 {
-				report["details"] = refused.Details
-			}
-		}
-		report["code"] = code
-		json.NewEncoder(os.Stderr).Encode(report)
+		json.NewEncoder(os.Stderr).Encode(errorReport(err))
 		os.Exit(1)
 	}
+}
+
+// errorReport is the JSON report of a failed command, with its code. Startup errors must never
+// include the authentication secret.
+func errorReport(err error) map[string]any {
+	code := "daemon_error"
+	report := map[string]any{"ok": false, "detail": err.Error()}
+	var refused core.RefusedError
+	var usage usageError
+	var down unavailable
+	var local core.Refusal
+	switch {
+	case errors.As(err, &down):
+		code, report["service"] = "daemon_unavailable", down.mode
+		if down.command != "" {
+			report["restart_command"] = down.command
+		}
+		if down.note != "" {
+			report["note"] = down.note
+		}
+	case errors.As(err, &usage):
+		code, report["error"] = usage.code, usage.message
+		delete(report, "detail")
+	case errors.As(err, &local):
+		// A refusal of this process, such as decision record's (#536), keeps its code.
+		code, report["error"] = local.Code, local.Message
+		delete(report, "detail")
+	case errors.As(err, &refused):
+		code = refused.Code
+		if len(refused.Details) > 0 {
+			report["details"] = refused.Details
+		}
+	}
+	report["code"] = code
+	return report
+}
+
+// dirExists reports whether path is an existing directory.
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }

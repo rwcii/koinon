@@ -181,7 +181,7 @@ func TestProtocol(t *testing.T) {
 			}
 		}
 	}
-	if strings.Join(names, ",") != "peers,peer_status,send,inbox,ack,delivery,context_cycle_status,context_cycle_ready,context_cycle_pickup,context_show,context_set,context_enable,context_threshold,library_list,library_read,library_state,library_decision,room_list,room_members,room_post,room_read,memory_status,memory_sync,memory_ack,memory_record,memory_recall,work_checkout,work_checkout_request,decision_create,decision_edit,decision_list,decision_get,decision_history,decision_pending,decision_ack,decision_close,decision_restore,work_create,work_get,work_list,work_propose,work_edit,work_start,work_update,work_release,work_finish,claim_renew,work_report,work_accept,work_reject" {
+	if strings.Join(names, ",") != "peers,peer_status,send,inbox,ack,delivery,context_cycle_status,context_cycle_ready,context_cycle_pickup,context_show,context_set,context_enable,context_threshold,library_list,library_read,library_state,library_decision,room_list,room_members,room_post,room_read,memory_status,memory_sync,memory_ack,memory_record,memory_recall,work_checkout,work_checkout_request,decision_record,decision_create,decision_edit,decision_list,decision_get,decision_history,decision_pending,decision_ack,decision_close,decision_withdraw,decision_restore,work_create,work_get,work_list,work_propose,work_edit,work_start,work_update,work_release,work_finish,claim_renew,work_report,work_accept,work_reject" {
 		t.Fatalf("tools: %v", names)
 	}
 	if reply := h.request("ping", nil); reply["result"] == nil {

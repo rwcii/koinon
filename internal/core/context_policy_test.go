@@ -182,7 +182,11 @@ func TestContextTriggerSelection(t *testing.T) {
 		"below the threshold":        {func(in *ContextTriggerInput) { in.Evidence = evidence(74, 100, time.Second, time.Second) }, "below_threshold"},
 		"inactive":                   {func(in *ContextTriggerInput) { in.Active = false }, "session_inactive"},
 		"observe mode":               {func(in *ContextTriggerInput) { in.Policy.Mode = ContextObserve }, "mode_observe"},
-		"native compaction":          {func(in *ContextTriggerInput) { in.Policy.Mode = ContextNativeCompaction }, "mode_native_compaction"},
+		"native compaction":          {func(in *ContextTriggerInput) { in.Policy.Mode = ContextNativeCompaction }, ""},
+		"overwatch conflict":         {func(in *ContextTriggerInput) { in.OverwatchConflict = true }, "overwatch_name_conflict"},
+		"compaction sends no request": {func(in *ContextTriggerInput) {
+			in.Policy.Mode, in.OverwatchConflict = ContextNativeCompaction, true
+		}, ""},
 		"not enabled":                {func(in *ContextTriggerInput) { in.Enabled = false }, "not_enabled"},
 		"no cycle":                   {func(in *ContextTriggerInput) { in.CycleAvailable = false }, "context_cycle_unavailable"},
 		"no observation":             {func(in *ContextTriggerInput) { in.Evidence = ContextEvidence{} }, "context_unknown"},
@@ -381,7 +385,7 @@ func TestContextSchemaTwentyTwoKeepsExistingState(t *testing.T) {
 	room := mustRoom(t, s, "synthetic kept room")
 	mustHumanPost(t, s, room, "synthetic kept post")
 	before := rowsOf(t, s.db)
-	if _, err := fixtureExec(s, undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+`PRAGMA user_version=21`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+`PRAGMA user_version=21`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 21); err != nil {

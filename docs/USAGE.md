@@ -218,42 +218,51 @@ teammate agent's post: do the work it asks for and reply through Koinon (#487).
 ## Decisions
 
 Agents write items for the maintainer's decision board with `decision_create` (`koinon
-decision create --reference REF --title TITLE --kind decision|fyi --key KEY --deadline
+decision create --reference REF --title TITLE --kind decision|task|fyi --key KEY --deadline
 UNIX_SECONDS --as FAMILY:ID`, with optional `--order`, `--where`, `--agent-text`, `--context`,
 `--recommendation`, `--command` and `--recipient`, the last two repeated for each entry;
 `--no-commands` and `--no-recipients` store an empty list) and
 change them with `decision_edit` (`koinon decision edit --reference REF --if-revision N ...`).
-Agents read decision status with `decision_list` (`--filter waiting|active|in_progress|archived|mine`,
+Agents read decision status with `decision_list` (`--filter waiting|active|returned|in_progress|archived|mine`,
 paged with `--after`) and `decision_get` (`--reference REF`).
 Write card prose in ASD-STE100; context, recommendation and agent text are Markdown, and
 terminal-copy commands are printable ASCII. Known key formats are refused. Credentials,
 personal data, private session IDs and peer message bodies stay in their own stores; a card
 holds the decision's own text. Markdown renders as
 paragraphs, line breaks, lists, emphasis, inline code and fenced code blocks; links, images
-and HTML show as literal text. An fyi item whose title starts with `ACTION FOR YOU` asks the
-maintainer for manual work.
+and HTML show as literal text. The kind says what the maintainer does with the item: a
+**decision** item asks for a verdict, a **task** asks the maintainer to do work, and an **fyi**
+item gives information. An fyi that needs an answer is a decision item or a task.
 
-The dashboard **Decisions** page is the board. It shows the counts (waiting, in progress, open
-fyi, archived), then a table of the active agents: name, activity, claimed work, context use
+The dashboard **Decisions** page is the board. It shows the counts (waiting, returned, in
+progress, open fyi, archived), then a table of the active agents: name, activity, claimed work, context use
 or "not reported", and the waiting items that name the agent. The cards follow:
-`ACTION FOR YOU` items first, then item order and reference. Each terminal-copy command is in
+tasks first, then item order and reference. Each terminal-copy command is in
 its own box with a **Copy** button. The archive lists closed items, and **Find** opens any item
-by reference, as do the references in the agent table, with its verdict history and the text
-of each verdict. A waiting, in-progress or open fyi item opens as its card, at full width, with
+by its exact reference, as do the references in the agent table, with its verdict history and
+the text of each verdict. For part of a reference, or another case, **Find** lists the
+references that contain the text, also deep-archived ones, with a link to each; spaces around
+the text are ignored. **Clear** ends the search and keeps the status filter. A waiting, returned, in-progress or open fyi item opens as its card, at full width, with
 the same buttons as on the board, and the cards below leave it out while it is open. A verdict
 there returns to it with the answer on the card; an archived item opens read only. Choose a count
-to show only the items of that status (`status=waiting`, `in_progress`, `fyi` or `archived` in
-the address); **all** shows every item again. The chosen count is marked, the counts stay
+to show only the items of that status (`status=waiting`, `returned`, `in_progress`, `fyi` or
+`archived` in the address); **all** shows every item again. The chosen count is marked, the counts stay
 totals, and the filter stays after a reload, a **Find** and a verdict. An unknown status in
 the address is refused.
 
-Give a verdict on the card: **Approve** or **Decline** a decision item, or **Dismiss** an fyi
-item, with an optional Markdown note. The buttons are disabled while the request runs, and
+Give a verdict on the card: **Approve**, **Decline** or **Provide feedback** on a decision
+item; **Completed**, **Declined** or **Provide feedback** on a task; **Acknowledge** on an fyi
+item. The Markdown note is optional, except for **Provide feedback**, where it is your
+guidance. The buttons are disabled while the request runs, and
 the answer shows on the card. A card with a hidden command (one that fails the printable-ASCII
 rule) cannot be approved. The verdict applies to the revision
 the page showed, keeps a snapshot of that text, and is your instruction and approval to the
-named agents. Approve moves the item to in progress; Decline and Dismiss archive it. Each
-named agent gets an inbox message and a wake that name the verdict ID. An agent reads it with
+named agents. Approve moves the item to in progress. Provide feedback approves and
+declines nothing: the item leaves the waiting list as **returned**, and its author changes it
+into a new revision, which waits for you again, or withdraws it; an item can get feedback more
+than once. Each other verdict archives the item. Each named agent and the item's author get an inbox
+message and a wake that name the verdict ID, for every verdict, so the author of an fyi item
+knows that you read it. An agent reads it with
 `decision_get` (`koinon decision get`), handles it and acknowledges it with `decision_ack`
 (`koinon decision ack --verdict ID`); `decision_pending` (`koinon decision pending`) lists
 the verdicts it has not acknowledged. When the approved work is done, the agent closes the
@@ -261,10 +270,32 @@ item with `decision_close` (`koinon decision close --reference REF --if-revision
 --deadline UNIX_SECONDS`), which archives it. An agent edit of a decided item reopens it for a
 new verdict; `decision_history` pages every verdict with its snapshot.
 
+The agent that handles a verdict records it in the repository, except an fyi
+acknowledgement, which holds no decision: `decision_record` (`koinon
+decision record --reference REF`) appends the verdict's entry, with the card text that you saw
+and your note, to `DECISIONS.md` at the root of its checkout. The agent corrects the spelling
+and typing errors in your words, commits the file with the work, and cites the decision as
+`DECISIONS.md#REFERENCE`, never by verdict ID. An item is recorded only in the repository it
+was created in. When a repository's `DECISIONS.md` is not a Koinon record, the agent asks you
+on the board and changes nothing. A recorded entry is public, so agents write every card as
+public text.
+
+When a waiting, returned or open fyi item no longer needs you (the work is done, a newer item
+supersedes it, you answered it in chat, or it is no longer valid), an agent withdraws it with
+`decision_withdraw` (`koinon decision withdraw --reference REF --if-revision N --reason TEXT
+--key KEY --deadline UNIX_SECONDS`). The item's author, a session of the author's participant or
+a named recipient can withdraw it; the reason is one line. The item moves to the archive
+without a verdict: the archive shows it as **withdrawn**, and its lookup shows who withdrew it,
+when and why. `decision_restore` with `--if-revision N` reopens a withdrawn item on the board
+at the next revision, and the item keeps the withdrawal in its history. An item read shows the
+newest 8 withdrawals; `decision_history` with `withdrawals` (`koinon decision history
+--withdrawals`) and the lookup's **All withdrawals** link page all of them.
+
 Nothing is deleted. 30 days after an item is archived, and once every delivery is
 acknowledged, Koinon moves the whole record to `decisions/YYYY-MM.jsonl` in its state
 directory. `decision_get` then answers `deep_archived`, and `decision_restore` (`koinon
-decision restore --reference REF`) brings the item back into the archive.
+decision restore --reference REF`) brings the item back into the archive, with its
+withdrawals.
 
 ## Peer status
 
@@ -428,9 +459,9 @@ most half the lifetime) and the succession guard (default 30 seconds, at least 3
 applies at once, without a restart, and the audit log records it.
 
 The Settings page also sets each family's context handoff mode and threshold: Claude
-`handoff_cycle`, Codex `native_compaction` (its own compaction) and the others `observe`, at
-75 percent by default. These are defaults only: a session runs no handoff cycle until it is
-enabled on the Sessions page, and changing a family enables nothing. The Sessions page shows
+`handoff_cycle`, Codex `native_compaction` and the others `observe`, at 75 percent by default.
+These are defaults only: a session runs no handoff cycle or compaction until it is enabled on
+the Sessions page, and changing a family enables nothing. The Sessions page shows
 each session's mode, threshold, Enable, whether its family has a verified cycle, and why it is
 or is not at its threshold, with the age of its context reading. Enabling is refused
 (`context_cycle_unavailable`) and its button is inactive while the cycle cannot run for that
@@ -438,15 +469,50 @@ session; the page names the reason (for example a session that is not in its lau
 or a missing `koinon-pickup` skill, with the `koinon install` step that installs it). Disabling always works. A stored mode or threshold that is not valid
 keeps the family default, and the Settings page names the error.
 
+agy sessions report their context and activity through the status line that `koinon setup agy`
+installs, so the Sessions page shows their readings. The agy family default stays `observe`.
+OpenCode sessions started with `koinon opencode` show their model and context too: the daemon
+reads them every 15 seconds from the session's own OpenCode server, from the newest finished
+reply and its model's context limit. A direct `opencode` start shows none. The OpenCode family
+default stays `observe`.
+DeepSeek sessions registered with `koinon register` show their model and context too: the
+daemon reads them every 15 seconds from the session's own harness, with the wake's credential,
+from the token meter's newest usage and the model's context window. Its family default stays
+`observe`.
+Grok Build sessions report their model and context through the status line that `koinon setup
+grok` installs in `~/.grok/config.toml` (start Grok again after setup): the context window's
+current tokens and its size. An input without both counts leaves the last reading as it was.
+Its family default stays `observe`.
+
 Claude Code sessions launched with `koinon claude` on Linux and macOS can run the cycle, and
 Codex sessions launched with `koinon codex` in tmux on Linux and macOS can run it too (family
-mode `handoff_cycle`) while they hold their participant address. After the clear the cycle
-enters `/koinon-pickup` (Claude Code) or `$koinon-pickup` (Codex): Koinon's own pickup skill,
+mode `handoff_cycle`) while they hold their participant address. agy sessions launched with
+`koinon agy` in tmux on Linux can run it the same way, with Koinon's agy status line set up by
+`koinon setup agy`; macOS waits for native evidence. OpenCode sessions launched with
+`koinon opencode` in tmux on Linux can run it too: instead of a clear, the daemon creates a new
+session through the session's own OpenCode server, shows it in the pane and runs the
+`koinon-pickup` skill command there with the requester's model; the report is accepted once the
+pane shows the new session's Koinon tool calls. macOS waits for native evidence. DeepSeek
+sessions registered with their harness URL and credential file on Linux can run it too, while
+their model is the harness's default model: once the session is idle after `koinon cycle-ready`,
+the daemon creates a new harness session in the same directory and enters `/koinon-pickup`
+there; the new session registers with the same `--repository`, takes the address once the
+pickup's receipt is recorded and reports with `koinon cycle-pickup`. The daemon never changes a
+harness setting, so a session on another model shows `model_not_default`. macOS waits for
+native evidence. Grok Build sessions launched with `koinon grok` in tmux on Linux can run it
+too, with Koinon's Grok status line set up by `koinon setup grok`: the cycle enters `/new`,
+which starts a new Grok session in the same pane, and then `/koinon-pickup`; the new session
+takes the address at its first tool call. macOS waits for native evidence. After the clear the cycle enters
+`/koinon-pickup` (Claude Code, agy) or `$koinon-pickup` (Codex): Koinon's own pickup skill,
 which the daemon at each start and `koinon install` write for you under `~/.claude/skills`
-(or `$CLAUDE_CONFIG_DIR/skills`) and `~/.agents/skills`, never into a repository. It loads the catalog's canonical pickup
+(or `$CLAUDE_CONFIG_DIR/skills`), `~/.agents/skills` and `~/.gemini/config/skills`, and
+DeepSeek's command-path entry under an existing `$DSH_HOME/skills` (default `~/.dsh/skills`),
+never into a repository. A workspace `.agent/skills/koinon-pickup` or `.agents/skills/koinon-pickup` would
+replace agy's entry, so the Sessions page names it as `pickup_entry_shadowed` unless it is the
+same file. It loads the catalog's canonical pickup
 procedure, so a project's own `pickup` skill neither blocks the cycle nor is changed by it
-([INSTALL.md](INSTALL.md#install), step 7). For Codex, the new thread after the clear takes the
-address and reports the pickup. An enabled session
+([INSTALL.md](INSTALL.md#install), step 7). For Codex, agy and OpenCode, the new thread, conversation or session after the
+reset takes the address and reports the pickup. An enabled session
 whose context reaches its threshold gets a request from `overwatch`, Koinon's reserved system
 requester, in its inbox. The request asks the session to pause at a safe stopping point, write
 its handoff and report it with `context_cycle_ready`, then end its turn and stay idle. The
@@ -456,9 +522,19 @@ become idle within two minutes of its ready report, `overwatch` sends the reques
 new revision, and the session pauses, writes its handoff and reports ready again; the cycle's
 30-minute lifetime and its event limit bound the repeats. The Sessions page shows
 each session's current or newest cycle: its stage, the stage deadline and each recorded step.
-Disabling, retiring or purging the session, a family mode without the cycle, or a holder
+Disabling, retiring or purging the session, a family mode change, or a holder
 choice for its address ends the cycle; a cycle that fails or cannot be proven ends the
-session's Enable. A session must report its pickup within two minutes of the pickup input. When
+session's Enable.
+
+In `native_compaction`, an enabled Codex session launched with `koinon codex` in tmux gets
+Codex's own `/compact` when its context reaches the threshold: the daemon types it in the
+session's pane once Codex is idle at an empty prompt, once per crossing, and waits for a fresh
+reading below the threshold to confirm it. It needs no pickup skill and no participant address,
+and Koinon changes no Codex setting. A busy pane only delays the compaction; if Codex is not
+idle within 15 minutes, the compaction ends and the next reading at the threshold starts
+another. A compaction that is not confirmed within 10 minutes, or whose submission cannot be
+proven, ends the session's Enable, so `/compact` is never typed twice for one crossing. The
+Sessions page shows the newest compaction with its steps and result. A session must report its pickup within five minutes of the pickup input. When
 the session shows a dialog that the cycle does not answer itself, the Sessions page shows it
 with one button per option; your choice applies only to that dialog.
 

@@ -34,8 +34,9 @@ func TestSetupPreservesExistingPermissionSettings(t *testing.T) {
 				file = filepath.Join(o.CodexHome, "config.toml")
 				before = []byte("[mcp_servers.other]\ncommand = \"other\"\ndefault_tools_approval_mode = \"prompt\"\n")
 			case "agy":
-				// CLI permissions live separately from the customization/hook root.
-				file = filepath.Join(dir, "antigravity-cli", "settings.json")
+				// CLI permissions live separately from the customization/hook root, beside the
+				// status line that setup adds (#512).
+				file, field = filepath.Join(dir, "antigravity-cli", "settings.json"), "permissions"
 				before = []byte(`{"permissions":{"allow":["mcp(other/read)"],"deny":["command(sudo)"]}}`)
 			case "opencode":
 				file, field = filepath.Join(o.Opencode, "opencode.json"), "permission"

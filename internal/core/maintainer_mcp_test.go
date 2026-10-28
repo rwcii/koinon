@@ -174,6 +174,12 @@ func TestMaintainerRoutes(t *testing.T) {
 		t.Fatalf("verdict: %v", v)
 	}
 	refused("decision-verdict", map[string]any{"reference": "M-1", "revision": 1, "verdict": "approved"}, "decided")
+	// An fyi item takes acknowledged; no new dismissal is given, and feedback needs its text (#537).
+	refused("decision-verdict", map[string]any{"reference": "M-2", "revision": 1, "verdict": "dismissed"}, "invalid_request")
+	refused("decision-verdict", map[string]any{"reference": "M-2", "revision": 1, "verdict": "feedback"}, "feedback_required")
+	if v := call("decision-verdict", map[string]any{"reference": "M-2", "revision": 1, "verdict": "acknowledged"}); v["verdict"] != "acknowledged" || v["via"] != "mcp:test-client" {
+		t.Fatalf("acknowledge: %v", v)
+	}
 	history := call("decision-history", map[string]any{"reference": "M-1"})
 	if verdicts := history["verdicts"].([]any); len(verdicts) != 1 || verdicts[0].(map[string]any)["via"] != "mcp:test-client" {
 		t.Fatalf("history: %v", history)
@@ -275,12 +281,13 @@ func TestMaintainerRoutes(t *testing.T) {
 	}
 	for _, want := range []string{"decision-approve accepted", "decision-approve refused", "decision-verdict refused", "acknowledge accepted",
 		"acknowledge refused", "send accepted", "send refused", "room-create accepted", "room-create refused", "room-add accepted",
-		"room-add refused", "room-post accepted", "room-post refused", "room-remove accepted", "room-remove refused"} {
+		"room-add refused", "room-post accepted", "room-post refused", "room-remove accepted", "room-remove refused",
+		"decision-acknowledge accepted", "decision-feedback refused"} {
 		if !actions[want] {
 			t.Fatalf("no %s record: %v", want, actions)
 		}
 	}
-	if len(actions) != 15 {
+	if len(actions) != 17 {
 		t.Fatalf("records: %v", actions)
 	}
 }
@@ -420,7 +427,7 @@ func TestMaintainerViaOrigins(t *testing.T) {
 		if err != nil || len(page.Verdicts) != 1 || page.Verdicts[0].Via != via {
 			t.Fatalf("%s history: %+v %v", ref, page, err)
 		}
-		agent, err := s.DecisionHistory(ctx, aKey, ref, 0, 0)
+		agent, err := s.DecisionHistory(ctx, aKey, ref, 0, 0, false)
 		if err != nil || len(agent.Verdicts) != 1 || agent.Verdicts[0].Via != "" {
 			t.Fatalf("%s agent history: %+v %v", ref, agent, err)
 		}
@@ -520,7 +527,7 @@ func TestSchemaThirtyOneKeepsState(t *testing.T) {
 	a := join(t, s, "codex", "synthetic-a", "")
 	mustCreate(t, s, Key{"codex", a.ID}, "S-1", DecisionFields{Title: ptr("Synthetic"), Kind: ptr("decision")})
 	mustVerdict(t, s, "S-1", 1, "approved")
-	if _, err := fixtureExec(s, undoSchemaThirtyTwo+undoSchemaThirtyOne+`PRAGMA user_version=30`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+`PRAGMA user_version=30`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 30); err != nil {

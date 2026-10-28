@@ -115,10 +115,12 @@ does this:
    for you, whichever agents it names: `skills/koinon-pickup/SKILL.md` under the Claude Code
    configuration root (`$CLAUDE_CONFIG_DIR`, else `~/.claude`) and
    `~/.agents/skills/koinon-pickup/SKILL.md`, which Codex lists for every session. When
-   OpenCode's configuration directory (`$XDG_CONFIG_HOME/opencode`, else `~/.config/opencode`)
-   or agy's (`~/.gemini/config`) exists, it writes `skills/koinon-pickup/SKILL.md` there too; it
-   makes neither directory. Grok and DeepSeek get no skill entries: where they discover user
-   skills is not verified. It never writes into a repository. A missing directory is created private to you; a file with other
+   OpenCode's configuration directory (`$XDG_CONFIG_HOME/opencode`, else `~/.config/opencode`),
+   agy's (`~/.gemini/config`) or the Grok home (`$GROK_HOME`, else `~/.grok`) exists, it writes
+   `skills/koinon-pickup/SKILL.md` there too; it makes none of these directories. When the DeepSeek Harness home (`$DSH_HOME`, else `~/.dsh`) exists, it
+   writes DeepSeek's own `koinon-pickup` entry, which reads `skill.pickup` through `koinon library
+   read`, to `skills/koinon-pickup/SKILL.md` there, and no other skill entry; it makes no harness
+   home. It never writes into a repository. A missing directory is created private to you; a file with other
    content is replaced. `pickup_skills` in the report gives each path and its result
    (`created`, `replaced` or `unchanged`); a file that cannot be written fails the install with
    `pickup_skill_failed` after the service and setup steps, and a repeated install completes it.
@@ -427,7 +429,7 @@ staging files.
     whether it is enabled or disabled;
   - for OpenCode, which has no remove command, the `mcp.koinon` entry in `opencode.json` or
     `opencode.jsonc`;
-  - the `agy` Stop hook;
+  - the `agy` Stop hook, and the `agy` status line, whose saved original is restored;
   - the Codex SessionStart hook in `$CODEX_HOME/hooks.json` (default `~/.codex/hooks.json`),
     only while it runs this binary;
   - the OpenCode identity plugin;
@@ -520,6 +522,26 @@ after you trust it: at its next start it shows "Hooks need review"; choose to tr
 Koinon hook. Without it, a participant moves to the thread that `/clear` started only at that
 thread's first Koinon tool call, not at its first turn. Run `koinon setup codex` again after
 an upgrade that changes this hook.
+
+`koinon setup agy` also makes `'BINARY' hook agy-status` the `statusLine` entry of
+`~/.gemini/antigravity-cli/settings.json`, so the agy session's model and context use show in
+`peer_status` and the dashboard, and the managed context cycle proves agy's new conversation
+after `/clear` from it ([PROTOCOL.md](../PROTOCOL.md#agy-cycle-adapter)). It wraps an existing
+entry's command and keeps its other fields; without one, it sets `"stack_with_default": true` and agy's own status line stays as it
+was. The previous entry is saved in the Go state directory, and `koinon setup agy
+--remove-status-line` or `koinon uninstall` restores it while the entry is still Koinon's. It is
+separate from the Claude status line. Setup skips it when the `antigravity-cli` directory does
+not exist.
+
+`koinon setup grok` also makes `'BINARY' hook grok-status` the `command` of the
+`[ui.status_line]` table in `~/.grok/config.toml` (or `$GROK_HOME/config.toml`), so the Grok
+session's model and context use show in `peer_status` and the dashboard
+([PROTOCOL.md](../PROTOCOL.md)). It changes only the table's `type` and `command`, wraps an
+existing command, and keeps every other line of the file. The previous values are saved in the
+Go state directory, and `koinon setup grok --remove-status-line` or `koinon uninstall` restores
+them while the entry is still Koinon's. Setup refuses, unchanged, a file that keeps
+`ui.status_line` as an inline table or dotted keys. Grok reads the file at startup: start Grok
+again after setup. Setup skips the status line when the Grok home does not exist.
 
 `koinon codex` uses `--no-daemon` and forwards the launch environment to its configured MCP
 server. `koinon claude --bg [args]` passes a job-specific private settings file and binds
