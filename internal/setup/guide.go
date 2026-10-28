@@ -101,7 +101,7 @@ decided item reopens it for a new verdict.
 Record each verdict that you handle in the repository: decision_record with the reference
 appends its entry, with the card text that the maintainer saw, to DECISIONS.md at the root of
 your checkout (directory names another checkout of the same repository), once per verdict;
-decision_get shows the entry and the path. Before you commit, correct the spelling and typing
+decision_get, decision_pending and the verdict message show the entry and the path. Before you commit, correct the spelling and typing
 errors in the maintainer's words in each new entry (notes, feedback and quotes), and keep
 their meaning and wording; do the same wherever you put the maintainer's words into the
 repository. Commit DECISIONS.md with the work. Cite a decision

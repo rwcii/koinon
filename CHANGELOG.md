@@ -10,9 +10,9 @@ into a dated release section when promoted to `main`.
   checked by anyone else. The new `decision_record` MCP tool and `koinon decision record` append
   each verdict's entry, with the card text that the maintainer saw and the maintainer's note, to
   `DECISIONS.md` at the root of the checkout. An entry is written once, and the file is created
-  with its header. `decision_get`, `decision_pending` and the verdict notice tell the agent to
-  record the verdict, correct the spelling of the maintainer's words, commit the file with the
-  work, and cite `DECISIONS.md#REFERENCE`. An item is recorded only in the repository that its
+  with its header. `decision_get`, `decision_pending` and the verdict message give the entry
+  and the path and tell the agent to record the verdict, correct the spelling of the
+  maintainer's words, commit the file with the work, and cite `DECISIONS.md#REFERENCE`. An item is recorded only in the repository that its
   author's participant held. A `DECISIONS.md` that is not a Koinon record is left unchanged and
   the agent asks the maintainer. In this repository, the `decision-citations` check refuses a
   verdict ID in a pull request's title, body or commits, the `commit-msg` hook refuses one in a

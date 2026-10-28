@@ -1,4 +1,5 @@
 #!/bin/sh
 # A commit message cites a decision board verdict as DECISIONS.md#REFERENCE, never by its
-# verdict ID (#536). Git removes the comment lines after this hook, so they are not read.
-grep -v '^#' "$1" | sh "$(git rev-parse --show-toplevel)/scripts/decision-citations.sh"
+# verdict ID (#536). Every line is read, comment lines too, because a cleanup mode can keep
+# them; only the part below the scissors line of commit --verbose, which Git removes, is not.
+sed '/^# -\{24\} >8 -\{24\}$/,$d' "$1" | sh "$(git rev-parse --show-toplevel)/scripts/decision-citations.sh"

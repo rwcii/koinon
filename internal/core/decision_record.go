@@ -42,11 +42,11 @@ var ErrDecisionRecordForeign = Refusal{"decision_record_foreign", "DECISIONS.md 
 
 // ErrDecisionOtherRepository refuses to record an item in a repository other than the one it
 // was created in (#536).
-var ErrDecisionOtherRepository = Refusal{"decision_other_repository", "the decision item was created in another repository; record it there. Nothing was written"}
+var ErrDecisionOtherRepository = Refusal{"decision_other_repository", "the decision item was created in another repository; record it in a checkout of its author_repository. Nothing was written"}
 
 // ErrDecisionRepositoryUnknown refuses to record an item whose author held no repository
 // participant, so its repository is not known (#536).
-var ErrDecisionRepositoryUnknown = Refusal{"decision_repository_unknown", "the decision item has no recorded repository; nothing was written. Ask the maintainer on the decision board which repository records it"}
+var ErrDecisionRepositoryUnknown = Refusal{"decision_repository_unknown", "the decision item has no recorded repository: its author held no repository participant, so the tool cannot tell which repository the decision belongs to. Nothing was written"}
 
 // decisionRecordTitle is the first line of every Koinon decision record.
 const decisionRecordTitle = "# Decisions\n\nThe maintainer's verdicts on the Koinon decision board"

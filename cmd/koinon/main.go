@@ -780,34 +780,44 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	if err := run(ctx, os.Args[1:], os.Stdin, os.Stdout); err != nil {
-		// Startup errors must never include the authentication secret.
-		code := "daemon_error"
-		report := map[string]any{"ok": false, "detail": err.Error()}
-		var refused core.RefusedError
-		var usage usageError
-		var down unavailable
-		switch {
-		case errors.As(err, &down):
-			code, report["service"] = "daemon_unavailable", down.mode
-			if down.command != "" {
-				report["restart_command"] = down.command
-			}
-			if down.note != "" {
-				report["note"] = down.note
-			}
-		case errors.As(err, &usage):
-			code, report["error"] = usage.code, usage.message
-			delete(report, "detail")
-		case errors.As(err, &refused):
-			code = refused.Code
-			if len(refused.Details) > 0 {
-				report["details"] = refused.Details
-			}
-		}
-		report["code"] = code
-		json.NewEncoder(os.Stderr).Encode(report)
+		json.NewEncoder(os.Stderr).Encode(errorReport(err))
 		os.Exit(1)
 	}
+}
+
+// errorReport is the JSON report of a failed command, with its code. Startup errors must never
+// include the authentication secret.
+func errorReport(err error) map[string]any {
+	code := "daemon_error"
+	report := map[string]any{"ok": false, "detail": err.Error()}
+	var refused core.RefusedError
+	var usage usageError
+	var down unavailable
+	var local core.Refusal
+	switch {
+	case errors.As(err, &down):
+		code, report["service"] = "daemon_unavailable", down.mode
+		if down.command != "" {
+			report["restart_command"] = down.command
+		}
+		if down.note != "" {
+			report["note"] = down.note
+		}
+	case errors.As(err, &usage):
+		code, report["error"] = usage.code, usage.message
+		delete(report, "detail")
+	case errors.As(err, &local):
+		// A refusal of this process, such as decision record's (#536), keeps its code.
+		code, report["error"] = local.Code, local.Message
+		delete(report, "detail")
+	case errors.As(err, &refused):
+		code = refused.Code
+		if len(refused.Details) > 0 {
+			report["details"] = refused.Details
+		}
+	}
+	report["code"] = code
+	return report
 }
 
 // dirExists reports whether path is an existing directory.

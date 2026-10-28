@@ -76,7 +76,7 @@ func TestDecisionVerdictStoresSnapshotAndDeliveries(t *testing.T) {
 	var body, kind string
 	var typed int64
 	if err := s.db.QueryRow(`SELECT body,system_kind,decision_verdict FROM messages WHERE recipient_id=?`, participantKey(f.address)).
-		Scan(&body, &kind, &typed); err != nil || kind != decisionVerdictKind || typed != v.ID || body != verdictNoticeBody("V-1", v.ID) {
+		Scan(&body, &kind, &typed); err != nil || kind != decisionVerdictKind || typed != v.ID || body != verdictMessageBody("V-1", v.ID, DecisionRecordEntry("V-1", "", v)) {
 		t.Fatalf("participant message: %q %q %d %v", body, kind, typed, err)
 	}
 	if count(t, s, `SELECT COUNT(*) FROM audit WHERE action='decision-verdict' AND target=? AND result='accepted'`,

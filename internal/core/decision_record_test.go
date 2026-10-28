@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -191,15 +192,26 @@ func TestDecisionReadsAskForTheRecord(t *testing.T) {
 		item.Record.Entry != DecisionRecordEntry("REC-1", "synthetic repo", *item.Verdict) {
 		t.Fatalf("decided item: %+v %v", item.Record, err)
 	}
+	// The pending delivery and the verdict message give the entry and the path too.
+	entry := DecisionRecordEntry("REC-1", "synthetic repo", *item.Verdict)
 	page, err := s.DecisionPending(ctx, f.peerKey, 0, 0)
-	if err != nil || page.Record == nil || page.Record.Entry != "" || !strings.Contains(page.Record.Instruction, "DECISIONS.md") {
-		t.Fatalf("pending: %+v %v", page.Record, err)
+	if err != nil || page.Record == nil || page.Record.Entry != "" || !strings.Contains(page.Record.Instruction, "DECISIONS.md") ||
+		len(page.Deliveries) != 1 || page.Deliveries[0].Entry != entry || !strings.Contains(entry, repoRecordMarker("REC-1", *item.Verdict)) {
+		t.Fatalf("pending: %+v %v", page, err)
+	}
+	var message string
+	if err := s.db.QueryRow(`SELECT body FROM messages WHERE decision_verdict=?`, v.ID).Scan(&message); err != nil ||
+		message != verdictMessageBody("REC-1", v.ID, entry) || !strings.HasSuffix(message, "Path: DECISIONS.md\n\nEntry:\n"+entry) {
+		t.Fatalf("message: %q %v", message, err)
 	}
 	if body := verdictNoticeBody("REC-1", v.ID); !strings.Contains(body, "decision_record") || !strings.Contains(body, "DECISIONS.md") {
 		t.Fatalf("notice: %s", body)
 	}
 	mustCreate(t, s, f.peerKey, "REC-2", DecisionFields{Title: ptr("Note it"), Kind: ptr("fyi"), Recipients: &[]string{f.peer.Name}})
 	mustVerdict(t, s, "REC-2", 1, "dismissed")
+	if page, err := s.DecisionPending(ctx, f.peerKey, v.ID, 0); err != nil || len(page.Deliveries) != 0 {
+		t.Fatalf("dismissal pending: %+v %v", page, err)
+	}
 	if item, err := s.DecisionGet(ctx, f.peerKey, "REC-2"); err != nil || item.Record != nil {
 		t.Fatalf("dismissed fyi: %+v %v", item.Record, err)
 	}
@@ -253,4 +265,35 @@ func localDecisionCall(ctx context.Context, s *Store, caller Key, path string, b
 		return nil, err
 	}
 	return json.Marshal(map[string]any{"ok": true, "result": value})
+}
+
+// The largest entry fits in one pending page, and in a verdict message unless stored hidden
+// commands make it larger than a message; then the message says where to read it.
+func TestDecisionEntryBounds(t *testing.T) {
+	line := strings.Repeat("<\n", 1<<13)
+	v := DecisionVerdict{Revision: 1 << 62, Verdict: "approved", At: 1, Note: line[:decisionNoteLimit],
+		Snapshot: DecisionSnapshot{Title: strings.Repeat("<", decisionTitleLimit), Where: strings.Repeat("<", decisionWhereLimit),
+			Context: line[:decisionContextLimit], Recommendation: line[:decisionRecommendationLimit]}}
+	for i := 0; i < decisionCommandCount; i++ {
+		v.Snapshot.Commands = append(v.Snapshot.Commands, strings.Repeat("<", decisionCommandLimit))
+	}
+	reference := strings.Repeat("A", decisionRefLimit)
+	entry := DecisionRecordEntry(reference, "", v)
+	largest := int64(math.MaxInt64)
+	page, _ := json.Marshal(map[string]any{"ok": true, "result": DecisionPendingPage{Deliveries: []DecisionPending{{VerdictID: largest, Reference: reference,
+		Verdict: "approved", Revision: 1 << 62, At: largest, SupersededAt: largest, Entry: entry}}, More: true, NextAfter: &largest,
+		Record: &DecisionRecord{Path: DecisionRecordFile, Instruction: decisionRecordInstruction}}})
+	if len(page) >= decisionPendingBytes {
+		t.Fatalf("one delivery takes %d bytes", len(page))
+	}
+	if body := verdictMessageBody(reference, largest, entry); !strings.HasSuffix(body, entry) || len(body) > maxBody {
+		t.Fatalf("largest printable entry: %d bytes", len(body))
+	}
+	for i := range v.Snapshot.Commands {
+		v.Snapshot.Commands[i] = strings.Repeat("\x01", decisionCommandLimit)
+	}
+	hidden := DecisionRecordEntry(reference, "", v)
+	if body := verdictMessageBody(reference, largest, hidden); len(body) > maxBody || strings.Contains(body, "Entry:") || !strings.Contains(body, "decision_get") {
+		t.Fatalf("oversized entry: %d bytes", len(body))
+	}
 }

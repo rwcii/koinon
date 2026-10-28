@@ -354,9 +354,13 @@ decision record`), corrects the spelling and typing errors in the maintainer's w
 changing their meaning or wording, and commits the file with the work. A commit, a pull request
 or a document cites the decision as `DECISIONS.md#REFERENCE`, never by its verdict ID, which
 exists only in one machine's store. A recorded entry is public, so agents write every card as
-public text. The tool refuses an item from another repository, an item with no recorded
-repository, and a `DECISIONS.md` that is not a Koinon record; the agent then asks the
-maintainer on the board and changes nothing. A contributor test checks the tracked documents,
+public text. The tool refuses three cases, each on its own facts. An item from another
+repository is recorded in a checkout of the repository that it names (`author_repository`),
+with no new approval. An item with no recorded repository, whose author held no repository
+participant, is not recorded: the tool cannot tell which repository the decision belongs to. A
+`DECISIONS.md` that is not a Koinon record, such as another project's file of the same name, is
+left unchanged, and the agent brings it to the maintainer's attention on the board. A
+contributor test checks the tracked documents,
 the `decision-citations` check checks the pull request text in CI, and the `commit-msg` hook
 checks commit messages.
 
@@ -366,25 +370,29 @@ this repository.
 
 **Provenance:** [DECISIONS.md#DECISION-RECORDS-536](../../../DECISIONS.md#decision-records-536)
 records the design that the maintainer approved on 2026-10-27, with the maintainer's words. The
-maintainer then set these requirements while the change was built (#536):
+maintainer then set these requirements while the change was built (#536; the times are UTC):
 
-- On a Unify card that the backfill was about to record here: "why would you write a unify
-  card to koinon?" Intent: an item is recorded only in the repository that it decides for.
-- On verdict IDs in pushed commit messages and pull request bodies: "yeah, that's what pointed
-  me at the issue." Intent: the rule covers commit and pull request text.
-- "old cards need to be rewritten for public consumption, PRIOR to moving them to the decisions
-  record." Asked whether each rewrite should come back for a new verdict: "they need to be
-  rewritten in the record once and then we move on." Intent: one public rewrite of each old
-  card, with no new verdict.
-- On a repository whose `DECISIONS.md` is not a Koinon record: "in such a case, the agent
-  should bring this to the attention of the maintainer." Intent: the tool refuses, and the
-  maintainer decides.
-- "make sure that text entered by the human is spell and typo checked. we don't need to
-  memorialize a typo forever more in the repo", then "this should be part of the agent
-  instructions". Intent: the maintainer's words are spelling-corrected wherever an agent puts
-  them into the repository; the installed guide says so.
-- Asked whether a CI check and a commit-message hook should refuse verdict IDs in pull request
-  and commit text: "approved as recommended. continue".
+- Maintainer, 2026-10-27 23:39, on a Unify card that the backfill was about to record here:
+  "why would you write a unify card to koinon?" Intent: an item is recorded only in the
+  repository that it decides for.
+- Maintainer, 2026-10-28 00:02, on verdict IDs in pushed commit messages and pull request
+  bodies: "yeah, that's what pointed me at the issue." Intent: the rule covers commit and pull
+  request text.
+- Maintainer, 2026-10-28 00:03: "old cards need to be rewritten for public consumption, PRIOR
+  to moving them to the decisions record." Asked at 00:04 whether each rewrite should come back
+  for a new verdict: "they need to be rewritten in the record once and then we move on."
+  Intent: one public rewrite of each old card, with no new verdict.
+- Maintainer, 2026-10-28 00:04, on the proposed protection for another project's
+  `DECISIONS.md` in a different format: "in such a case, the agent should bring this to the
+  attention of the maintainer." Intent: the tool leaves that file unchanged, and the maintainer
+  decides. This answer covers the foreign file only; an item from another repository is
+  recorded where its repository names, with no new approval.
+- Maintainer, 2026-10-28 00:08: "make sure that text entered by the human is spell and typo
+  checked. we don't need to memorialize a typo forever more in the repo", then "this should be
+  part of the agent instructions". Intent: the maintainer's words are spelling-corrected
+  wherever an agent puts them into the repository; the installed guide says so.
+- Maintainer, 2026-10-28 00:09, asked whether a CI check and a commit-message hook should
+  refuse verdict IDs in pull request and commit text: "approved as recommended. continue".
 
 ### Alternatives Considered
 

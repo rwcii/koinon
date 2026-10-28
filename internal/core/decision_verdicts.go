@@ -25,6 +25,10 @@ const (
 	decisionArchiveAfter  = 30 * 24 * 60 * 60 * 1000 // milliseconds
 	decisionArchiveBatch  = 64
 	decisionArchiveWindow = 256
+	// decisionPendingBytes bounds a pending page, whose deliveries carry their entries (#536). A
+	// page always holds one delivery: the largest entry, every card field and the note at their
+	// limits in characters with the longest JSON escape, serializes below this limit.
+	decisionPendingBytes = 512 << 10
 )
 
 // Version 26: verdicts with their snapshots, per-recipient deliveries, the deep-archive
@@ -110,6 +114,8 @@ type DecisionPending struct {
 	Revision     int64  `json:"revision"`
 	At           int64  `json:"at"`
 	SupersededAt int64  `json:"superseded_at,omitempty"`
+	// Entry is the verdict's DECISIONS.md entry, for each verdict that is recorded (#536).
+	Entry string `json:"entry,omitempty"`
 }
 
 // DecisionPendingPage is one page of the caller's queued deliveries.
@@ -123,6 +129,21 @@ type DecisionPendingPage struct {
 
 func verdictNoticeBody(reference string, id int64) string {
 	return fmt.Sprintf("Decision %s has a verdict (%d). Read it with decision_get, record it with decision_record and commit DECISIONS.md with the work.", reference, id)
+}
+
+// verdictMessageBody is the verdict message: the notice, then the path and the verdict's
+// entry when it has one (#536). An entry that does not fit in a message, which only stored
+// hidden commands can cause, is left out, and the body says where to read it.
+func verdictMessageBody(reference string, id int64, entry string) string {
+	notice := verdictNoticeBody(reference, id)
+	if entry == "" {
+		return notice
+	}
+	body := notice + "\n\nPath: " + DecisionRecordFile + "\n\nEntry:\n" + entry
+	if len(body) > maxBody {
+		return notice + " The entry is larger than a message; decision_get and decision_pending give it."
+	}
+	return body
 }
 
 // currentVerdict is the item's current verdict, or nil. A reopen supersedes the current
@@ -242,8 +263,9 @@ func (s *Store) DecisionVerdict(ctx context.Context, reference string, revision 
 		if err != nil {
 			return DecisionVerdict{}, err
 		}
+		entry := DecisionRecordEntry(reference, item.Where, result)
 		for i, name := range names {
-			d, err := s.deliverVerdict(ctx, tx, now, verdictID, i, name, reference)
+			d, err := s.deliverVerdict(ctx, tx, now, verdictID, i, name, reference, entry)
 			if err != nil {
 				return DecisionVerdict{}, err
 			}
@@ -274,7 +296,7 @@ func recipientNames(ctx context.Context, q querier, itemID int64) ([]string, err
 // deliverVerdict resolves one recipient name now and stores its delivery: queued with one
 // typed inbox message, or skipped with the reason. A participant's message goes to the
 // participant inbox, so its current holder reads it, also after a holder change.
-func (s *Store) deliverVerdict(ctx context.Context, tx *writeTx, now, verdictID int64, ordinal int, name, reference string) (DecisionDelivery, error) {
+func (s *Store) deliverVerdict(ctx context.Context, tx *writeTx, now, verdictID int64, ordinal int, name, reference, entry string) (DecisionDelivery, error) {
 	d := DecisionDelivery{Name: name, Outcome: "skipped"}
 	var kind, family, sessionID string
 	err := tx.QueryRowContext(ctx, `SELECT kind,family,session_id FROM names WHERE name=?`, name).Scan(&kind, &family, &sessionID)
@@ -306,7 +328,7 @@ func (s *Store) deliverVerdict(ctx context.Context, tx *writeTx, now, verdictID 
 		} else {
 			inserted, err := tx.ExecContext(ctx, `INSERT INTO messages(recipient_family,recipient_id,seq,sender_family,sender_id,sender_name,body,
 				created_at,delivery_updated_at,system_kind,decision_verdict) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-				family, sessionID, seq, maintainerKey.Family, maintainerKey.ID, "maintainer", verdictNoticeBody(reference, verdictID),
+				family, sessionID, seq, maintainerKey.Family, maintainerKey.ID, "maintainer", verdictMessageBody(reference, verdictID, entry),
 				now, now, decisionVerdictKind, verdictID)
 			if err != nil {
 				return d, tx.fail(err)
@@ -398,13 +420,23 @@ func (s *Store) DecisionPending(ctx context.Context, caller Key, after int64, li
 	used := len(envelope) + 1
 	for i, id := range ids {
 		var p DecisionPending
-		if err := tx.QueryRowContext(ctx, `SELECT v.id,i.reference,v.verdict,v.revision,v.created_at,v.superseded_at FROM decision_verdicts v
-			JOIN decision_items i ON i.id=v.item_id WHERE v.id=?`, id).Scan(&p.VerdictID, &p.Reference, &p.Verdict, &p.Revision, &p.At, &p.SupersededAt); err != nil {
+		var v DecisionVerdict
+		var snapshot, where string
+		if err := tx.QueryRowContext(ctx, `SELECT v.id,i.reference,v.verdict,v.revision,v.created_at,v.superseded_at,v.note,v.snapshot,i.location
+			FROM decision_verdicts v JOIN decision_items i ON i.id=v.item_id WHERE v.id=?`, id).
+			Scan(&p.VerdictID, &p.Reference, &p.Verdict, &p.Revision, &p.At, &p.SupersededAt, &v.Note, &snapshot, &where); err != nil {
 			return DecisionPendingPage{}, err
+		}
+		if p.Verdict != "dismissed" {
+			if json.Unmarshal([]byte(snapshot), &v.Snapshot) != nil {
+				return DecisionPendingPage{}, workError("decision_unavailable", "a stored snapshot is invalid")
+			}
+			v.Revision, v.Verdict, v.At = p.Revision, p.Verdict, p.At
+			p.Entry = DecisionRecordEntry(p.Reference, where, v)
 		}
 		data, _ := json.Marshal(p)
 		size := len(data) + 1
-		if i == limit || (len(page.Deliveries) > 0 && used+size > decisionPageBytes) {
+		if i == limit || (len(page.Deliveries) > 0 && used+size > decisionPendingBytes) {
 			last := page.Deliveries[len(page.Deliveries)-1].VerdictID
 			page.More, page.NextAfter = true, &last
 			break

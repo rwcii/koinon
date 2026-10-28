@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -145,5 +147,58 @@ func TestDecisionRecordCommandRefusals(t *testing.T) {
 	if err := decisionCommand(context.Background(), []string{"record", "--as", "deepseek:synthetic", "--reference", "R-1", "--directory", t.TempDir(),
 		"--state-dir", t.TempDir(), "--address", "127.0.0.1:1"}, &bytes.Buffer{}); err == nil {
 		t.Fatal("record outside a checkout or daemon succeeded")
+	}
+}
+
+// A refusal of decision record itself reaches the command's JSON report with its code: another
+// repository's item, a foreign record file and a symbolic link (#536).
+func TestDecisionRecordCommandRefusalCodes(t *testing.T) {
+	repo := filepath.Join(t.TempDir(), "repo")
+	if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	common, err := filepath.EvalSymlinks(filepath.Join(repo, ".git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := t.TempDir()
+	if err := os.WriteFile(filepath.Join(state, "secret"), []byte(strings.Repeat("1", 64)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	item := map[string]any{"reference": "CLI-1", "where": "synthetic", "author_repository": common + "-other"}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		result := any(item)
+		if strings.HasSuffix(r.URL.Path, "/history") {
+			result = map[string]any{"reference": "CLI-1", "more": false, "verdicts": []any{map[string]any{"verdict_id": 1, "revision": 1,
+				"verdict": "approved", "at": 1, "snapshot": map[string]any{"title": "Synthetic", "commands": []string{}}}}}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": result})
+	}))
+	defer server.Close()
+	record := func() map[string]any {
+		err := decisionCommand(context.Background(), []string{"record", "--as", "deepseek:synthetic", "--reference", "CLI-1", "--directory", repo,
+			"--state-dir", state, "--address", strings.TrimPrefix(server.URL, "http://")}, &bytes.Buffer{})
+		if err == nil {
+			t.Fatal("record succeeded")
+		}
+		return errorReport(err)
+	}
+	if got := record(); got["code"] != "decision_other_repository" {
+		t.Errorf("other repository: %v", got)
+	}
+	item["author_repository"] = common
+	file := filepath.Join(repo, "DECISIONS.md")
+	if err := os.WriteFile(file, []byte("# Private project format\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := record(); got["code"] != "decision_record_foreign" {
+		t.Errorf("foreign file: %v", got)
+	}
+	os.Remove(file)
+	if err := os.Symlink(filepath.Join(t.TempDir(), "target"), file); err != nil {
+		t.Fatal(err)
+	}
+	if got := record(); got["code"] != "decision_record_invalid" {
+		t.Errorf("symbolic link: %v", got)
 	}
 }
