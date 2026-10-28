@@ -1123,7 +1123,7 @@ func (s *Store) cycleTarget(ctx context.Context, c cycleRow) CycleTarget {
 	// A session row that cannot be read leaves "": tmux from PATH.
 	_ = s.db.QueryRowContext(ctx, `SELECT tmux_path,directory FROM sessions WHERE family=? AND id=?`, c.Family, c.SessionID).Scan(&executable, &t.Directory)
 	t.tools = s.hostTools(executable)
-	if c.Family == "agy" {
+	if c.Family == "agy" || c.Family == "grok" {
 		t.witnesses = s.agyWitness.of(c.ID)
 		t.observedEpoch = s.contextEvidence(Key{c.Family, c.SessionID}).Epoch
 		t.stateRoot = s.root

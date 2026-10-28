@@ -474,7 +474,7 @@ from the token meter's newest usage and the model's context window. Its family d
 Grok Build sessions report their model and context through the status line that `koinon setup
 grok` installs in `~/.grok/config.toml` (start Grok again after setup): the context window's
 current tokens and its size. An input without both counts leaves the last reading as it was.
-Grok has no managed cycle yet, so its family default stays `observe`.
+Its family default stays `observe`.
 
 Claude Code sessions launched with `koinon claude` on Linux and macOS can run the cycle, and
 Codex sessions launched with `koinon codex` in tmux on Linux and macOS can run it too (family
@@ -491,7 +491,10 @@ the daemon creates a new harness session in the same directory and enters `/koin
 there; the new session registers with the same `--repository`, takes the address once the
 pickup's receipt is recorded and reports with `koinon cycle-pickup`. The daemon never changes a
 harness setting, so a session on another model shows `model_not_default`. macOS waits for
-native evidence. After the clear the cycle enters
+native evidence. Grok Build sessions launched with `koinon grok` in tmux on Linux can run it
+too, with Koinon's Grok status line set up by `koinon setup grok`: the cycle enters `/new`,
+which starts a new Grok session in the same pane, and then `/koinon-pickup`; the new session
+takes the address at its first tool call. macOS waits for native evidence. After the clear the cycle enters
 `/koinon-pickup` (Claude Code, agy) or `$koinon-pickup` (Codex): Koinon's own pickup skill,
 which the daemon at each start and `koinon install` write for you under `~/.claude/skills`
 (or `$CLAUDE_CONFIG_DIR/skills`), `~/.agents/skills` and `~/.gemini/config/skills`, and

@@ -549,7 +549,13 @@ func (agyCycle) Inspect(ctx context.Context, t CycleTarget, fence CycleFence) (P
 // keyIf proves the pane, calls the fence, reads the pane again and sends the keys only when
 // check holds on that read.
 func (agyCycle) keyIf(ctx context.Context, t CycleTarget, fence CycleFence, check func(codexScreen) bool, refused error, args ...string) error {
-	if err := agyForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+	prove := func() error { return agyForeground(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane) }
+	return provenKeyIf(ctx, t, fence, prove, check, refused, args...)
+}
+
+// provenKeyIf is keyIf with the family's own pane proof.
+func provenKeyIf(ctx context.Context, t CycleTarget, fence CycleFence, prove func() error, check func(codexScreen) bool, refused error, args ...string) error {
+	if err := prove(); err != nil {
 		return proofError(err, errAgyUnproven)
 	}
 	if err := fence(ctx); err != nil {

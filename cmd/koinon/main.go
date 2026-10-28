@@ -270,8 +270,8 @@ func serve(ctx context.Context, state string, listen []string, lockWait time.Dur
 // ensurePickupSkills writes the managed cycle's koinon-pickup skill for the person the daemon
 // runs as, when a file is missing or holds other content (#406): under the Claude Code
 // configuration root of the daemon's environment ($CLAUDE_CONFIG_DIR, else ~/.claude), in
-// ~/.agents/skills for Codex, and in OpenCode's and agy's configuration directories when they
-// exist (#461). It runs at each start, so a brew upgrade, which restarts the
+// ~/.agents/skills for Codex, in OpenCode's and agy's configuration directories when they
+// exist (#461), and in the Grok home when it exists (#515). It runs at each start, so a brew upgrade, which restarts the
 // daemon, writes it too. A failure is logged and never stops the daemon; the adapter's Probe
 // then names the install step for that session.
 func ensurePickupSkills(logEvent func(string, map[string]any)) {
@@ -281,7 +281,7 @@ func ensurePickupSkills(logEvent func(string, map[string]any)) {
 		return
 	}
 	roots := core.SkillRoots(core.ClaudeConfigRoot(os.Getenv("CLAUDE_CONFIG_DIR"), home), home,
-		core.OpenCodeConfigRoot(os.Getenv("XDG_CONFIG_HOME"), home), core.AgyConfigRoot(home))
+		core.OpenCodeConfigRoot(os.Getenv("XDG_CONFIG_HOME"), home), core.AgyConfigRoot(home), core.GrokHome(os.Getenv("GROK_HOME"), home))
 	roots = slices.DeleteFunc(roots, func(root core.SkillRoot) bool { return !root.Present() })
 	for _, root := range roots {
 		path := root.Path(core.PickupSkillName)

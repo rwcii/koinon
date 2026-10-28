@@ -140,6 +140,8 @@ Report briefly:
 - The goal and success criteria, if they are still valid.
 - The next action, corrected for the differences.
 - Open work that the handoff does not name.
+- Each subagent that the handoff lists as running: its result, or that it has not arrived
+  (WDR 005, Decision 4).
 - Blockers and decisions that need the maintainer.
 
 Then start the next action. When the live state changed the next action materially or left it

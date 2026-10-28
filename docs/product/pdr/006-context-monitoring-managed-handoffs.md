@@ -217,11 +217,15 @@ once the session is at its prompt with an empty input line. A background task th
 session leaves running does not hold the cycle back; a turn in progress, a draft and a native
 dialog do. When the session does not become idle after its ready reply,
 `overwatch` asks it again to pause and hand off, under a new revision, within the cycle's
-lifetime and event bounds (#431). A Claude session whose background subagent wrote its
-transcript after the ready reply is asked again at once, without a clear: that work is not in
-the handoff (#456). Koinon reads only the file times of the session's subagent transcripts,
-compared with the ready report itself; a dialog resolved after it does not move that time. A
-transcript directory that cannot be read in full keeps the session from the clear.
+lifetime and event bounds (#431). A Claude session whose background subagent finished after
+the ready reply is asked again at once, without a clear: its result came to the session after
+the handoff (#456). A Claude subagent that still runs does not hold the cycle back: the clear
+does not stop it, and it gives its result to the new conversation; a Claude session at its
+prompt whose registry says busy only because such a subagent runs is ready for the clear and
+the pickup (#533). Koinon reads only the file times of the session's subagent transcripts,
+compared with the ready report itself, and whether each one's meta file says it finished; a
+dialog resolved after it does not move that time. A transcript directory that cannot be read
+in full keeps the session from the clear.
 The handoff that the ready reply names is in the session's own handoff directory of the main
 checkout: the directory that the Handoff path fact of the repository's
 `.koinon/skills/handoff.md` names, else `_handoff/<agent>/`, where the agent is the family with
@@ -231,10 +235,12 @@ registered directory in place of the main checkout, and Git checks nothing there
 request names that directory, and a ready reply that a check refuses says which check and
 which directory (#468). The cycle keeps each refused ready reply with its code and text, and a
 ready timeout after one names the refusal's code; the Sessions page lists them (#485). The request also
-names its ready deadline as a UTC time and asks the session to stop background subagents that
-will not finish with enough time left to update the handoff and report ready by then; for a
-Claude session at that stage, the Sessions page shows how many of its background subagents
-are still running (#467).
+names its ready deadline as a UTC time. It asks a Claude session not to stop or wait for its
+background subagents, and to list each one that still runs in the handoff with its task and
+where its result goes (#533); it asks other sessions to stop background subagents that will
+not finish with enough time left to update the handoff and report ready by then. For a Claude
+session at that stage, the Sessions page shows how many of its background subagents are still
+running (#467).
 The session's live work claims last through the cycle: admission extends them to a minute past
 the cycle deadline, and a renewal during the cycle keeps that expiry (#489).
 The new session has five minutes from the pickup input to report its pickup (`waiting_pickup`);
@@ -301,6 +307,24 @@ handoff.", then "you can reproduce the conditions locally and figure out how to 
 ([#456](https://github.com/rwcii/koinon/issues/456)). The intent: a clear never restores a
 handoff that lacks work done after it. Asking again on a newer subagent transcript is the fix
 that #456 proposes; no maintainer decision on it found.
+
+Background subagents through the clear: the maintainer, 2026-10-27, after a Claude session
+planned to stop its running review subagents before its cycle: "context handover won't
+interrupt the review agents", then "file an issue on koinon to have it clarify this guidance";
+after that cycle asked again six times while two subagents ran and the maintainer ran the
+cycle by hand: "I consider that a failed handoff"
+([#533](https://github.com/rwcii/koinon/issues/533)). The intent: a Claude session's running
+subagents are neither stopped nor waited for, and the cycle completes without the maintainer.
+Maintainer, 2026-10-27, decision board item SUBAGENT-CLEAR-533 (revision 1),
+"approved". The question: "Let the managed cycle clear a Claude session while its background
+subagents run? (#533)". The card gave the native check with Claude Code 2.1.311 (`/clear` runs
+at once in the background-agent wait, the subagent finishes after it and its result arrives in
+the new conversation) and recommended: the clear when the pane shows only that wait, the input
+line is empty and the subagent records show running subagents; a new request only for a
+subagent that finished after the ready report (#456); and request and guide text that says not
+to stop or wait for the subagents and to list each running one in the handoff. The other option
+on the card: "If you decline: the session must stop its subagents or wait for them before the
+clear, as today."
 
 Handoff directory and refusal detail: found on 2026-10-23, when a session's three ready replies
 were refused while its handoff was in a directory named after its participant address; the
@@ -436,9 +460,10 @@ it is; `koinon install` keeps the one Koinon skill per family that the cycle nee
 A family's cycle adapter is available on a platform once its native checks pass there. The
 checks record the CLI version they ran with; the adapter runs with any version of that CLI,
 and a newer version is not refused. This holds for the Claude Code, the Codex, the agy, the
-OpenCode and the DeepSeek adapters; the agy checks ran with Antigravity CLI 1.4.7 on Linux (#512),
-the OpenCode checks with opencode 1.18.35 on Linux (#513), the DeepSeek checks with DeepSeek
-Harness 0.2.0-rc.2 on Linux (#514).
+OpenCode, the DeepSeek and the Grok adapters; the agy checks ran with Antigravity CLI 1.4.7 on
+Linux (#512), the OpenCode checks with opencode 1.18.35 on Linux (#513), the DeepSeek checks with
+DeepSeek Harness 0.2.0-rc.2 on Linux (#514), the Grok checks with Grok Build 1.0.50 on Linux
+(#515).
 Koinon shows no certified or not-certified status for a session's version; the release notes
 and the native evidence record name the versions that the checks ran with. The adapter's
 per-step proofs (pane, fence, read-back) still stop a cycle whose screen does not match.
@@ -515,3 +540,5 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-27 | Decision 5: the DeepSeek adapter is listed, from its Linux checks with DeepSeek Harness 0.2.0-rc.2 (#514) |
 | 2026-10-27 | Decision 3: five minutes for the pickup report, approved on the decision board (PICKUP-WAIT-525) |
 | 2026-10-27 | Executive summary: Grok context is read from its status line (#515) |
+| 2026-10-27 | Decision 3: a Claude session's running background subagents do not hold the cycle back, and the request asks to list them in the handoff (#533), approved on the decision board (SUBAGENT-CLEAR-533) |
+| 2026-10-27 | Decision 5: the Grok adapter is listed, from its Linux checks with Grok Build 1.0.50 (#515) |

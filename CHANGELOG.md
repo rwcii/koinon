@@ -20,6 +20,42 @@ into a dated release section when promoted to `main`.
   Koinon's records cited are in `DECISIONS.md` as public rewrites of their cards, and the
   citations point there.
 
+- A managed cycle now clears a Claude session whose background subagents still run (#533).
+  Claude Code keeps its registry status `busy` while a background subagent runs after the turn
+  ended, so the cycle saw no idle prompt and asked for the handoff again: one cycle asked six
+  times in 14 minutes, and the maintainer ran it by hand. The cycle now takes that prompt as
+  idle when the agent panel shows the subagent and no turn, and the subagent's records show it
+  running. Claude Code 2.1.311 takes `/clear` there at once; the subagent runs on and gives its
+  result to the new conversation. A subagent that finished after the ready report still makes
+  the cycle ask again (#456); one that still runs does not. The request asks a Claude session
+  not to stop or wait for its subagents, and to list the running ones in its handoff. The
+  `handoff` skill now lists each subagent that still runs, with its task, ID, state and where
+  its result goes, and the `pickup` skill reports each one's result.
+- `koinon setup claude`, `koinon setup agy` and `koinon setup grok` no longer replace an edited
+  status-line wrapper after a removal kept it (#532). When `--remove-status-line` had reported the
+  edited wrapper as `changed` and kept it, the next setup wrote a bare wrapper over it and lost
+  the user's command. Setup now reports it as `changed` (`statusline_changed`) and leaves it
+  alone; a wrapper spelled as setup writes it, the hook alone or around one quoted `--command`,
+  is still set up again; an empty `--command` is an edit.
+- `koinon setup claude` and `koinon setup agy` no longer wrap an edited status-line wrapper again
+  after the Koinon binary moves (#530). Setup took a wrapper that runs an earlier binary as the
+  user's own command and wrapped it in a second `hook claude-status` or `hook agy-status`. It now
+  reports it as `changed` (`statusline_changed`) and leaves it alone, as Grok's setup does.
+- Grok sessions can run the managed context handoff cycle on Linux (#515, part B). A Grok
+  session had no cycle: its Enable was refused. A session started with `koinon grok` in tmux,
+  with the family mode `handoff_cycle`, Koinon's status line from `koinon setup grok` and its
+  participant address, now gets the cycle: overwatch's request, `/new` in its pane, and
+  `/koinon-pickup` in the new session, which takes the address over. The status-line hook proves
+  the new session: it reports each session with its own process to `POST
+  /v1/cycles/grok-witness`, and the daemon ties it to the cycle's pinned host. `koinon install`
+  and the daemon write the skill entries to an existing Grok home (`$GROK_HOME`, else
+  `~/.grok`); a project or user `koinon-pickup` that would replace that entry is named as
+  `pickup_entry_shadowed`. The native checks ran with Grok Build 1.0.50. The family default
+  stays `observe`; macOS waits for native evidence.
+- A store that holds 128 work items no longer refuses `work_create` while old finished items
+  wait out their 30 days (#529). The create first removes the oldest finished item; open,
+  active, blocked and reported items are never removed. A finished item now stays for up to
+  30 days, or until a new item needs its place.
 - Grok sessions now report their model and context use (#515, part A). `peer_status` and the
   dashboard showed no context for Grok (`no_source`). `koinon setup grok` now makes `koinon hook
   grok-status` the command of the `[ui.status_line]` table in `~/.grok/config.toml`: it changes

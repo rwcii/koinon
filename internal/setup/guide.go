@@ -197,11 +197,14 @@ while fresh and for the current published name.
 - The request is in your session's own inbox, also when you hold a participant address. A
   wake notice whose range holds it ends with "Managed context-cycle request ID." Read that
   inbox range first.
-- On a request: pause your work at the next safe stopping point. Let
-  your running background subagents finish, or stop them, so that the handoff holds their
-  results; a Claude subagent that works after your ready report makes overwatch ask again. The
-  request names its ready deadline as a UTC time: stop any subagent that will not finish with
-  enough time left to update the handoff and report ready by then. Write
+- On a request: pause your work at the next safe stopping point. In a Claude session the
+  clear does not stop your background subagents: do not stop them or wait for them; list each
+  one that still runs in the handoff, with its task and where its result goes, and the new
+  session gets each result as a message. A Claude subagent that finishes after your ready
+  report makes overwatch ask again. Other families: let your running background subagents
+  finish, or stop them, so that the handoff holds their results. The request names its ready
+  deadline as a UTC time: stop any such subagent that will not finish with enough time left to
+  update the handoff and report ready by then. Write
   your handoff with your canonical handoff procedure into _handoff/AGENT/ of the main checkout,
   where AGENT is your family, with -ROLE for a launch with a role (not the participant
   address); the Handoff path fact of .koinon/skills/handoff.md can name another directory that
@@ -400,7 +403,11 @@ own tmux pane, only while the input box is empty and no turn runs; a direct star
 pane wake. Read waiting messages with inbox.
 Koinon setup grok also sets the [ui.status_line] command in ~/.grok/config.toml to Koinon's
 grok-status hook, so peer_status shows this session's model and context use. Grok reads the
-file at startup. Grok has no managed context cycle yet.
+file at startup.
+On Linux, a managed context cycle (Managed cycle reporting) for a session started with koinon
+grok in tmux enters /new and /koinon-pickup in this pane; the new session then takes the
+address at its first tool call and reports the pickup. koinon install writes koinon-pickup into
+the skills of the Grok home ($GROK_HOME, else ~/.grok).
 ### Recommended permissions
 Allow the Koinon tools for a launch with Grok's own rule flag:
   koinon grok --allow 'MCPTool(koinon__*)'

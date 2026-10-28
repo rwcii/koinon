@@ -52,14 +52,6 @@ func GrokStatusLine(binary, state, config string, remove bool) (StatusLineResult
 
 type grokStatusFile struct{ statusLine }
 
-// isWrapper reports whether an entry runs a Koinon grok-status hook, of this binary or of an
-// earlier one: after an upgrade that moves the binary, an edited wrapper is still Koinon's and
-// is left alone, never wrapped again.
-func (g grokStatusFile) isWrapper(entry json.RawMessage) bool {
-	words, err := splitWords(entryCommand(entry))
-	return err == nil && len(words) >= 3 && words[1] == "hook" && words[2] == g.hookName()
-}
-
 func (g grokStatusFile) unusual() error {
 	return SettingsError{"settings_unusual", "the Grok configuration does not keep ui.status_line as a plain [ui.status_line] table that Koinon can edit; not changed", g.settings}
 }
@@ -568,6 +560,10 @@ func (g grokStatusFile) setUp() (StatusLineResult, error) {
 		}
 		original, raw = now, rawValues(c)
 	case g.isWrapper(now):
+		if !plainWrapper(now) {
+			result.Outcome, result.Reason = "changed", "statusline_changed"
+			return result, nil
+		}
 		original = g.unwrap(now)
 	default:
 		original, raw = now, rawValues(c)
