@@ -380,9 +380,11 @@ func TestDecisionListBoundedAtScale(t *testing.T) {
 			t.Fatalf("%s reply holds markup", filter)
 		}
 	}
+	// The plans are those of the production summary projection. The waiting index holds only
+	// waiting items, so a waiting page never passes open fyi items (#537).
 	plans := map[string]string{
-		"waiting": `SELECT id FROM decision_items WHERE state='active' AND kind!='fyi' AND id>0 ORDER BY id LIMIT 101`,
-		"state":   `SELECT id FROM decision_items WHERE state='archived' AND id>0 ORDER BY id LIMIT 101`,
+		"waiting": strings.NewReplacer("id>?", "id>0", "LIMIT ?", "LIMIT 101").Replace(decisionWaitingQuery),
+		"state":   `SELECT ` + decisionSummaryColumns + ` FROM decision_items WHERE state='archived' AND id>0 ORDER BY id LIMIT 101`,
 		"mine":    `SELECT DISTINCT item_id FROM decision_recipients WHERE name='x' AND item_id>0 ORDER BY item_id LIMIT 101`,
 	}
 	for name, query := range plans {
@@ -401,7 +403,8 @@ func TestDecisionListBoundedAtScale(t *testing.T) {
 		}
 		rows.Close()
 		joined := strings.Join(plan, "; ")
-		if !strings.Contains(joined, "USING") || strings.Contains(joined, "TEMP B-TREE") {
+		if !strings.Contains(joined, "USING") || strings.Contains(joined, "TEMP B-TREE") ||
+			name == "waiting" && !strings.Contains(plan[0], "USING INDEX decision_items_waiting") {
 			t.Fatalf("%s plan: %s", name, joined)
 		}
 	}

@@ -883,7 +883,9 @@ Schema 36 rebuilds `decision_items` and `decision_verdicts` (#537), because SQLi
 a CHECK in place: `kind` adds `task`, `state` adds `returned`, and `verdict` adds `feedback`,
 `completed` and `acknowledged`. Every row is copied with its ID, each table keeps its
 AUTOINCREMENT high-water mark, so an ID of a deep-archived item or verdict is never used again,
-and the indexes are created again. An `active` `fyi` item whose title starts with
+and the indexes are created again; the waiting index becomes `(id)` over only the waiting
+items (`state='active' AND kind!='fyi'`), so a waiting page reads one range in item ID order
+and never passes open fyi items. An `active` `fyi` item whose title starts with
 `ACTION FOR YOU` becomes a `task`; its title does not change.
 
 Schema 34 rebuilds `context_cycles` with the native compaction states `compact_waiting`,
@@ -1860,9 +1862,11 @@ except for `feedback`, whose note is the maintainer's guidance and must not be b
 verdict, a snapshot of the item's title, where, context, recommendation and commands at that
 revision, the item's new state (`in_progress` after `approved`; `returned` after `feedback`;
 `archived` after `declined`, `completed` or `acknowledged`), one delivery per named
-recipient, resolved now, for every verdict, and one to the item's author when no recipient
-names it (its participant's address when the participant holds one, else its peer name), and
-the audit record with target
+recipient, resolved now, for every verdict, and one to the item's author unless a recipient
+reaches it: an author whose participant has an address gets it at that address unless a
+recipient is the address or the peer name of an active session that holds it now (the
+author's own peer name, which can be retired, does not count), and an author without one at
+its peer name unless a recipient names it; and the audit record with target
 `decision REF revision N VERDICT verdict ID` (no card text); a failure of any part stores
 nothing. A delivery to a participant address is `queued` with one message in the
 participant inbox, read by its current holder also after a holder change; to an active
