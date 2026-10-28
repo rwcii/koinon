@@ -245,3 +245,29 @@ func TestInstallPortRefusal(t *testing.T) {
 		}
 	}
 }
+
+// koinon mcp without --address reads its address again for each call, so it follows a
+// daemon that restarts on another recorded port; a given --address stays (#549).
+func TestMCPFollowsRecordedPort(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "state")
+	t.Setenv("KOINON_DAEMON_ADDRESS", "")
+	if followAddress(root, true) != nil {
+		t.Fatal("a given --address is replaced")
+	}
+	follow := followAddress(root, false)
+	if got, err := follow(); err != nil || got != "127.0.0.1:47671" {
+		t.Fatalf("no record: %q %v", got, err)
+	}
+	if err := core.RecordPort(root, 47681); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := follow(); err != nil || got != "127.0.0.1:47681" {
+		t.Fatalf("after the port change: %q %v", got, err)
+	}
+	// A launcher's address for this state directory still comes first.
+	t.Setenv("KOINON_DAEMON_ADDRESS", "127.0.0.1:5000")
+	t.Setenv("KOINON_STATE_DIR", root)
+	if got, err := follow(); err != nil || got != "127.0.0.1:5000" {
+		t.Fatalf("environment: %q %v", got, err)
+	}
+}

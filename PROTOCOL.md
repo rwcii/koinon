@@ -12,7 +12,10 @@ port and a newline, and `koinon serve --listen` or `--listen-v6` replaces one li
 client takes the daemon address from `--address`, else from `KOINON_DAEMON_ADDRESS` when
 `KOINON_STATE_DIR` (or, unset, the default) names the same state directory, else
 from `127.0.0.1` and the recorded port; a `port` file that holds no valid port is refused
-with `port_invalid` (docs/INSTALL.md).
+with `port_invalid` (docs/INSTALL.md). A launcher sets `KOINON_DAEMON_ADDRESS` for its agent
+only when the launch address is not the state root's installed address, and `koinon mcp`
+without `--address` resolves the address for each daemon call, so both follow a new recorded
+port.
 The secret and state files are user-owned regular files, mode 0600; the state root is private.
 Secrets, runtime session identifiers and response bodies stay in the state directory, outside
 repositories.

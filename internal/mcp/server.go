@@ -28,6 +28,10 @@ const maxLine = 1 << 20
 type Config struct {
 	StateDir string
 	Address  string
+	// Resolve gives the daemon address for each call when the command line named none, so
+	// the server follows a daemon that restarts on another recorded port (#549); nil keeps
+	// Address.
+	Resolve func() (string, error)
 	// Environment and process facts, injected so that tests use synthetic values.
 	Getenv       func(string) string
 	ParentPID    int

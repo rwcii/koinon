@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A session follows the daemon to a new port (#549). After `koinon install --port N`, a
+  running `koinon mcp` server kept the former address and answered `daemon_unavailable` on
+  every tool call, and in a session that `koinon claude` or another launcher started, every
+  `koinon` command also used the former address, because the launcher put it in the agent's
+  `KOINON_DAEMON_ADDRESS`; `koinon status` then showed the service as `manual`. `koinon mcp`
+  without `--address` now finds the address again for each call, and a launcher sets
+  `KOINON_DAEMON_ADDRESS` only for an address other than the installed one. A session that a
+  launcher of v0.6.0 or earlier started keeps the former address until it starts again.
 - The `decision-citations` check of a pull request to `main` reads its title and body, not its
   commits (#548). A promotion from `develop` carries commits that merged before #536 added the
   check, and `develop`'s history is not rewritten, so the v0.6.0 promotion failed the check on

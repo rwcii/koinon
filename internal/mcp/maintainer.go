@@ -24,6 +24,9 @@ import (
 type MaintainerConfig struct {
 	StateDir string
 	Address  string
+	// Resolve gives the daemon address for each call, as Config.Resolve does (#549); nil
+	// keeps Address.
+	Resolve func() (string, error)
 	// Token is the maintainer token from MaintainerSession; Client is the --client name.
 	Token   string
 	Client  string
@@ -314,6 +317,13 @@ func invalidArguments(text string) map[string]any {
 // daemon calls a maintainer route with the daemon's bearer secret and a time limit, reading
 // the secret again after a failure so that a recreated state root is picked up.
 func (s *maintainerServer) daemon(ctx context.Context, path string, body any, timeout time.Duration) (json.RawMessage, error) {
+	address := s.c.Address
+	if s.c.Resolve != nil {
+		var err error
+		if address, err = s.c.Resolve(); err != nil {
+			return nil, err
+		}
+	}
 	s.mu.Lock()
 	bearer := s.bearer
 	s.mu.Unlock()
@@ -326,7 +336,7 @@ func (s *maintainerServer) daemon(ctx context.Context, path string, body any, ti
 		s.bearer = bearer
 		s.mu.Unlock()
 	}
-	data, err := core.CallTimeout(ctx, s.c.Address, bearer, path, body, timeout)
+	data, err := core.CallTimeout(ctx, address, bearer, path, body, timeout)
 	var refused core.RefusedError
 	if errors.Is(err, core.ErrUnavailable) || errors.As(err, &refused) && refused.Code == "unauthorized" {
 		s.mu.Lock()

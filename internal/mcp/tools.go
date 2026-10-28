@@ -505,8 +505,15 @@ func code(err error) string {
 }
 
 // daemon calls the API with the private secret, reading it again after a failure so a
-// recreated state root is picked up.
+// recreated state root is picked up, at the address that Resolve gives now.
 func (s *server) daemon(ctx context.Context, path string, body any) (json.RawMessage, error) {
+	address := s.c.Address
+	if s.c.Resolve != nil {
+		var err error
+		if address, err = s.c.Resolve(); err != nil {
+			return nil, err
+		}
+	}
 	s.mu.Lock()
 	secret := s.secret
 	s.mu.Unlock()
@@ -519,7 +526,7 @@ func (s *server) daemon(ctx context.Context, path string, body any) (json.RawMes
 		s.secret = secret
 		s.mu.Unlock()
 	}
-	data, err := core.Call(ctx, s.c.Address, secret, path, body)
+	data, err := core.Call(ctx, address, secret, path, body)
 	var refused core.RefusedError
 	if errors.Is(err, core.ErrUnavailable) || errors.As(err, &refused) && refused.Code == "unauthorized" {
 		s.mu.Lock()
