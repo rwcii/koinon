@@ -16,6 +16,10 @@ into a dated release section when promoted to `main`.
   `~/.grok`); a project or user `koinon-pickup` that would replace that entry is named as
   `pickup_entry_shadowed`. The native checks ran with Grok Build 1.0.50. The family default
   stays `observe`; macOS waits for native evidence.
+- A store that holds 128 work items no longer refuses `work_create` while old finished items
+  wait out their 30 days (#529). The create first removes the oldest finished item; open,
+  active, blocked and reported items are never removed. A finished item now stays for up to
+  30 days, or until a new item needs its place.
 - Grok sessions now report their model and context use (#515, part A). `peer_status` and the
   dashboard showed no context for Grok (`no_source`). `koinon setup grok` now makes `koinon hook
   grok-status` the command of the `[ui.status_line]` table in `~/.grok/config.toml`: it changes
