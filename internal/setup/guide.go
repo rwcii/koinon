@@ -76,19 +76,23 @@ for retained context; current members can reply.
   unresolved audiences and notification saturation.
 
 ## Decisions
-Get decision status with decision_list and decision_get (waiting, active, in_progress,
-archived or mine, paged with next_after). decision_create needs reference, title, kind (decision or fyi), key and
-deadline; decision_edit needs the if_revision you read. Write card prose in ASD-STE100
+Get decision status with decision_list and decision_get (waiting, active, returned,
+in_progress, archived or mine, paged with next_after). decision_create needs reference, title,
+kind, key and deadline. The kind is decision (the maintainer approves, declines or gives
+feedback), task (work that the maintainer must do: completed, declined or feedback) or fyi
+(information, which the maintainer acknowledges); an fyi that needs an answer is a decision or
+a task; decision_edit needs the if_revision you read. Write card prose in ASD-STE100
 Simplified Technical English; context, recommendation and agent_text are Markdown
 (paragraphs, line breaks, lists, emphasis, inline code and fenced code blocks; links, images
-and HTML show as literal text). Start an fyi title with ACTION FOR YOU when the maintainer
-must do manual work. Terminal-copy commands are printable ASCII only. Name recipients by participant address or
+and HTML show as literal text). Terminal-copy commands are printable ASCII only. Name recipients by participant address or
 peer name; an unknown name is flagged. Text in a known key format is refused. The maintainer
 gives the verdict in the dashboard or a maintainer client.
-An item is active (waiting for a verdict), in_progress (approved; do the work, then
-decision_close), archived (closed, declined, dismissed or withdrawn) or, 30 days later,
-deep-archived (decision_restore brings it back). When a waiting item or an open fyi item no
-longer needs the maintainer (the work is done, a newer item supersedes it, it was answered in
+An item is active (waiting for a verdict), returned (the maintainer's feedback came back to
+its author: change the item as the feedback says with decision_edit, which makes it wait
+again, or withdraw it), in_progress (approved; do the work, then decision_close), archived
+(closed, declined, completed, acknowledged, dismissed or withdrawn) or, 30 days later,
+deep-archived (decision_restore brings it back). Feedback approves and declines nothing. When
+a waiting, returned or open fyi item no longer needs the maintainer (the work is done, a newer item supersedes it, it was answered in
 chat, or it is no longer valid), withdraw it at once with decision_withdraw: the if_revision
 you read and a one-line reason. Its author, a session of the author's participant or a named
 recipient can withdraw it; it gets no verdict. decision_restore with if_revision reopens a
@@ -98,7 +102,7 @@ named recipient as an inbox message and a wake that name its verdict ID: read it
 decision_get, handle it, then decision_ack. decision_pending lists unacknowledged verdicts,
 also after the message aged out; a superseded one means the item was reopened. Editing a
 decided item reopens it for a new verdict.
-Record each verdict that you handle in the repository: decision_record with the reference
+Record each verdict that you handle in the repository, except an fyi acknowledgement: decision_record with the reference
 appends its entry, with the card text that the maintainer saw, to DECISIONS.md at the root of
 your checkout (directory names another checkout of the same repository), once per verdict;
 decision_get, decision_pending and the verdict message show the entry and the path. Before you commit, correct the spelling and typing

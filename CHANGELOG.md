@@ -5,6 +5,19 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Decision board actions say what the maintainer means (#537). A decision item now takes
+  **Approve**, **Decline** or **Provide feedback**; feedback needs the maintainer's text,
+  approves and declines nothing, and returns the item to its author as `returned`: the author
+  changes it into a new revision, which waits again, or withdraws it. Work for the maintainer is
+  a new `task` kind, listed under waiting and shown first, with **Completed**, **Declined** and
+  **Provide feedback**. An fyi item takes **Acknowledge** in place of Dismiss. Every verdict,
+  an acknowledgement included, now reaches the item's recipients and its author, and every verdict but an
+  acknowledgement is recorded in `DECISIONS.md`. The upgrade (schema 36) keeps every item and
+  verdict, makes each open fyi item whose title starts with `ACTION FOR YOU` a task, and retires
+  that prefix. Old dismissals stay in the history. The dashboard, `koinon mcp --maintainer`
+  (`decision_verdict`, `board_list` with `returned`), the agent decision tools, `koinon decision
+  create --kind task` and `koinon decision list --filter returned` change together.
+
 - Decision board verdicts are now recorded in the repository (#536). A verdict ID exists only
   in one machine's store, so a commit, a pull request or a document that cited one could not be
   checked by anyone else. The new `decision_record` MCP tool and `koinon decision record` append

@@ -50,7 +50,8 @@ func TestDecisionBoard(t *testing.T) {
 		Recommendation: ptr("- one\n- two"),
 		Commands:       &[]string{"koinon status", "go test ./..."}})
 	create("F-2", 0, "Plain notice", "fyi", DecisionFields{})
-	create("F-1", 5, actionForYou+": restart the synthetic service", "fyi", DecisionFields{})
+	create("F-1", 5, "Second notice", "fyi", DecisionFields{})
+	create("T-1", 7, "Restart the synthetic service", "task", DecisionFields{})
 	create("P-1", 3, "Approved work", "decision", DecisionFields{})
 	create("A-1", 4, "Declined work", "decision", DecisionFields{})
 	create("U-1", 6, "Nobody named", "decision", DecisionFields{Recipients: &[]string{"synthetic-nobody"}})
@@ -76,12 +77,12 @@ func TestDecisionBoard(t *testing.T) {
 		t.Fatalf("board: %d %s", page.status, page.body)
 	}
 	body := page.body
-	for _, want := range []string{"<b>3</b> waiting", "<b>1</b> in progress", "<b>2</b> open fyi", "<b>1</b> archived"} {
+	for _, want := range []string{"<b>4</b> waiting", "<b>0</b> returned", "<b>1</b> in progress", "<b>2</b> open fyi", "<b>1</b> archived"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("counts: no %q", want)
 		}
 	}
-	if got := strings.Join(boardCards(body), " "); got != "F-1 F-2 D-1 D-2 P-1 U-1" {
+	if got := strings.Join(boardCards(body), " "); got != "T-1 F-2 D-1 D-2 P-1 F-1 U-1" {
 		t.Errorf("card order: %s", got)
 	}
 	d1 := cardOf(t, body, "D-1")
@@ -98,8 +99,15 @@ func TestDecisionBoard(t *testing.T) {
 		t.Errorf("hidden command card: %s", d2)
 	}
 	f1 := cardOf(t, body, "F-1")
-	if !strings.Contains(f1, "decision-dismiss") || strings.Contains(f1, "decision-approve") || strings.Contains(f1, "decision-decline") {
+	if !strings.Contains(f1, "decision-acknowledge") || strings.Contains(f1, "decision-approve") || strings.Contains(f1, "decision-decline") ||
+		strings.Contains(f1, "decision-feedback") {
 		t.Errorf("fyi card: %s", f1)
+	}
+	// A task waits with Completed, Declined and Provide feedback (#537).
+	t1 := cardOf(t, body, "T-1")
+	if !strings.Contains(t1, `<button type="submit" formaction="/dashboard/actions/decision-complete">Completed</button> <button type="submit" formaction="/dashboard/actions/decision-decline">Declined</button> <button type="submit" formaction="/dashboard/actions/decision-feedback">Provide feedback</button>`) ||
+		!strings.Contains(t1, ">waiting</span>") || strings.Contains(t1, "decision-approve") || strings.Contains(t1, "decision-acknowledge") {
+		t.Errorf("task card: %s", t1)
 	}
 	p1 := cardOf(t, body, "P-1")
 	if strings.Contains(p1, "<form") || !strings.Contains(p1, "Use the <strong>small</strong> fix.") || !strings.Contains(p1, "in progress") {
@@ -115,7 +123,7 @@ func TestDecisionBoard(t *testing.T) {
 	// with no native ID, repository path or wake target.
 	row := body[strings.Index(body, `<table class="agents">`):]
 	row = row[:strings.Index(row, "</table>")]
-	for _, want := range []string{peer.Name, "Synthetic claimed work", "?ref=D-1", "?ref=D-2", "not reported"} {
+	for _, want := range []string{peer.Name, "Synthetic claimed work", "?ref=D-1", "?ref=D-2", "?ref=T-1", "not reported"} {
 		if !strings.Contains(row, want) {
 			t.Errorf("agent row: no %q in %s", want, row)
 		}
@@ -348,8 +356,8 @@ func TestDecisionBoardStatusFilter(t *testing.T) {
 	for i := 0; i < decisionBoardArchive; i++ {
 		ref := fmt.Sprintf("Z-%02d", i)
 		mustCreate(t, d.store, key, ref, decisionFields("Dismissed "+ref, "fyi"))
-		if got := client.do("decision-dismiss", url.Values{"reference": {ref}, "revision": {"1"}}); got != "decision_dismissed" {
-			t.Fatalf("dismiss %s: %s", ref, got)
+		if got := client.do("decision-acknowledge", url.Values{"reference": {ref}, "revision": {"1"}}); got != "decision_acknowledged" {
+			t.Fatalf("acknowledge %s: %s", ref, got)
 		}
 	}
 	archived := dashboardDo(t, d, "GET", "/dashboard/decisions?status=archived", client.cookie, nil, nil).body
@@ -448,10 +456,10 @@ func TestDecisionLookupCard(t *testing.T) {
 		reference, status, want string
 		absent                  []string
 	}{
-		{"D-1", "waiting", `<button type="submit" formaction="/dashboard/actions/decision-approve">Approve</button> <button type="submit" formaction="/dashboard/actions/decision-decline">Decline</button>`,
-			[]string{"decision-dismiss"}},
-		{"F-1", "fyi", `<button type="submit" formaction="/dashboard/actions/decision-dismiss">Dismiss</button>`,
-			[]string{"decision-approve", "decision-decline"}},
+		{"D-1", "waiting", `<button type="submit" formaction="/dashboard/actions/decision-approve">Approve</button> <button type="submit" formaction="/dashboard/actions/decision-decline">Decline</button> <button type="submit" formaction="/dashboard/actions/decision-feedback">Provide feedback</button>`,
+			[]string{"decision-acknowledge", "decision-complete"}},
+		{"F-1", "fyi", `<button type="submit" formaction="/dashboard/actions/decision-acknowledge">Acknowledge</button>`,
+			[]string{"decision-approve", "decision-decline", "decision-feedback"}},
 		{"P-1", "in_progress", "Go <strong>ahead</strong>.", []string{"<form", "Read only."}},
 	} {
 		for _, path := range []string{"/dashboard/decisions?ref=" + c.reference + "&status=" + c.status,
@@ -541,18 +549,18 @@ func TestDecisionLookupCard(t *testing.T) {
 	if got := strings.Join(boardCards(body), " "); got != "D-2" || !strings.Contains(body, `aria-current="true">`) || !strings.Contains(body, "<h2>Items: waiting</h2>") {
 		t.Errorf("after approve: grid %q", got)
 	}
-	// Dismiss F-1 from its lookup: the item is archived, so the lookup is read only and
+	// Acknowledge F-1 from its lookup: the item is archived, so the lookup is read only and
 	// carries the notice.
-	location = post("decision-dismiss", url.Values{"reference": {"F-1"}, "revision": {"1"}, "back": {"ref=F-1&status=fyi"}})
-	if q := location.Query(); q.Get("ref") != "F-1" || q.Get("status") != "fyi" || q.Get("notice") != "decision_dismissed" {
-		t.Fatalf("dismiss redirect: %s", location)
+	location = post("decision-acknowledge", url.Values{"reference": {"F-1"}, "revision": {"1"}, "back": {"ref=F-1&status=fyi"}})
+	if q := location.Query(); q.Get("ref") != "F-1" || q.Get("status") != "fyi" || q.Get("notice") != "decision_acknowledged" {
+		t.Fatalf("acknowledge redirect: %s", location)
 	}
 	body = get(location.String())
 	section = lookupSection(t, body)
 	if !strings.Contains(section, "<h2>F-1: Item F-1</h2>") || !strings.Contains(section, "Read only.") || strings.Contains(section, "<form") ||
 		strings.Contains(section, "lookup-card") || !strings.Contains(section, `<p class="card-notice" role="status">`) ||
-		strings.Count(body, `class="card-notice`) != 1 || strings.Contains(body, `<p class="notice"`) || !strings.Contains(section, "<strong>dismissed</strong> on revision 1") {
-		t.Errorf("after dismiss: %s", body)
+		strings.Count(body, `class="card-notice`) != 1 || strings.Contains(body, `<p class="notice"`) || !strings.Contains(section, "<strong>acknowledged</strong> on revision 1") {
+		t.Errorf("after acknowledge: %s", body)
 	}
 
 	// An archived item stays read only with its history; a deep-archived item names the

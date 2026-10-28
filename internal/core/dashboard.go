@@ -172,7 +172,7 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 		if board, ok := page.Data.(decisionsData); ok && board.cardShown() {
 			code := r.URL.Query().Get("notice")
 			board.CardNotice, page.Notice = page.Notice, ""
-			board.CardRefused = code != "decision_approved" && code != "decision_declined" && code != "decision_dismissed"
+			board.CardRefused = !decisionAccepted(code)
 			page.Data = board
 		}
 		if err := pages[page.View].ExecuteTemplate(&out, name, page); err != nil {

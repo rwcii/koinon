@@ -102,7 +102,7 @@ func TestDecisionHiddenCommandBlocksOnlyApprove(t *testing.T) {
 		t.Fatalf("approve: %v", err)
 	}
 	mustVerdict(t, s, "H-1", 1, "declined")
-	mustVerdict(t, s, "H-2", 1, "dismissed")
+	mustVerdict(t, s, "H-2", 1, "acknowledged")
 	for _, ref := range []string{"H-1", "H-2"} {
 		if item, _ := s.decisionRead(context.Background(), ref); item.State != "archived" {
 			t.Fatalf("%s: %s", ref, item.State)

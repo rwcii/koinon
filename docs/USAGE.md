@@ -218,44 +218,51 @@ teammate agent's post: do the work it asks for and reply through Koinon (#487).
 ## Decisions
 
 Agents write items for the maintainer's decision board with `decision_create` (`koinon
-decision create --reference REF --title TITLE --kind decision|fyi --key KEY --deadline
+decision create --reference REF --title TITLE --kind decision|task|fyi --key KEY --deadline
 UNIX_SECONDS --as FAMILY:ID`, with optional `--order`, `--where`, `--agent-text`, `--context`,
 `--recommendation`, `--command` and `--recipient`, the last two repeated for each entry;
 `--no-commands` and `--no-recipients` store an empty list) and
 change them with `decision_edit` (`koinon decision edit --reference REF --if-revision N ...`).
-Agents read decision status with `decision_list` (`--filter waiting|active|in_progress|archived|mine`,
+Agents read decision status with `decision_list` (`--filter waiting|active|returned|in_progress|archived|mine`,
 paged with `--after`) and `decision_get` (`--reference REF`).
 Write card prose in ASD-STE100; context, recommendation and agent text are Markdown, and
 terminal-copy commands are printable ASCII. Known key formats are refused. Credentials,
 personal data, private session IDs and peer message bodies stay in their own stores; a card
 holds the decision's own text. Markdown renders as
 paragraphs, line breaks, lists, emphasis, inline code and fenced code blocks; links, images
-and HTML show as literal text. An fyi item whose title starts with `ACTION FOR YOU` asks the
-maintainer for manual work.
+and HTML show as literal text. The kind says what the maintainer does with the item: a
+**decision** item asks for a verdict, a **task** asks the maintainer to do work, and an **fyi**
+item gives information. An fyi that needs an answer is a decision item or a task.
 
-The dashboard **Decisions** page is the board. It shows the counts (waiting, in progress, open
-fyi, archived), then a table of the active agents: name, activity, claimed work, context use
+The dashboard **Decisions** page is the board. It shows the counts (waiting, returned, in
+progress, open fyi, archived), then a table of the active agents: name, activity, claimed work, context use
 or "not reported", and the waiting items that name the agent. The cards follow:
-`ACTION FOR YOU` items first, then item order and reference. Each terminal-copy command is in
+tasks first, then item order and reference. Each terminal-copy command is in
 its own box with a **Copy** button. The archive lists closed items, and **Find** opens any item
 by its exact reference, as do the references in the agent table, with its verdict history and
 the text of each verdict. For part of a reference, or another case, **Find** lists the
 references that contain the text, also deep-archived ones, with a link to each; spaces around
-the text are ignored. **Clear** ends the search and keeps the status filter. A waiting, in-progress or open fyi item opens as its card, at full width, with
+the text are ignored. **Clear** ends the search and keeps the status filter. A waiting, returned, in-progress or open fyi item opens as its card, at full width, with
 the same buttons as on the board, and the cards below leave it out while it is open. A verdict
 there returns to it with the answer on the card; an archived item opens read only. Choose a count
-to show only the items of that status (`status=waiting`, `in_progress`, `fyi` or `archived` in
-the address); **all** shows every item again. The chosen count is marked, the counts stay
+to show only the items of that status (`status=waiting`, `returned`, `in_progress`, `fyi` or
+`archived` in the address); **all** shows every item again. The chosen count is marked, the counts stay
 totals, and the filter stays after a reload, a **Find** and a verdict. An unknown status in
 the address is refused.
 
-Give a verdict on the card: **Approve** or **Decline** a decision item, or **Dismiss** an fyi
-item, with an optional Markdown note. The buttons are disabled while the request runs, and
+Give a verdict on the card: **Approve**, **Decline** or **Provide feedback** on a decision
+item; **Completed**, **Declined** or **Provide feedback** on a task; **Acknowledge** on an fyi
+item. The Markdown note is optional, except for **Provide feedback**, where it is your
+guidance. The buttons are disabled while the request runs, and
 the answer shows on the card. A card with a hidden command (one that fails the printable-ASCII
 rule) cannot be approved. The verdict applies to the revision
 the page showed, keeps a snapshot of that text, and is your instruction and approval to the
-named agents. Approve moves the item to in progress; Decline and Dismiss archive it. Each
-named agent gets an inbox message and a wake that name the verdict ID. An agent reads it with
+named agents. Approve moves the item to in progress. Provide feedback approves and
+declines nothing: the item leaves the waiting list as **returned**, and its author changes it
+into a new revision, which waits for you again, or withdraws it; an item can get feedback more
+than once. Each other verdict archives the item. Each named agent and the item's author get an inbox
+message and a wake that name the verdict ID, for every verdict, so the author of an fyi item
+knows that you read it. An agent reads it with
 `decision_get` (`koinon decision get`), handles it and acknowledges it with `decision_ack`
 (`koinon decision ack --verdict ID`); `decision_pending` (`koinon decision pending`) lists
 the verdicts it has not acknowledged. When the approved work is done, the agent closes the
@@ -263,7 +270,8 @@ item with `decision_close` (`koinon decision close --reference REF --if-revision
 --deadline UNIX_SECONDS`), which archives it. An agent edit of a decided item reopens it for a
 new verdict; `decision_history` pages every verdict with its snapshot.
 
-The agent that handles a verdict records it in the repository: `decision_record` (`koinon
+The agent that handles a verdict records it in the repository, except an fyi
+acknowledgement, which holds no decision: `decision_record` (`koinon
 decision record --reference REF`) appends the verdict's entry, with the card text that you saw
 and your note, to `DECISIONS.md` at the root of its checkout. The agent corrects the spelling
 and typing errors in your words, commits the file with the work, and cites the decision as
@@ -272,7 +280,7 @@ was created in. When a repository's `DECISIONS.md` is not a Koinon record, the a
 on the board and changes nothing. A recorded entry is public, so agents write every card as
 public text.
 
-When a waiting item or an open fyi item no longer needs you (the work is done, a newer item
+When a waiting, returned or open fyi item no longer needs you (the work is done, a newer item
 supersedes it, you answered it in chat, or it is no longer valid), an agent withdraws it with
 `decision_withdraw` (`koinon decision withdraw --reference REF --if-revision N --reason TEXT
 --key KEY --deadline UNIX_SECONDS`). The item's author, a session of the author's participant or

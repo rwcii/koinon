@@ -100,6 +100,7 @@ type maintainerBoard struct {
 
 type maintainerCounts struct {
 	Waiting    int64 `json:"waiting"`
+	Returned   int64 `json:"returned"`
 	InProgress int64 `json:"in_progress"`
 	OpenFYI    int64 `json:"open_fyi"`
 	Archived   int64 `json:"archived"`
@@ -112,7 +113,7 @@ func (s *Store) maintainerBoardRead(ctx context.Context, filter string, after in
 		filter = "waiting"
 	}
 	if !decisionFilters[filter] || filter == "mine" {
-		return maintainerBoard{}, decisionInvalid("filter", "must be waiting, active, in_progress or archived")
+		return maintainerBoard{}, decisionInvalid("filter", "must be waiting, active, returned, in_progress or archived")
 	}
 	if after < 0 || limit < 0 {
 		return maintainerBoard{}, decisionInvalid("after and limit", "must not be negative")
@@ -123,9 +124,8 @@ func (s *Store) maintainerBoardRead(ctx context.Context, filter string, after in
 	}
 	defer tx.Rollback()
 	var board maintainerBoard
-	if err := tx.QueryRowContext(ctx, `SELECT COALESCE(SUM(state='active' AND kind='decision'),0),COALESCE(SUM(state='in_progress'),0),
-		COALESCE(SUM(state='active' AND kind='fyi'),0),COALESCE(SUM(state='archived'),0) FROM decision_items`).
-		Scan(&board.Counts.Waiting, &board.Counts.InProgress, &board.Counts.OpenFYI, &board.Counts.Archived); err != nil {
+	if err := tx.QueryRowContext(ctx, decisionCountQuery).
+		Scan(&board.Counts.Waiting, &board.Counts.Returned, &board.Counts.InProgress, &board.Counts.OpenFYI, &board.Counts.Archived); err != nil {
 		return maintainerBoard{}, err
 	}
 	board.DecisionPage, err = decisionPage(ctx, tx, filter, nil, after, limit)
@@ -218,7 +218,8 @@ type maintainerPost struct {
 
 // maintainerVerdicts are the verdicts that decision-verdict takes, each with the dashboard
 // action that gives it, which names its audit record.
-var maintainerVerdicts = map[string]string{"approved": "decision-approve", "declined": "decision-decline", "dismissed": "decision-dismiss"}
+var maintainerVerdicts = map[string]string{"approved": "decision-approve", "declined": "decision-decline", "feedback": "decision-feedback",
+	"completed": "decision-complete", "acknowledged": "decision-acknowledge"}
 
 // auditName bounds a peer or recipient name in an audit target.
 func auditName(name string) string {
