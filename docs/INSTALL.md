@@ -181,9 +181,11 @@ Each command, hook, launched agent and `koinon mcp` finds the daemon at its `--a
 `KOINON_DAEMON_ADDRESS`, else at `127.0.0.1` and the port that its state directory records,
 else at `127.0.0.1:47671`. A launcher passes `KOINON_DAEMON_ADDRESS` to its agent, with
 `KOINON_STATE_DIR`, only when the launch address is not where that state directory's installed
-service listens, and the variable applies only to that state directory. `koinon mcp` without
-`--address` finds the address again for each call, so a running session follows
-`koinon install --port` with no restart. `koinon dashboard` prints its login link at that
+service listens, also when the launcher's `--address` names it, and the variable applies only to
+that state directory. `koinon mcp` without `--address`, in agent and in maintainer mode, finds
+the address again for each call, so a running session follows `koinon install --port` with no
+restart; a maintainer-mode server then exits with `maintainer_token_expired`, because the
+restart ended its token. `koinon mcp --address` stays at the address that it names. `koinon dashboard` prints its login link at that
 address. Without a recorded port, everything stays at 47671. A session that a launcher of
 v0.6.0 or earlier started keeps the former address in its environment, also after `/clear`;
 start it again after the change.
