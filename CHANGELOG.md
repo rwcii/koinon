@@ -13,6 +13,17 @@ into a dated release section when promoted to `main`.
   of the Koinon instance; the browser keeps it for that dashboard address. A browser speaks only
   after a click on the page, so an alert that it stopped waits for your next click. The new
   `GET /dashboard/waiting` gives the page the waiting items and the decision change version.
+- After `brew install` and `brew upgrade`, Homebrew shows the steps that this machine still
+  needs (#551). The new `koinon install --plan` reads the installation, changes nothing, and
+  prints one command per line: `koinon install` when no daemon is installed or the installed
+  binary is not this one, `koinon install --system` for an older macOS system-mode copy,
+  `koinon maintainer secret set` when no secret is set, and `koinon setup FAMILY --binary` with
+  the installed binary for each agent whose CLI is installed without Koinon; or that the
+  installation is current. The formula
+  runs it and, when a check cannot finish, shows the fixed list of one-time steps instead.
+  `GET /v1/status` reports `maintainer_secret_set`. The install's agent review shows an agent
+  whose CLI failed as "not read". The caveats no longer list the v0.3.0 upgrade step; the plan
+  finds that copy.
 - The Claude permission rules that `koinon install` and `koinon setup claude` offer cover the
   `koinon` commands that agents run (#550, DECISIONS.md#CLI-RULES-550). The offer had four rules,
   so each other CLI call by a Claude agent, such as `koinon decision record` or a call while

@@ -363,8 +363,14 @@ func (d *Daemon) handler() http.Handler {
 			failure(w, err)
 			return
 		}
+		// koinon install --plan reads whether the maintainer secret is set (#551).
+		secretSet, err := d.store.maintainerSecretSet(r.Context())
+		if err != nil {
+			failure(w, err)
+			return
+		}
 		respond(w, 200, map[string]any{"ok": true, "daemon": "running", "version": d.release, "pid": os.Getpid(), "listeners": d.Addresses(), "sessions": counts,
-			"schema": schemaVersion, "storage": storage, "wake": wake, "retention": retention})
+			"schema": schemaVersion, "storage": storage, "wake": wake, "retention": retention, "maintainer_secret_set": secretSet})
 	})
 	mux.HandleFunc("GET /v1/sessions", func(w http.ResponseWriter, r *http.Request) {
 		items, truncated, err := d.store.List(r.Context())

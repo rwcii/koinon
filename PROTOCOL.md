@@ -22,7 +22,7 @@ repositories.
 
 | Route | Operation |
 | --- | --- |
-| `GET /v1/status` | Daemon readiness, the release `version`, `pid`, listeners, schema, session counts, storage and content-free wake health. |
+| `GET /v1/status` | Daemon readiness, the release `version`, `pid`, listeners, schema, session counts, storage, content-free wake health and `maintainer_secret_set`. |
 | `GET /v1/sessions` | Up to 1,000 records ordered by family and ID; `truncated` reports more records. |
 | `POST /v1/sessions/register` | Register or reactivate one session identified by `(family, id)`. |
 | `POST /v1/sessions/renew` | Renew an active session's expiry. |
@@ -2223,7 +2223,10 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   second, and each later wrong secret doubles it, up to 60 seconds; a check during the wait is
   429 with `Retry-After`, computes no key and does not move the wait. A match resets the
   count. The count is in daemon memory, for the whole daemon. The one-time link works during
-  the wait. No page, reply, record or log line repeats a presented secret.
+  the wait. No page, reply, record or log line repeats a presented secret. `GET /v1/status`
+  reports `maintainer_secret_set`, `true` when the table holds the row, so that
+  `koinon install --plan` can name `koinon maintainer secret set` while the daemon holds the
+  store (#551); a daemon of an earlier release leaves the field out.
 - **Maintainer mode** (PDR 009, Decisions 3 and 4). `POST /v1/maintainer/session` takes
   `{"secret": TEXT, "client": NAME}` with the bearer secret; `NAME` matches
   `[a-z0-9][a-z0-9-]{0,31}`, else `invalid_request`. It checks the secret as the login form

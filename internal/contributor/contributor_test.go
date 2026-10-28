@@ -431,21 +431,37 @@ func TestHomebrewFormula(t *testing.T) {
 		}
 	}
 	// The caveats give each command on its own line, and the --system step only on macOS (#483).
+	// They show koinon install --plan, run with the person's PATH, or the fixed steps when it
+	// fails (#551).
 	caveats, _, _ := strings.Cut(formula[strings.Index(formula, "  def caveats\n"):], "\n  end\n")
-	general, mac, _ := strings.Cut(caveats, "    if OS.mac?\n")
-	for _, want := range []string{"\n        #{opt_bin}/koinon install --agent claude --agent codex\n",
-		"\n        brew update\n        brew upgrade koinon\n        koinon version\n",
-		"restarts\n      on the newly linked binary", "ends the dashboard login", "\n        koinon dashboard\n",
-		"v0.3.0 or earlier has a copy", "\n        #{opt_bin}/koinon install\n"} {
+	general, mac, _ := strings.Cut(caveats, "      if OS.mac?\n")
+	for _, want := range []string{`ENV.fetch("HOMEBREW_PATH", ENV.fetch("PATH", ""))`, `"#{opt_bin}/koinon", "install", "--plan")`,
+		"out if status.success? && !out.strip.empty?", "rescue StandardError",
+		"\n          #{opt_bin}/koinon install\n", "\n          #{opt_bin}/koinon maintainer secret set\n",
+		"\n          #{opt_bin}/koinon install --agent claude\n          #{opt_bin}/koinon install --agent codex\n" +
+			"          #{opt_bin}/koinon install --agent agy\n          #{opt_bin}/koinon install --agent opencode\n" +
+			"          #{opt_bin}/koinon install --agent grok\n"} {
 		if !strings.Contains(general, want) {
 			t.Errorf("caveats lack %q", want)
 		}
 	}
-	if strings.Contains(general, "--system") || !strings.Contains(mac, "\n          #{opt_bin}/koinon install --system\n") {
+	// The recheck follows the plan and the fixed steps alike.
+	for _, want := range []string{"\n    text + <<~EOS\n      Check again after these steps:\n        #{opt_bin}/koinon install --plan\n",
+		"\n        brew update\n        brew upgrade koinon\n        koinon version\n",
+		"restarts\n      on the newly linked binary", "ends the dashboard login", "\n        koinon dashboard\n"} {
+		if !strings.Contains(mac, want) {
+			t.Errorf("caveats lack %q after the fixed steps", want)
+		}
+	}
+	if strings.Contains(caveats, "v0.3.0") {
+		t.Error("the plan finds a v0.3.0-era copy; the caveats do not list it")
+	}
+	if strings.Contains(general, "--system") || !strings.Contains(mac, "\n            #{opt_bin}/koinon install --system\n") {
 		t.Errorf("the --system step must be only in the OS.mac? branch:\n%s", caveats)
 	}
 	for _, line := range strings.Split(caveats, "\n") {
-		if text := strings.TrimSpace(line); strings.Contains(text, "#{opt_bin}") && !strings.HasPrefix(text, "#{opt_bin}/koinon ") {
+		text := strings.TrimSpace(line)
+		if strings.Contains(text, "#{opt_bin}") && !strings.HasPrefix(text, "#{opt_bin}/koinon ") && !strings.HasPrefix(text, `"#{opt_bin}/koinon", `) {
 			t.Errorf("caveats line mixes prose and the opt_bin path: %q", line)
 		}
 	}

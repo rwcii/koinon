@@ -365,6 +365,7 @@ func replacedExecutable(start, now os.FileInfo, err error) bool {
 }
 
 const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N] [--agent FAMILY]... [--no-start] [--system]
+       koinon install --plan [--prefix DIR] [--state-dir DIR]
        koinon uninstall [--prefix DIR] [--state-dir DIR] [--agent FAMILY]...
        koinon upgrade --from-python [--python-prefix DIR] [--prefix DIR] [--state-dir DIR] [--agent FAMILY]... [--repository KEY=PATH]... [--python PATH]
        koinon upgrade --status [--state-dir DIR]
