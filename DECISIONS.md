@@ -339,6 +339,7 @@ Recommendation:
 >    will not finish" is removed.
 >
 > If declined: the session must stop its subagents or wait for them before the clear, as before.
+
 <a id="board-verdicts-537"></a>
 
 ## BOARD-VERDICTS-537
