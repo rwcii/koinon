@@ -35,12 +35,7 @@ const (
 // locator, the typed verdict ID of an inbox message, and the close and deep-archive mark
 // fields of an item (#206, chunk 02). decision_pending reads (name, outcome, verdict_id) for
 // queued deliveries only, so acknowledged history is never scanned.
-const decisionVerdictTables = `
-	CREATE TABLE decision_verdicts (
-		id INTEGER PRIMARY KEY AUTOINCREMENT, item_id INTEGER NOT NULL, revision INTEGER NOT NULL,
-		verdict TEXT NOT NULL CHECK (verdict IN ('approved','declined','dismissed')),
-		note TEXT NOT NULL, created_at INTEGER NOT NULL, snapshot TEXT NOT NULL,
-		superseded_at INTEGER NOT NULL DEFAULT 0);
+const decisionVerdictTables = decisionVerdictsTableV26 + `;
 	CREATE INDEX decision_verdicts_item ON decision_verdicts(item_id, id);
 	CREATE TABLE decision_deliveries (
 		verdict_id INTEGER NOT NULL, ordinal INTEGER NOT NULL, kind TEXT NOT NULL, name TEXT NOT NULL,
@@ -59,6 +54,14 @@ const decisionVerdictTables = `
 	ALTER TABLE decision_items ADD COLUMN mark_file TEXT NOT NULL DEFAULT '';
 	ALTER TABLE decision_items ADD COLUMN mark_offset INTEGER NOT NULL DEFAULT 0;
 	ALTER TABLE decision_items ADD COLUMN verdict_count INTEGER NOT NULL DEFAULT 0;`
+
+// decisionVerdictsTableV26 is the verdict table of schema 26, which later versions extend.
+const decisionVerdictsTableV26 = `
+	CREATE TABLE decision_verdicts (
+		id INTEGER PRIMARY KEY AUTOINCREMENT, item_id INTEGER NOT NULL, revision INTEGER NOT NULL,
+		verdict TEXT NOT NULL CHECK (verdict IN ('approved','declined','dismissed')),
+		note TEXT NOT NULL, created_at INTEGER NOT NULL, snapshot TEXT NOT NULL,
+		superseded_at INTEGER NOT NULL DEFAULT 0)`
 
 // DecisionSnapshot is the text that the maintainer saw when giving a verdict.
 type DecisionSnapshot struct {
@@ -127,15 +130,48 @@ type DecisionPendingPage struct {
 	NextAfter *int64          `json:"next_after"`
 }
 
-func verdictNoticeBody(reference string, id int64) string {
+// kindVerdicts are the verdicts that the maintainer gives on each kind of item (#537). An
+// old dismissal of an fyi item stays in the history, but no new one is given.
+var kindVerdicts = map[string][]string{
+	"decision": {"approved", "declined", "feedback"},
+	"task":     {"completed", "declined", "feedback"},
+	"fyi":      {"acknowledged"},
+}
+
+// verdictState is the item state after a verdict: an approved decision is in progress until
+// an agent closes its work, feedback returns the item to its author, and every other verdict
+// archives it.
+func verdictState(verdict string) string {
+	switch verdict {
+	case "approved":
+		return "in_progress"
+	case "feedback":
+		return "returned"
+	}
+	return "archived"
+}
+
+// recordedVerdict reports whether DECISIONS.md records a verdict (#536, #537): an fyi item
+// holds no decision, so its acknowledgement and an old dismissal are not recorded.
+func recordedVerdict(verdict string) bool {
+	return verdict != "acknowledged" && verdict != "dismissed"
+}
+
+func verdictNoticeBody(reference, verdict string, id int64) string {
+	switch verdict {
+	case "acknowledged":
+		return fmt.Sprintf("Fyi item %s was acknowledged (%d). Read it with decision_get; nothing is recorded in DECISIONS.md.", reference, id)
+	case "feedback":
+		return fmt.Sprintf("Item %s has the maintainer's feedback (%d) and is returned to its author. Read it with decision_get, record it with decision_record, then change the item into a new revision with decision_edit or withdraw it with decision_withdraw.", reference, id)
+	}
 	return fmt.Sprintf("Decision %s has a verdict (%d). Read it with decision_get, record it with decision_record and commit DECISIONS.md with the work.", reference, id)
 }
 
 // verdictMessageBody is the verdict message: the notice, then the path and the verdict's
 // entry when it has one (#536). An entry that does not fit in a message, which only stored
 // hidden commands can cause, is left out, and the body says where to read it.
-func verdictMessageBody(reference string, id int64, entry string) string {
-	notice := verdictNoticeBody(reference, id)
+func verdictMessageBody(reference, verdict string, id int64, entry string) string {
+	notice := verdictNoticeBody(reference, verdict, id)
 	if entry == "" {
 		return notice
 	}
@@ -190,18 +226,30 @@ func verdictDeliveries(ctx context.Context, q querier, id int64) ([]DecisionDeli
 }
 
 // DecisionVerdict records the maintainer's verdict, from the dashboard or a maintainer
-// client, on the revision that the maintainer saw. One ordinary write stores the verdict with
-// the client of the request's context as via, its snapshot, the item's new state, one
-// delivery and one typed inbox message per resolved recipient, and the audit record.
+// client, on the revision that the maintainer saw: approved, declined or feedback on a
+// decision item, completed, declined or feedback on a task, acknowledged on an fyi item
+// (#537). Feedback needs a note, which is the maintainer's guidance. One ordinary write
+// stores the verdict with the client of the request's context as via, its snapshot, the
+// item's new state, one delivery and one typed inbox message per resolved recipient, and the
+// audit record.
 func (s *Store) DecisionVerdict(ctx context.Context, reference string, revision int64, verdict, note string) (DecisionVerdict, error) {
 	if checkReference(reference) != nil || revision < 1 {
 		return DecisionVerdict{}, ErrInvalid
 	}
-	if verdict != "approved" && verdict != "declined" && verdict != "dismissed" {
+	known := false
+	for _, verdicts := range kindVerdicts {
+		for _, v := range verdicts {
+			known = known || v == verdict
+		}
+	}
+	if !known {
 		return DecisionVerdict{}, ErrInvalid
 	}
 	if err := checkMarkdown(note, "note", decisionNoteLimit); err != nil {
 		return DecisionVerdict{}, err
+	}
+	if verdict == "feedback" && strings.TrimSpace(note) == "" {
+		return DecisionVerdict{}, workError("feedback_required", "feedback needs the maintainer's guidance in the note")
 	}
 	if err := checkCredentials(note, "note"); err != nil {
 		return DecisionVerdict{}, err
@@ -224,11 +272,15 @@ func (s *Store) DecisionVerdict(ctx context.Context, reference string, revision 
 	if item.State != "active" {
 		return DecisionVerdict{}, workError("decided", "the decision item already has a verdict")
 	}
-	if (item.Kind == "fyi") != (verdict == "dismissed") {
-		return DecisionVerdict{}, workError("invalid_verdict", "a decision item takes approve or decline; an fyi item takes dismiss")
+	allowed := false
+	for _, v := range kindVerdicts[item.Kind] {
+		allowed = allowed || v == verdict
+	}
+	if !allowed {
+		return DecisionVerdict{}, workError("invalid_verdict", "a decision item takes approved, declined or feedback; a task takes completed, declined or feedback; an fyi item takes acknowledged")
 	}
 	// A command that fails the printable-ASCII rule is hidden, so the item cannot be
-	// approved as displayed (PDR 007, Decision 3). Decline and Dismiss approve nothing.
+	// approved as displayed (PDR 007, Decision 3). The other verdicts approve nothing.
 	for _, c := range item.Commands {
 		if verdict == "approved" && !printableCommand(c) {
 			return DecisionVerdict{}, workError("hidden_command", "a stored command is hidden; the item cannot be approved as displayed")
@@ -244,9 +296,9 @@ func (s *Store) DecisionVerdict(ctx context.Context, reference string, revision 
 	if err != nil {
 		return DecisionVerdict{}, err
 	}
-	state, archived := "in_progress", int64(0)
-	if verdict != "approved" {
-		state, archived = "archived", now
+	state, archived := verdictState(verdict), int64(0)
+	if state == "archived" {
+		archived = now
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE decision_items SET state=?,archived_at=?,updated_at=?,mark_revision=0,mark_file='',mark_offset=0,
 		verdict_count=verdict_count+1 WHERE id=?`,
@@ -258,19 +310,24 @@ func (s *Store) DecisionVerdict(ctx context.Context, reference string, revision 
 	}
 	result := DecisionVerdict{ID: verdictID, Revision: revision, Verdict: verdict, Note: note, At: now,
 		Snapshot: DecisionSnapshot{Title: item.Title, Where: item.Where, Context: item.Context, Recommendation: item.Recommendation, Commands: item.Commands}}
-	if verdict != "dismissed" {
-		names, err := recipientNames(ctx, tx.Tx, id)
+	// Every verdict goes to the item's recipients and to its author (#537).
+	names, err := recipientNames(ctx, tx.Tx, id)
+	if err != nil {
+		return DecisionVerdict{}, err
+	}
+	if names, err = withAuthor(ctx, tx.Tx, now, id, item, names); err != nil {
+		return DecisionVerdict{}, err
+	}
+	entry := ""
+	if recordedVerdict(verdict) {
+		entry = DecisionRecordEntry(reference, item.Where, result)
+	}
+	for i, name := range names {
+		d, err := s.deliverVerdict(ctx, tx, now, verdictID, i, name, reference, verdict, entry)
 		if err != nil {
 			return DecisionVerdict{}, err
 		}
-		entry := DecisionRecordEntry(reference, item.Where, result)
-		for i, name := range names {
-			d, err := s.deliverVerdict(ctx, tx, now, verdictID, i, name, reference, entry)
-			if err != nil {
-				return DecisionVerdict{}, err
-			}
-			result.Deliveries = append(result.Deliveries, d)
-		}
+		result.Deliveries = append(result.Deliveries, d)
 	}
 	setAuditTarget(ctx, fmt.Sprintf("decision %s revision %d %s verdict %d", reference, revision, verdict, verdictID))
 	return result, tx.Commit()
@@ -293,10 +350,56 @@ func recipientNames(ctx context.Context, q querier, itemID int64) ([]string, err
 	return names, rows.Err()
 }
 
+// withAuthor adds the item's author to names unless a name there reaches the author now
+// (#537). An author whose participant has an address is reached at that address, so a
+// successor after a holder change or a context cycle reads the verdict: a name reaches it when
+// it is the address, or the peer name of an active session that holds the address now. The
+// author's own peer name does not, also when a recipient names it, because that peer can be
+// retired; its delivery stays as named. An author without an address is reached at its peer
+// name.
+func withAuthor(ctx context.Context, q querier, now, id int64, item DecisionItem, names []string) ([]string, error) {
+	var participant, address string
+	if err := q.QueryRowContext(ctx, `SELECT author_participant FROM decision_items WHERE id=?`, id).Scan(&participant); err != nil {
+		return nil, err
+	}
+	if participant != "" {
+		err := q.QueryRowContext(ctx, `SELECT name FROM names WHERE kind='alias' AND family||char(31)||repository||char(31)||role=?`, participant).Scan(&address)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+	}
+	if address == "" {
+		for _, name := range names {
+			if name == item.AuthorName {
+				return names, nil
+			}
+		}
+		if item.AuthorName == "" {
+			return names, nil
+		}
+		return append(names, item.AuthorName), nil
+	}
+	for _, name := range names {
+		if name == address {
+			return names, nil
+		}
+		var holds int
+		if err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM names p JOIN names a ON a.kind='alias' AND a.name=? AND a.family=p.family
+			AND a.holder_id=p.session_id JOIN sessions s ON s.family=p.family AND s.id=p.session_id AND s.retired_at=0 AND s.expires_at>?
+			WHERE p.kind='peer' AND p.name=?`, address, now, name).Scan(&holds); err != nil {
+			return nil, err
+		}
+		if holds > 0 {
+			return names, nil
+		}
+	}
+	return append(names, address), nil
+}
+
 // deliverVerdict resolves one recipient name now and stores its delivery: queued with one
 // typed inbox message, or skipped with the reason. A participant's message goes to the
 // participant inbox, so its current holder reads it, also after a holder change.
-func (s *Store) deliverVerdict(ctx context.Context, tx *writeTx, now, verdictID int64, ordinal int, name, reference, entry string) (DecisionDelivery, error) {
+func (s *Store) deliverVerdict(ctx context.Context, tx *writeTx, now, verdictID int64, ordinal int, name, reference, verdict, entry string) (DecisionDelivery, error) {
 	d := DecisionDelivery{Name: name, Outcome: "skipped"}
 	var kind, family, sessionID string
 	err := tx.QueryRowContext(ctx, `SELECT kind,family,session_id FROM names WHERE name=?`, name).Scan(&kind, &family, &sessionID)
@@ -328,7 +431,7 @@ func (s *Store) deliverVerdict(ctx context.Context, tx *writeTx, now, verdictID 
 		} else {
 			inserted, err := tx.ExecContext(ctx, `INSERT INTO messages(recipient_family,recipient_id,seq,sender_family,sender_id,sender_name,body,
 				created_at,delivery_updated_at,system_kind,decision_verdict) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-				family, sessionID, seq, maintainerKey.Family, maintainerKey.ID, "maintainer", verdictMessageBody(reference, verdictID, entry),
+				family, sessionID, seq, maintainerKey.Family, maintainerKey.ID, "maintainer", verdictMessageBody(reference, verdict, verdictID, entry),
 				now, now, decisionVerdictKind, verdictID)
 			if err != nil {
 				return d, tx.fail(err)
@@ -427,7 +530,7 @@ func (s *Store) DecisionPending(ctx context.Context, caller Key, after int64, li
 			Scan(&p.VerdictID, &p.Reference, &p.Verdict, &p.Revision, &p.At, &p.SupersededAt, &v.Note, &snapshot, &where); err != nil {
 			return DecisionPendingPage{}, err
 		}
-		if p.Verdict != "dismissed" {
+		if recordedVerdict(p.Verdict) {
 			if json.Unmarshal([]byte(snapshot), &v.Snapshot) != nil {
 				return DecisionPendingPage{}, workError("decision_unavailable", "a stored snapshot is invalid")
 			}
@@ -443,7 +546,7 @@ func (s *Store) DecisionPending(ctx context.Context, caller Key, after int64, li
 		}
 		used += size
 		page.Deliveries = append(page.Deliveries, p)
-		if p.Verdict != "dismissed" {
+		if recordedVerdict(p.Verdict) {
 			page.Record = &DecisionRecord{Path: DecisionRecordFile, Instruction: decisionRecordInstruction}
 		}
 	}
@@ -605,8 +708,9 @@ func closeRepeat(ctx context.Context, q querier, caller Key, key, print string) 
 // decisionWithdrawReasonLimit bounds a withdrawal reason, in bytes.
 const decisionWithdrawReasonLimit = 512
 
-// DecisionWithdraw archives an active item that no longer needs the maintainer (#504): a
-// waiting decision item or an open fyi item, at the revision the caller read, with a
+// DecisionWithdraw archives an item that no longer needs the maintainer (#504): a waiting
+// decision item or task, an item returned with feedback (#537) or an open fyi item, at the
+// revision the caller read, with a
 // required one-line reason. The caller is the item's author, a session of the author's
 // participant or a named recipient. The withdrawal is no verdict and sends no delivery;
 // decision_restore with if_revision reopens the item. key and deadline make a retry return
@@ -673,13 +777,17 @@ func (s *Store) DecisionWithdraw(ctx context.Context, caller Key, reference stri
 			Details: map[string]any{"current_revision": item.Revision}}
 	}
 	// A verdict moves the item out of active in its own write, so an item that is active in
-	// this write has no current verdict.
-	if item.State != "active" {
-		return DecisionItem{}, workError("not_active", "only a waiting decision item or an open fyi item can be withdrawn")
+	// this write has no current verdict. A returned item has the maintainer's feedback, which
+	// the withdrawal supersedes; it stays in the history (#537).
+	if item.State != "active" && item.State != "returned" {
+		return DecisionItem{}, workError("not_active", "only a waiting or returned item or an open fyi item can be withdrawn")
 	}
 	peer, err := itemParty(ctx, tx.Tx, now, caller, id, item)
 	if err != nil {
 		return DecisionItem{}, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE decision_verdicts SET superseded_at=? WHERE item_id=? AND superseded_at=0`, now, id); err != nil {
+		return DecisionItem{}, tx.fail(err)
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE decision_items SET state='archived',archived_at=?,updated_at=? WHERE id=?`, now, now, id); err != nil {
 		return DecisionItem{}, tx.fail(err)

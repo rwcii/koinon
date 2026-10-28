@@ -79,7 +79,8 @@ const decisionRecordInstruction = "Record the verdicts in DECISIONS.md with deci
 const decisionRecordCommit = "Correct the spelling and typing errors in the maintainer's words in each new entry, and keep their meaning and wording; then commit DECISIONS.md with the work. Cite the decision as DECISIONS.md#REFERENCE, never by verdict ID."
 
 // DecisionRecordResult is the outcome of one RecordDecision: the file, and the verdicts that it
-// appended, that it already held, and that are not recorded because they are dismissals.
+// appended, that it already held, and that are not recorded because they are fyi
+// acknowledgements or dismissals.
 type DecisionRecordResult struct {
 	Path      string  `json:"path"`
 	Reference string  `json:"reference"`
@@ -143,7 +144,12 @@ func DecisionRecordEntry(reference, where string, v DecisionVerdict) string {
 			b.WriteString("    " + c + "\n")
 		}
 	}
-	quoted("Note", v.Note)
+	// Feedback's note is the maintainer's guidance (#537).
+	if v.Verdict == "feedback" {
+		quoted("Feedback", v.Note)
+	} else {
+		quoted("Note", v.Note)
+	}
 	return b.String()
 }
 
@@ -159,7 +165,8 @@ func oneLine(text string) string {
 }
 
 // RecordDecision appends to DECISIONS.md at root the entries of the item's verdicts that the
-// file does not hold yet, in verdict order. A dismissal holds no decision and is not recorded.
+// file does not hold yet, in verdict order. An fyi acknowledgement or dismissal holds no
+// decision and is not recorded.
 // It creates the file with its header when it is absent, refuses a symbolic link or a file
 // that is not a regular file, and holds an exclusive lock on the file while it reads and
 // appends, so that concurrent records add each entry once. It writes nothing else and commits
@@ -176,7 +183,7 @@ func RecordDecision(root, reference, where string, verdicts []DecisionVerdict) (
 		// An item with no recordable verdict creates no file.
 		recordable := false
 		for _, v := range verdicts {
-			recordable = recordable || v.Verdict != "dismissed"
+			recordable = recordable || recordedVerdict(v.Verdict)
 		}
 		if !recordable {
 			for _, v := range verdicts {
@@ -223,7 +230,7 @@ func RecordDecision(root, reference, where string, verdicts []DecisionVerdict) (
 	for _, v := range verdicts {
 		marker := repoRecordMarker(reference, v)
 		switch {
-		case v.Verdict == "dismissed":
+		case !recordedVerdict(v.Verdict):
 			result.Skipped = append(result.Skipped, v.ID)
 		case held[marker]:
 			result.Present = append(result.Present, v.ID)

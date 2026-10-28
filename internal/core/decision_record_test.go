@@ -201,19 +201,19 @@ func TestDecisionReadsAskForTheRecord(t *testing.T) {
 	}
 	var message string
 	if err := s.db.QueryRow(`SELECT body FROM messages WHERE decision_verdict=?`, v.ID).Scan(&message); err != nil ||
-		message != verdictMessageBody("REC-1", v.ID, entry) || !strings.HasSuffix(message, "Path: DECISIONS.md\n\nEntry:\n"+entry) {
+		message != verdictMessageBody("REC-1", "approved", v.ID, entry) || !strings.HasSuffix(message, "Path: DECISIONS.md\n\nEntry:\n"+entry) {
 		t.Fatalf("message: %q %v", message, err)
 	}
-	if body := verdictNoticeBody("REC-1", v.ID); !strings.Contains(body, "decision_record") || !strings.Contains(body, "DECISIONS.md") {
+	if body := verdictNoticeBody("REC-1", "approved", v.ID); !strings.Contains(body, "decision_record") || !strings.Contains(body, "DECISIONS.md") {
 		t.Fatalf("notice: %s", body)
 	}
 	mustCreate(t, s, f.peerKey, "REC-2", DecisionFields{Title: ptr("Note it"), Kind: ptr("fyi"), Recipients: &[]string{f.peer.Name}})
-	mustVerdict(t, s, "REC-2", 1, "dismissed")
-	if page, err := s.DecisionPending(ctx, f.peerKey, v.ID, 0); err != nil || len(page.Deliveries) != 0 {
-		t.Fatalf("dismissal pending: %+v %v", page, err)
+	mustVerdict(t, s, "REC-2", 1, "acknowledged")
+	if page, err := s.DecisionPending(ctx, f.peerKey, v.ID, 0); err != nil || len(page.Deliveries) != 1 || page.Deliveries[0].Entry != "" {
+		t.Fatalf("acknowledgement pending: %+v %v", page, err)
 	}
 	if item, err := s.DecisionGet(ctx, f.peerKey, "REC-2"); err != nil || item.Record != nil {
-		t.Fatalf("dismissed fyi: %+v %v", item.Record, err)
+		t.Fatalf("acknowledged fyi: %+v %v", item.Record, err)
 	}
 	call := func(ctx context.Context, path string, body map[string]any) ([]byte, error) {
 		return localDecisionCall(ctx, s, f.peerKey, path, body)
@@ -286,14 +286,14 @@ func TestDecisionEntryBounds(t *testing.T) {
 	if len(page) >= decisionPendingBytes {
 		t.Fatalf("one delivery takes %d bytes", len(page))
 	}
-	if body := verdictMessageBody(reference, largest, entry); !strings.HasSuffix(body, entry) || len(body) > maxBody {
+	if body := verdictMessageBody(reference, "approved", largest, entry); !strings.HasSuffix(body, entry) || len(body) > maxBody {
 		t.Fatalf("largest printable entry: %d bytes", len(body))
 	}
 	for i := range v.Snapshot.Commands {
 		v.Snapshot.Commands[i] = strings.Repeat("\x01", decisionCommandLimit)
 	}
 	hidden := DecisionRecordEntry(reference, "", v)
-	if body := verdictMessageBody(reference, largest, hidden); len(body) > maxBody || strings.Contains(body, "Entry:") || !strings.Contains(body, "decision_get") {
+	if body := verdictMessageBody(reference, "approved", largest, hidden); len(body) > maxBody || strings.Contains(body, "Entry:") || !strings.Contains(body, "decision_get") {
 		t.Fatalf("oversized entry: %d bytes", len(body))
 	}
 }
