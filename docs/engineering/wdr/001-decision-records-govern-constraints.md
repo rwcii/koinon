@@ -364,7 +364,7 @@ The verdicts that Koinon's documents cited before this decision were recorded on
 public rewrites of their cards, written once; the Unify card that PDR 008 cites stays out of
 this repository.
 
-**Provenance:** [DECISIONS.md#DECISION-RECORDS-536](../../../DECISIONS.md#DECISION-RECORDS-536)
+**Provenance:** [DECISIONS.md#DECISION-RECORDS-536](../../../DECISIONS.md#decision-records-536)
 records the design that the maintainer approved on 2026-10-27, with the maintainer's words. The
 maintainer then set these requirements while the change was built (#536):
 

@@ -28,7 +28,8 @@ const decisionRecordHeader = `# Decisions
 The maintainer's verdicts on the Koinon decision board, appended by Koinon's ` + "`decision_record`" + `
 tool. Each entry holds the card text that the maintainer saw when giving the verdict, and the
 maintainer's note or feedback, with spelling and typing errors corrected. Entries are only
-appended, never changed. Cite an entry as ` + "`DECISIONS.md#REFERENCE`" + `.
+appended, never changed. Cite an entry as ` + "`DECISIONS.md#REFERENCE`" + `; a link's target
+is the reference in lower case.
 `
 
 // ErrDecisionRecord refuses a record file that is not a regular file, or that is too large to
@@ -96,10 +97,10 @@ func repoRecordMarker(reference string, v DecisionVerdict) string {
 	return fmt.Sprintf("<!-- koinon-decision %s revision %d %s %d -->", reference, v.Revision, v.Verdict, v.At)
 }
 
-// repoRecordAnchor is the anchor that DECISIONS.md#REFERENCE resolves to: the first entry of
-// the reference carries it.
+// repoRecordAnchor is the anchor that a link to DECISIONS.md#reference resolves to: the first
+// entry of the reference carries it, in lower case, as GitHub writes every anchor.
 func repoRecordAnchor(reference string) string {
-	return `<a id="` + reference + `"></a>`
+	return `<a id="` + strings.ToLower(reference) + `"></a>`
 }
 
 // DecisionRecordEntry renders one verdict's entry. Card text is Markdown, so each field is a

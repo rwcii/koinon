@@ -105,7 +105,8 @@ decision_get shows the entry and the path. Before you commit, correct the spelli
 errors in the maintainer's words in each new entry (notes, feedback and quotes), and keep
 their meaning and wording; do the same wherever you put the maintainer's words into the
 repository. Commit DECISIONS.md with the work. Cite a decision
-in a commit, a pull request or a document as DECISIONS.md#REFERENCE, never by verdict ID: a
+in a commit, a pull request or a document as DECISIONS.md#REFERENCE (a link's target is the
+reference in lower case), never by verdict ID: a
 verdict ID exists only in this machine's store. A recorded entry is public repository text,
 so write every card as public text (#536).
 

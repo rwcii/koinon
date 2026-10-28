@@ -3,7 +3,8 @@
 The maintainer's verdicts on the Koinon decision board, appended by Koinon's `decision_record`
 tool. Each entry holds the card text that the maintainer saw when giving the verdict, and the
 maintainer's note or feedback, with spelling and typing errors corrected. Entries are only
-appended, never changed. Cite an entry as `DECISIONS.md#REFERENCE`.
+appended, never changed. Cite an entry as `DECISIONS.md#REFERENCE`; a link's target
+is the reference in lower case.
 
 The entries up to and including DECISION-RECORDS-536 were recorded on 2026-10-28, after their
 verdicts. Their card text was written for the private board, so each one is a public rewrite,
@@ -157,7 +158,7 @@ Recommendation:
 
 > Keep the hook.
 
-<a id="COMPACT-ENABLE-509"></a>
+<a id="compact-enable-509"></a>
 
 ## COMPACT-ENABLE-509
 
@@ -193,7 +194,7 @@ Recommendation:
 > crossing, also after a restart; rules 1 and 2 let a busy or changed session try again
 > without the maintainer.
 
-<a id="PICKUP-WAIT-525"></a>
+<a id="pickup-wait-525"></a>
 
 ## PICKUP-WAIT-525
 
@@ -217,7 +218,7 @@ Recommendation:
 > Make the `waiting_pickup` limit 5 minutes for all families, and keep the cycle's 30-minute
 > limit. A slow pickup then completes, and a pickup that stops still ends the cycle.
 
-<a id="DECISION-RECORDS-536"></a>
+<a id="decision-records-536"></a>
 
 ## DECISION-RECORDS-536
 

@@ -28,6 +28,8 @@ func TestDecisionCitationsResolve(t *testing.T) {
 	}
 	record := read(t, "DECISIONS.md")
 	cite := regexp.MustCompile(`DECISIONS\.md#([A-Za-z0-9-]+)`)
+	// GitHub writes every anchor in lower case, so a link's target is the lower-case reference.
+	link := regexp.MustCompile(`\]\([./]*DECISIONS\.md#([^)]*)\)`)
 	for _, name := range strings.Fields(string(out)) {
 		text := read(t, name)
 		if found, ok := check(text); !ok {
@@ -37,8 +39,13 @@ func TestDecisionCitationsResolve(t *testing.T) {
 			continue
 		}
 		for _, m := range cite.FindAllStringSubmatch(text, -1) {
-			if m[1] != "REFERENCE" && !strings.Contains(record, `<a id="`+m[1]+`"></a>`) {
+			if m[1] != "REFERENCE" && !strings.Contains(record, `<a id="`+strings.ToLower(m[1])+`"></a>`) {
 				t.Errorf("%s cites DECISIONS.md#%s, which has no entry", name, m[1])
+			}
+		}
+		for _, m := range link.FindAllStringSubmatch(text, -1) {
+			if m[1] != strings.ToLower(m[1]) {
+				t.Errorf("%s links DECISIONS.md#%s; GitHub's anchor is lower case", name, m[1])
 			}
 		}
 	}

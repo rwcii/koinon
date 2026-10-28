@@ -1950,7 +1950,8 @@ Koinon header when it is created; a file that does not start with it is
 `decision_record_foreign`, and a symbolic link, a non-regular file or a file over 64 MiB is
 `decision_record_invalid`. Nothing is written on a refusal. Under an exclusive lock on the
 file, each verdict that is not a dismissal and whose marker line is absent is appended, in
-verdict order: the reference's anchor (`<a id="REF"></a>`) before its first entry, then a
+verdict order: the reference's anchor (`<a id="ref"></a>`, the reference in lower case, as GitHub writes its
+anchors) before its first entry, then a
 `## REF` heading, the marker `<!-- koinon-decision REF revision N VERDICT MS -->`, the verdict,
 revision and UTC time, the title and where, and the context, recommendation and note as block
 quotes, with the commands as an indented code block. The result gives `path`, `reference` and

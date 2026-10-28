@@ -129,7 +129,7 @@ answer was no: the mode did nothing at the threshold. Then: "I want an issue tha
 gap." The intent, as recorded in #509: when a Codex session in `native_compaction` reaches its
 threshold, Koinon makes Codex compact its context, so the mode does what its name and the
 Settings page say. When a compaction turns the Enable off: Maintainer, 2026-10-27, decision
-board item COMPACT-ENABLE-509 (revision 1), [DECISIONS.md#COMPACT-ENABLE-509](../../../DECISIONS.md#COMPACT-ENABLE-509), "approved". The question: "Native
+board item COMPACT-ENABLE-509 (revision 1), [DECISIONS.md#COMPACT-ENABLE-509](../../../DECISIONS.md#compact-enable-509), "approved". The question: "Native
 compaction: when does a compaction turn the Enable off? (#509)". The card listed the four rules
 above, in that order, as rules 1 to 4 of PR #517, and recommended: "Approve the rules as they
 are in PR #517. Rules 3 and 4 stop a second `/compact` for one crossing, also after a restart.
@@ -239,7 +239,7 @@ The session's live work claims last through the cycle: admission extends them to
 the cycle deadline, and a renewal during the cycle keeps that expiry (#489).
 The new session has five minutes from the pickup input to report its pickup (`waiting_pickup`);
 all other stage deadlines and the cycle's 30 minutes are unchanged:
-Maintainer, 2026-10-27, decision board item PICKUP-WAIT-525 (revision 1), [DECISIONS.md#PICKUP-WAIT-525](../../../DECISIONS.md#PICKUP-WAIT-525),
+Maintainer, 2026-10-27, decision board item PICKUP-WAIT-525 (revision 1), [DECISIONS.md#PICKUP-WAIT-525](../../../DECISIONS.md#pickup-wait-525),
 "approved". The question: "Make the pickup deadline longer than 2 minutes? (#525)". The card
 gave the #514 DeepSeek pickups, 81 s, 106 s and 115 s, and one over 120 s that failed with
 `waiting_pickup_timeout` while the new session finished its pickup after the cycle ended, and
