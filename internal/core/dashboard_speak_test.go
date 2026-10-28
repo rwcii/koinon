@@ -48,7 +48,15 @@ function browser(opts = {}) {
   };
   b.end = (i = 0, how = 'end') => { const u = b.utterances.splice(i, 1)[0]; if (how === 'end') { b.spoken.push(u.text); u.onend(); } else { u.onerror({ error: how }); } };
   b.tab = (page = {}) => {
-    const t = { timers: [], clicks: [], elements: {}, interval: null };
+    const t = { timers: [], clicks: [], elements: {}, interval: null, storageListeners: [] };
+    b.tabs = (b.tabs || []).concat([t]);
+    // Each tab's storage tells the other tabs of a change, as a browser's storage event does.
+    const notify = key => b.tabs.filter(o => o !== t).forEach(o => o.storageListeners.forEach(f => setImmediate(() => f({ key }))));
+    const storage = {
+      getItem(k) { return b.storage.getItem(k); },
+      setItem(k, v) { b.storage.setItem(k, v); notify(k); },
+      removeItem(k) { b.storage.removeItem(k); notify(k); }
+    };
     const list = { dataset: { refresh: '5000' } };
     const main = { firstChild: null, insertBefore(el) { t.elements[el.id] = el; } };
     list.parentNode = main;
@@ -59,14 +67,19 @@ function browser(opts = {}) {
       t.elements['speak-test'] = { disabled: true, addEventListener(e, f) { handlers.test = f; } };
       t.elements['speak-status'] = { textContent: 'needs script' };
       t.toggle = async on => { t.elements['speak-switch'].checked = on; handlers.change(); await settle(); };
+      t.uncheck = () => { t.elements['speak-switch'].checked = false; handlers.change(); };
     }
     const speech = page.noSpeech ? undefined : {
-      speak(u) { b.utterances.push(u); if (b.mode === 'allow') { setImmediate(() => b.end(b.utterances.indexOf(u))); }
+      speak(u) { u.tab = t; b.utterances.push(u); if (b.mode === 'allow') { setImmediate(() => b.end(b.utterances.indexOf(u))); }
         else if (b.mode === 'block') { setImmediate(() => b.end(b.utterances.indexOf(u), 'not-allowed')); } },
-      cancel() { b.cancels++; }
+      cancel() {
+        b.cancels++;
+        b.utterances.filter(u => u.tab === t).forEach(u => { b.utterances.splice(b.utterances.indexOf(u), 1); setImmediate(() => u.onerror({ error: 'canceled' })); });
+      }
     };
     const window = {
-      localStorage: b.storage, speechSynthesis: speech,
+      localStorage: storage, speechSynthesis: speech,
+      addEventListener(e, f) { if (e === 'storage') { t.storageListeners.push(f); } },
       SpeechSynthesisUtterance: page.noSpeech ? undefined : function (text) { this.text = text; },
       setInterval(f) { t.interval = f; }, setTimeout(f) { t.timers.push(f); return t.timers.length; }, clearTimeout(id) { t.timers[id - 1] = null; }
     };
@@ -182,6 +195,36 @@ test('guard-and-late-end', async () => {
   eq(b.cancels, 1, 'cancelled'); eq(b.state().pending.length, 1, 'kept'); eq(t.note(), true, 'note');
   u.onend(); await settle(); eq(b.state().pending.length, 1, 'late end ignored');
 });
+test('inherited-names', async () => {
+  const b = browser(); b.on(); const t = b.tab(); await settle();
+  b.add('A', 'decision', 'constructor'); b.add('B', 'task', '__proto__'); b.add('C', 'decision', 'toString'); await t.tick();
+  eq(b.spoken, ['constructor: a decision waits for you', '__proto__: a task waits for you', 'toString: a decision waits for you'], 'sentences');
+});
+test('off-during-queue', async () => {
+  const b = browser({ mode: 'manual' }); const t = b.tab({ settings: true }); await settle();
+  await t.toggle(true); b.add('A', 'decision', 'one'); b.add('B', 'decision', 'two'); await t.tick();
+  eq(b.utterances.length, 1, 'speaking the first');
+  t.uncheck();
+  eq(b.data['koinon.speak'], 'false', 'stored at once'); eq(b.cancels, 1, 'cancelled at once');
+  await settle();
+  eq(b.utterances.length, 0, 'no second sentence'); eq(b.spoken, [], 'spoken');
+});
+test('off-from-another-tab', async () => {
+  const b = browser({ mode: 'manual' }); b.on(); const t1 = b.tab(); const t2 = b.tab({ settings: true }); await settle();
+  b.add('A', 'decision', 'one'); b.add('B', 'decision', 'two'); await t1.tick();
+  eq(b.utterances.length, 1, 'speaking'); eq(b.utterances[0].tab, t1, 'in the first tab');
+  t2.uncheck(); await settle();
+  eq(b.utterances.length, 0, 'stopped'); eq(b.spoken, [], 'spoken');
+});
+test('storage-fails-later', async () => {
+  const b = browser(); const t = b.tab({ settings: true }); await settle();
+  await t.toggle(true); eq(t.elements['speak-status'].textContent, '', 'status before');
+  b.storageFails = true;
+  b.add('D-1', 'decision', 'koinon'); await t.tick();
+  eq(b.spoken, ['koinon: a decision waits for you'], 'still detects');
+  eq(t.elements['speak-status'].textContent, 'This browser does not keep the switch: it lasts for this page only.', 'status after');
+  b.add('D-2', 'task', 'koinon'); await t.tick(); eq(b.spoken.length, 2, 'next');
+});
 test('settings-switch', async () => {
   const b = browser(); b.add('D-1', 'decision', 'koinon');
   const t = b.tab({ settings: true }); await settle();
@@ -235,7 +278,7 @@ func TestSpokenAlertScript(t *testing.T) {
 	}
 	want := []string{"off-no-fetch", "baseline-then-new", "grouped-and-plain", "revision-and-removal", "pages-and-restart",
 		"mixed-versions-change-nothing", "bad-state-new-baseline", "reload-keeps-state", "blocked-pending-reload-click", "late-not-allowed", "two-tabs-one-speech",
-		"no-locks-can-double", "guard-and-late-end", "settings-switch", "no-speech", "storage-fails"}
+		"no-locks-can-double", "guard-and-late-end", "inherited-names", "off-during-queue", "off-from-another-tab", "storage-fails-later", "settings-switch", "no-speech", "storage-fails"}
 	if got := strings.TrimSpace(string(out)); got != "ok "+strings.Join(want, "\nok ") {
 		t.Fatalf("speak.js:\n%s", got)
 	}

@@ -12,26 +12,34 @@
   var SWITCH = "koinon.speak", STATE = "koinon.speak.state";
   var speech = window.speechSynthesis;
   // The switch, the snapshot and the pending sentences are shared by the origin's tabs and
-  // kept over reloads. Without working storage they are kept in this page only.
-  var memory = {}, shared = true;
+  // kept over reloads. The page keeps its own copy of each value it read or wrote, so storage
+  // that fails later keeps them for this page only, and the Settings page says so.
+  var memory = Object.create(null), shared = true;
   try {
     window.localStorage.setItem("koinon.speak.check", "1");
     window.localStorage.removeItem("koinon.speak.check");
   } catch (e) {
     shared = false;
   }
+  function lost() {
+    if (shared) {
+      shared = false;
+      limits();
+    }
+  }
   function get(key) {
     if (shared) {
       try {
         var value = window.localStorage.getItem(key);
-        return value === null ? undefined : JSON.parse(value);
+        memory[key] = value === null ? undefined : JSON.parse(value);
       } catch (e) {
-        return undefined;
+        lost();
       }
     }
     return memory[key];
   }
   function set(key, value) {
+    memory[key] = value;
     if (shared) {
       try {
         if (value === undefined) {
@@ -39,12 +47,10 @@
         } else {
           window.localStorage.setItem(key, JSON.stringify(value));
         }
-        return;
       } catch (e) {
-        shared = false;
+        lost();
       }
     }
-    memory[key] = value;
   }
   // locked runs task while no other tab of the origin runs one. Without Web Locks it runs at
   // once, and two tabs can both speak an alert.
@@ -107,7 +113,7 @@
   }
   // sentences says the new items, one sentence for each repository, in the order they came.
   function sentences(items) {
-    var groups = [], byName = {};
+    var groups = [], byName = Object.create(null);
     items.forEach(function (item) {
       var group = byName[item.repository];
       if (!group) {
@@ -219,36 +225,50 @@
   // The Settings page's switch, test button and status.
   var box = document.getElementById("speak-switch"), test = document.getElementById("speak-test");
   var status = document.getElementById("speak-status");
-  function show(text) {
-    if (status) {
-      status.textContent = text;
+  function limits() {
+    if (!status || speech === undefined) {
+      return;
     }
+    var text = [];
+    if (!shared) {
+      text.push("This browser does not keep the switch: it lasts for this page only.");
+    }
+    if (!(navigator.locks && navigator.locks.request)) {
+      text.push("Two dashboard tabs in this browser can both speak an alert.");
+    }
+    status.textContent = text.join(" ");
   }
+  // Another tab that turns the switch off stops this tab's speech too.
+  window.addEventListener("storage", function (event) {
+    if (speech !== undefined && event.key === SWITCH && !on()) {
+      speech.cancel();
+      note(false);
+      if (box) {
+        box.checked = false;
+      }
+    }
+  });
   if (box) {
     if (speech === undefined || window.SpeechSynthesisUtterance === undefined) {
-      show("This browser cannot speak.");
+      if (status) {
+        status.textContent = "This browser cannot speak.";
+      }
     } else {
       box.disabled = test.disabled = false;
       box.checked = on();
-      var limits = [];
-      if (!shared) {
-        limits.push("This browser does not keep the switch: it lasts for this page only.");
-      }
-      if (!(navigator.locks && navigator.locks.request)) {
-        limits.push("Two dashboard tabs in this browser can both speak an alert.");
-      }
-      show(limits.join(" "));
+      limits();
       box.addEventListener("change", function () {
+        // Off applies at once, also while another step holds the lock: the switch is stored
+        // and the speech stops; other tabs stop at the storage event.
+        if (!box.checked) {
+          set(SWITCH, false);
+          speech.cancel();
+          note(false);
+        }
         locked(function () {
           set(SWITCH, box.checked);
           set(STATE, undefined);
-        }).then(function () {
-          if (!box.checked) {
-            speech.cancel();
-            note(false);
-          }
-          return check();
-        });
+        }).then(check);
       });
       test.addEventListener("click", function () {
         speakOne("koinon: a decision waits for you");
