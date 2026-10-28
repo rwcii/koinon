@@ -240,7 +240,7 @@ func AgyStatus(args []string, in io.Reader, out, errOut io.Writer, env HookEnv) 
 	return statusCommand("agy-status", hookInputMax, func(data []byte, now int64) (core.Observation, string, bool) {
 		o, display, ok := agyStatus(data, now)
 		if ok {
-			env.witness(o.Caller.ID)
+			env.witness("agy", o.Caller.ID)
 		}
 		return o, display, ok
 	}, args, in, out, errOut, env)
@@ -298,20 +298,29 @@ func grokStatus(env string) func([]byte, int64) (core.Observation, string, bool)
 }
 
 // GrokStatus is the Grok status-line command, as ClaudeStatus is for Claude Code. Without a
-// command it prints nothing.
+// command it prints nothing. It also gives the daemon each session with this hook process as its
+// reporter, also without usable counts, which ties the new session after a managed /new to the
+// cycle's pinned host (#515).
 func GrokStatus(args []string, in io.Reader, out, errOut io.Writer, env HookEnv) int {
-	return statusCommand("grok-status", grokStatusMax, grokStatus(env.Getenv("GROK_SESSION_ID")), args, in, out, errOut, env)
+	parse := grokStatus(env.Getenv("GROK_SESSION_ID"))
+	return statusCommand("grok-status", grokStatusMax, func(data []byte, now int64) (core.Observation, string, bool) {
+		o, display, ok := parse(data, now)
+		if o.Caller.ID != "" {
+			env.witness("grok", o.Caller.ID)
+		}
+		return o, display, ok
+	}, args, in, out, errOut, env)
 }
 
-// witness gives the daemon one agy conversation with this process as its reporter. Without a
-// cycle that waits for one, the daemon keeps nothing.
-func (e HookEnv) witness(conversation string) {
+// witness gives the daemon one agy conversation or Grok session with this process as its
+// reporter. Without a cycle that waits for one, the daemon keeps nothing.
+func (e HookEnv) witness(family, conversation string) {
 	pid := os.Getpid()
 	start, err := platform.ProcessStart(pid)
 	if err != nil || start <= 0 {
 		return
 	}
-	e.call("/v1/cycles/agy-witness", core.AgyWitness{Conversation: conversation, Reporter: core.ObservationReporter{PID: pid, Start: start}})
+	e.call("/v1/cycles/"+family+"-witness", core.AgyWitness{Conversation: conversation, Reporter: core.ObservationReporter{PID: pid, Start: start}})
 }
 
 // statusCommand runs one status-line hook. It reads at most limit+1 bytes of the input for

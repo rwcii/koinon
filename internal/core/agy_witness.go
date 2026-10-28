@@ -12,12 +12,13 @@ import (
 	"github.com/rwcii/koinon/internal/platform"
 )
 
-// Host-linked conversation witnesses for the agy cycle (#512). agy starts a new conversation
-// at /clear in the same host process, before any turn or Koinon tool call, and its
-// status-line command, which runs as a descendant of the host, then reports the new
-// conversation_id (native evidence, agy 1.4.7). A witness ties one such report to the pinned
-// host of one cycle. It is kept in memory only, from the cycle's clear intent until the cycle
-// ends; it registers no session and moves no holder, claim or cursor.
+// Host-linked conversation witnesses for the agy (#512) and Grok (#515) cycles. agy starts a new
+// conversation at /clear, and Grok a new session at /new, in the same host process, before any
+// turn or Koinon tool call, and the status-line command, which runs as a descendant of the
+// host, then reports the new conversation_id or session_id (native evidence, agy 1.4.7 and
+// Grok Build 1.0.50). A witness ties one such report to the pinned host of one cycle. It is
+// kept in memory only, from the cycle's clear intent until the cycle ends; it registers no
+// session and moves no holder, claim or cursor.
 
 // agyWitnessMax bounds the conversations kept per cycle; a cycle that sees more is ambiguous.
 const agyWitnessMax = 8
@@ -95,7 +96,7 @@ type AgyWitness struct {
 }
 
 func agyWitnessRefusal() error {
-	return Refusal{Code: "witness_host_unverified", Message: "the report cannot be tied to the pinned host of an agy cycle"}
+	return Refusal{Code: "witness_host_unverified", Message: "the report cannot be tied to the pinned host of a cycle"}
 }
 
 // agyPinned is the pinned host of a cycle that keeps witnesses.
@@ -105,15 +106,25 @@ type agyPinned struct {
 }
 
 // WitnessAgy keeps a status-line report for the agy cycle whose pinned host is the reporter's
-// nearest native host. The reporter's start is read before and after the daemon reads the
-// ancestry itself. The nearest ancestor that hosts a live session or a cycle, or runs an agent
-// CLI, must be that cycle's agy host, with its pinned start. A conversation that is already a
-// session must be that host's own. Without such a cycle the report changes nothing.
-func (s *Store) WitnessAgy(ctx context.Context, w AgyWitness) error {
+// nearest native host.
+func (s *Store) WitnessAgy(ctx context.Context, w AgyWitness) error { return s.witness(ctx, "agy", w) }
+
+// WitnessGrok keeps a status-line report for the Grok cycle whose pinned host is the
+// reporter's nearest native host; Conversation is the Grok session_id (#515).
+func (s *Store) WitnessGrok(ctx context.Context, w AgyWitness) error {
+	return s.witness(ctx, "grok", w)
+}
+
+// witness keeps a status-line report for the family's cycle whose pinned host is the
+// reporter's nearest native host. The reporter's start is read before and after the daemon
+// reads the ancestry itself. The nearest ancestor that hosts a live session or a cycle, or runs
+// an agent CLI, must be that cycle's host, with its pinned start. A conversation that is already
+// a session must be that host's own. Without such a cycle the report changes nothing.
+func (s *Store) witness(ctx context.Context, family string, w AgyWitness) error {
 	if !nativeEpoch.MatchString(w.Conversation) || w.Reporter.PID <= 1 || w.Reporter.Start <= 0 {
 		return ErrInvalid
 	}
-	cycles, err := s.agyWitnessCycles(ctx)
+	cycles, err := s.witnessCycles(ctx, family)
 	if err != nil || len(cycles) == 0 {
 		return err
 	}
@@ -168,7 +179,7 @@ func (s *Store) WitnessAgy(ctx context.Context, w AgyWitness) error {
 	// A known conversation, registered or retired, belongs to its own host: a report never
 	// passes another host's conversation as this host's new one.
 	var hostPID, hostStart int64
-	switch err := s.db.QueryRowContext(ctx, `SELECT host_pid,host_start FROM sessions WHERE family='agy' AND id=?`, w.Conversation).
+	switch err := s.db.QueryRowContext(ctx, `SELECT host_pid,host_start FROM sessions WHERE family=? AND id=?`, family, w.Conversation).
 		Scan(&hostPID, &hostStart); {
 	case errors.Is(err, sql.ErrNoRows):
 	case err != nil:
@@ -187,15 +198,15 @@ func (s *Store) WitnessAgy(ctx context.Context, w AgyWitness) error {
 	return nil
 }
 
-// agyWitnessCycles lists the agy cycles that keep witnesses, and drops the witnesses of every
-// other cycle.
-func (s *Store) agyWitnessCycles(ctx context.Context) ([]agyPinned, error) {
+// witnessCycles lists the family's cycles that keep witnesses, and drops the witnesses of every
+// other cycle of a witnessed family.
+func (s *Store) witnessCycles(ctx context.Context, family string) ([]agyPinned, error) {
 	marks := strings.TrimSuffix(strings.Repeat("?,", len(agyWitnessStates)), ",")
-	args := make([]any, len(agyWitnessStates))
-	for i, state := range agyWitnessStates {
-		args[i] = state
+	args := []any{}
+	for _, state := range agyWitnessStates {
+		args = append(args, state)
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT cycle_id,host_pid,host_start FROM context_cycles WHERE family='agy' AND state IN (`+marks+`)`, args...)
+	rows, err := s.db.QueryContext(ctx, `SELECT cycle_id,family,host_pid,host_start FROM context_cycles WHERE family IN ('agy','grok') AND state IN (`+marks+`)`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -204,10 +215,13 @@ func (s *Store) agyWitnessCycles(ctx context.Context) ([]agyPinned, error) {
 	live := map[string]bool{}
 	for rows.Next() {
 		var c agyPinned
-		if err := rows.Scan(&c.id, &c.pid, &c.start); err != nil {
+		var kind string
+		if err := rows.Scan(&c.id, &kind, &c.pid, &c.start); err != nil {
 			return nil, err
 		}
-		cycles = append(cycles, c)
+		if kind == family {
+			cycles = append(cycles, c)
+		}
 		live[c.id] = true
 	}
 	if err := rows.Err(); err != nil {
@@ -218,16 +232,18 @@ func (s *Store) agyWitnessCycles(ctx context.Context) ([]agyPinned, error) {
 }
 
 func (d *Daemon) agyWitnessRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /v1/cycles/agy-witness", func(w http.ResponseWriter, r *http.Request) {
-		var request AgyWitness
-		if err := decode(w, r, &request); err != nil {
-			failure(w, err)
-			return
-		}
-		if err := d.store.WitnessAgy(r.Context(), request); err != nil {
-			failure(w, err)
-			return
-		}
-		respond(w, 200, map[string]any{"ok": true})
-	})
+	for family, keep := range map[string]func(context.Context, AgyWitness) error{"agy": d.store.WitnessAgy, "grok": d.store.WitnessGrok} {
+		mux.HandleFunc("POST /v1/cycles/"+family+"-witness", func(w http.ResponseWriter, r *http.Request) {
+			var request AgyWitness
+			if err := decode(w, r, &request); err != nil {
+				failure(w, err)
+				return
+			}
+			if err := keep(r.Context(), request); err != nil {
+				failure(w, err)
+				return
+			}
+			respond(w, 200, map[string]any{"ok": true})
+		})
+	}
 }
