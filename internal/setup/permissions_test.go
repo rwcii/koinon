@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -467,7 +468,8 @@ func TestInspectReadsOnly(t *testing.T) {
 	cli, _, log := syntheticCLI(t, "claude")
 	o := Options{Family: "claude", CLI: cli, Binary: "/opt/koinon/bin/koinon", StateDir: filepath.Join(dir, "state"),
 		ClaudeConfig: filepath.Join(dir, "claude")}
-	if in := Inspect(context.Background(), o); in.CLI != cli || in.Configured || in.Permissions == nil || in.Permissions.Outcome != "missing" {
+	// "No MCP server named koinon" is an answer: the server is not there (#551).
+	if in := Inspect(context.Background(), o); in.CLI != cli || in.Configured || in.Error != "" || in.Permissions == nil || in.Permissions.Outcome != "missing" {
 		t.Fatalf("before setup: %+v", in)
 	}
 	if _, err := Run(context.Background(), o); err != nil {
@@ -481,11 +483,52 @@ func TestInspectReadsOnly(t *testing.T) {
 	if calls := strings.TrimPrefix(string(after), string(before)); calls != "mcp get koinon\n" {
 		t.Fatalf("inspect ran %q", calls)
 	}
-	if in := Inspect(context.Background(), Options{Family: "claude", CLI: filepath.Join(dir, "none"), Binary: o.Binary}); in.Configured || in.Permissions == nil {
+	// A CLI that fails is not read, which differs from a missing server.
+	if in := Inspect(context.Background(), Options{Family: "claude", CLI: filepath.Join(dir, "none"), Binary: o.Binary}); in.Configured || in.Error == "" || in.Permissions == nil {
 		t.Fatalf("missing CLI: %+v", in)
 	}
 	t.Setenv("PATH", dir)
 	if in := Inspect(context.Background(), Options{Family: "codex", Binary: o.Binary}); in.CLI != "" || in.Permissions != nil {
 		t.Fatalf("no CLI on PATH: %+v", in)
+	}
+}
+
+// A CLI child that holds the output open does not hold an inspection past its context. Output
+// that has not ended after a clean exit, where a child may still write the entry, is an error
+// too, not an answer (#551).
+func TestInspectBoundsAHeldPipe(t *testing.T) {
+	dir := t.TempDir()
+	cli := filepath.Join(dir, "codex")
+	inspect := func(ctx context.Context) (Inspection, time.Duration) {
+		start := time.Now()
+		in := Inspect(ctx, Options{Family: "codex", CLI: cli, Binary: "/opt/koinon/bin/koinon", StateDir: filepath.Join(dir, "state")})
+		return in, time.Since(start)
+	}
+	os.WriteFile(cli, []byte("#!/bin/sh\nsleep 3 &\nwait\n"), 0700)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if in, elapsed := inspect(ctx); elapsed > time.Second || in.Error == "" || in.Configured {
+		t.Fatalf("stopped CLI: %+v after %s", in, elapsed)
+	}
+	os.WriteFile(cli, []byte("#!/bin/sh\n(sleep 1; echo '{\"name\":\"koinon\"}') &\necho starting\n"), 0700)
+	if in, elapsed := inspect(context.Background()); elapsed > 900*time.Millisecond || in.Error == "" || in.Configured {
+		t.Fatalf("clean exit with a writing child: %+v after %s", in, elapsed)
+	}
+	// A missing-server answer counts only when its output ended: a child may still write the
+	// entry, with a clean or a failed exit.
+	for _, status := range []string{"0", "1"} {
+		os.WriteFile(cli, []byte("#!/bin/sh\n(sleep 1; echo '{\"name\":\"koinon\"}') &\necho \"No MCP server named 'koinon' found.\"\nexit "+status+"\n"), 0700)
+		if in, elapsed := inspect(context.Background()); elapsed > 900*time.Millisecond || in.Error == "" || in.Configured {
+			t.Fatalf("exit %s, open output after the missing-server answer: %+v after %s", status, in, elapsed)
+		}
+	}
+	os.WriteFile(cli, []byte("#!/bin/sh\necho \"No MCP server named 'koinon' found.\"\nexit 1\n"), 0700)
+	if in, _ := inspect(context.Background()); in.Error != "" || in.Configured {
+		t.Fatalf("completed missing-server answer: %+v", in)
+	}
+	os.WriteFile(cli, []byte("#!/bin/sh\n(sleep 1; echo '{\"name\":\"koinon\"}') &\necho starting\n"), 0700)
+	// Setup's own runs keep waiting for the whole output.
+	if out, err := runCLI(context.Background(), cli); err != nil || !strings.Contains(out, "koinon") {
+		t.Fatalf("setup run: %q %v", out, err)
 	}
 }

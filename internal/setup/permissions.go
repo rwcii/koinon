@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -51,18 +52,9 @@ func claudeBashRules(program string) []string {
 func claudePermissions(binary string) []string {
 	rules := slices.Clone(ClaudePermissions)
 	if binary != "" && binary != "koinon" {
-		rules = append(rules, claudeBashRules(shellWord(binary))[1:]...)
+		rules = append(rules, claudeBashRules(ShellWord(binary))[1:]...)
 	}
 	return rules
-}
-
-// shellWord is path as one shell word: as it is when it holds only safe characters, else
-// quoted.
-func shellWord(path string) string {
-	if strings.Trim(path, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._+-") == "" {
-		return path
-	}
-	return quote(path)
 }
 
 // GrokPermissionNote is the launch rule that Grok takes instead of a settings file.
@@ -105,7 +97,7 @@ func Permissions(o Options, add bool) (PermissionsResult, error) {
 				return []string{"mcp__koinon"}
 			}
 			program := "koinon"
-			if word := shellWord(binary); strings.HasPrefix(rule, "Bash("+word+" ") {
+			if word := ShellWord(binary); strings.HasPrefix(rule, "Bash("+word+" ") {
 				program = word
 			}
 			return []string{"Bash(" + program + " *)", "Bash(" + program + ":*)"}
@@ -394,6 +386,18 @@ type Inspection struct {
 	CLI         string             `json:"cli,omitempty"`
 	Configured  bool               `json:"configured"`
 	Permissions *PermissionsResult `json:"permissions,omitempty"`
+	// Error is set when the CLI's own read failed, so Configured is not known (#551).
+	Error string `json:"error,omitempty"`
+}
+
+// absent reports whether a failed read of the koinon server says that there is none: Claude
+// Code and Codex answer a get of a missing server with an error.
+func absent(family, output string) bool {
+	switch family {
+	case "claude", "codex":
+		return strings.Contains(ansi.ReplaceAllString(output, ""), "No MCP server named")
+	}
+	return false
 }
 
 // Inspect finds the family's CLI on PATH (or o.CLI), whether its koinon server runs exactly
@@ -408,8 +412,14 @@ func Inspect(ctx context.Context, o Options) Inspection {
 		return in
 	}
 	in.CLI = cli
-	if out, err := runCLI(ctx, cli, getCommand(o.Family)...); err == nil {
+	// Only a completed answer counts: "No MCP server named" with a nonzero exit means that
+	// the server is not there; output that did not end, or a stopped CLI, is not read.
+	var exit *exec.ExitError
+	switch out, err := readCLI(ctx, 250*time.Millisecond, cli, getCommand(o.Family)...); {
+	case err == nil:
 		in.Configured = configured(o.Family, out, o.Binary)
+	case !errors.As(err, &exit) || ctx.Err() != nil || !absent(o.Family, out):
+		in.Error = fmt.Sprintf("%s %s: %v", cli, strings.Join(getCommand(o.Family), " "), err)
 	}
 	if result, err := Permissions(o, false); err == nil {
 		in.Permissions = &result

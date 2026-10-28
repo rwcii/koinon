@@ -3,7 +3,7 @@
 ## The Go runtime
 
 The Go runtime is one `koinon` binary and one daemon per user. It needs no Python. The checkout no longer carries the Python runtime. The pinned previous release
-remains a supported input to the import and upgrade commands below. Every command prints a JSON report; a refusal prints `ok: false` with a fixed `code`.
+remains a supported input to the import and upgrade commands below. Every command prints a JSON report, except `koinon install --plan`, which prints commands (Next steps, below); a refusal prints `ok: false` with a fixed `code`.
 
 Install and uninstall keep completed-step details in their report when a later step fails;
 the report then has `ok: false`, and the command exits unsuccessfully.
@@ -44,6 +44,12 @@ koinon version
 `brew update` first: `brew upgrade` refreshes a third-party tap only when its auto-update interval
 has passed, and otherwise keeps the formula of the previous release. Within about 15 seconds,
 `koinon status` reports the new `version` and its `schema`.
+
+After `brew install` and `brew upgrade`, Homebrew shows the steps that this machine still
+needs: the formula runs `koinon install --plan` (see Next steps below) and prints its commands,
+or, when the plan cannot check everything, the fixed list of one-time steps. Homebrew runs it
+without `XDG_*`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME` and `KOINON_*`, so it checks the default
+locations; with other locations, run `koinon install --plan` yourself.
 
 An installation made by v0.3.0 or earlier has a copy, and its daemon does not check its
 executable. Upgrade it once with `$(brew --prefix)/bin/koinon install` after `brew upgrade`.
@@ -160,6 +166,34 @@ defaults to `$XDG_STATE_HOME/koinon/go`, which is `~/.local/state/koinon/go`.
 
 When a Python-era installation is present (`~/.local/share/koinon/install.json`), the install is
 refused with `python_install_present`. Use the upgrade instead.
+
+### Next steps
+
+`koinon install --plan [--prefix DIR] [--state-dir DIR]` reads this machine's installation and
+prints, one per line, only the commands that it still needs, or `The Koinon installation is
+current.` It changes nothing: it writes no file and no service, and asks nothing. Each command
+names the running binary, or the formula's opt path for a Homebrew binary, and repeats a given
+`--prefix` and `--state-dir`. In order:
+
+1. A Python-era installation: `koinon upgrade --from-python`, and nothing more.
+2. No daemon installed: `koinon install`, and nothing more; the install offers to set up each
+   agent it finds.
+3. A macOS system daemon whose copy differs from this binary: `koinon install --system`. Run
+   it as yourself; it asks `sudo` for each privileged step.
+4. An installed binary that is not this one (in user mode with Homebrew, not the link to the opt
+   path): `koinon install`, and nothing more.
+5. No maintainer secret: `koinon maintainer secret set`. The daemon reports this in
+   `GET /v1/status`; the plan waits up to 20 seconds for it, since the daemon restarts after
+   `brew upgrade`.
+6. Each agent family whose CLI is on `PATH` without the koinon server for the installed binary:
+   `koinon setup FAMILY --binary <prefix>/bin/koinon`, which configures the installed binary as
+   the install does.
+
+The port is not in the plan; a change is optional (Port, below). When a check cannot finish,
+for example when the daemon does not answer, a daemon of an earlier release does not report the
+secret, a binary cannot be read, an agent's CLI fails or its output does not end, or 30 seconds
+pass, the plan prints no step, exits with 1 and
+writes the error's code to standard error.
 
 ### Port
 
