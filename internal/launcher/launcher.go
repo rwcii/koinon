@@ -62,6 +62,14 @@ func Parse(family string, args []string) (Options, error) {
 	return o, nil
 }
 
+// pinsAddress reports whether the agent gets the launch address as KOINON_DAEMON_ADDRESS: only
+// when it is not where the state directory's installed service listens. An agent without it
+// finds the daemon at the recorded port on each call, so it follows a later
+// koinon install --port (#549).
+func (o Options) pinsAddress() bool {
+	return !core.InstalledAddress(o.StateDir, o.Address)
+}
+
 func parseOptions(family string, args []string) (Options, error) {
 	root, err := platform.DefaultStateDir()
 	if err != nil {
@@ -645,7 +653,10 @@ func Run(ctx context.Context, o Options, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	env = append(env, "KOINON_LAUNCH_ID="+id, "KOINON_STATE_DIR="+o.StateDir, "KOINON_DAEMON_ADDRESS="+o.Address)
+	env = append(env, "KOINON_LAUNCH_ID="+id, "KOINON_STATE_DIR="+o.StateDir)
+	if o.pinsAddress() {
+		env = append(env, "KOINON_DAEMON_ADDRESS="+o.Address)
+	}
 	if o.Family == "codex" {
 		pid := strconv.Itoa(os.Getpid())
 		args = append([]string{cli}, codexArgs(pid, o.Args)...)
@@ -746,7 +757,11 @@ func runBackground(ctx context.Context, o Options, cli, directory, secret string
 		}
 		return errors.New(reason)
 	}
-	settings, err = writeSettings(o.StateDir, id, map[string]string{"KOINON_LAUNCH_ID": id, "KOINON_STATE_DIR": o.StateDir, "KOINON_DAEMON_ADDRESS": o.Address})
+	variables := map[string]string{"KOINON_LAUNCH_ID": id, "KOINON_STATE_DIR": o.StateDir}
+	if o.pinsAddress() {
+		variables["KOINON_DAEMON_ADDRESS"] = o.Address
+	}
+	settings, err = writeSettings(o.StateDir, id, variables)
 	if err != nil {
 		return retire("cannot write the private settings file; the job was not started")
 	}

@@ -178,12 +178,17 @@ user holding one port is refused with `port_invalid`, by the daemon and by every
 never read as the default.
 
 Each command, hook, launched agent and `koinon mcp` finds the daemon at its `--address`, else at
-`KOINON_DAEMON_ADDRESS`, which a launcher passes to its agent with `KOINON_STATE_DIR` and which
-applies only to that state directory, else at `127.0.0.1` and the port
-that its state directory records, else at `127.0.0.1:47671`. `koinon dashboard` prints its
-login link at that address. Without a recorded port, everything stays at 47671. A session that
-a launcher started before a port change keeps the former address in its environment and in its
-`koinon mcp` server; start it again after the change.
+`KOINON_DAEMON_ADDRESS`, else at `127.0.0.1` and the port that its state directory records,
+else at `127.0.0.1:47671`. A launcher passes `KOINON_DAEMON_ADDRESS` to its agent, with
+`KOINON_STATE_DIR`, only when the launch address is not where that state directory's installed
+service listens, also when the launcher's `--address` names it, and the variable applies only to
+that state directory. `koinon mcp` without `--address`, in agent and in maintainer mode, finds
+the address again for each call, so a running session follows `koinon install --port` with no
+restart; a maintainer-mode server then exits with `maintainer_token_expired`, because the
+restart ended its token. `koinon mcp --address` stays at the address that it names. `koinon dashboard` prints its login link at that
+address. Without a recorded port, everything stays at 47671. A session that a launcher of
+v0.6.0 or earlier started keeps the former address in its environment, also after `/clear`;
+start it again after the change.
 
 ### System mode on macOS
 

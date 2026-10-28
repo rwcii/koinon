@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -144,6 +146,23 @@ func TestClaudeBackgroundJob(t *testing.T) {
 	retired := strings.TrimSuffix(filepath.Base(failed[4]), ".json")
 	if err := register("0123abcd-1111-4222-8333-444455556666", retired); !errors.As(err, &refusal) || refusal.Code != "not_launched" {
 		t.Fatalf("retired launch admitted: %v", err)
+	}
+	// At the address that the state directory's installed service listens on, the job gets
+	// no KOINON_DAEMON_ADDRESS: its clients follow a later koinon install --port (#549).
+	_, port, _ := net.SplitHostPort(address)
+	recorded, _ := strconv.Atoi(port)
+	if err := core.RecordPort(state, recorded); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run("Started background session 0123abcd\n"); err != nil {
+		t.Fatal(err)
+	}
+	data, _ = os.ReadFile(args)
+	got = strings.Split(strings.TrimSpace(string(data)), "\n")
+	file.Env = nil
+	if data, _ = os.ReadFile(got[len(got)-1]); json.Unmarshal(data, &file) != nil || len(file.Env["KOINON_LAUNCH_ID"]) != 64 ||
+		file.Env["KOINON_STATE_DIR"] != state || len(file.Env) != 2 {
+		t.Fatalf("settings at the installed address: %s", data)
 	}
 	// Koinon sets --settings and --bg itself.
 	for _, arg := range []string{"--settings", "--settings=x", "--bg"} {
