@@ -5,6 +5,17 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A managed cycle now clears a Claude session whose background subagents still run (#533).
+  Claude Code keeps its registry status `busy` while a background subagent runs after the turn
+  ended, so the cycle saw no idle prompt and asked for the handoff again: one cycle asked six
+  times in 14 minutes, and the maintainer ran it by hand. The cycle now takes that prompt as
+  idle when the agent panel shows the subagent and no turn, and the subagent's records show it
+  running. Claude Code 2.1.311 takes `/clear` there at once; the subagent runs on and gives its
+  result to the new conversation. A subagent that finished after the ready report still makes
+  the cycle ask again (#456); one that still runs does not. The request asks a Claude session
+  not to stop or wait for its subagents, and to list the running ones in its handoff. The
+  `handoff` skill now lists each subagent that still runs, with its task, ID, state and where
+  its result goes, and the `pickup` skill reports each one's result.
 - `koinon setup claude`, `koinon setup agy` and `koinon setup grok` no longer replace an edited
   status-line wrapper after a removal kept it (#532). When `--remove-status-line` had reported the
   edited wrapper as `changed` and kept it, the next setup wrote a bare wrapper over it and lost
