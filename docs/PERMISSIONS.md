@@ -84,6 +84,7 @@ State-changing tools send messages, advance acknowledgements or write shared wor
 | `decision_close` | Close an approved item in progress when its work is done. |
 | `decision_withdraw` | Withdraw a waiting or open fyi item that no longer needs the maintainer, with a reason. |
 | `decision_restore` | Bring a deep-archived decision item back into the archive, or reopen a withdrawn item. |
+| `decision_record` | Append a decision-board item's verdicts to `DECISIONS.md` at the root of a checkout of this repository; it commits nothing. |
 | `work_create` | Record a proposed work item's scope. |
 | `work_propose` | Record an assignee proposal without transferring a claim. |
 | `work_edit` | Revise a work item's recorded scope. |

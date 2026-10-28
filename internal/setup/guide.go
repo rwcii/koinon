@@ -98,6 +98,17 @@ named recipient as an inbox message and a wake that name its verdict ID: read it
 decision_get, handle it, then decision_ack. decision_pending lists unacknowledged verdicts,
 also after the message aged out; a superseded one means the item was reopened. Editing a
 decided item reopens it for a new verdict.
+Record each verdict that you handle in the repository: decision_record with the reference
+appends its entry, with the card text that the maintainer saw, to DECISIONS.md at the root of
+your checkout (directory names another checkout of the same repository), once per verdict;
+decision_get, decision_pending and the verdict message show the entry and the path. Before you commit, correct the spelling and typing
+errors in the maintainer's words in each new entry (notes, feedback and quotes), and keep
+their meaning and wording; do the same wherever you put the maintainer's words into the
+repository. Commit DECISIONS.md with the work. Cite a decision
+in a commit, a pull request or a document as DECISIONS.md#REFERENCE (a link's target is the
+reference in lower case), never by verdict ID: a
+verdict ID exists only in this machine's store. A recorded entry is public repository text,
+so write every card as public text (#536).
 
 ## Participants
 A participant is a family, repository and optional maintainer-assigned role. Start an additional
@@ -426,6 +437,7 @@ DeepSeek uses the command path until its MCP support is verified, with this sess
   koinon decision close --as deepseek:$DSH_SESSION_ID --reference REF --if-revision REVISION --key KEY --deadline UNIX_SECONDS
   koinon decision restore --as deepseek:$DSH_SESSION_ID --reference REF
   koinon decision withdraw --as deepseek:$DSH_SESSION_ID --reference REF --if-revision REVISION --reason 'reason' --key KEY --deadline UNIX_SECONDS
+  koinon decision record --as deepseek:$DSH_SESSION_ID --reference REF
   koinon peer-status --as deepseek:$DSH_SESSION_ID NAME
   koinon send --as deepseek:$DSH_SESSION_ID NAME 'message'
   koinon inbox --as deepseek:$DSH_SESSION_ID

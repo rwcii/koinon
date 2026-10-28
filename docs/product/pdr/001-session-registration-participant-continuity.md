@@ -141,7 +141,7 @@ board.
 
 - DeepSeek `launch`/`subagent`: item 493-3 asked whether to keep or remove the refusal of a
   DeepSeek registration that names a launch ID or sets `subagent: true`. Maintainer,
-  2026-10-26: approved (verdict 47), with no note, on the card's recommendation: "Keep it until
+  2026-10-26: approved ([DECISIONS.md#493-3](../../../DECISIONS.md#493-3)), with no note, on the card's recommendation: "Keep it until
   DeepSeek has a verified launch path (#199)."
   ([#493 comment 6406497536](https://github.com/rwcii/koinon/issues/493#issuecomment-6406497536)).
   Intent and scope: Koinon has no launch or subagent evidence for DeepSeek, so a DeepSeek
@@ -149,7 +149,7 @@ board.
   registers without a launch ID. The code does not change.
 - `grok_leader_mode`: item 493-2 asked whether to keep or remove the refusal of a Koinon tool
   call from a Grok session that runs through Grok's leader process (`internal/mcp/identity.go`,
-  `errGrokLeader`). Maintainer, 2026-10-26: approved (verdict 46), with no note, on the card's
+  `errGrokLeader`). Maintainer, 2026-10-26: approved ([DECISIONS.md#493-2](../../../DECISIONS.md#493-2)), with no note, on the card's
   recommendation: "Keep it until leader mode has its own identity source. Without one, the
   session gets the wrong repository and pane."
   ([#493 comment 6406494167](https://github.com/rwcii/koinon/issues/493#issuecomment-6406494167)).
@@ -184,7 +184,7 @@ A Grok session registers only in Grok's default mode. A session served through G
 process is refused with `grok_leader_mode`, launched or not: its server has the first
 terminal's directory and pane, so its repository and host would be wrong. The code returns this
 refusal; Gate B of #254 approved the default mode (#254 comment 6118290944), the maintainer kept
-the refusal on 2026-10-26 (verdict 46, #493; Provenance above), and leader mode is a follow-up. A Grok launch chooses the first session's ID and admits only that ID until a
+the refusal on 2026-10-26 ([DECISIONS.md#493-2](../../../DECISIONS.md#493-2), #493; Provenance above), and leader mode is a follow-up. A Grok launch chooses the first session's ID and admits only that ID until a
 session has registered through it.
 
 Direct Codex and OpenCode starts have no automatic wake in this implementation: the launch
@@ -415,4 +415,4 @@ roles and succession evidence remain shipped behavior without a maintainer decis
 | 2026-10-14 | Recorded the managed cycle's reset link `cycle_reset` in Decision 4 (#196 chunk 04) |
 | 2026-10-17 | Decision 5: the command-line holder choice also lifts a fence (#398) |
 | 2026-10-25 | Decisions 1 and 3: the DeepSeek, `grok_leader_mode` and role syntax refusals are described as code behavior; the "maintainer-assigned" role text is replaced (#487) |
-| 2026-10-26 | Decision 1: the maintainer kept the DeepSeek `launch`/`subagent` refusal (verdict 47) and the `grok_leader_mode` refusal (verdict 46) (#493) |
+| 2026-10-26 | Decision 1: the maintainer kept the DeepSeek `launch`/`subagent` refusal ([DECISIONS.md#493-3](../../../DECISIONS.md#493-3)) and the `grok_leader_mode` refusal ([DECISIONS.md#493-2](../../../DECISIONS.md#493-2)) (#493) |

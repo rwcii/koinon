@@ -184,7 +184,7 @@ approval of the #145 plan (9055630 on feature/skills-library-catalog) (#145 comm
 Chunk 03 implements its state/decision interfaces and agent procedure; it installs no host item.
 
 Team skill entries: Maintainer, 2026-10-22, decision board item `fleet-skills-koinon` revision
-2, verdict 10, approved in the dashboard; its step 2: "You amend PDR 008 Decision 2. `koinon
+2, approved in the dashboard (a card of the Unify project, not recorded in this repository); its step 2: "You amend PDR 008 Decision 2. `koinon
 install` places the six fleet skills at the user level for Claude and Codex, the same as
 `koinon-pickup`. The runnable steps (launch, first-run prompts, peer lookup, the handoff, clear
 and pickup cycle) go into the installed guide, because the guide ships with the binary and

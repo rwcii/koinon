@@ -129,7 +129,7 @@ answer was no: the mode did nothing at the threshold. Then: "I want an issue tha
 gap." The intent, as recorded in #509: when a Codex session in `native_compaction` reaches its
 threshold, Koinon makes Codex compact its context, so the mode does what its name and the
 Settings page say. When a compaction turns the Enable off: Maintainer, 2026-10-27, decision
-board item COMPACT-ENABLE-509 (revision 1), verdict 61, "approved". The question: "Native
+board item COMPACT-ENABLE-509 (revision 1), [DECISIONS.md#COMPACT-ENABLE-509](../../../DECISIONS.md#compact-enable-509), "approved". The question: "Native
 compaction: when does a compaction turn the Enable off? (#509)". The card listed the four rules
 above, in that order, as rules 1 to 4 of PR #517, and recommended: "Approve the rules as they
 are in PR #517. Rules 3 and 4 stop a second `/compact` for one crossing, also after a restart.
@@ -245,7 +245,7 @@ The session's live work claims last through the cycle: admission extends them to
 the cycle deadline, and a renewal during the cycle keeps that expiry (#489).
 The new session has five minutes from the pickup input to report its pickup (`waiting_pickup`);
 all other stage deadlines and the cycle's 30 minutes are unchanged:
-Maintainer, 2026-10-27, decision board item PICKUP-WAIT-525 (revision 1), verdict 64,
+Maintainer, 2026-10-27, decision board item PICKUP-WAIT-525 (revision 1), [DECISIONS.md#PICKUP-WAIT-525](../../../DECISIONS.md#pickup-wait-525),
 "approved". The question: "Make the pickup deadline longer than 2 minutes? (#525)". The card
 gave the #514 DeepSeek pickups, 81 s, 106 s and 115 s, and one over 120 s that failed with
 `waiting_pickup_timeout` while the new session finished its pickup after the cycle ended, and
@@ -316,7 +316,7 @@ cycle by hand: "I consider that a failed handoff"
 ([#533](https://github.com/rwcii/koinon/issues/533)). The intent: a Claude session's running
 subagents are neither stopped nor waited for, and the cycle completes without the maintainer.
 Maintainer, 2026-10-27, decision board item SUBAGENT-CLEAR-533 (revision 1),
-"approved". The question: "Let the managed cycle clear a Claude session while its background
+[DECISIONS.md#SUBAGENT-CLEAR-533](../../../DECISIONS.md#subagent-clear-533), "approved". The question: "Let the managed cycle clear a Claude session while its background
 subagents run? (#533)". The card gave the native check with Claude Code 2.1.311 (`/clear` runs
 at once in the background-agent wait, the subagent finishes after it and its result arrives in
 the new conversation) and recommended: the clear when the pane shows only that wait, the input

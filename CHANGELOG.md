@@ -5,6 +5,21 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Decision board verdicts are now recorded in the repository (#536). A verdict ID exists only
+  in one machine's store, so a commit, a pull request or a document that cited one could not be
+  checked by anyone else. The new `decision_record` MCP tool and `koinon decision record` append
+  each verdict's entry, with the card text that the maintainer saw and the maintainer's note, to
+  `DECISIONS.md` at the root of the checkout. An entry is written once, and the file is created
+  with its header. `decision_get`, `decision_pending` and the verdict message give the entry
+  and the path and tell the agent to record the verdict, correct the spelling of the
+  maintainer's words, commit the file with the work, and cite `DECISIONS.md#REFERENCE`. An item is recorded only in the repository that its
+  author's participant held. A `DECISIONS.md` that is not a Koinon record is left unchanged and
+  the agent asks the maintainer. In this repository, the `decision-citations` check refuses a
+  verdict ID in a pull request's title, body or commits, the `commit-msg` hook refuses one in a
+  commit message, and a contributor test checks the tracked documents. The verdicts that
+  Koinon's records cited are in `DECISIONS.md` as public rewrites of their cards, and the
+  citations point there.
+
 - A managed cycle's ready or pickup report with a handoff file name that is not of the form
   `YYYY-MM-DD-HHMMSS[-LABEL].md` is now refused with `cycle_artifact_invalid` and that form
   (#535). Before, it got a bare `invalid_request`, and a Claude session whose file was

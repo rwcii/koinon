@@ -161,7 +161,7 @@ Scope: agent-facing text, skills, setup blocks and the docs and records that res
 refusals for a separate decision (#493). The verdict rule of Decision 3 keeps its source and stays.
 
 Early removal of finished items: Maintainer, 2026-10-27, decision board item WORK-LIMIT-529
-(revision 1), verdict 66, "approved". The question: "Let new work items replace old finished
+(revision 1), [DECISIONS.md#WORK-LIMIT-529](../../../DECISIONS.md#work-limit-529), "approved". The question: "Let new work items replace old finished
 items when a store is full? (#529)". The card said that the koinon store held 128 items (116
 finished), so `work_create` was refused with `capacity` until the first finished item reached
 30 days on 2026-11-05, and recommended: "When a new item would go past the limit, Koinon

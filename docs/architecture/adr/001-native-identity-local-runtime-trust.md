@@ -129,7 +129,7 @@ refusals for a separate decision (#493).
 `identity_unavailable`: Maintainer, 2026-10-26, on decision board item 493-1, which asked
 whether to keep or remove the refusal of a Koinon MCP tool call whose arguments contain
 `caller`, `family`, `id`, `as`, `session` or `session_id` (`internal/mcp/identity.go`):
-approved (verdict 43), with the note "keep it"
+approved ([DECISIONS.md#493-1](../../../DECISIONS.md#493-1)), with the note "keep it"
 ([#493 comment 6406425541](https://github.com/rwcii/koinon/issues/493#issuecomment-6406425541)).
 The card's recommendation and reason: "Keep it. It sends each message, claim and cycle to the
 session that made the call, and it stops no work." Scope: this refusal; the code does not
@@ -359,4 +359,4 @@ agent.
 | 2026-10-22 | Decision 4: the login cookie is named after the `Host` port (#454) |
 | 2026-10-25 | Decision 4: the login form accepts the maintainer secret (PDR 009, #470) |
 | 2026-10-25 | Requirement 3, Decisions 1 and 3: the peer-data and "does not" statements are restated as what the code does (#487) |
-| 2026-10-26 | Decision 1: the maintainer kept the `identity_unavailable` refusal (verdict 43, #493) |
+| 2026-10-26 | Decision 1: the maintainer kept the `identity_unavailable` refusal ([DECISIONS.md#493-1](../../../DECISIONS.md#493-1), #493) |

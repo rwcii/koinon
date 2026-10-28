@@ -3,7 +3,7 @@ pdr: "007"
 title: "Human Decision Board"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-26"
+updated: "2026-10-28"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -237,6 +237,9 @@ crash, and the receiver ignores an ID it has handled. Each agent reads the verdi
 itself through an interface every family can use. The records are stored data that agents
 query in bounded pages through Koinon; agents get decision status from those queries, not
 by reading or parsing the dashboard HTML. A reopen does not cancel an unacknowledged delivery.
+A read of a decided item, the pending list and the verdict notice also tell the agent to record
+the verdict in its repository's `DECISIONS.md` with `decision_record`, and the item read gives
+the entry and the path; the record and its citations follow WDR 001, Decision 7 (#536).
 
 **Provenance:** Requested in #206 (issue body, requirement 9 and the settled point on
 delivery); a request record. Stored, queryable
@@ -296,3 +299,4 @@ blocks, which the maintainer copies into a terminal, hold printable ASCII only. 
 | 2026-10-25 | Decision 4: removed the unsourced "does not show that an action was done" caveat (#487) |
 | 2026-10-26 | Decision 2, requirement 6, Rationale and User Impact: a maintainer client also records a verdict, with its `via`, as accepted PDR 009 Decisions 3 and 4 decide (#470) |
 | 2026-10-26 | Decision 1: agents withdraw active items with a reason, and a restore reopens them (#504) |
+| 2026-10-28 | Decision 4: a verdict read asks the agent to record the verdict in `DECISIONS.md` (#536; WDR 001, Decision 7) |

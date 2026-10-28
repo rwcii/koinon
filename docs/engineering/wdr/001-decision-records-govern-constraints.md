@@ -3,7 +3,7 @@ wdr: "001"
 title: "Decision Records Govern Constraints"
 status: modified
 created: "2026-10-12"
-updated: "2026-10-26"
+updated: "2026-10-28"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -34,7 +34,8 @@ record with its source, scope, alternatives and status, and it sets how existing
 constraints are routed into records.
 
 A decision is stated once, in its record, as "Koinon currently does X because Y". Other text
-cites the record instead of restating it as a general rule.
+cites the record instead of restating it as a general rule. A verdict on the decision board is
+recorded in the repository's `DECISIONS.md` and cited there, never by its verdict ID.
 
 ---
 
@@ -47,8 +48,9 @@ cites the record instead of restating it as a general rule.
 5. Decision 4: Code-enforced blocks follow their PDR (deprecated)
 6. Decision 5: A record covers the case it answered
 7. Decision 6: A separate refusal review gate
-8. Conclusion
-9. Document History
+8. Decision 7: Board verdicts are recorded in DECISIONS.md
+9. Conclusion
+10. Document History
 
 ---
 
@@ -118,7 +120,7 @@ repository; each record states the provenance it relies on.
   request to `develop` merges only when the reviewer's `peer-review` and `refusal-review` commit
   statuses pass at the exact head?
 - Options: keep both statuses required, or remove them.
-- Answer: Maintainer, 2026-10-26: approved (verdict 49), with no note, on the card's
+- Answer: Maintainer, 2026-10-26: approved ([DECISIONS.md#493-5](../../../DECISIONS.md#493-5)), with no note, on the card's
   recommendation: "Keep both."
   ([#493 comment 6406505885](https://github.com/rwcii/koinon/issues/493#issuecomment-6406505885)).
 - Intent and scope: both statuses stay required on `develop`, beside the four CI jobs. The
@@ -299,9 +301,9 @@ covers and what it does not. A bare quote, or one without its question or reason
 as is a decision applied beyond its stated scope.
 
 **Provenance:** Maintainer, 2026-10-12, approving Gate B for #140: "make sure you and your
-peer didnt slip more refusal langauge in these two projects.  if you have spare time, build a
+peer didn't slip more refusal language in these two projects. if you have spare time, build a
 gate for identifying this same refusal language in future PRs to run alongside our code
-review, security review, and standrds review gates." Intent: an audit of the #140 and #217
+review, security review, and standards review gates." Intent: an audit of the #140 and #217
 plans had to find unsourced refusals after they were written; the gate finds them in each
 pull request. This replaces Decision 1's earlier "not a separate review command" for this
 check.
@@ -312,9 +314,9 @@ check.
   then read it as a ban on all consent logging and rejected a plugin for it. The maintainer had
   answered a question about one plugin's log, which stored very little and capped its entries.
 - Raised by the maintainer, not in answer to a question: "this is the problem with you storing
-  limited snipets and no contect for capturing decisions", then "go ahead and fix the other
+  limited snippets and no context for capturing decisions", then "go ahead and fix the other
   records too - this will require some modifications to the prompt used for doing refusal
-  reviews", and "refusal checks can be completed by any agnet, not just codex".
+  reviews", and "refusal checks can be completed by any agent, not just codex".
 - Question then asked: where to change the refusal-review skill, given that the stratovera.io
   copy is byte-for-byte from Koinon. Options: change Koinon first, then copy it (recommended:
   every project using Koinon gets the rule); or change the stratovera.io copy only for now, so
@@ -334,9 +336,77 @@ check.
 1. A separate verdict makes the check visible on every head, as the maintainer asked.
 
 **Provenance (2026-10-26, #493):** the maintainer kept the required `refusal-review` status on
-the decision board (verdict 49, [#493 comment 6406505885](https://github.com/rwcii/koinon/issues/493#issuecomment-6406505885); Problem Context).
+the decision board ([DECISIONS.md#493-5](../../../DECISIONS.md#493-5), [#493 comment 6406505885](https://github.com/rwcii/koinon/issues/493#issuecomment-6406505885); Problem Context).
 
 **Gate crossed:** merge-time. The `develop` ruleset requires the `refusal-review` status.
+
+---
+
+## 8. Decision 7: Board verdicts are recorded in DECISIONS.md
+
+### Decision
+
+Each verdict that the maintainer gives on the decision board is recorded in `DECISIONS.md` at
+the root of the repository that the item was created in, and only there. Entries are only
+appended: one per verdict, with the card text that the maintainer saw and the maintainer's note
+or feedback. The agent that handles the verdict records it with `decision_record` (`koinon
+decision record`), corrects the spelling and typing errors in the maintainer's words without
+changing their meaning or wording, and commits the file with the work. A commit, a pull request
+or a document cites the decision as `DECISIONS.md#REFERENCE`, never by its verdict ID, which
+exists only in one machine's store. A recorded entry is public, so agents write every card as
+public text. The tool refuses three cases, each on its own facts. An item from another
+repository is recorded in a checkout of the repository that it names (`author_repository`),
+with no new approval. An item with no recorded repository, whose author held no repository
+participant, is not recorded: the tool cannot tell which repository the decision belongs to. A
+`DECISIONS.md` that is not a Koinon record, such as another project's file of the same name, is
+left unchanged, and the agent brings it to the maintainer's attention on the board. A
+contributor test checks the tracked documents,
+the `decision-citations` check checks the pull request text in CI, and the `commit-msg` hook
+checks commit messages.
+
+The verdicts that Koinon's documents cited before this decision were recorded on 2026-10-28 as
+public rewrites of their cards, written once; the Unify card that PDR 008 cites stays out of
+this repository.
+
+**Provenance:** [DECISIONS.md#DECISION-RECORDS-536](../../../DECISIONS.md#decision-records-536)
+records the design that the maintainer approved on 2026-10-27, with the maintainer's words. The
+maintainer then set these requirements while the change was built (#536; the times are UTC):
+
+- Maintainer, 2026-10-27 23:39, on a Unify card that the backfill was about to record here:
+  "why would you write a unify card to koinon?" Intent: an item is recorded only in the
+  repository that it decides for.
+- Maintainer, 2026-10-28 00:02, on verdict IDs in pushed commit messages and pull request
+  bodies: "yeah, that's what pointed me at the issue." Intent: the rule covers commit and pull
+  request text.
+- Maintainer, 2026-10-28 00:03: "old cards need to be rewritten for public consumption, PRIOR
+  to moving them to the decisions record." Asked at 00:04 whether each rewrite should come back
+  for a new verdict: "they need to be rewritten in the record once and then we move on."
+  Intent: one public rewrite of each old card, with no new verdict.
+- Maintainer, 2026-10-28 00:04, on the proposed protection for another project's
+  `DECISIONS.md` in a different format: "in such a case, the agent should bring this to the
+  attention of the maintainer." Intent: the tool leaves that file unchanged, and the maintainer
+  decides. This answer covers the foreign file only; an item from another repository is
+  recorded where its repository names, with no new approval.
+- Maintainer, 2026-10-28 00:08: "make sure that text entered by the human is spell and typo
+  checked. we don't need to memorialize a typo forever more in the repo", then "this should be
+  part of the agent instructions". Intent: the maintainer's words are spelling-corrected
+  wherever an agent puts them into the repository; the installed guide says so.
+- Maintainer, 2026-10-28 00:09, asked whether a CI check and a commit-message hook should
+  refuse verdict IDs in pull request and commit text: "approved as recommended. continue".
+
+### Alternatives Considered
+
+| Alternative | Description | Why Rejected |
+| ----------- | ----------- | ------------ |
+| An export command into `.koinon/decisions/` | One file per item, written on request | The maintainer asked for MCP and one visible append file |
+| The daemon writes the file at the verdict | No agent step | An item names no repository, and the write would land outside any branch and review |
+| A comment on the GitHub issue per verdict | As for #493 | Not in the repository |
+| A new verdict on each rewritten old card | Every entry is text the maintainer saw | The maintainer: "they need to be rewritten in the record once and then we move on." |
+
+### Rationale
+
+1. A citation resolves for every contributor, clone and CI run.
+2. The record changes with the work, in the same branch and review.
 
 ---
 
@@ -344,7 +414,8 @@ the decision board (verdict 49, [#493 comment 6406505885](https://github.com/rwc
 
 Every significant constraint lives in one record with its source, scope and status. Routine
 work needs no record. Other text cites records. A record covers the case it answered, and a
-refusal review checks the source of each new constraint.
+refusal review checks the source of each new constraint. Board verdicts are recorded in
+`DECISIONS.md` and cited there.
 
 ---
 
@@ -356,4 +427,5 @@ refusal review checks the source of each new constraint.
 | 2026-10-12 | Decision 6: separate refusal review gate |
 | 2026-10-14 | Decision 6: the refusal review also checks that each recorded maintainer decision states its question, options, quoted answer and reason with scope |
 | 2026-10-25 | #487: Decision 4 deprecated; Decision 5 states the procedure without its block rules; Decision 3 drops the skill's question limit and the AGENTS.md boundaries |
-| 2026-10-26 | #493: Decision 6 cites the maintainer's verdict that keeps the required `refusal-review` and `peer-review` statuses (verdict 49) |
+| 2026-10-26 | #493: Decision 6 cites the maintainer's verdict that keeps the required `refusal-review` and `peer-review` statuses ([DECISIONS.md#493-5](../../../DECISIONS.md#493-5)) |
+| 2026-10-28 | Decision 7: board verdicts are recorded in `DECISIONS.md` and cited there (#536); Decision 6's quotes are spelling-corrected |

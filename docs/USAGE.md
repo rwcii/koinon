@@ -263,6 +263,15 @@ item with `decision_close` (`koinon decision close --reference REF --if-revision
 --deadline UNIX_SECONDS`), which archives it. An agent edit of a decided item reopens it for a
 new verdict; `decision_history` pages every verdict with its snapshot.
 
+The agent that handles a verdict records it in the repository: `decision_record` (`koinon
+decision record --reference REF`) appends the verdict's entry, with the card text that you saw
+and your note, to `DECISIONS.md` at the root of its checkout. The agent corrects the spelling
+and typing errors in your words, commits the file with the work, and cites the decision as
+`DECISIONS.md#REFERENCE`, never by verdict ID. An item is recorded only in the repository it
+was created in. When a repository's `DECISIONS.md` is not a Koinon record, the agent asks you
+on the board and changes nothing. A recorded entry is public, so agents write every card as
+public text.
+
 When a waiting item or an open fyi item no longer needs you (the work is done, a newer item
 supersedes it, you answered it in chat, or it is no longer valid), an agent withdraws it with
 `decision_withdraw` (`koinon decision withdraw --reference REF --if-revision N --reason TEXT
