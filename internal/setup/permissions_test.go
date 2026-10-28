@@ -514,6 +514,19 @@ func TestInspectBoundsAHeldPipe(t *testing.T) {
 	if in, elapsed := inspect(context.Background()); elapsed > 900*time.Millisecond || in.Error == "" || in.Configured {
 		t.Fatalf("clean exit with a writing child: %+v after %s", in, elapsed)
 	}
+	// A missing-server answer counts only when its output ended: a child may still write the
+	// entry, with a clean or a failed exit.
+	for _, status := range []string{"0", "1"} {
+		os.WriteFile(cli, []byte("#!/bin/sh\n(sleep 1; echo '{\"name\":\"koinon\"}') &\necho \"No MCP server named 'koinon' found.\"\nexit "+status+"\n"), 0700)
+		if in, elapsed := inspect(context.Background()); elapsed > 900*time.Millisecond || in.Error == "" || in.Configured {
+			t.Fatalf("exit %s, open output after the missing-server answer: %+v after %s", status, in, elapsed)
+		}
+	}
+	os.WriteFile(cli, []byte("#!/bin/sh\necho \"No MCP server named 'koinon' found.\"\nexit 1\n"), 0700)
+	if in, _ := inspect(context.Background()); in.Error != "" || in.Configured {
+		t.Fatalf("completed missing-server answer: %+v", in)
+	}
+	os.WriteFile(cli, []byte("#!/bin/sh\n(sleep 1; echo '{\"name\":\"koinon\"}') &\necho starting\n"), 0700)
 	// Setup's own runs keep waiting for the whole output.
 	if out, err := runCLI(context.Background(), cli); err != nil || !strings.Contains(out, "koinon") {
 		t.Fatalf("setup run: %q %v", out, err)

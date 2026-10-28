@@ -412,10 +412,13 @@ func Inspect(ctx context.Context, o Options) Inspection {
 		return in
 	}
 	in.CLI = cli
-	switch out, err := runCLIWait(ctx, 250*time.Millisecond, cli, getCommand(o.Family)...); {
+	// Only a completed answer counts: "No MCP server named" with a nonzero exit means that
+	// the server is not there; output that did not end, or a stopped CLI, is not read.
+	var exit *exec.ExitError
+	switch out, err := readCLI(ctx, 250*time.Millisecond, cli, getCommand(o.Family)...); {
 	case err == nil:
 		in.Configured = configured(o.Family, out, o.Binary)
-	case !absent(o.Family, out):
+	case !errors.As(err, &exit) || ctx.Err() != nil || !absent(o.Family, out):
 		in.Error = fmt.Sprintf("%s %s: %v", cli, strings.Join(getCommand(o.Family), " "), err)
 	}
 	if result, err := Permissions(o, false); err == nil {

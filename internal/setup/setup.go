@@ -274,22 +274,53 @@ func grokNote(ctx context.Context, cli string) string {
 
 // runCLI runs the agent CLI without input and returns its combined output.
 func runCLI(ctx context.Context, cli string, args ...string) (string, error) {
-	return runCLIWait(ctx, 0, cli, args...)
-}
-
-// runCLIWait is runCLI that waits at most wait for the output after the CLI exits or is
-// stopped, when wait is not zero. A child of the CLI can hold the output open; output that
-// did not end is an error (#551).
-func runCLIWait(ctx context.Context, wait time.Duration, cli string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	var out bytes.Buffer
 	cmd := exec.CommandContext(ctx, cli, args...)
 	cmd.Stdout, cmd.Stderr = &out, &out
 	cmd.Stdin = nil
-	cmd.WaitDelay = wait
 	err := cmd.Run()
 	return out.String(), err
+}
+
+// errOutputOpen reports that the CLI's output had not ended when the read stopped.
+var errOutputOpen = errors.New("the output did not end after the CLI exited")
+
+// readCLI is runCLI for a read, such as an inspection, that must not wait for the CLI's
+// children: it waits at most wait for the end of the output after the CLI exits or is
+// stopped. A child can hold the output open and still write to it, so output that has not
+// ended is errOutputOpen whatever the exit status (#551).
+func readCLI(ctx context.Context, wait time.Duration, cli string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+	defer cancel()
+	r, w, err := os.Pipe()
+	if err != nil {
+		return "", err
+	}
+	defer r.Close()
+	cmd := exec.CommandContext(ctx, cli, args...)
+	cmd.Stdout, cmd.Stderr = w, w
+	err = cmd.Start()
+	w.Close()
+	if err != nil {
+		return "", err
+	}
+	var out bytes.Buffer
+	done := make(chan struct{})
+	go func() {
+		io.Copy(&out, r)
+		close(done)
+	}()
+	err = cmd.Wait()
+	select {
+	case <-done:
+		return out.String(), err
+	case <-time.After(wait):
+		r.Close()
+		<-done
+		return out.String(), errOutputOpen
+	}
 }
 
 // Adopt records the launcher CLI of a family that an earlier setup configured, when
