@@ -81,7 +81,7 @@ and `git diff --check`. Runtime and
 installation changes also need the four `CGO_ENABLED=0` builds for linux/amd64, linux/arm64, darwin/amd64
 and darwin/arm64. Go tests live beside packages; operating-system differences belong in
 `internal/platform`. For changed shell tooling, run `bash -n scripts/setup-repo.sh`,
-`sh -n .githooks/pre-commit .githooks/commit-msg` and `sh -n scripts/decision-citations.sh`.
+`sh -n .githooks/pre-commit`, `sh -n .githooks/commit-msg` and `sh -n scripts/decision-citations.sh`.
 
 Tests use synthetic peers and temporary state/configuration, ephemeral loopback ports and
 private tmux servers, so they do not reach the person's services, terminals or agent

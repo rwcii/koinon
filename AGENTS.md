@@ -44,7 +44,8 @@ go test -race -timeout 30m ./...
 git diff --check
 bash -n scripts/setup-repo.sh     # when shell files change
 sh -n .githooks/pre-commit        # when shell files change
-sh -n .githooks/commit-msg scripts/decision-citations.sh  # when shell files change
+sh -n .githooks/commit-msg        # when shell files change
+sh -n scripts/decision-citations.sh  # when shell files change
 ```
 
 Runtime and installation changes also need the four `CGO_ENABLED=0` builds: linux/amd64,

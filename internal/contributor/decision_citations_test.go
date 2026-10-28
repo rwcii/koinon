@@ -103,9 +103,10 @@ func TestDecisionCitationsResolve(t *testing.T) {
 	if !strings.Contains(hook, "scripts/decision-citations.sh") {
 		t.Error("the commit-msg hook does not run the check")
 	}
-	// The hook refuses what a real commit would keep: comment lines that commit -F keeps, a
-	// scissors line that commit -F keeps with the text below it, and any case. Only the diff
-	// below the scissors of commit --verbose, which Git removes, is not read.
+	// The hook refuses everything that a real commit can keep: comment lines that commit -F
+	// keeps, a scissors line that commit -F keeps with the text below it, also Git's own template
+	// saved and given again with -F, and any case. Git runs the hook before its cleanup, so it
+	// also reads the diff of commit --verbose.
 	repo := t.TempDir()
 	git := func(env []string, args ...string) error {
 		cmd := exec.Command("git", append([]string{"-C", repo, "-c", "core.hooksPath=" + filepath.Join(repo, ".githooks"),
@@ -132,6 +133,7 @@ func TestDecisionCitationsResolve(t *testing.T) {
 		{"heading", "Synthetic\n\n# verdict 5\n", true},
 		{"upper case", "Synthetic VERDICT 5\n", true},
 		{"scissors kept by -F", "Synthetic\n" + scissors + "\nverdict 5\n", true},
+		{"saved template given to -F", "Synthetic\n" + scissors + "\n# Do not modify or remove the line above.\n# Everything below it will be ignored.\n+verdict 5\n", true},
 		{"plain", "Synthetic\n", false},
 	} {
 		file := filepath.Join(t.TempDir(), "message")
@@ -142,15 +144,19 @@ func TestDecisionCitationsResolve(t *testing.T) {
 			t.Errorf("%s: commit -F: %v", c.name, err)
 		}
 	}
-	// commit --verbose puts the staged diff, here a verdict ID, below its scissors line.
+	// commit --verbose puts the staged diff, here a verdict ID, below its scissors line; the
+	// hook cannot tell that Git removes it.
 	if err := os.WriteFile(filepath.Join(repo, "notes.txt"), []byte("verdict 5\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := git(nil, "add", "notes.txt"); err != nil {
 		t.Fatal(err)
 	}
-	if err := git([]string{"GIT_EDITOR=true"}, "commit", "-q", "--verbose", "-e", "-m", "Synthetic notes"); err != nil {
-		t.Errorf("commit --verbose with a verdict ID in the diff: %v", err)
+	if err := git([]string{"GIT_EDITOR=true"}, "commit", "-q", "--verbose", "-e", "-m", "Synthetic notes"); err == nil {
+		t.Error("commit --verbose with a verdict ID in the diff was accepted")
+	}
+	if err := git(nil, "commit", "-q", "-m", "Synthetic notes"); err != nil {
+		t.Errorf("the same commit without --verbose: %v", err)
 	}
 	if workflow := read(t, ".github/workflows/pr-text.yml"); !strings.Contains(workflow, "sh scripts/decision-citations.sh") ||
 		!strings.Contains(workflow, "decision-citations:") || !strings.Contains(workflow, "edited") {
