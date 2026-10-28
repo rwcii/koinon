@@ -283,6 +283,26 @@ func (l statusLine) wrapperEntry(original json.RawMessage) json.RawMessage {
 	return encodeFields(fields)
 }
 
+// plainWrapper reports whether a wrapper is spelled exactly as wrapperEntry writes it: the hook
+// alone or around one non-empty command, every word quoted as quote quotes it. Any other
+// spelling, such as a shell operator after the quoted command or an empty command, is the
+// user's edit (#532).
+func plainWrapper(entry json.RawMessage) bool {
+	command := entryCommand(entry)
+	words, err := splitWords(command)
+	if err != nil || len(words) < 3 {
+		return false
+	}
+	plain := quote(words[0]) + " hook " + words[2]
+	switch {
+	case len(words) == 3:
+		return command == plain
+	case len(words) == 5 && words[3] == "--command" && words[4] != "":
+		return command == plain+" --command "+quote(words[4])
+	}
+	return false
+}
+
 // unwrap rebuilds the entry that a wrapper entry runs, or nil when it runs none.
 func (l statusLine) unwrap(entry json.RawMessage) json.RawMessage {
 	words, err := splitWords(entryCommand(entry))
@@ -481,6 +501,10 @@ func (l statusLine) setUp() (StatusLineResult, error) {
 		}
 		original = now
 	case l.isWrapper(now):
+		if !plainWrapper(now) {
+			result.Outcome, result.Reason = "changed", "statusline_changed"
+			return result, nil
+		}
 		original = l.unwrap(now)
 	default:
 		original = now

@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- `koinon setup claude`, `koinon setup agy` and `koinon setup grok` no longer replace an edited
+  status-line wrapper after a removal kept it (#532). When `--remove-status-line` had reported the
+  edited wrapper as `changed` and kept it, the next setup wrote a bare wrapper over it and lost
+  the user's command. Setup now reports it as `changed` (`statusline_changed`) and leaves it
+  alone; a wrapper spelled as setup writes it, the hook alone or around one quoted `--command`,
+  is still set up again; an empty `--command` is an edit.
 - `koinon setup claude` and `koinon setup agy` no longer wrap an edited status-line wrapper again
   after the Koinon binary moves (#530). Setup took a wrapper that runs an earlier binary as the
   user's own command and wrapped it in a second `hook claude-status` or `hook agy-status`. It now
