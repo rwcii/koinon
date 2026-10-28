@@ -43,6 +43,7 @@ repositories.
 | `POST /v1/library/read` | Read one catalog item's canonical content and family-specific metadata. |
 | `POST /v1/sessions/observe` | Record allowlisted observations (model, context, activity, terminal) for an active session; see "Dashboard and session observations". |
 | `POST /v1/cycles/agy-witness` | Give one agy status-line conversation with its reporting hook process (`conversation`, `reporter` with `pid` and `start`), kept only for the agy cycle whose pinned host is the reporter's nearest native host; see "agy cycle adapter". |
+| `POST /v1/cycles/grok-witness` | Give one Grok status-line session with its reporting hook process (`conversation` is the session ID; `reporter` with `pid` and `start`), kept only for the Grok cycle whose pinned host is the reporter's nearest native host; see "Grok cycle adapter". |
 | `POST /v1/dashboard/links` | Issue a one-time dashboard login link (`path`, `expires_in`). |
 | `POST /v1/maintainer/secret` | Set, generate or clear the maintainer secret (`action`, `secret`); ends every dashboard login and maintainer token. |
 | `POST /v1/maintainer/session` | Exchange the maintainer secret for a maintainer token (`secret`, `client`); see Maintainer mode. |
@@ -625,6 +626,67 @@ never answered by the adapter. The evidenced command approval (`Requesting permi
 selection and is read back, then one Enter while the same request still shows it selected with
 the same option text (the list may scroll), and the end of the request is read back. Any other dialog, such as an MCP tool approval (not observed) or
 the folder-trust question, stays in the pane for the native session or the maintainer.
+
+### Grok cycle adapter
+
+#515 adds the adapter for Grok (version `grok-tmux-1`), on the facts of Grok Build 1.0.50 on
+Linux ([evidence](docs/sprints/2026-10-12-context-handoff/evidence.md#grok-cycle-adapter-515)). It
+acts only in the session's own tmux pane, with the agy adapter's proof before every key: the pane,
+the host leading the terminal's foreground process group, every other member of that group an
+ancestor of the host or a descendant that is no agent CLI (Grok keeps its `koinon mcp` servers
+and its status-line command in their own groups), and the cycle's fence. The host's command is
+also read at each proof, because an exec keeps the PID and start: it must be a Grok terminal
+session, `grok-native` or the `grok` link, and not Grok's leader (`grok-native agent leader`).
+Typed text that is not submitted is cleared with `C-u`, which clears the whole input box, only
+while a fresh read shows exactly that text.
+
+Probe needs Linux (`platform_unverified` elsewhere); the host's `HOME`, and its environment read
+for `GROK_HOME` (`native_registry_unavailable`: a failed read is not an unset variable); the pane (`pane_unproven`, or `tmux_unavailable`); the participant address held
+(`participant_unheld`: the session after `/new` is a new Koinon session, which takes the address
+over at its first tool call); before the reset, the session itself as its latest context epoch
+(`epoch_unverified`); Koinon's status line: the `[ui.status_line]` `type` and `command` of the
+host's Grok `config.toml` (in the host's `$GROK_HOME`, else `~/.grok`) must equal the enabled
+wrapper that `grok-statusline.json` records and run `hook grok-status` (`statusline_unverified`,
+with the setup step); and the effective pickup entry. Grok lists skills from several roots and
+keeps one per name: the session directory's `.agents/skills` copy wins over every user copy, and
+among the user skills `~/.grok/skills` (the Grok home's) wins over `~/.agents/skills`, which wins
+over `~/.claude/skills`. The effective entry is the first of these that exists. It must be the binary's skill byte for byte (`pickup_entry_missing`,
+`pickup_entry_differs`, `pickup_entry_unreadable` for the Grok home's own file, each with the
+install step; `pickup_entry_shadowed` for another root); a later user skill is replaced and is not
+checked. A copy whose order is not verified (other project skills and `commands/koinon-pickup.md`
+files in `.grok`, `.agents`, `.claude` and `.cursor` up to the repository root, the user `.cursor`
+skill and commands files, and `koinon-pickup` under a `[skills] paths` entry) may be the effective
+entry, so it must be the skill too (`pickup_entry_shadowed`, naming the file); without a verified
+copy, such a copy is the entry. A copy that `[skills] ignore` names is no candidate. `[skills] disabled` with
+`koinon-pickup` removes the entry from the menu (`pickup_entry_disabled`). A config that is not
+valid TOML, or an unknown directory, is `pickup_entry_unverified`. The pickup checks the entry again.
+
+The adapter is ready for input when the input box holds no text, no menu is open, no turn runs
+(the shortcut bar below the box shows `Ctrl+c:cancel` during a turn) and no dialog shows; after the
+reset the screen must show the successor's `/new` notice. A draft is reported as `input_not_empty`
+and left as it is. The clear types `/new` and submits it with one Enter only while the input box
+holds exactly it and the menu above it selects its `/new` row, `Start a new session`. Grok then
+starts a new session in the same host and keeps the earlier one live. The receipt is the notice
+`Session ID, use /dashboard to switch between sessions` above an empty input box, naming a session
+other than the cycle's epoch and other than any that the screen named before the Enter.
+
+The reset is proven by a witness, with the agy contract: the Grok status-line hook sends each
+session it reports to `POST /v1/cycles/grok-witness` with its own PID and start, also for an input
+without usable counts; Grok runs it as `sh -c` under the host. A report is kept only for a Grok
+cycle, and the session after `/new` is not registered yet when it sends its first input. After
+`/new` the inputs named the new session from the same host PID. The rules of `clear_intent`,
+`clear_received`, the bound of 8, the successor check before the pickup and a restarted daemon are
+those of the agy adapter.
+
+The pickup types `/koinon-pickup` and submits it with one Enter only while the menu selects its
+one row and that row shows the skill's description; the receipt is one more submitted
+`❯ /koinon-pickup` line than the screen showed before the Enter, above an empty input box. A
+dialog is never answered by the adapter. A Grok approval dialog (a shell command or an MCP tool) is
+a `┃` box above the footer `1/N:select`, with N numbered options `N (●) text` or `N (○) text`;
+the preselected option varies, and option 1 is always-approve mode. It is shown in
+`waiting_prompt` with its options; a dashboard option is its digit, entered while a fresh read
+shows the same dialog. In Grok the digit answers the dialog at once: no Enter follows, and the
+receipt is the dialog gone.
 
 ### OpenCode cycle adapter
 
@@ -1529,6 +1591,12 @@ inactive claim bundle and one finished item past its 30-day retention. Memory st
 `work_maintenance` (`enabled`, `last_successful_sweep`, `observed_at`, `pending_due`,
 `expired_items`, `inactive_bundles`, `fault`, `fault_at`, `skipped_submissions`) and
 `work_debt` (`overdue_credits`, `end_credits`, `verdict_credits`).
+
+A create in a store that holds its 128 items first removes the oldest finished item (earliest
+expiry, then work ID), with its inactive claim bundle, also before its 30 days (#529). Open,
+active, blocked and reported items are never removed; a store without a finished item refuses
+the create with `capacity`. A replayed create removes nothing. A finished item thus stays for up
+to 30 days, and `work_not_found` answers for it after its removal.
 
 The limits are those of the implementation design per store (128 items, 16 claim bundles, 64
 scope revisions per item and 1,024 in all, 2,048 events, 12 MiB of work usage inside the shared
@@ -2551,7 +2619,9 @@ Koinon's own failures never change that result. The caller is `grok:` and the in
 to its MCP server but not to the status-line command. A `session_id` that is absent, null,
 empty, not a string or not a session ID gives no report, and so does one that differs from a
 `GROK_SESSION_ID` in the hook's environment. A report for a session that is not registered is
-refused, as for the other status lines. Only an input of at most 64 KiB is decoded. The model is `model.id`. The context needs both
+refused, as for the other status lines. Each input whose `session_id` passes these checks is
+also given to the Grok cycle witness, with or without counts (see "Grok cycle adapter"). Only an
+input of at most 64 KiB is decoded. The model is `model.id`. The context needs both
 `context_window.context_tokens` (used) and `context_window.context_window_size` (the limit), as
 integers from 0 to 2^53-1 with a positive limit; otherwise there is no context report, and the
 last reading stands until it is stale. `used_percentage` and the cumulative `session_*` counts
