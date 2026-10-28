@@ -6,7 +6,7 @@ maintainer's note or feedback, with spelling and typing errors corrected. Entrie
 appended, never changed. Cite an entry as `DECISIONS.md#REFERENCE`; a link's target
 is the reference in lower case.
 
-The entries up to and including DECISION-RECORDS-536 were recorded on 2026-10-28, after their
+The entries up to and including SUBAGENT-CLEAR-533 were recorded on 2026-10-28, after their
 verdicts. Their card text was written for the private board, so each one is a public rewrite,
 written once for this record: the verdict was given on the original card text, and the
 maintainer's notes are quoted as given (#536).
@@ -257,3 +257,85 @@ Recommendation:
 > 5. One pull request records the verdicts that Koinon's documents cite and changes those
 >    citations.
 > 6. A recorded entry is public, so agents write every card as public text.
+
+<a id="work-limit-529"></a>
+
+## WORK-LIMIT-529
+
+<!-- koinon-decision WORK-LIMIT-529 revision 1 approved 1793116785197 -->
+
+**Approved**, revision 1, 2026-10-27 15:59:45 UTC. Public rewrite of the card.
+
+- Title: Let new work items replace old finished items when a store is full? (#529)
+- Where: koinon: work items, per-store limit (all repositories)
+
+Context:
+
+> Each repository store can hold 128 work items. A finished item stays for 30 days after it is
+> finished, and it counts against the limit for all of that time.
+>
+> The koinon store had 128 items: 116 finished, 6 open, 5 active and 1 blocked. Thus `work_create`
+> was refused with `capacity`. The first finished item would reach 30 days on 2026-11-05. Until
+> then, no agent could make a work item for this repository.
+>
+> Storage is not the cause. The store used 2974 of 128633 pages.
+>
+> Issue: https://github.com/rwcii/koinon/issues/529
+
+Recommendation:
+
+> When a new item would go past the limit, Koinon removes the oldest finished item first, also
+> before its 30 days. Koinon never removes an item that is open, active, blocked or reported. The
+> limit of 128 and the storage bounds do not change. A finished item then stays for up to 30 days,
+> or until the store needs its space.
+>
+> If declined: the maintainer says which change to make, for example a higher limit or a shorter
+> retention.
+
+<a id="subagent-clear-533"></a>
+
+## SUBAGENT-CLEAR-533
+
+<!-- koinon-decision SUBAGENT-CLEAR-533 revision 1 approved 1793137483202 -->
+
+**Approved**, revision 1, 2026-10-27 21:44:43 UTC. Public rewrite of the card.
+
+- Title: Let the managed cycle clear a Claude session while its background subagents run? (#533)
+- Where: koinon: managed context cycle, Claude sessions (all repositories)
+
+Context:
+
+> A Claude session that reports ready while background subagents run is never cleared. Claude Code
+> shows "Waiting for N background agents to finish" and its registry status stays `busy`.
+> Overwatch reads `busy` as "not idle" and asks for the handoff again. In the #533 cycle this
+> occurred 6 times in 14 minutes, and the maintainer ran the cycle by hand.
+>
+> The request text also tells the session to stop subagents that will not finish before the ready
+> deadline. The maintainer said: "context handover won't interrupt the review agents".
+>
+> Native check on 2026-10-27 (Claude Code 2.1.311, scratch session, no Koinon):
+> - In the wait state the input line is empty and the footer has no "esc to interrupt".
+> - `/clear` there runs at once. The subagent continues and finishes after the clear.
+> - Its result arrives in the new conversation as "Message from @general-purpose". The new session
+>   does not know the task unless the handoff names it.
+>
+> The #456 rule asks again when a subagent works after the ready report, because "when the
+> subagent finishes it will have an invalid handoff" (the maintainer, #456). A subagent that still
+> runs at the clear sends its result to the new session, so its work is not lost.
+>
+> Issue: https://github.com/rwcii/koinon/issues/533
+
+Recommendation:
+
+> 1. Overwatch clears a Claude session after its ready report when the pane shows only the
+>    background-agent wait, the input line is empty, and the subagent records show running
+>    subagents. The `busy` status then does not stop the clear.
+> 2. A subagent that still runs at the clear does not cause a new request. A subagent that
+>    finished after the ready report still causes a new request (#456), because its result went to
+>    the old conversation.
+> 3. The request and the guide say: a `/clear` does not stop background subagents. Do not stop
+>    them and do not wait for them. In the handoff, list each running subagent with its task and
+>    where its result goes. The new session gets each result as a message. The text "stop any that
+>    will not finish" is removed.
+>
+> If declined: the session must stop its subagents or wait for them before the clear, as before.
