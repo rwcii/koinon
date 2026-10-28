@@ -162,4 +162,10 @@ func TestDecisionCitationsResolve(t *testing.T) {
 		!strings.Contains(workflow, "decision-citations:") || !strings.Contains(workflow, "edited") {
 		t.Error("the pull request text workflow does not run the check on each edit")
 	}
+	// A promotion to main carries develop's commits from before the check (#548); every other
+	// base has its commit messages checked.
+	if workflow := read(t, ".github/workflows/pr-text.yml"); !strings.Contains(workflow, "BASE_REF: ${{ github.event.pull_request.base.ref }}") ||
+		!strings.Contains(workflow, `if [ "$BASE_REF" != main ]; then git log --format=%B "$BASE..$HEAD"; fi`) {
+		t.Error("the pull request text workflow does not check the commits of a pull request to a branch other than main")
+	}
 }
