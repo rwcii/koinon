@@ -85,7 +85,9 @@ const decisionWithdrawalsTable = `CREATE TABLE decision_withdrawals (
 // returned to its author, and a verdict can be feedback, completed or acknowledged. Every
 // row is copied unchanged with its ID, each table keeps its AUTOINCREMENT high-water mark,
 // so a deep-archived item's ID is never reused, and open fyi items whose title starts with
-// ACTION FOR YOU become tasks.
+// ACTION FOR YOU become tasks. The waiting index holds only the waiting items, decision items
+// and tasks, so a waiting page reads one range in item ID order and never passes open fyi
+// items.
 const decisionBoardTablesV36 = `
 	ALTER TABLE decision_items RENAME TO decision_items_v35;
 	DROP INDEX decision_items_waiting; DROP INDEX decision_items_state; DROP INDEX decision_items_archive;
@@ -106,7 +108,7 @@ const decisionBoardTablesV36 = `
 	INSERT INTO sqlite_sequence(name,seq) SELECT 'decision_items',seq FROM sqlite_sequence WHERE name='decision_items_v35'
 		AND NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name='decision_items');
 	DROP TABLE decision_items_v35;
-	CREATE INDEX decision_items_waiting ON decision_items(state, kind, id);
+	CREATE INDEX decision_items_waiting ON decision_items(id) WHERE state='active' AND kind!='fyi';
 	CREATE INDEX decision_items_state ON decision_items(state, id);
 	CREATE INDEX decision_items_archive ON decision_items(state, archived_at, id);
 	UPDATE decision_items SET kind='task' WHERE kind='fyi' AND state='active' AND substr(title,1,14)='ACTION FOR YOU';
@@ -904,6 +906,12 @@ const decisionSummaryColumns = `id,reference,title,kind,state,revision,item_orde
 	FROM decision_verdicts v WHERE v.item_id=decision_items.id ORDER BY v.id DESC LIMIT 1),''),
 	state='archived' AND COALESCE((SELECT w.reopened_at=0 FROM decision_withdrawals w WHERE w.item_id=decision_items.id ORDER BY w.id DESC LIMIT 1),0)`
 
+// decisionWaitingQuery reads one page of waiting items, decision items and tasks. The waiting
+// index holds only those; naming it keeps the page off the state index, whose range also holds
+// the open fyi items (#537).
+const decisionWaitingQuery = `SELECT ` + decisionSummaryColumns + ` FROM decision_items INDEXED BY decision_items_waiting
+	WHERE state='active' AND kind!='fyi' AND id>? ORDER BY id LIMIT ?`
+
 func decisionPage(ctx context.Context, q querier, filter string, targets []string, after int64, limit int) (DecisionPage, error) {
 	if limit <= 0 || limit > decisionPageItems {
 		limit = decisionPageItems
@@ -951,8 +959,7 @@ func decisionPage(ctx context.Context, q querier, filter string, targets []strin
 		query, args := `SELECT `+decisionSummaryColumns+` FROM decision_items WHERE state=? AND id>? ORDER BY id LIMIT ?`,
 			[]any{filter, after, limit + 1}
 		if filter == "waiting" {
-			query, args = `SELECT `+decisionSummaryColumns+` FROM decision_items WHERE state='active'
-				AND kind!='fyi' AND id>? ORDER BY id LIMIT ?`, []any{after, limit + 1}
+			query, args = decisionWaitingQuery, []any{after, limit + 1}
 		}
 		rows, err := q.QueryContext(ctx, query, args...)
 		if err != nil {

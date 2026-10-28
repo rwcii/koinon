@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -180,6 +181,25 @@ func TestDecisionVerdictReachesTheAuthor(t *testing.T) {
 	if err != nil || len(page.Deliveries) != 2 || page.Deliveries[0].Reference != "AU-1" || page.Deliveries[1].Reference != "AU-2" || page.Record != nil {
 		t.Fatalf("author's pending: %+v %v", page, err)
 	}
+	// After a holder change, a recipient that names the author's former peer no longer reaches
+	// the author: the verdict also goes to the address, whose new holder reads it.
+	mustCreate(t, s, f.holderKey, "AU-4", DecisionFields{Title: ptr("Revise this"), Kind: ptr("task"), Recipients: &[]string{f.holder.Name}})
+	holderCtx, _ := withAudit(ctx, "participant-holder", f.address)
+	if err := s.ChooseHolder(holderCtx, f.address, f.otherKey, f.other.Revision); err != nil {
+		t.Fatal(err)
+	}
+	v := mustVerdictNote(t, s, "AU-4", 1, "feedback", "Please revise the task.")
+	if names(v) != f.holder.Name+":skipped "+f.address+":queued" {
+		t.Errorf("after a holder change: %s", names(v))
+	}
+	if page, err := s.DecisionPending(ctx, f.otherKey, v.ID-1, 0); err != nil || len(page.Deliveries) != 1 || page.Deliveries[0].VerdictID != v.ID {
+		t.Fatalf("successor's pending: %+v %v", page, err)
+	}
+	// The new holder, named by its peer name, reaches the author: no second delivery.
+	mustCreate(t, s, f.otherKey, "AU-5", DecisionFields{Title: ptr("Read again"), Kind: ptr("fyi"), Recipients: &[]string{f.other.Name}})
+	if v := mustVerdict(t, s, "AU-5", 1, "acknowledged"); names(v) != f.other.Name+":queued" {
+		t.Errorf("holder named by its peer name: %s", names(v))
+	}
 }
 
 func mustVerdictNote(t *testing.T, s *Store, reference string, revision int64, verdict, note string) DecisionVerdict {
@@ -277,5 +297,40 @@ func TestSchemaThirtySixAddsTasks(t *testing.T) {
 	v, err := upgraded.DecisionVerdict(verdictCtx(), "V-OPEN", 1, "completed", "")
 	if err != nil || v.ID != verdicts+2 {
 		t.Fatalf("verdict after the upgrade: %+v %v (after %d)", v, err, verdicts)
+	}
+}
+
+// A waiting page between and after many open fyi items holds only the waiting items, and its
+// cursor passes the fyi items (#537).
+func TestDecisionWaitingSkipsOpenFYI(t *testing.T) {
+	f := newVerdictFixture(t)
+	s := f.s
+	tx, err := s.db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i <= 2000; i++ {
+		kind := "fyi"
+		if i == 700 || i == 1400 || i == 2000 {
+			kind = "task"
+		}
+		if _, err := tx.Exec(`INSERT INTO decision_items(reference,item_order,title,location,agent_text,context,recommendation,kind,state,commands,revision,
+			author_family,author_name,created_at,updated_at) VALUES (?,0,'t','','','','',?,'active','[]',1,'codex','synthetic',1,1)`, "W-"+strconv.Itoa(i), kind); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	page, err := s.DecisionList(context.Background(), f.peerKey, "waiting", 0, 2)
+	if err != nil || len(page.Items) != 2 || page.Items[0].Reference != "W-700" || page.Items[1].Reference != "W-1400" || !page.More {
+		t.Fatalf("first page: %+v %v", page, err)
+	}
+	page, err = s.DecisionList(context.Background(), f.peerKey, "waiting", *page.NextAfter, 2)
+	if err != nil || len(page.Items) != 1 || page.Items[0].Reference != "W-2000" || page.More {
+		t.Fatalf("second page: %+v %v", page, err)
+	}
+	if page, err := s.DecisionList(context.Background(), f.peerKey, "waiting", 2000, 2); err != nil || len(page.Items) != 0 {
+		t.Fatalf("past the end: %+v %v", page, err)
 	}
 }

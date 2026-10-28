@@ -315,7 +315,7 @@ func (s *Store) DecisionVerdict(ctx context.Context, reference string, revision 
 	if err != nil {
 		return DecisionVerdict{}, err
 	}
-	if names, err = withAuthor(ctx, tx.Tx, id, item, names); err != nil {
+	if names, err = withAuthor(ctx, tx.Tx, now, id, item, names); err != nil {
 		return DecisionVerdict{}, err
 	}
 	entry := ""
@@ -350,39 +350,50 @@ func recipientNames(ctx context.Context, q querier, itemID int64) ([]string, err
 	return names, rows.Err()
 }
 
-// withAuthor adds the item's author to names when no name there is the author's: its
-// participant address when its participant holds one, so a successor after a context cycle
-// reads it, else its peer name (#537). The verdict is delivered to the names in order.
-func withAuthor(ctx context.Context, q querier, id int64, item DecisionItem, names []string) ([]string, error) {
-	author := item.AuthorName
-	var participant string
+// withAuthor adds the item's author to names unless a name there reaches the author now
+// (#537). An author whose participant has an address is reached at that address, so a
+// successor after a holder change or a context cycle reads the verdict: a name reaches it when
+// it is the address, or the peer name of an active session that holds the address now. The
+// author's own peer name does not, also when a recipient names it, because that peer can be
+// retired; its delivery stays as named. An author without an address is reached at its peer
+// name.
+func withAuthor(ctx context.Context, q querier, now, id int64, item DecisionItem, names []string) ([]string, error) {
+	var participant, address string
 	if err := q.QueryRowContext(ctx, `SELECT author_participant FROM decision_items WHERE id=?`, id).Scan(&participant); err != nil {
 		return nil, err
 	}
 	if participant != "" {
-		var address string
 		err := q.QueryRowContext(ctx, `SELECT name FROM names WHERE kind='alias' AND family||char(31)||repository||char(31)||role=?`, participant).Scan(&address)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return nil, err
 		}
+	}
+	if address == "" {
 		for _, name := range names {
-			if address != "" && name == address {
+			if name == item.AuthorName {
 				return names, nil
 			}
 		}
-		if address != "" {
-			author = address
+		if item.AuthorName == "" {
+			return names, nil
 		}
+		return append(names, item.AuthorName), nil
 	}
 	for _, name := range names {
-		if name == item.AuthorName {
+		if name == address {
+			return names, nil
+		}
+		var holds int
+		if err := q.QueryRowContext(ctx, `SELECT COUNT(*) FROM names p JOIN names a ON a.kind='alias' AND a.name=? AND a.family=p.family
+			AND a.holder_id=p.session_id JOIN sessions s ON s.family=p.family AND s.id=p.session_id AND s.retired_at=0 AND s.expires_at>?
+			WHERE p.kind='peer' AND p.name=?`, address, now, name).Scan(&holds); err != nil {
+			return nil, err
+		}
+		if holds > 0 {
 			return names, nil
 		}
 	}
-	if author == "" {
-		return names, nil
-	}
-	return append(names, author), nil
+	return append(names, address), nil
 }
 
 // deliverVerdict resolves one recipient name now and stores its delivery: queued with one
