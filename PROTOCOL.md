@@ -948,6 +948,13 @@ pane matches `%` followed by 1–9 digits. The optional `executable` (#418) is t
 that the session's own terminal runs, with the same path rules as the socket. Invalid values
 return `invalid_request`.
 
+Schema 36 rebuilds `decision_items` and `decision_verdicts` (#537), because SQLite cannot widen
+a CHECK in place: `kind` adds `task`, `state` adds `returned`, and `verdict` adds `feedback`,
+`completed` and `acknowledged`. Every row is copied with its ID, each table keeps its
+AUTOINCREMENT high-water mark, so an ID of a deep-archived item or verdict is never used again,
+and the indexes are created again. An `active` `fyi` item whose title starts with
+`ACTION FOR YOU` becomes a `task`; its title does not change.
+
 Schema 34 rebuilds `context_cycles` with the native compaction states `compact_waiting`,
 `compact_intent` and `compact_sent` (#509, [Native compaction](#native-compaction)), copying
 every row unchanged.
@@ -1856,7 +1863,7 @@ work depends on its limit, not on the number of stored items. There is no limit 
 of items. Reads move no inbox read or acknowledgement marker and no memory cursor.
 
 - `POST /v1/decisions/create` takes `caller`, `reference` (1–32 characters of `A-Z`, `a-z`,
-  `0-9` and `-`, unique), `title` (1–256 bytes), `kind` (`decision` or `fyi`), optional
+  `0-9` and `-`, unique), `title` (1–256 bytes), `kind` (`decision`, `task` or `fyi`, #537), optional
   `order` (integer), `where` (256 bytes), `agent_text` (8 KiB), `context` (16 KiB),
   `recommendation` (8 KiB), `commands` (at most 8) and `recipients` (at most 32 names of at
   most 256 bytes), and `key` (1–256 bytes) with `deadline`. A new item is `active` at
@@ -1869,12 +1876,12 @@ of items. Reads move no inbox read or acknowledgement marker and no memory curso
   deletions.
 - `POST /v1/decisions/edit` takes `caller`, `reference`, `if_revision` and at least one
   field to change; a list field replaces the stored list. Another revision is
-  `stale_revision` with `current_revision`. An edit of an `in_progress` or `archived` item
-  reopens it: the item becomes `active`, its current verdict gets `superseded_at`, in the
+  `stale_revision` with `current_revision`. An edit of a `returned`, `in_progress` or
+  `archived` item reopens it: the item becomes `active`, its current verdict gets `superseded_at`, in the
   same transaction; the verdict's deliveries do not change. The result is the full item at
   its new revision.
-- `POST /v1/decisions/list` takes `caller`, `filter` (`waiting`: active `decision` items;
-  `active`, `in_progress`, `archived`; or `mine`: items with a recipient name that is now the
+- `POST /v1/decisions/list` takes `caller`, `filter` (`waiting`: active `decision` and
+  `task` items; `active`, `returned`, `in_progress`, `archived`; or `mine`: items with a recipient name that is now the
   caller's peer name or the participant address it holds, also when the name did not resolve
   at the write), optional `after` (an item ID) and
   `limit` (1–100, default 100). Items come in item ID order, keyset-paged: a page holds at
@@ -1916,22 +1923,34 @@ number of verdicts in the item's history, so `decision_get` reads it and the cur
 
 **Verdicts.** The maintainer gives a verdict on the dashboard (see Dashboard actions) or with a
 maintainer token (`decision-verdict`, see Maintainer mode); the agent routes, agent MCP tools
-and commands have no verdict. The verdict stores the client that gave it as `via`. Approve and Decline apply to a `decision` item, Dismiss to an
-`fyi` item; another combination is `invalid_verdict`, a revision other than the one the page
-showed is `stale_revision`, an item that is not `active` is `decided`, and an item with a
-hidden command cannot be approved (`hidden_command`); Decline and Dismiss still apply. An optional note is Markdown of at
-most 4 KiB with the credential check. One ordinary write stores the verdict, a snapshot of
-the item's title, context, recommendation and commands at that revision, the item's new
-state (`in_progress` after Approve; `archived` after Decline or Dismiss), and for Approve and
-Decline one delivery per named recipient, resolved now, and the audit record with target
+and commands have no verdict. The verdict stores the client that gave it as `via`. A
+`decision` item takes `approved`, `declined` or `feedback`; a `task` takes `completed`,
+`declined` or `feedback`; an `fyi` item takes `acknowledged` (#537). Another combination is
+`invalid_verdict`, an unknown verdict, also `dismissed`, is `invalid_request`, a revision other
+than the one the page showed is `stale_revision`, an item that is not `active` is `decided`,
+and an item with a hidden command cannot be approved (`hidden_command`); the other verdicts
+still apply. A note is Markdown of at most 4 KiB with the credential check; it is optional,
+except for `feedback`, whose note is the maintainer's guidance and must not be blank
+(`feedback_required`). Feedback approves and declines nothing. One ordinary write stores the
+verdict, a snapshot of the item's title, where, context, recommendation and commands at that
+revision, the item's new state (`in_progress` after `approved`; `returned` after `feedback`;
+`archived` after `declined`, `completed` or `acknowledged`), one delivery per named
+recipient, resolved now, for every verdict, and one to the item's author when no recipient
+names it (its participant's address when the participant holds one, else its peer name), and
+the audit record with target
 `decision REF revision N VERDICT verdict ID` (no card text); a failure of any part stores
 nothing. A delivery to a participant address is `queued` with one message in the
 participant inbox, read by its current holder also after a holder change; to an active
 peer it is `queued` with one message in that session's inbox. Otherwise it is `skipped`
 with `reason` `unknown_name`, `maintainer` or `recipient_inactive`. The message comes from
-`maintainer` with `system_kind` `decision_verdict`, the typed `decision_verdict` ID and the
-body that holds the reference, the ID and the verdict's entry (see Repository record); it holds
-no other card text. A wake whose range
+`maintainer` with `system_kind` `decision_verdict`, the typed `decision_verdict` ID and a
+body that holds the reference, the ID and, for a recorded verdict, its entry (see Repository
+record); it holds no other card text. The body starts with `Decision REF has a verdict (ID).`
+and the instruction to read it with `decision_get`, record it with `decision_record` and commit
+`DECISIONS.md`; for `feedback`, with `Item REF has the maintainer's feedback (ID) and is
+returned to its author.` and the instruction to record it and then edit or withdraw the item;
+for `acknowledged`, with `Fyi item REF was acknowledged (ID).` and the note that nothing is
+recorded. A wake whose range
 holds such messages ends its notice with ` Decision verdicts ID, ID.`: at most 8 IDs in
 sequence order, then ` +N more`; target selection, coalescing, retries and inbox reads and
 acknowledgements do not change.
@@ -1945,8 +1964,9 @@ acknowledgements do not change.
 - `POST /v1/decisions/pending` takes `caller`, optional `after` (a verdict ID) and `limit`
   (1–100) and returns the caller's `queued` deliveries (its peer name and the participant
   address it holds) as `deliveries` (`verdict_id`, `reference`, `verdict`, `revision`, `at`,
-  `superseded_at`, and `entry` for a recorded verdict, #536) with `more` and `next_after`, also after the inbox message failed or aged
-  out. A reopen does not acknowledge a delivery; `superseded_at` shows it.
+  `superseded_at`, and `entry` for a recorded verdict, #536) with `more` and `next_after`,
+  also after the inbox message failed or aged out. A reopen or a withdrawal does not acknowledge
+  a delivery; `superseded_at` shows it.
 - `POST /v1/decisions/ack` takes `caller` and `verdict_ids` (1–32) and sets the caller's
   queued deliveries of those verdicts `acknowledged` with the time; it returns
   `acknowledged`, the IDs it changed. A repeated or late acknowledgement changes nothing. It
@@ -1960,7 +1980,8 @@ acknowledgements do not change.
   25, so a create receipt from before the upgrade still answers its retry.
 - `POST /v1/decisions/withdraw` (#504) takes `caller`, `reference`, `if_revision`, `reason`
   (one line, 1–512 bytes, not blank, no known key format), `key` and `deadline`. It moves an
-  `active` item (a waiting decision item or an open fyi item) to `archived` and records the
+  `active` item (a waiting decision item or task, or an open fyi item) or a `returned` item to
+  `archived` and records the
   withdrawal with the caller's peer name and family, the revision, the reason and the time; it
   writes no verdict, delivery or audit record, and the item keeps its revision. The caller is
   the item's author, a session of the participant that the item stored for its author at create
@@ -1977,7 +1998,8 @@ acknowledgements do not change.
   `withdrawn`. `POST /v1/decisions/history` with `withdrawals: true` pages all of an item's
   withdrawals in ID order (`after`, `limit` up to 16, `more`, `next_after`) instead of its
   verdicts, and the board lookup links to them (`withdrawals=ID`). An edit that reopens a
-  withdrawn item records the reopen on the withdrawal, as a restore does.
+  withdrawn item records the reopen on the withdrawal, as a restore does. The withdrawal of a
+  `returned` item supersedes its feedback verdict, which stays in the history (#537).
 
 **Deep archive.** Nothing deletes a decision record. 30 days after an item was archived,
 once every delivery is `acknowledged` or `skipped`, the maintenance sweep moves its whole
@@ -2007,15 +2029,15 @@ with `reference_in_use`.
   that is not deep-archived is `not_found`.
 
 **Repository record (#536).** A decided item read (`decision_get`, the lookup) with a current
-verdict that is not a dismissal carries `record`: `path` (`DECISIONS.md`), `instruction` and
-`entry`, the current verdict's entry as `decision_record` writes it. A pending page with a
-delivery that is not a dismissal carries `record` with `path` and `instruction`, and each such
-delivery carries `entry`; a page stops before the delivery that would take the serialized reply
-past 512 KiB and always holds one, which the largest entry fits. The verdict message reads
-"Decision REF has a verdict (ID). Read it with decision_get, record it with decision_record and
-commit DECISIONS.md with the work.", then `Path: DECISIONS.md` and `Entry:` with the entry. An
-entry that would take the message past 64 KiB, which only stored hidden commands can cause, is
-left out, and the message says that `decision_get` and `decision_pending` give it. An item read carries
+verdict that is not an fyi acknowledgement or dismissal carries `record`: `path`
+(`DECISIONS.md`), `instruction` and `entry`, the current verdict's entry as `decision_record`
+writes it. A pending page with a delivery that is not an fyi acknowledgement or dismissal
+carries `record` with `path` and `instruction`, and each such delivery carries `entry`; a page
+stops before the delivery that would take the serialized reply past 512 KiB and always holds
+one, which the largest entry fits. The verdict message of such a verdict holds the notice, then
+`Path: DECISIONS.md` and `Entry:` with the entry. An entry that would take the message past 64
+KiB, which only stored hidden commands can cause, is left out, and the message says that
+`decision_get` and `decision_pending` give it. An item read carries
 `author_repository`, the repository of the participant that the item stored for its author at
 create; a plain peer's item has none. A snapshot stores the item's `where` since #536; an
 older snapshot has none.
@@ -2029,12 +2051,13 @@ which must share its Git common directory (else `repo_unresolved`). The item's
 Koinon header when it is created; a file that does not start with it is
 `decision_record_foreign`, and a symbolic link, a non-regular file or a file over 64 MiB is
 `decision_record_invalid`. Nothing is written on a refusal. Under an exclusive lock on the
-file, each verdict that is not a dismissal and whose marker line is absent is appended, in
+file, each verdict that is not an fyi acknowledgement or dismissal and whose marker line is
+absent is appended, in
 verdict order: the reference's anchor (`<a id="ref"></a>`, the reference in lower case, as GitHub writes its
 anchors) before its first entry, then a
 `## REF` heading, the marker `<!-- koinon-decision REF revision N VERDICT MS -->`, the verdict,
-revision and UTC time, the title and where, and the context, recommendation and note as block
-quotes, with the commands as an indented code block. The result gives `path`, `reference` and
+revision and UTC time, the title and where, and the context, recommendation and note (labeled
+`Feedback` for a feedback verdict) as block quotes, with the commands as an indented code block. The result gives `path`, `reference` and
 the verdict IDs `appended`, `present` and `skipped`, and an `instruction` when it appended. An
 item with no recordable verdict creates no file.
 
@@ -2209,15 +2232,16 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   token. Each route `POST /v1/maintainer/ROUTE` takes `token` with its fields, refuses unknown
   fields, and refuses an unknown or ended token with `maintainer_token_expired`; an accepted
   request moves the token's idle limit. A reply is `{"ok": true, "result": ...}`.
-  - `board-list` (`filter` `waiting` (default), `active`, `in_progress` or `archived`;
-    `after`; `limit`): `counts` (`waiting`, `in_progress`, `open_fyi`, `archived`) and a page
+  - `board-list` (`filter` `waiting` (default), `active`, `returned`, `in_progress` or
+    `archived`; `after`; `limit`): `counts` (`waiting`, `returned`, `in_progress`, `open_fyi`,
+    `archived`) and a page
     of summaries as `decision_list` returns it.
   - `decision-get` (`reference`) and `decision-history` (`reference`, `after`, `limit`): as
     the agents' routes, without a caller; each history verdict adds `via`.
-  - `decision-verdict` (`reference`, `revision`, `verdict` `approved`, `declined` or
-    `dismissed`, optional `note`): the dashboard's verdict, with its refusals
-    (`stale_revision` with `current_revision`, `not_found`, `decided`, `invalid_verdict`,
-    `hidden_command`). The result is the verdict with `via`.
+  - `decision-verdict` (`reference`, `revision`, `verdict` `approved`, `declined`,
+    `feedback`, `completed` or `acknowledged`, `note`, required for `feedback`): the
+    dashboard's verdict, with its refusals (`stale_revision` with `current_revision`,
+    `not_found`, `decided`, `invalid_verdict`, `feedback_required`, `hidden_command`). The result is the verdict with `via`.
   - `inbox` (`after`, `limit` 1–100) reads the maintainer's own inbox as an agent's inbox read
     pages its own; `ack` (`through`) acknowledges it (`ack_beyond_last`).
   - `send` (`to`, `body`): the dashboard's send (`peer_not_found`, `alias_unheld`,
@@ -2246,8 +2270,8 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     client waits as long. Ordinary requests keep 10 seconds.
 
   Each action writes its audit record as the dashboard's does, also when it is refused, with
-  the dashboard's action name (`decision-approve`, `decision-decline`, `decision-dismiss`,
-  `acknowledge`, `send`, `room-post`, `room-create`, `room-add`, `room-remove`) and a target
+  the dashboard's action name (`decision-approve`, `decision-decline`, `decision-feedback`,
+  `decision-complete`, `decision-acknowledge`, `acknowledge`, `send`, `room-post`, `room-create`, `room-add`, `room-remove`) and a target
   that ends with ` by mcp:NAME`. A read writes no record. `koinon mcp --maintainer --client NAME
   --secret-stdin|--secret-file PATH` reads the secret from the first line of standard input,
   one byte at a time so that the MCP stream after it stays unread, or from a regular file that
@@ -2315,12 +2339,13 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   were at the post, by address or peer name and family: queued with the inbox copy's delivery
   state and acknowledgement, skipped with the reason, or `not retained` with unknown
   acknowledgement once the copy is deleted; the view reads one snapshot and acknowledges
-  nothing), `decisions` (the counts of waiting, in-progress, open fyi and archived items; the
-  agent table; 25 active and in-progress cards per page, `ACTION FOR YOU` items first, then
-  item order and reference, with `cards=CURSOR` links; 20 archived items per page with
+  nothing), `decisions` (the counts of waiting (decision items and tasks), returned,
+  in-progress, open fyi and archived items; the agent table; 25 active, returned and
+  in-progress cards per page, tasks first, then item order and reference, with `cards=CURSOR` links; 20 archived items per page with
   `archived=ID` links; `ref=REFERENCE` shows one item at full width above the agent table,
-  with its verdict history 16 verdicts at a time through `history=ID`: a waiting, in-progress
-  or open fyi item as its card with the card's verdict form, which the cards below then skip,
+  with its verdict history 16 verdicts at a time through `history=ID`: a waiting, returned,
+  in-progress or open fyi item as its card with the card's verdict form (a returned card shows
+  the feedback and has no form), which the cards below then skip,
   and an archived item read only. The daemon removes the spaces around `ref`. When no item has
   `ref` as its exact reference, the view lists the references of the items and the deep
   archive that contain it, ignoring ASCII case, 20 per page in reference order with
@@ -2328,7 +2353,7 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   keeps `ref`, so it returns to the lookup or the search with the notice on that item. While
   `ref` is set, a Clear link returns to the view without it.
   Each count links to `status=waiting`,
-  `in_progress`, `fyi` or `archived`, which lists only the cards of that status, or only the
+  `returned`, `in_progress`, `fyi` or `archived`, which lists only the cards of that status, or only the
   archive for `archived`; an `all` link removes it. The counts stay totals under a filter, the
   current filter's link carries `aria-current="true"`, and the lookup form, reference and page
   links and a verdict's redirect keep it. An unknown `status` is 400), `memory` (per store:
@@ -2459,12 +2484,15 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     Room posts). It reaches every active member. The form takes up to
     3 × 65,536 + 4,096 bytes, as the send form does, and each rendered form has its own key, so
     a resubmitted form repeats the first post. The notice is `room_posted`.
-  - `decision-approve` and `decision-decline` on a `decision` item and `decision-dismiss` on an
-    `fyi` item (`reference`, `revision`, optional `note`): the maintainer's verdict on the
-    revision the page showed (see Decision items). The form takes up to 3 × 4,096 + 4,096
-    bytes. The verdict is the maintainer's instruction and approval (PDR 005, Decision 3). The
-    notices are `decision_approved`, `decision_declined` and `decision_dismissed`; refusals
-    are `stale_revision`, `decided`, `invalid_verdict` and `hidden_command`.
+  - `decision-approve` (Approve), `decision-decline` (Decline) and `decision-feedback` (Provide
+    feedback) on a `decision` item; `decision-complete` (Completed), `decision-decline`
+    (Declined) and `decision-feedback` on a `task`; `decision-acknowledge` (Acknowledge) on an
+    `fyi` item (`reference`, `revision`, `note`, required for feedback): the maintainer's
+    verdict on the revision the page showed (see Decision items, #537). The form takes up to
+    3 × 4,096 + 4,096 bytes. The verdict is the maintainer's instruction and approval (PDR 005,
+    Decision 3). The notices are `decision_approved`, `decision_declined`, `decision_feedback`,
+    `decision_completed` and `decision_acknowledged`; refusals are `stale_revision`,
+    `decided`, `invalid_verdict`, `feedback_required` and `hidden_command`.
   - `send` (`to`, `body`): a message from `maintainer`; the recipient's wake works as for any
     message.
   - `launch` (`family` `claude`, `codex`, `agy`, `opencode` or `grok`; `directory`; optional `name`): the daemon runs

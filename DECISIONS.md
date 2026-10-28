@@ -339,3 +339,39 @@ Recommendation:
 >    will not finish" is removed.
 >
 > If declined: the session must stop its subagents or wait for them before the clear, as before.
+<a id="board-verdicts-537"></a>
+
+## BOARD-VERDICTS-537
+
+<!-- koinon-decision BOARD-VERDICTS-537 revision 1 approved 1793143269923 -->
+
+**Approved**, revision 1, 2026-10-27 23:21:09 UTC.
+
+- Title: Decision board actions: feedback, acknowledge, and a task kind (#537)
+- Where (the item's text when recorded; the verdict's snapshot has none): koinon: decision board, dashboard, maintainer client, MCP decision tools, guide, PDR 007
+
+Context:
+
+> You said (2026-10-27): "the decision board needs an option to approve, decline, or 'provide feedback'. provide feedback providing guidance where approve or decline would be misleading. the FYI also is not very useful as it stands. I get tasks placed here, where I have to 'dismiss' is the only option to close or acknowledge an issue. valid options should be acknowledge. tasks should be in the waiting category with, completed, decline, or 'provide feedback' as options." Issue: https://github.com/rwcii/koinon/issues/537
+>
+> Your answers in this session (each one is on #537 with its question):
+> 1. Feedback returns the card to its author: "agreed, your recommendation is correct".
+> 2. A task kind replaces the "ACTION FOR YOU" prefix: "I agree".
+> 3. Acknowledge on an fyi tells the author, with no DECISIONS.md entry: "yes".
+> 4. The other uses keep their current behavior, and the full design goes on one card: "agreed".
+>
+> Today: a verdict is approved, declined or dismissed. An fyi takes only dismiss, and a dismissal tells nobody. A task is an fyi whose title starts with "ACTION FOR YOU". The waiting list shows only decision cards.
+
+Recommendation:
+
+> 1. Decision cards: approve, decline, provide feedback.
+> 2. Task cards (a new kind): completed, declined, provide feedback. Tasks are in the waiting list. Open fyi cards whose title starts with "ACTION FOR YOU" become tasks, and the prefix is retired.
+> 3. Fyi cards: acknowledge.
+> 4. Feedback needs text. It does not approve or decline. The card leaves the waiting list and goes back to its author, who changes it into a new revision (back to waiting) or withdraws it. A card can get feedback more than once.
+> 5. Every action goes to the card's recipients. Approve, decline, completed, declined and feedback each add a DECISIONS.md entry (#536). Acknowledge adds none.
+> 6. No change: notes on approve and decline, agent withdrawal, commands on cards. Old "dismissed" verdicts stay in the history.
+> 7. The dashboard, the maintainer client, the MCP tools, the guide, PROTOCOL.md and PDR 007 change together. Tests cover each kind and action and the stale-revision and already-decided refusals.
+>
+> Order: build it after #536.
+>
+> If you decline: say what to change.

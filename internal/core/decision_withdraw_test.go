@@ -318,7 +318,7 @@ func TestDecisionWithdrawalOnTheBoard(t *testing.T) {
 		t.Fatal(err)
 	}
 	card := cardOf(t, get("/dashboard/decisions"), "B-1")
-	if !strings.Contains(card, ": answered in chat. Reopened by "+peer.Name) || !strings.Contains(card, "decision-dismiss") {
+	if !strings.Contains(card, ": answered in chat. Reopened by "+peer.Name) || !strings.Contains(card, "decision-acknowledge") {
 		t.Errorf("reopened card: %s", card)
 	}
 }
@@ -332,7 +332,7 @@ func TestSchemaThirtyThreeAddsWithdrawals(t *testing.T) {
 	}
 	a := join(t, s, "codex", "synthetic-a", namedRepo(t, "koinon"))
 	mustCreate(t, s, Key{"codex", a.ID}, "M-1", decisionFields("Kept", "fyi"))
-	if _, err := fixtureExec(s, undoSchemaThirtyFour+undoSchemaThirtyThree+`PRAGMA user_version=32`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+`PRAGMA user_version=32`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 32); err != nil {
