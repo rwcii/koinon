@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/rwcii/koinon/internal/setup"
 )
 
 // Lifecycle command tests (sprint chunk 11). None reaches a service manager: install,
@@ -77,5 +79,30 @@ func TestImportCommandWithoutPython(t *testing.T) {
 	var usage usageError
 	if !errors.As(err, &usage) || usage.code != "repository_unresolved" {
 		t.Fatalf("unresolved: %v", err)
+	}
+}
+
+// koinon install --plan prints one command per line and takes only --prefix and --state-dir
+// (#551). The isolated home has no daemon, so the plan is the install.
+func TestInstallPlanCommand(t *testing.T) {
+	dir := t.TempDir()
+	for _, extra := range [][]string{{"--port", "5000"}, {"--agent", "claude"}, {"--no-start"}, {"--system"}} {
+		err := run(context.Background(), append([]string{"install", "--plan"}, extra...), nil, &bytes.Buffer{})
+		var usage usageError
+		if !errors.As(err, &usage) || usage.code != "invalid_request" {
+			t.Fatalf("--plan %v: %v", extra, err)
+		}
+	}
+	var out bytes.Buffer
+	state := filepath.Join(dir, "state")
+	if err := run(context.Background(), []string{"install", "--plan", "--prefix", filepath.Join(dir, "prefix"), "--state-dir", state}, nil, &out); err != nil {
+		t.Fatal(err)
+	}
+	exe, _ := os.Executable()
+	if want := setup.ShellWord(exe) + " install\n"; out.String() != want {
+		t.Fatalf("plan %q, want %q", out.String(), want)
+	}
+	if _, err := os.Stat(state); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the plan made the state directory: %v", err)
 	}
 }

@@ -415,7 +415,8 @@ func TestInspectReadsOnly(t *testing.T) {
 	cli, _, log := syntheticCLI(t, "claude")
 	o := Options{Family: "claude", CLI: cli, Binary: "/opt/koinon/bin/koinon", StateDir: filepath.Join(dir, "state"),
 		ClaudeConfig: filepath.Join(dir, "claude")}
-	if in := Inspect(context.Background(), o); in.CLI != cli || in.Configured || in.Permissions == nil || in.Permissions.Outcome != "missing" {
+	// "No MCP server named koinon" is an answer: the server is not there (#551).
+	if in := Inspect(context.Background(), o); in.CLI != cli || in.Configured || in.Error != "" || in.Permissions == nil || in.Permissions.Outcome != "missing" {
 		t.Fatalf("before setup: %+v", in)
 	}
 	if _, err := Run(context.Background(), o); err != nil {
@@ -429,7 +430,8 @@ func TestInspectReadsOnly(t *testing.T) {
 	if calls := strings.TrimPrefix(string(after), string(before)); calls != "mcp get koinon\n" {
 		t.Fatalf("inspect ran %q", calls)
 	}
-	if in := Inspect(context.Background(), Options{Family: "claude", CLI: filepath.Join(dir, "none"), Binary: o.Binary}); in.Configured || in.Permissions == nil {
+	// A CLI that fails is not read, which differs from a missing server.
+	if in := Inspect(context.Background(), Options{Family: "claude", CLI: filepath.Join(dir, "none"), Binary: o.Binary}); in.Configured || in.Error == "" || in.Permissions == nil {
 		t.Fatalf("missing CLI: %+v", in)
 	}
 	t.Setenv("PATH", dir)

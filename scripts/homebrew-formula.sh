@@ -88,10 +88,45 @@ ${bottle}  on_macos do
   end
 
   # Each command has its own line: the expanded opt_bin path would break a wrapped sentence.
+  # koinon install --plan reads this machine and prints only the steps that it still needs;
+  # it changes nothing (#551). Homebrew keeps the person's PATH, where the agents' CLIs are,
+  # in HOMEBREW_PATH. When the plan cannot run or check everything, the fixed steps show.
   def caveats
-    text = <<~EOS
-      Install the daemon and set up your agents with this formula's binary:
-        #{opt_bin}/koinon install --agent claude --agent codex
+    plan = begin
+      require "open3"
+      out, _err, status = Open3.capture3({ "PATH" => ENV.fetch("HOMEBREW_PATH", ENV.fetch("PATH", "")) },
+                                         "#{opt_bin}/koinon", "install", "--plan")
+      out if status.success? && !out.strip.empty?
+    rescue StandardError
+      nil
+    end
+    text = if plan
+      "The steps that this installation needs:\n#{plan.lines.map { |line| "  #{line}" }.join}" + <<~EOS
+        Check again after these steps:
+          #{opt_bin}/koinon install --plan
+      EOS
+    else
+      fixed = <<~EOS
+        Install the daemon; at a terminal it offers to set up each agent it finds:
+          #{opt_bin}/koinon install
+        Set the maintainer secret for the dashboard login:
+          #{opt_bin}/koinon maintainer secret set
+        Set up an agent family later with its command:
+          #{opt_bin}/koinon setup claude
+          #{opt_bin}/koinon setup codex
+          #{opt_bin}/koinon setup agy
+          #{opt_bin}/koinon setup opencode
+          #{opt_bin}/koinon setup grok
+      EOS
+      if OS.mac?
+        fixed += <<~EOS
+          A --system install keeps a copy. Upgrade it after each brew upgrade with:
+            #{opt_bin}/koinon install --system
+        EOS
+      end
+      fixed
+    end
+    text + <<~EOS
 
       To upgrade:
         brew update
@@ -100,18 +135,7 @@ ${bottle}  on_macos do
       The install links its binary to the formula's opt path, so the daemon restarts
       on the newly linked binary. The restart ends the dashboard login; for a new link:
         koinon dashboard
-
-      An installation made by v0.3.0 or earlier has a copy. After this upgrade, run once:
-        #{opt_bin}/koinon install
     EOS
-    if OS.mac?
-      text += <<~EOS
-
-        A --system install keeps a copy. Upgrade it after each brew upgrade with:
-          #{opt_bin}/koinon install --system
-      EOS
-    end
-    text
   end
 
   test do

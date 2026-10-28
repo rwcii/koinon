@@ -354,6 +354,18 @@ type Inspection struct {
 	CLI         string             `json:"cli,omitempty"`
 	Configured  bool               `json:"configured"`
 	Permissions *PermissionsResult `json:"permissions,omitempty"`
+	// Error is set when the CLI's own read failed, so Configured is not known (#551).
+	Error string `json:"error,omitempty"`
+}
+
+// absent reports whether a failed read of the koinon server says that there is none: Claude
+// Code and Codex answer a get of a missing server with an error.
+func absent(family, output string) bool {
+	switch family {
+	case "claude", "codex":
+		return strings.Contains(ansi.ReplaceAllString(output, ""), "No MCP server named")
+	}
+	return false
 }
 
 // Inspect finds the family's CLI on PATH (or o.CLI), whether its koinon server runs exactly
@@ -368,8 +380,11 @@ func Inspect(ctx context.Context, o Options) Inspection {
 		return in
 	}
 	in.CLI = cli
-	if out, err := runCLI(ctx, cli, getCommand(o.Family)...); err == nil {
+	switch out, err := runCLI(ctx, cli, getCommand(o.Family)...); {
+	case err == nil:
 		in.Configured = configured(o.Family, out, o.Binary)
+	case !absent(o.Family, out):
+		in.Error = fmt.Sprintf("%s %s: %v", cli, strings.Join(getCommand(o.Family), " "), err)
 	}
 	if result, err := Permissions(o, false); err == nil {
 		in.Permissions = &result

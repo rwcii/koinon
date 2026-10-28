@@ -522,3 +522,35 @@ func TestReadSecretLine(t *testing.T) {
 		t.Fatalf("read %d bytes of a long line: %v", 10*MaintainerSecretMaxBytes-r.Len(), err)
 	}
 }
+
+// GET /v1/status says whether a maintainer secret is set, for koinon install --plan (#551).
+func TestStatusReportsMaintainerSecretSet(t *testing.T) {
+	d, root := startTestDaemon(t)
+	secret, err := ReadSecret(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	set := func() any {
+		t.Helper()
+		var status map[string]any
+		if err := json.NewDecoder(request(t, d, "/v1/status", "", secret).Body).Decode(&status); err != nil {
+			t.Fatal(err)
+		}
+		return status["maintainer_secret_set"]
+	}
+	if got := set(); got != false {
+		t.Fatalf("no secret: maintainer_secret_set %v", got)
+	}
+	if err := d.store.setMaintainerSecret(context.Background(), testSecret, "set"); err != nil {
+		t.Fatal(err)
+	}
+	if got := set(); got != true {
+		t.Fatalf("a secret: maintainer_secret_set %v", got)
+	}
+	if err := d.store.clearMaintainerSecret(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := set(); got != false {
+		t.Fatalf("cleared: maintainer_secret_set %v", got)
+	}
+}

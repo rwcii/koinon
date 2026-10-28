@@ -72,6 +72,22 @@ func versionCommand(out io.Writer) error {
 		"os": runtime.GOOS, "arch": runtime.GOARCH, "mcp_resume": strconv.Itoa(mcp.ResumeVersion)})
 }
 
+// planCommand prints the plan's commands, one per line, or that the installation is current
+// (#551). The whole plan is checked before anything is printed, so a failed check prints no
+// step.
+func planCommand(ctx context.Context, o install.Options, out io.Writer) error {
+	steps, err := install.Plan(ctx, o)
+	if err != nil {
+		return coded(err)
+	}
+	if len(steps) == 0 {
+		_, err = fmt.Fprintln(out, "The Koinon installation is current.")
+		return err
+	}
+	_, err = fmt.Fprintln(out, strings.Join(steps, "\n"))
+	return err
+}
+
 // repositories parses --repository KEY=PATH values.
 func repositories(values []string) (map[string]string, error) {
 	result := map[string]string{}
@@ -96,7 +112,7 @@ func lifecycleCommand(ctx context.Context, args []string, in io.Reader, out io.W
 	case "install", "uninstall", "upgrade":
 		flags.Var(&agents, "agent", "agent family to set up or remove; repeatable")
 	}
-	var noStart, system, fromPython, verify, status *bool
+	var noStart, system, plan, fromPython, verify, status *bool
 	var from, pythonPrefix, python *string
 	var port *int
 	switch args[0] {
@@ -104,6 +120,7 @@ func lifecycleCommand(ctx context.Context, args []string, in io.Reader, out io.W
 		port = flags.Int("port", 0, "loopback port of the daemon and dashboard; kept by later installs")
 		noStart = flags.Bool("no-start", false, "write the service without starting it")
 		system = flags.Bool("system", false, "macOS: run the daemon as a LaunchDaemon that survives logout; asks sudo")
+		plan = flags.Bool("plan", false, "print the commands that this installation still needs; change nothing")
 	case "import":
 		from = flags.String("from", "", "Python-era state root")
 		verify = flags.Bool("verify", false, "compare the sources with the Go state; change nothing")
@@ -121,8 +138,17 @@ func lifecycleCommand(ctx context.Context, args []string, in io.Reader, out io.W
 	}
 	switch args[0] {
 	case "install":
-		given := false
-		flags.Visit(func(f *flag.Flag) { given = given || f.Name == "port" })
+		given, other := false, false
+		flags.Visit(func(f *flag.Flag) {
+			given = given || f.Name == "port"
+			other = other || (f.Name != "plan" && f.Name != "prefix" && f.Name != "state-dir")
+		})
+		if *plan {
+			if other {
+				return usageError{"invalid_request", "--plan takes only --prefix and --state-dir"}
+			}
+			return planCommand(ctx, install.Options{Prefix: *prefix, StateDir: *state}, out)
+		}
 		if given && !core.ValidPort(*port) {
 			return usageError{"invalid_request", "--port takes a port from 1 to 65535"}
 		}

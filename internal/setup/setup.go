@@ -74,6 +74,15 @@ const serverName = "koinon"
 
 func quote(value string) string { return "'" + strings.ReplaceAll(value, "'", `'"'"'`) + "'" }
 
+// ShellWord is path as one shell word: as it is when it holds only safe characters, else
+// quoted.
+func ShellWord(path string) string {
+	if strings.Trim(path, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._+-") == "" {
+		return path
+	}
+	return quote(path)
+}
+
 // Run configures one family and returns its report.
 func Run(ctx context.Context, o Options) (Report, error) {
 	report := Report{OK: true, Family: o.Family, Changed: []string{}, Unchanged: []string{}}

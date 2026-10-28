@@ -5,6 +5,16 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- After `brew install` and `brew upgrade`, Homebrew shows the steps that this machine still
+  needs (#551). The new `koinon install --plan` reads the installation, changes nothing, and
+  prints one command per line: `koinon install` when no daemon is installed or the installed
+  binary is not this one, `koinon install --system` for an older macOS system-mode copy,
+  `koinon maintainer secret set` when no secret is set, and `koinon setup FAMILY` for each agent
+  whose CLI is installed without Koinon; or that the installation is current. The formula
+  runs it and, when a check cannot finish, shows the fixed list of one-time steps instead.
+  `GET /v1/status` reports `maintainer_secret_set`. The install's agent review shows an agent
+  whose CLI failed as "not read". The caveats no longer list the v0.3.0 upgrade step; the plan
+  finds that copy.
 - A session follows the daemon to a new port (#549). After `koinon install --port N`, a
   running `koinon mcp` server kept the former address and answered `daemon_unavailable` on
   every tool call, and in a session that `koinon claude` or another launcher started, every
