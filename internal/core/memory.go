@@ -607,7 +607,7 @@ func (s *Store) MemoryRecord(ctx context.Context, m MemoryCaller, r MemoryRecord
 		case r.Deadline == nil || math.IsNaN(*r.Deadline) || math.IsInf(*r.Deadline, 0):
 			return MemoryRecordResult{}, memoryError("invalid_request", "a keyed write needs a finite deadline fixed before the first send")
 		case *r.Deadline > now+l.idemTTL:
-			return MemoryRecordResult{}, memoryError("invalid_request", fmt.Sprintf("the deadline is beyond the %.0f s horizon", l.idemTTL))
+			return MemoryRecordResult{}, memoryError("invalid_request", fmt.Sprintf("the deadline must be a Unix time in seconds at most %.0f s ahead", l.idemTTL))
 		case *r.Deadline <= now:
 			return MemoryRecordResult{}, memoryError("retry_deadline_expired", "the retry deadline has passed; the first attempt's outcome is unknown")
 		}

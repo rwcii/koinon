@@ -249,10 +249,12 @@ func splitWords(s string) ([]string, error) {
 	return words, nil
 }
 
-// isWrapper reports whether an entry runs this binary's status-line hook.
+// isWrapper reports whether an entry runs a Koinon status-line hook, of this binary or of an
+// earlier one: after an upgrade that moves the binary, an edited wrapper is still Koinon's and
+// is left alone, never wrapped again (#530).
 func (l statusLine) isWrapper(entry json.RawMessage) bool {
 	words, err := splitWords(entryCommand(entry))
-	return err == nil && len(words) >= 3 && words[0] == l.binary && words[1] == "hook" && words[2] == l.hookName()
+	return err == nil && len(words) >= 3 && words[1] == "hook" && words[2] == l.hookName()
 }
 
 // wrapperEntry is the entry that runs the hook around the original command, keeping the
@@ -279,6 +281,26 @@ func (l statusLine) wrapperEntry(original json.RawMessage) json.RawMessage {
 		fields = append(fields, l.defaults...)
 	}
 	return encodeFields(fields)
+}
+
+// plainWrapper reports whether a wrapper is spelled exactly as wrapperEntry writes it: the hook
+// alone or around one non-empty command, every word quoted as quote quotes it. Any other
+// spelling, such as a shell operator after the quoted command or an empty command, is the
+// user's edit (#532).
+func plainWrapper(entry json.RawMessage) bool {
+	command := entryCommand(entry)
+	words, err := splitWords(command)
+	if err != nil || len(words) < 3 {
+		return false
+	}
+	plain := quote(words[0]) + " hook " + words[2]
+	switch {
+	case len(words) == 3:
+		return command == plain
+	case len(words) == 5 && words[3] == "--command" && words[4] != "":
+		return command == plain+" --command "+quote(words[4])
+	}
+	return false
 }
 
 // unwrap rebuilds the entry that a wrapper entry runs, or nil when it runs none.
@@ -479,6 +501,10 @@ func (l statusLine) setUp() (StatusLineResult, error) {
 		}
 		original = now
 	case l.isWrapper(now):
+		if !plainWrapper(now) {
+			result.Outcome, result.Reason = "changed", "statusline_changed"
+			return result, nil
+		}
 		original = l.unwrap(now)
 	default:
 		original = now

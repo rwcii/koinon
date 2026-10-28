@@ -213,7 +213,7 @@ func (d *Daemon) workActions(mux *http.ServeMux, authed func(int64, func(http.Re
 				return nil, nil
 			}
 		}
-		return nil, workError("work_not_found", "the work item is absent or its retention has expired")
+		return nil, workError("work_not_found", "the work item is absent or no longer retained")
 	}
 
 	mux.HandleFunc("POST /dashboard/actions/work-create", authed(workFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {

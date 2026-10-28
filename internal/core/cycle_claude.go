@@ -171,6 +171,13 @@ type claudeScreen struct {
 	found bool
 	// dialog is the code of a recognized dialog, "native_dialog" for another one, or "".
 	dialog string
+	// agents reports a running background subagent's row (◯) in the agent panel below the input
+	// line. turn reports a turn in progress: the spinner line above the input box, a glyph, a
+	// word with an ellipsis and its elapsed time ("✢ Working… (26s · ↓ 427 tokens)"), or the
+	// "esc to interrupt" hint below it, which a turn does not always show (Claude Code 2.1.311
+	// and 2.1.312, #533). The line of a turn that waits only for background agents ("✻ Waiting
+	// for 1 background agent to finish") has no elapsed time.
+	agents, turn bool
 }
 
 // readClaude captures the pane with attributes. Dim text in the input line is a placeholder
@@ -192,6 +199,20 @@ func parseClaudeScreen(out string) claudeScreen {
 	for i := len(raw) - 1; i >= 0; i-- {
 		if idx := strings.Index(raw[i], claudeInputMark); idx >= 0 {
 			screen.input, screen.found = strings.TrimSpace(visibleText(raw[i][idx+len(claudeInputMark):])), true
+			for _, below := range screen.lines[i+1:] {
+				screen.agents = screen.agents || strings.HasPrefix(strings.TrimSpace(below), "◯ ")
+				screen.turn = screen.turn || strings.Contains(below, "esc to interrupt")
+			}
+			// The spinner is among the last text lines above the box's upper rule; a tip line
+			// ("⎿  Tip: …") can follow it.
+			for j, seen := i-1, 0; j >= 0 && seen < 3; j-- {
+				above := strings.TrimSpace(screen.lines[j])
+				if above == "" || strings.Trim(above, "─") == "" {
+					continue
+				}
+				seen++
+				screen.turn = screen.turn || claudeSpinner.MatchString(above)
+			}
 			break
 		}
 	}
@@ -268,6 +289,16 @@ func (claudeCycle) Inspect(ctx context.Context, t CycleTarget, fence CycleFence)
 		return PaneState{}, err
 	}
 	pane := claudePaneState(record.Status, screen)
+	if pane.Idle && record.Status == "busy" {
+		// Only a background subagent that its records show running keeps a session at its
+		// prompt busy (#533).
+		switch running, err := claudeRunningSubagents(t, 0); {
+		case err != nil:
+			return PaneState{Seen: subagentsUnread}, nil
+		case running == 0:
+			return PaneState{Seen: "status_busy"}, nil
+		}
+	}
 	if pane.Idle && t.ReadyAt > 0 {
 		root, err := claudeConfigRoot(t)
 		if err != nil {
@@ -283,13 +314,18 @@ func (claudeCycle) Inspect(ctx context.Context, t CycleTarget, fence CycleFence)
 	return pane, nil
 }
 
-// subagentAfterReady is the Seen code of a session whose background subagent wrote its
-// transcript after the ready report: its results came after the handoff (#456).
+// subagentAfterReady is the Seen code of a session whose background subagent finished after
+// the ready report: its results came to the session after the handoff (#456). A subagent that
+// still runs gives its result to the new conversation after the clear (#533).
 const subagentAfterReady = "subagent_after_ready"
 
 // subagentsUnread is the Seen code of a session whose subagent transcripts could not all be
 // read: the handoff may lack their work, so the pane is not ready for the clear.
 const subagentsUnread = "subagents_unread"
+
+// claudeSpinner is the line of a turn in progress: a glyph, a word with an ellipsis and its
+// elapsed time in parentheses.
+var claudeSpinner = regexp.MustCompile(`^\S \S+… \(\d+(\.\d+)?[smh]`)
 
 // claudeTranscriptID is the form of a Claude Code session ID, a UUID.
 var claudeTranscriptID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
@@ -299,11 +335,15 @@ var maxSubagentEntries = 16384
 
 var errSubagentScan = errors.New("subagent transcripts not fully read")
 
-// claudeSubagentsSince reports whether a subagent transcript of the session changed after
-// at (Unix milliseconds). Claude Code keeps them at projects/PROJECT/SESSION/subagents/ in
-// its configuration root, which is read as a literal path. Only file times are read, never
-// content. An absent directory proves no subagent work; an unreadable one, or one with more
-// than maxSubagentEntries entries, is an error, never a clean result.
+// claudeSubagentsSince reports whether a subagent of the session that is not running changed
+// its transcript or meta file after at (Unix milliseconds). Claude Code keeps them at
+// projects/PROJECT/SESSION/subagents/ in its configuration root, which is read as a literal
+// path. Only file times and the meta file's finished key are read, never transcript content.
+// A subagent whose meta file has no "finished": true still runs, and its result goes to the
+// conversation after the clear (#533); one that finished after at counts even when its
+// transcript is older (#533 review); one without a meta file counts by its transcript time.
+// An absent directory proves no subagent work; an unreadable one, or one with more than
+// maxSubagentEntries entries, is an error, never a clean result.
 func claudeSubagentsSince(root, session string, at int64) (bool, error) {
 	if !claudeTranscriptID.MatchString(session) {
 		return false, nil
@@ -331,7 +371,34 @@ func claudeSubagentsSince(root, session string, at int64) (bool, error) {
 			} else if err != nil {
 				return false, err
 			}
-			if info.ModTime().UnixMilli() > at {
+			metaPath := filepath.Join(dir, strings.TrimSuffix(e.Name(), ".jsonl")+".meta.json")
+			changed := info.ModTime().UnixMilli()
+			metaInfo, err := os.Lstat(metaPath)
+			if errors.Is(err, fs.ErrNotExist) {
+				if changed > at {
+					return true, nil
+				}
+				continue
+			} else if err != nil {
+				return false, err
+			}
+			changed = max(changed, metaInfo.ModTime().UnixMilli())
+			if changed <= at {
+				continue
+			}
+			data, err := readBounded(metaPath, claudeRegistryMax)
+			if errors.Is(err, fs.ErrNotExist) {
+				return true, nil
+			} else if err != nil {
+				return false, err
+			}
+			var meta struct {
+				Finished bool `json:"finished"`
+			}
+			if err := json.Unmarshal(data, &meta); err != nil {
+				return false, err
+			}
+			if meta.Finished {
 				return true, nil
 			}
 		}
@@ -425,13 +492,17 @@ func boundedEntries(dir string) ([]fs.DirEntry, error) {
 // claudePaneState reads the host's registry status with its screen. The host is at its prompt
 // when the status is idle, or shell: the prompt with a background shell task running, such
 // as a monitor of the session's inbox. Claude Code 2.1.303 takes /clear there without a dialog,
-// and the task, with its status, stays through the clear (#417). A turn in progress (busy) or
-// a native wait (waiting) is not at the prompt.
+// and the task, with its status, stays through the clear (#417). The status is also busy while
+// a background subagent runs after the turn ended: the screen then shows the subagent's row and
+// no turn. Claude Code 2.1.311 takes /clear there at once, and the subagent runs on and gives its
+// result to the new conversation (#533); Inspect also needs a running subagent in its records.
+// A turn in progress (busy) or a native wait (waiting) is not at the prompt.
 func claudePaneState(status string, screen claudeScreen) PaneState {
+	background := status == "busy" && screen.agents && !screen.turn
 	switch {
-	case status == "busy" || status == "waiting":
+	case (status == "busy" && !background) || status == "waiting":
 		return PaneState{Seen: "status_" + status}
-	case status != "idle" && status != "shell":
+	case status != "idle" && status != "shell" && !background:
 		return PaneState{Seen: "status_unknown"}
 	case !screen.found:
 		return PaneState{Seen: "input_line_not_found"}

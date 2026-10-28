@@ -100,15 +100,25 @@ func (s SkillRoot) Present() bool {
 }
 
 // SkillRoots are the user skill roots whose discovery was verified (#461, docs/INSTALL.md):
-// Claude Code's configuration root, Codex's ~/.agents in home, and OpenCode's and agy's
-// configuration directories, as koinon setup uses them. Grok and DeepSeek have none.
-func SkillRoots(claudeConfig, home, opencode, agy string) []SkillRoot {
+// Claude Code's configuration root, Codex's ~/.agents in home, OpenCode's and agy's
+// configuration directories, as koinon setup uses them, and the Grok home, whose skills win
+// over ~/.agents and ~/.claude in Grok (#515). DeepSeek has none.
+func SkillRoots(claudeConfig, home, opencode, agy, grok string) []SkillRoot {
 	return []SkillRoot{
 		{Family: "claude", Root: claudeConfig},
 		{Family: "codex", Root: filepath.Join(home, ".agents")},
 		{Family: "opencode", Root: opencode, IfPresent: true},
 		{Family: "agy", Root: agy, IfPresent: true},
+		{Family: "grok", Root: grok, IfPresent: true},
 	}
+}
+
+// GrokHome is Grok's home: grokHome ($GROK_HOME) when set, else ~/.grok in home.
+func GrokHome(grokHome, home string) string {
+	if grokHome != "" {
+		return grokHome
+	}
+	return filepath.Join(home, ".grok")
 }
 
 // OpenCodeConfigRoot is OpenCode's global configuration directory: xdgConfig/opencode when

@@ -59,7 +59,8 @@ func TestCycleToolsAttachNativeEpoch(t *testing.T) {
 	if got := o.s.cycleEpoch(core.Key{Family: "opencode", ID: "ses_synthetic"}); got != "ses_synthetic" {
 		t.Fatalf("opencode epoch: %q", got)
 	}
-	if got := o.s.cycleEpoch(core.Key{Family: "grok", ID: "synthetic"}); got != "" {
+	// Grok's epoch is the call's own session, which /new replaces (#515).
+	if got := o.s.cycleEpoch(core.Key{Family: "grok", ID: "synthetic"}); got != "synthetic" {
 		t.Fatalf("grok epoch: %q", got)
 	}
 }
