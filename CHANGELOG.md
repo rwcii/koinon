@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A managed cycle's ready or pickup report with a handoff file name that is not of the form
+  `YYYY-MM-DD-HHMMSS[-LABEL].md` is now refused with `cycle_artifact_invalid` and that form
+  (#535). Before, it got a bare `invalid_request`, and a Claude session whose file was
+  `2026-10-27T211500Z-handoff.md` retried until its ready deadline came near.
 - The MCP tools that take `key` and `deadline` now say what `deadline` is (#534): a Unix time
   in seconds, at most 86400 s ahead, sent unchanged on each retry. Before, the schemas gave
   only `number`, and a value in milliseconds was refused with "must be within 86400 s", which
