@@ -9,7 +9,12 @@
 <td>{{.Family}}</td><td>{{.Mode}}{{with .Error}}<br><small>stored value not applied: {{.}}</small>{{end}}</td><td>{{.Threshold}}%</td>
 </tr>{{end}}</tbody></table>
 <p><small>The family mode and threshold are defaults; no session runs a handoff cycle or compaction until it is enabled on the Sessions page. <code>native_compaction</code> (Codex only) enters Codex's own <code>/compact</code> at the threshold, once Codex is idle; no mode changes a native setting.</small></p>{{end}}
-{{define "actions"}}<details class="action" open><summary>Change the session timing</summary>
+{{define "actions"}}<details class="action" open><summary>Spoken alert</summary>
+<p><label><input type="checkbox" id="speak-switch" disabled> Speak when a decision or task starts to wait</label>
+<button type="button" id="speak-test" disabled>Test</button></p>
+<p id="speak-status"><small>The alert needs the dashboard script.</small></p>
+<p><small>This browser speaks the alert, for example "koinon: a decision waits for you", with the repository of each item, while a dashboard page is open. The switch covers every repository of this Koinon instance. The browser keeps it for this dashboard address (scheme, host and port), so 127.0.0.1, [::1], an SSH tunnel's port and a new port each have their own switch. A browser speaks only after a click on the page: after a reload, the alert waits for your next click.</small></p></details>
+<details class="action" open><summary>Change the session timing</summary>
 <form method="post" action="/dashboard/actions/settings"><input type="hidden" name="csrf" value="{{.CSRF}}">
 <label>Registration lifetime, seconds <input name="lifetime_seconds" type="number" min="60" max="3600" required value="{{.Data.Current.LifetimeSeconds}}"></label>
 <label>Renewal interval, seconds <input name="renewal_seconds" type="number" min="30" max="1800" required value="{{.Data.Current.RenewalSeconds}}"></label>

@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The dashboard can speak when a decision or task starts to wait for you (#553,
+  DECISIONS.md#SPEAK-SCOPE-553). A switch on the Settings page turns the alert on in this
+  browser; while a dashboard page is open, the browser says the item's repository, for example
+  "koinon: a decision waits for you". The browser speaks, not the daemon, so the alert sounds
+  where you read the dashboard, also through an SSH tunnel. One switch covers every repository
+  of the Koinon instance; the browser keeps it for that dashboard address. A browser speaks only
+  after a click on the page, so an alert that it stopped waits for your next click. The new
+  `GET /dashboard/waiting` gives the page the waiting items and the decision change version.
 - The Claude permission rules that `koinon install` and `koinon setup claude` offer cover the
   `koinon` commands that agents run (#550, DECISIONS.md#CLI-RULES-550). The offer had four rules,
   so each other CLI call by a Claude agent, such as `koinon decision record` or a call while
