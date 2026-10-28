@@ -132,7 +132,8 @@ cases, and verifies those paths stay outside installation. All runtime and ordin
 
 `scripts/setup-repo.sh` configures PR merge policy and required Go/native lifecycle checks
 through `gh`, and on `develop` the `decision-citations` check of the pull request's title, body
-and commit messages. It has no Python dependency. Changing the script does not update remote
+and commit messages. A pull request to `main` gets the check on its title and body only: its
+commits come from `develop`. It has no Python dependency. Changing the script does not update remote
 rulesets; they change only when the script runs with the repository's admin rights. Existing
 rulesets requiring retired Python matrix names need that update before merge.
 

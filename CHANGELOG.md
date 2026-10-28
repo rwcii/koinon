@@ -13,6 +13,11 @@ into a dated release section when promoted to `main`.
   without `--address` now finds the address again for each call, and a launcher sets
   `KOINON_DAEMON_ADDRESS` only for an address other than the installed one. A session that a
   launcher of v0.6.0 or earlier started keeps the former address until it starts again.
+- The `decision-citations` check of a pull request to `main` reads its title and body, not its
+  commits (#548). A promotion from `develop` carries commits that merged before #536 added the
+  check, and `develop`'s history is not rewritten, so the v0.6.0 promotion failed the check on
+  one of them. A pull request to any other branch still has its commit messages checked.
+
 ## 2026-10-28 — Decision board feedback and tasks, decision records, and cycles for more agents
 
 This release changes how the maintainer answers the decision board: a decision takes Approve,

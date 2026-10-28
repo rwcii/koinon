@@ -13,12 +13,18 @@ jobs:
         with:
           fetch-depth: 0
       # A verdict ID exists only in one machine's store: the title, the body and every commit
-      # message of the pull request cite DECISIONS.md#REFERENCE instead (#536).
+      # message of the pull request cite DECISIONS.md#REFERENCE instead (#536). A promotion to
+      # main checks its title and body only: its commits are develop's, each checked as its
+      # pull request's text or merged before #536, and develop's history is not rewritten (#548).
       - name: No decision board verdict IDs in the pull request text or its commits
         env:
           TITLE: ${{ github.event.pull_request.title }}
           BODY: ${{ github.event.pull_request.body }}
           BASE: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
-          { printf '%s\n%s\n' "$TITLE" "$BODY"; git log --format=%B "$BASE..$HEAD"; } | sh scripts/decision-citations.sh
+          {
+            printf '%s\n%s\n' "$TITLE" "$BODY"
+            if [ "$BASE_REF" != main ]; then git log --format=%B "$BASE..$HEAD"; fi
+          } | sh scripts/decision-citations.sh
