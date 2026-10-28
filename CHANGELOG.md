@@ -5,6 +5,17 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The Claude permission rules that `koinon install` and `koinon setup claude` offer cover the
+  `koinon` commands that agents run (#550, DECISIONS.md#CLI-RULES-550). The offer had four rules,
+  so each other CLI call by a Claude agent, such as `koinon decision record` or a call while
+  the MCP tools did not work, needed an approval. The offer now holds `mcp__koinon__*` and, with
+  and without arguments, `guide`, `status`, `context show`, `peers`, `peer-status`, `inbox`,
+  `ack`, `send`, `cycle-status`, `cycle-ready`, `cycle-pickup`, `decision`, `work`,
+  `claim renew`, `memory`, `room list`, `room members`, `room post`, `room read` and `library`,
+  for the PATH name `koinon` and for the installed binary's absolute path. Commands that change
+  the installation, the service, the maintainer's settings or a login stay out. The rules are
+  still added only after a yes at a terminal; run `koinon setup claude` in a terminal to add
+  them.
 - The `decision-citations` check of a pull request to `main` reads its title and body, not its
   commits (#548). A promotion from `develop` carries commits that merged before #536 added the
   check, and `develop`'s history is not rewritten, so the v0.6.0 promotion failed the check on

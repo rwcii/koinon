@@ -17,21 +17,53 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// ClaudeCommands are the agent-facing koinon commands that the recommended Claude rules
+// allow, each with and without its arguments (DECISIONS.md#CLI-RULES-550). install, uninstall,
+// upgrade, serve, setup, maintainer, dashboard, the context changes, sessions and participant
+// holder stay out.
+var ClaudeCommands = []string{"guide", "status", "context show", "peers", "peer-status", "inbox", "ack", "send",
+	"cycle-status", "cycle-ready", "cycle-pickup", "decision", "work", "claim renew", "memory",
+	"room list", "room members", "room post", "room read", "library"}
+
 // The recommended server-wide permission rules of docs/PERMISSIONS.md for each family: the
-// koinon server's tools and the read-only commands that the guide tells agents to run.
+// koinon server's tools and the commands that agents run.
 var (
-	ClaudePermissions = []string{
-		"mcp__koinon__*",
-		"Bash(koinon guide --agent claude)",
-		"Bash(koinon context show)",
-		"Bash(koinon status)",
-	}
-	AgyPermissions = []string{"mcp(koinon/*)", "command(koinon guide --agent agy)"}
+	ClaudePermissions = claudeBashRules("koinon")
+	AgyPermissions    = []string{"mcp(koinon/*)", "command(koinon guide --agent agy)"}
 	// CodexPermissions is the key that setup sets in the [mcp_servers.koinon] table.
 	CodexPermissions = []string{`default_tools_approval_mode = "approve"`}
 	// OpenCodePermissions are members of the permission object: a key, or bash.KEY.
 	OpenCodePermissions = []string{`"koinon_*": "allow"`, `"bash": {"koinon guide --agent opencode": "allow"}`}
 )
+
+// claudeBashRules are the server rule and the Bash rules of ClaudeCommands for program.
+func claudeBashRules(program string) []string {
+	rules := []string{"mcp__koinon__*"}
+	for _, command := range ClaudeCommands {
+		rules = append(rules, "Bash("+program+" "+command+")", "Bash("+program+" "+command+" *)")
+	}
+	return rules
+}
+
+// claudePermissions are ClaudePermissions and the same Bash rules for binary, the absolute
+// path that the installed Claude configuration runs, which agents also call; a path that the
+// shell must quote is quoted as setup quotes it in commands.
+func claudePermissions(binary string) []string {
+	rules := slices.Clone(ClaudePermissions)
+	if binary != "" && binary != "koinon" {
+		rules = append(rules, claudeBashRules(shellWord(binary))[1:]...)
+	}
+	return rules
+}
+
+// shellWord is path as one shell word: as it is when it holds only safe characters, else
+// quoted.
+func shellWord(path string) string {
+	if strings.Trim(path, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._+-") == "" {
+		return path
+	}
+	return quote(path)
+}
 
 // GrokPermissionNote is the launch rule that Grok takes instead of a settings file.
 const GrokPermissionNote = "Grok takes its rule at launch: koinon grok --allow 'MCPTool(koinon__*)'. No file was changed."
@@ -64,11 +96,19 @@ func Permissions(o Options, add bool) (PermissionsResult, error) {
 		if dir == "" {
 			dir = claudeConfigDir(os.Getenv)
 		}
-		err = allowList(&result, statusLine{settings: filepath.Join(dir, "settings.json")}, ClaudePermissions, func(rule string) []string {
+		binary := o.Binary
+		if binary == "" {
+			binary, _ = os.Executable()
+		}
+		err = allowList(&result, statusLine{settings: filepath.Join(dir, "settings.json")}, claudePermissions(binary), func(rule string) []string {
 			if rule == "mcp__koinon__*" {
 				return []string{"mcp__koinon"}
 			}
-			return []string{"Bash(koinon *)", "Bash(koinon:*)"}
+			program := "koinon"
+			if word := shellWord(binary); strings.HasPrefix(rule, "Bash("+word+" ") {
+				program = word
+			}
+			return []string{"Bash(" + program + " *)", "Bash(" + program + ":*)"}
 		}, add)
 	case "agy":
 		err = allowList(&result, statusLine{settings: agySettingsFile(o), label: "Antigravity settings"}, AgyPermissions, func(rule string) []string {

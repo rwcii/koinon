@@ -310,10 +310,12 @@ Use koinon claude --bg for a background job; Koinon supplies its private setting
 records its job ID. A launch_pending refusal retries registration at the next tool call.
 ### Recommended permissions
 Merge into $CLAUDE_CONFIG_DIR/settings.json (default ~/.claude/settings.json):
-  {"permissions":{"allow":["mcp__koinon__*","Bash(koinon guide --agent claude)","Bash(koinon context show)","Bash(koinon status)"]}}
+  {"permissions":{"allow":["mcp__koinon__*","Bash(koinon guide)","Bash(koinon guide *)","Bash(koinon status)","Bash(koinon status *)","Bash(koinon context show)","Bash(koinon context show *)","Bash(koinon peers)","Bash(koinon peers *)","Bash(koinon peer-status)","Bash(koinon peer-status *)","Bash(koinon inbox)","Bash(koinon inbox *)","Bash(koinon ack)","Bash(koinon ack *)","Bash(koinon send)","Bash(koinon send *)","Bash(koinon cycle-status)","Bash(koinon cycle-status *)","Bash(koinon cycle-ready)","Bash(koinon cycle-ready *)","Bash(koinon cycle-pickup)","Bash(koinon cycle-pickup *)","Bash(koinon decision)","Bash(koinon decision *)","Bash(koinon work)","Bash(koinon work *)","Bash(koinon claim renew)","Bash(koinon claim renew *)","Bash(koinon memory)","Bash(koinon memory *)","Bash(koinon room list)","Bash(koinon room list *)","Bash(koinon room members)","Bash(koinon room members *)","Bash(koinon room post)","Bash(koinon room post *)","Bash(koinon room read)","Bash(koinon room read *)","Bash(koinon library)","Bash(koinon library *)"]}}
 At a terminal, koinon install and koinon setup claude show the missing rules and add them
-when the maintainer accepts. With them, auto mode runs ack, peer_status and koinon context
-show without asking. Claude Code 2.1.307 accepted these rules in claude doctor. Trust setup's
+when the maintainer accepts; they also add the same Bash rules for the absolute path of the
+installed koinon binary, which the Claude configuration runs. With them, the Koinon tools and
+the koinon commands that agents run need no approval. Claude Code 2.1.312 accepted these rules
+in claude doctor. Trust setup's
 hook and status line when Claude Code asks.
 See https://github.com/rwcii/koinon/blob/develop/docs/PERMISSIONS.md for tool purposes,
 paths/connections and optional terminal operations.
