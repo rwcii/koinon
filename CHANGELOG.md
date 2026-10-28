@@ -15,6 +15,17 @@ into a dated release section when promoted to `main`.
   `GET /v1/status` reports `maintainer_secret_set`. The install's agent review shows an agent
   whose CLI failed as "not read". The caveats no longer list the v0.3.0 upgrade step; the plan
   finds that copy.
+- The Claude permission rules that `koinon install` and `koinon setup claude` offer cover the
+  `koinon` commands that agents run (#550, DECISIONS.md#CLI-RULES-550). The offer had four rules,
+  so each other CLI call by a Claude agent, such as `koinon decision record` or a call while
+  the MCP tools did not work, needed an approval. The offer now holds `mcp__koinon__*` and, with
+  and without arguments, `guide`, `status`, `context show`, `peers`, `peer-status`, `inbox`,
+  `ack`, `send`, `cycle-status`, `cycle-ready`, `cycle-pickup`, `decision`, `work`,
+  `claim renew`, `memory`, `room list`, `room members`, `room post`, `room read` and `library`,
+  for the PATH name `koinon` and for the installed binary's absolute path. Commands that change
+  the installation, the service, the maintainer's settings or a login stay out. The rules are
+  still added only after a yes at a terminal; run `koinon setup claude` in a terminal to add
+  them.
 - A session follows the daemon to a new port (#549). After `koinon install --port N`, a
   running `koinon mcp` server kept the former address and answered `daemon_unavailable` on
   every tool call, and in a session that `koinon claude` or another launcher started, every
