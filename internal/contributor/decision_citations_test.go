@@ -99,23 +99,58 @@ func TestDecisionCitationsResolve(t *testing.T) {
 	if got := recordEntries(sample); len(got) != 1 || !got["real-1"] {
 		t.Errorf("entries: %v", got)
 	}
-	// The hook runs the same script on every line above the scissors line of commit
-	// --verbose, comment lines too, because a cleanup mode can keep them.
 	hook := read(t, ".githooks/commit-msg")
 	if !strings.Contains(hook, "scripts/decision-citations.sh") {
 		t.Error("the commit-msg hook does not run the check")
 	}
-	for message, refused := range map[string]bool{"Synthetic\n\n# verdict 5\n": true, "Synthetic VERDICT 5\n": true, "Synthetic\n": false,
-		"Synthetic\n# ------------------------ >8 ------------------------\n+verdict 5\n": false} {
-		file := filepath.Join(t.TempDir(), "COMMIT_EDITMSG")
-		if err := os.WriteFile(file, []byte(message), 0o600); err != nil {
+	// The hook refuses what a real commit would keep: comment lines that commit -F keeps, a
+	// scissors line that commit -F keeps with the text below it, and any case. Only the diff
+	// below the scissors of commit --verbose, which Git removes, is not read.
+	repo := t.TempDir()
+	git := func(env []string, args ...string) error {
+		cmd := exec.Command("git", append([]string{"-C", repo, "-c", "core.hooksPath=" + filepath.Join(repo, ".githooks"),
+			"-c", "user.name=Synthetic", "-c", "user.email=synthetic@example.invalid", "-c", "commit.gpgsign=false"}, args...)...)
+		cmd.Env = append(os.Environ(), env...)
+		return cmd.Run()
+	}
+	if err := git(nil, "init", "-q"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{".githooks/commit-msg", "scripts/decision-citations.sh"} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(repo, name)), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		cmd := exec.Command("sh", filepath.Join(root(t), ".githooks/commit-msg"), file)
-		cmd.Dir = root(t)
-		if err := cmd.Run(); (err != nil) != refused {
-			t.Errorf("hook on %q: %v", message, err)
+		if err := os.WriteFile(filepath.Join(repo, name), []byte(read(t, name)), 0o755); err != nil {
+			t.Fatal(err)
 		}
+	}
+	scissors := "# ------------------------ >8 ------------------------"
+	for _, c := range []struct {
+		name, message string
+		refused       bool
+	}{
+		{"heading", "Synthetic\n\n# verdict 5\n", true},
+		{"upper case", "Synthetic VERDICT 5\n", true},
+		{"scissors kept by -F", "Synthetic\n" + scissors + "\nverdict 5\n", true},
+		{"plain", "Synthetic\n", false},
+	} {
+		file := filepath.Join(t.TempDir(), "message")
+		if err := os.WriteFile(file, []byte(c.message), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := git(nil, "commit", "-q", "--allow-empty", "-F", file); (err != nil) != c.refused {
+			t.Errorf("%s: commit -F: %v", c.name, err)
+		}
+	}
+	// commit --verbose puts the staged diff, here a verdict ID, below its scissors line.
+	if err := os.WriteFile(filepath.Join(repo, "notes.txt"), []byte("verdict 5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := git(nil, "add", "notes.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if err := git([]string{"GIT_EDITOR=true"}, "commit", "-q", "--verbose", "-e", "-m", "Synthetic notes"); err != nil {
+		t.Errorf("commit --verbose with a verdict ID in the diff: %v", err)
 	}
 	if workflow := read(t, ".github/workflows/pr-text.yml"); !strings.Contains(workflow, "sh scripts/decision-citations.sh") ||
 		!strings.Contains(workflow, "decision-citations:") || !strings.Contains(workflow, "edited") {
