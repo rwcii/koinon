@@ -54,4 +54,10 @@ func TestPinsAddress(t *testing.T) {
 	if pins("127.0.0.1:47681") || pins("[::1]:47681") || !pins("127.0.0.1:47671") || !pins("192.0.2.1:47681") {
 		t.Fatal("recorded port")
 	}
+	// An address that the launcher itself inherited never reaches the agent.
+	for _, family := range []string{"claude", "codex"} {
+		if env := cleanEnvironment([]string{"KOINON_DAEMON_ADDRESS=127.0.0.1:47671", "PATH=/synthetic"}, family); len(env) != 1 || env[0] != "PATH=/synthetic" {
+			t.Fatalf("%s: inherited address kept: %q", family, env)
+		}
+	}
 }

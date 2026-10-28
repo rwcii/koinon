@@ -150,7 +150,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		return err
 	}
 	if args[0] == "mcp" && maintainer.used(flags) {
-		return maintainerMCP(ctx, *state, *address, maintainer, flags, in, out)
+		return maintainerMCP(ctx, *state, *address, followAddress(*state, given), maintainer, flags, in, out)
 	}
 	if args[0] == "mcp" {
 		directory, err := os.Getwd()
