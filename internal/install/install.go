@@ -50,6 +50,9 @@ type Options struct {
 	// ~/.config/opencode, and ~/.gemini/config.
 	Opencode string
 	AgyRoot  string
+	// GrokHome is the Grok home, which receives the skill entries when it exists (#515);
+	// default $GROK_HOME, else ~/.grok.
+	GrokHome string
 	// DSHHome is the DeepSeek Harness home, which receives DeepSeek's koinon-pickup entry when it
 	// exists (#514); default $DSH_HOME, else ~/.dsh.
 	DSHHome  string
@@ -163,6 +166,9 @@ func (o *Options) defaults() error {
 	}
 	if o.AgyRoot == "" {
 		o.AgyRoot = core.AgyConfigRoot(o.Services.Home)
+	}
+	if o.GrokHome == "" {
+		o.GrokHome = core.GrokHome(os.Getenv("GROK_HOME"), o.Services.Home)
 	}
 	if o.DSHHome == "" {
 		o.DSHHome = core.DeepSeekHome(os.Getenv("DSH_HOME"), o.Services.Home)
@@ -500,11 +506,12 @@ func place(source, target string) (string, error) {
 }
 
 // skillRoots are the families' user skill roots that get the entries: under the Claude Code
-// configuration root, in the home's ~/.agents/skills, which Codex lists (#406), and in
-// OpenCode's and agy's configuration directories when they exist (#461).
+// configuration root, in the home's ~/.agents/skills, which Codex lists (#406), in OpenCode's
+// and agy's configuration directories when they exist (#461), and in the Grok home when it
+// exists (#515).
 func skillRoots(o Options) []core.SkillRoot {
 	var roots []core.SkillRoot
-	for _, root := range core.SkillRoots(o.ClaudeConfig, o.Services.Home, o.Opencode, o.AgyRoot) {
+	for _, root := range core.SkillRoots(o.ClaudeConfig, o.Services.Home, o.Opencode, o.AgyRoot, o.GrokHome) {
 		if root.Present() {
 			roots = append(roots, root)
 		}

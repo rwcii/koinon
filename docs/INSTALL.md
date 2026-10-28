@@ -115,12 +115,12 @@ does this:
    for you, whichever agents it names: `skills/koinon-pickup/SKILL.md` under the Claude Code
    configuration root (`$CLAUDE_CONFIG_DIR`, else `~/.claude`) and
    `~/.agents/skills/koinon-pickup/SKILL.md`, which Codex lists for every session. When
-   OpenCode's configuration directory (`$XDG_CONFIG_HOME/opencode`, else `~/.config/opencode`)
-   or agy's (`~/.gemini/config`) exists, it writes `skills/koinon-pickup/SKILL.md` there too; it
-   makes neither directory. When the DeepSeek Harness home (`$DSH_HOME`, else `~/.dsh`) exists, it
+   OpenCode's configuration directory (`$XDG_CONFIG_HOME/opencode`, else `~/.config/opencode`),
+   agy's (`~/.gemini/config`) or the Grok home (`$GROK_HOME`, else `~/.grok`) exists, it writes
+   `skills/koinon-pickup/SKILL.md` there too; it makes none of these directories. When the DeepSeek Harness home (`$DSH_HOME`, else `~/.dsh`) exists, it
    writes DeepSeek's own `koinon-pickup` entry, which reads `skill.pickup` through `koinon library
    read`, to `skills/koinon-pickup/SKILL.md` there, and no other skill entry; it makes no harness
-   home. Grok gets no skill entries: where it discovers user skills is not verified. It never writes into a repository. A missing directory is created private to you; a file with other
+   home. It never writes into a repository. A missing directory is created private to you; a file with other
    content is replaced. `pickup_skills` in the report gives each path and its result
    (`created`, `replaced` or `unchanged`); a file that cannot be written fails the install with
    `pickup_skill_failed` after the service and setup steps, and a repeated install completes it.

@@ -576,12 +576,14 @@ func cycleAdapterOf(family string) CycleAdapter { return cycleAdapters[family] }
 var cycleCode = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 
 func init() {
-	// The Claude Code adapter (chunk 03), the Codex adapter (chunk 04), the agy adapter (#512)
-	// and the OpenCode adapter (#513); Probe limits each to evidenced platforms and versions.
+	// The Claude Code adapter (chunk 03), the Codex adapter (chunk 04), the agy adapter (#512),
+	// the OpenCode adapter (#513) and the Grok adapter (#515); Probe limits each to evidenced
+	// platforms and versions.
 	cycleAdapters["claude"] = claudeCycle{}
 	cycleAdapters["codex"] = codexCycle{}
 	cycleAdapters["agy"] = agyCycle{}
 	cycleAdapters["opencode"] = openCodeCycle{}
+	cycleAdapters["grok"] = grokCycle{}
 }
 
 // contextCycleEnabledFor is the admission's cheap pre-check: an enabled session only; Probe
@@ -620,13 +622,20 @@ func (s *Store) sessionProbe(ctx context.Context, k Key) CycleProbe {
 func cycleRequestBody(id string, revision int64, family, agent string, deadline int64) string {
 	by := time.UnixMilli(deadline).UTC().Format("2006-01-02 15:04:05 UTC")
 	ready, reset, idle := "call context_cycle_ready", "clears your context at your idle prompt", "pane"
+	subagents := "Let running background subagents finish, or stop them, so that the handoff holds their results; " +
+		"stop any that will not finish with enough time left to update the handoff and report ready by " + by + "."
+	if family == "claude" {
+		// The clear does not stop a Claude background subagent; its result goes to the new
+		// conversation (#533).
+		subagents = "The clear does not stop your background subagents: do not stop them or wait for them. In the handoff, " +
+			"list each one that still runs, with its task and where its result goes; the new session gets each result as a message."
+	}
 	if family == "deepseek" {
 		// DeepSeek has the command path, and its reset is a new harness session (#514).
 		ready, reset, idle = "run koinon cycle-ready --as deepseek:$DSH_SESSION_ID", "starts a new harness session for the pickup once this session is idle", "session"
 	}
 	return "overwatch: managed context cycle " + id + " revision " + strconv.FormatInt(revision, 10) +
-		" requests your handoff. Report ready by " + by + ". Pause your work at the next safe stopping point. Let running background subagents finish, or stop them, so that the handoff holds their results; " +
-		"stop any that will not finish with enough time left to update the handoff and report ready by " + by + ". Write your handoff " +
+		" requests your handoff. Report ready by " + by + ". Pause your work at the next safe stopping point. " + subagents + " Write your handoff " +
 		"with your canonical handoff procedure into _handoff/" + agent + "/ of the main checkout (outside a Git checkout, of the directory " +
 		"where this session started), or into the directory that the Handoff path fact of " + handoffFacts + " names, then " + ready + " with this cycle ID, " +
 		"its revision and the handoff file name. Then end your turn and stay idle: overwatch " + reset + ", and asks again " +

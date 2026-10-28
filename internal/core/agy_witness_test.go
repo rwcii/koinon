@@ -10,13 +10,19 @@ import (
 // the reporter process 9001 under a status-line shell 9000 under the pinned host 4242.
 func agyWitnessFixture(t *testing.T, state string) (*cycleFixture, string, map[int]int64) {
 	t.Helper()
+	return witnessFixture(t, "agy", state)
+}
+
+// witnessFixture is agyWitnessFixture for the family's cycle.
+func witnessFixture(t *testing.T, family, state string) (*cycleFixture, string, map[int]int64) {
+	t.Helper()
 	f := newCycleFixture(t)
 	f.observe(t, f.k, 900, "synthetic-epoch-1")
 	v := f.status(t, f.k)
 	if v == nil {
 		t.Fatal("no cycle")
 	}
-	if _, err := fixtureExec(f.s, `UPDATE context_cycles SET family='agy', state=? WHERE cycle_id=?`, state, v.ID); err != nil {
+	if _, err := fixtureExec(f.s, `UPDATE context_cycles SET family=?, state=? WHERE cycle_id=?`, family, state, v.ID); err != nil {
 		t.Fatal(err)
 	}
 	starts := map[int]int64{9001: 501, 9000: 500, 4242: 77}
@@ -29,9 +35,9 @@ func agyWitnessFixture(t *testing.T, state string) (*cycleFixture, string, map[i
 	f.s.processParents = func() (map[int]int, error) { return map[int]int{9001: 9000, 9000: 4242, 4242: 1}, nil }
 	f.s.processCommand = func(pid int) (string, []string, error) {
 		if pid == 4242 {
-			return "/synthetic/agy", nil, nil
+			return "/synthetic/" + family, nil, nil
 		}
-		return "/bin/sh", []string{"sh", "-c", "koinon hook agy-status"}, nil
+		return "/bin/sh", []string{"sh", "-c", "koinon hook " + family + "-status"}, nil
 	}
 	return f, v.ID, starts
 }
@@ -215,5 +221,76 @@ func TestAgyWitnessOwnership(t *testing.T) {
 	}
 	if err := report(f, own.ID); err != nil || epoch(f, id) != own.ID {
 		t.Fatalf("the host's own conversation: %v %v", err, witnessIDs(f.s, id))
+	}
+}
+
+// The Grok witness (#515) has the agy contract: the new session after /new, not yet registered
+// and without counts, is kept for the Grok cycle of its nearest host; a nested Grok CLI, a
+// session of another host and a report while no Grok cycle waits keep nothing. Reports of one
+// family never keep or drop another family's witnesses.
+func TestGrokWitness(t *testing.T) {
+	ctx := context.Background()
+	report := func(s *Store, session string) error {
+		return s.WitnessGrok(ctx, AgyWitness{Conversation: session, Reporter: ObservationReporter{PID: 9001, Start: 501}})
+	}
+	f, id, _ := witnessFixture(t, "grok", cycleClearIntent)
+	for _, session := range []string{"synthetic-epoch-1", "01a17e66-0000-7000-8000-000000000001"} {
+		if err := report(f.s, session); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fixtureExec(f.s, `UPDATE context_cycles SET state=? WHERE cycle_id=?`, cycleClearReceived, id)
+	if got, _ := (grokCycle{}).NewEpoch(ctx, f.s.cycleTarget(ctx, f.cycle(t, id))); got != "01a17e66-0000-7000-8000-000000000001" {
+		t.Fatalf("new session: %q %v", got, witnessIDs(f.s, id))
+	}
+	var sessions int
+	f.s.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE id='01a17e66-0000-7000-8000-000000000001'`).Scan(&sessions)
+	if sessions != 0 {
+		t.Fatal("a witness registered a session")
+	}
+	// The witnesses are memory-only: after a daemon restart nothing proves the new session, and
+	// the controller never sends /new again (TestContextCycleDeadlinesAndIntentRecovery).
+	kept := f.s.agyWitness.of(id)
+	f.s.agyWitness = agyWitnessState{}
+	if got, _ := (grokCycle{}).NewEpoch(ctx, f.s.cycleTarget(ctx, f.cycle(t, id))); got != "" {
+		t.Fatalf("after a restart: %q", got)
+	}
+	f.s.agyWitness.byCycle = map[string]agyWitnesses{id: kept}
+	// An agy report keeps nothing for a Grok cycle.
+	if err := f.s.WitnessAgy(ctx, AgyWitness{Conversation: "conv-agy", Reporter: ObservationReporter{PID: 9001, Start: 501}}); err != nil || len(witnessIDs(f.s, id)) != 2 {
+		t.Fatalf("agy report: %v %v", err, witnessIDs(f.s, id))
+	}
+	// A Grok report while only an agy cycle waits keeps nothing, and leaves the agy witnesses.
+	g, gid, _ := witnessFixture(t, "agy", cycleClearIntent)
+	if err := g.s.WitnessAgy(ctx, AgyWitness{Conversation: "conv-b", Reporter: ObservationReporter{PID: 9001, Start: 501}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := report(g.s, "grok-session"); err != nil || len(witnessIDs(g.s, gid)) != 1 {
+		t.Fatalf("grok report for an agy cycle: %v %v", err, witnessIDs(g.s, gid))
+	}
+	// reporter -> shell -> unregistered Grok -> pinned host
+	f, id, starts := witnessFixture(t, "grok", cycleClearReceived)
+	starts[8000] = 400
+	f.s.processParents = func() (map[int]int, error) { return map[int]int{9001: 9000, 9000: 8000, 8000: 4242, 4242: 1}, nil }
+	f.s.processCommand = func(pid int) (string, []string, error) {
+		if pid == 8000 || pid == 4242 {
+			return "/usr/local/bin/grok", nil, nil
+		}
+		return "/bin/sh", nil, nil
+	}
+	if err := report(f.s, "nested-session"); err == nil || len(witnessIDs(f.s, id)) != 0 {
+		t.Fatalf("nested grok: %v %v", err, witnessIDs(f.s, id))
+	}
+	// A session registered under another host is refused; the pinned host's own is kept.
+	f, id, _ = witnessFixture(t, "grok", cycleClearReceived)
+	other := join(t, f.s, "grok", "session-of-another-host", f.repo)
+	own := join(t, f.s, "grok", "session-of-the-host", f.repo)
+	fixtureExec(f.s, `UPDATE sessions SET host_pid=7000,host_start=300 WHERE family='grok' AND id=?`, other.ID)
+	fixtureExec(f.s, `UPDATE sessions SET host_pid=4242,host_start=77 WHERE family='grok' AND id=?`, own.ID)
+	if err := report(f.s, other.ID); err == nil {
+		t.Fatal("another host's session kept")
+	}
+	if err := report(f.s, own.ID); err != nil || len(witnessIDs(f.s, id)) != 1 {
+		t.Fatalf("the host's own session: %v %v", err, witnessIDs(f.s, id))
 	}
 }

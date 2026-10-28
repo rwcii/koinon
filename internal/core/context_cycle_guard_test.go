@@ -721,14 +721,25 @@ func TestContextCycleRequestAsksToPauseAndStayIdle(t *testing.T) {
 		t.Fatalf("requests: %q", requests)
 	}
 	for _, want := range []string{"managed context cycle " + v.ID + " revision 1 requests your handoff",
-		"Pause your work at the next safe stopping point. Let running background subagents",
-		"Let running background subagents finish, or stop them", "call context_cycle_ready",
+		"Pause your work at the next safe stopping point. The clear does not stop your background subagents",
+		"do not stop them or wait for them", "list each one that still runs, with its task and where its result goes",
+		"the new session gets each result as a message", "call context_cycle_ready",
 		"Report ready by " + time.UnixMilli(v.StageDeadline).UTC().Format("2006-01-02 15:04:05 UTC") + ".",
-		"stop any that will not finish with enough time left to update the handoff and report ready by",
 		"into _handoff/" + f.k.Family + "/ of the main checkout (outside a Git checkout, of the directory where this session started), or into the directory that the Handoff path fact of .koinon/skills/handoff.md names",
 		"Then end your turn and stay idle", "overwatch clears your context at your idle prompt", "asks again"} {
 		if !strings.Contains(requests[0], want) {
 			t.Fatalf("request lacks %q: %s", want, requests[0])
+		}
+	}
+	if strings.Contains(requests[0], "stop any that will not finish") {
+		t.Fatalf("a Claude request asks to stop subagents (#533): %s", requests[0])
+	}
+	// Other families keep the stop rule with the deadline (#467).
+	other := cycleRequestBody(v.ID, v.Revision, "codex", "codex", v.StageDeadline)
+	for _, want := range []string{"Let running background subagents finish, or stop them",
+		"stop any that will not finish with enough time left to update the handoff and report ready by"} {
+		if !strings.Contains(other, want) || strings.Contains(other, "The clear does not stop") {
+			t.Fatalf("codex request lacks %q: %s", want, other)
 		}
 	}
 	if cycleAgent("codex", "review") != "codex-review" || cycleAgent("claude", "") != "claude" {

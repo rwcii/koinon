@@ -75,7 +75,7 @@ func newEnv(t *testing.T, backend string) *env {
 	e := &env{r: &recorder{}}
 	e.o = Options{Prefix: filepath.Join(dir, "prefix"), StateDir: state, PythonPrefix: filepath.Join(dir, "python"), Source: source,
 		Path: filepath.Join(dir, "empty-path"), ClaudeConfig: filepath.Join(dir, "claude-config"),
-		Opencode: filepath.Join(dir, "opencode-config"), AgyRoot: filepath.Join(dir, "agy-config"), DSHHome: filepath.Join(dir, "dsh-home"),
+		Opencode: filepath.Join(dir, "opencode-config"), AgyRoot: filepath.Join(dir, "agy-config"), GrokHome: filepath.Join(dir, "grok-home"), DSHHome: filepath.Join(dir, "dsh-home"),
 		Services: platform.Services{Backend: backend, Home: filepath.Join(dir, "home"), UID: 501, Run: e.r.run,
 			User: "alice", Group: "staff", SystemDir: filepath.Join(dir, "LaunchDaemons")},
 		Setup: func(_ context.Context, o setup.Options) (setup.Report, error) {
@@ -284,9 +284,10 @@ func TestInstallDeepSeekPickupEntry(t *testing.T) {
 	}
 }
 
-// OpenCode and agy get koinon-pickup and every skill entry in their configuration directories,
-// whose discovery was verified, only when the directory exists: no directory is made for an
-// agent that is not on the computer, and the uninstall removes what the install wrote (#461).
+// OpenCode, agy and Grok get koinon-pickup and every skill entry in their configuration
+// directories, whose discovery was verified, only when the directory exists: no directory is
+// made for an agent that is not on the computer, and the uninstall removes what the install
+// wrote (#461, #515).
 func TestInstallSkillEntriesOtherFamilies(t *testing.T) {
 	e := newEnv(t, "systemd")
 	if err := os.MkdirAll(e.o.AgyRoot, 0o700); err != nil {
@@ -305,8 +306,8 @@ func TestInstallSkillEntriesOtherFamilies(t *testing.T) {
 	}
 	agy := 0
 	for _, entry := range r.TeamSkills {
-		if entry.Family == "opencode" {
-			t.Fatalf("an entry for an absent OpenCode: %+v", entry)
+		if entry.Family == "opencode" || entry.Family == "grok" {
+			t.Fatalf("an entry for an absent OpenCode or Grok: %+v", entry)
 		}
 		if entry.Family == "agy" {
 			agy++
@@ -329,9 +330,11 @@ func TestInstallSkillEntriesOtherFamilies(t *testing.T) {
 	if _, err := os.Lstat(e.o.Opencode); !os.IsNotExist(err) {
 		t.Fatalf("made OpenCode's directory: %v", err)
 	}
-	// Once OpenCode's directory exists, the next install writes its entries too.
-	if err := os.MkdirAll(e.o.Opencode, 0o700); err != nil {
-		t.Fatal(err)
+	// Once OpenCode's directory and the Grok home exist, the next install writes their entries too.
+	for _, root := range []string{e.o.Opencode, e.o.GrokHome} {
+		if err := os.MkdirAll(root, 0o700); err != nil {
+			t.Fatal(err)
+		}
 	}
 	again, err := Install(context.Background(), e.o)
 	if err != nil {
@@ -340,18 +343,22 @@ func TestInstallSkillEntriesOtherFamilies(t *testing.T) {
 	results := map[string]int{}
 	for _, entry := range again.TeamSkills {
 		results[entry.Family+" "+entry.Result]++
-		if entry.Family == "opencode" && entry.Path != filepath.Join(e.o.Opencode, "skills", entry.Name, "SKILL.md") {
-			t.Fatalf("opencode entry %+v", entry)
+		if entry.Family == "opencode" && entry.Path != filepath.Join(e.o.Opencode, "skills", entry.Name, "SKILL.md") ||
+			entry.Family == "grok" && entry.Path != filepath.Join(e.o.GrokHome, "skills", entry.Name, "SKILL.md") {
+			t.Fatalf("%s entry %+v", entry.Family, entry)
 		}
 	}
-	if results["opencode created"] != len(skills) || results["agy unchanged"] != len(skills) {
+	if results["opencode created"] != len(skills) || results["grok created"] != len(skills) || results["agy unchanged"] != len(skills) {
 		t.Fatalf("repeat %v", results)
+	}
+	if data, err := os.ReadFile(filepath.Join(e.o.GrokHome, "skills", core.PickupSkillName, "SKILL.md")); err != nil || !bytes.Equal(data, core.PickupSkill()) {
+		t.Fatalf("grok pickup: %q %v", data, err)
 	}
 	u, err := Uninstall(context.Background(), e.o)
 	if err != nil || !u.OK {
 		t.Fatalf("uninstall %+v %v", u, err)
 	}
-	for _, root := range []string{e.o.AgyRoot, e.o.Opencode} {
+	for _, root := range []string{e.o.AgyRoot, e.o.Opencode, e.o.GrokHome} {
 		for _, skill := range append(skills, core.TeamSkill{Name: core.PickupSkillName}) {
 			if _, err := os.Lstat(filepath.Join(root, "skills", skill.Name)); !os.IsNotExist(err) {
 				t.Fatalf("%s %s left: %v", root, skill.Name, err)

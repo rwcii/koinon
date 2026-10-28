@@ -76,7 +76,9 @@ item. Its required outcome distinguishes `completed` from `withdrawn`, so obsole
 leave the open list without being counted as delivered. Completion is an owner's assertion,
 not acceptance by another agent or user. Withdrawal requires a reason, not completion evidence.
 Completed and withdrawn items, their events, and their scope revision history expire
-30 days after the finish transaction. Open, active, and blocked items do not expire.
+30 days after the finish transaction, or earlier when a create at the store's item limit
+removes the oldest finished item ([PDR 004, Decision 2](product/pdr/004-work-results-role-routing.md), #529).
+Open, active, and blocked items do not expire.
 Expiry preserves retained snapshots and retry results for their separately promised
 lifetimes and advances the history floor so stale readers obtain a new snapshot.
 Owner operations require a live lease; expiry requires an explicit new start before further
@@ -181,8 +183,8 @@ claim the existing note budget automatically accommodates work storage.
 Reserve storage for release, finish, and expiry bookkeeping so ordinary create/update load
 cannot prevent relinquishing ownership. On exhaustion refuse new work without dropping live
 items, checkpoints, claims, or recovery information. V1 adds no general history pruning.
-Safe reclamation follows existing expiry rules and the explicit 30-day finished-work
-retention policy above. DQ-05 pruning remains separate.
+Safe reclamation follows existing expiry rules and the finished-work retention policy
+above. DQ-05 pruning remains separate.
 Finite capacity can be exhausted before finished history becomes eligible for expiry,
 including by a long-running item's event history. Refuse ordinary growth explicitly,
 preserve promised end operations, and report the retention-based recovery path. The
