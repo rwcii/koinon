@@ -145,6 +145,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		}
 		return serve(ctx, *state, []string{*listen, *listen6}, *lockWait, out)
 	}
+	given := addressGiven(flags)
 	if err := resolveAddress(flags); err != nil {
 		return err
 	}
@@ -160,7 +161,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		resume := os.Getenv(mcpResumeVariable)
 		os.Unsetenv(mcpResumeVariable)
 		changed, replace := mcpReplacement()
-		return mcp.Serve(ctx, mcp.Config{StateDir: *state, Address: *address, Getenv: os.Getenv,
+		return mcp.Serve(ctx, mcp.Config{StateDir: *state, Address: *address, Resolve: followAddress(*state, given), Getenv: os.Getenv,
 			ParentPID: os.Getppid(), Command: platform.ProcessCommand, Directory: directory, Now: time.Now,
 			TmuxSession: mcp.TmuxSessionName,
 			Tmux:        mcp.RunTmux, Parents: platform.ProcessParents, TmuxExecutable: mcp.LookTmux,

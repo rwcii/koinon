@@ -38,3 +38,20 @@ func TestParseUsesRecordedPort(t *testing.T) {
 		t.Fatalf("environment: %s", o.Address)
 	}
 }
+
+// A launched agent gets the launch address as KOINON_DAEMON_ADDRESS only when it is not where
+// the state directory's installed service listens; without it, the agent's clients follow a
+// later koinon install --port (#549).
+func TestPinsAddress(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "state")
+	pins := func(address string) bool { return Options{StateDir: root, Address: address}.pinsAddress() }
+	if pins("127.0.0.1:47671") || pins("[::1]:47671") || !pins("127.0.0.1:5000") {
+		t.Fatal("no record")
+	}
+	if err := core.RecordPort(root, 47681); err != nil {
+		t.Fatal(err)
+	}
+	if pins("127.0.0.1:47681") || pins("[::1]:47681") || !pins("127.0.0.1:47671") || !pins("192.0.2.1:47681") {
+		t.Fatal("recorded port")
+	}
+}
