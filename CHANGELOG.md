@@ -5,6 +5,17 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-10-28 — Decision board feedback and tasks, decision records, and cycles for more agents
+
+This release changes how the maintainer answers the decision board: a decision takes Approve,
+Decline or Provide feedback, which returns it to its author; work for the maintainer is a
+`task`; an fyi takes Acknowledge, and every verdict reaches the item's author. Verdicts are
+recorded in the repository's `DECISIONS.md`, so commits and documents cite them by reference.
+Agents withdraw cards that no longer need the maintainer. agy, OpenCode, DeepSeek and Grok
+sessions report their model and context use and run the managed context cycle on Linux, and
+Codex's `native_compaction` mode compacts. The state schema moves from 32 to 36; the daemon
+migrates a v0.5.0 state in place when it starts.
+
 - Decision board actions say what the maintainer means (#537). A decision item now takes
   **Approve**, **Decline** or **Provide feedback**; feedback needs the maintainer's text,
   approves and declines nothing, and returns the item to its author as `returned`: the author
@@ -180,6 +191,22 @@ into a dated release section when promoted to `main`.
   `withdrawals` pages every withdrawal. Schema 33 adds the table `decision_withdrawals` and
   each item's author participant; the daemon migrates the state when it starts, and the deep
   archive keeps the withdrawals.
+
+Upgrade from v0.5.0 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and migrates the state to schema 36, which ends current dashboard
+logins: log in again with the maintainer secret, or run `koinon dashboard` for a one-time link.
+A running `koinon mcp` server runs the new release without a session restart. The `koinon-`
+skill entries load the new procedures from the installed binary, and `koinon guide` prints the
+new guide text.
+
+Upgrade notes:
+
+- agy and Grok report context once `koinon setup agy` or `koinon setup grok` has added
+  Koinon's status-line hook; Grok reads it at startup, so start Grok again after its setup.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+- Codex keeps the tools and descriptions it read at the start until its session starts again
+  (docs/INSTALL.md).
 
 ## 2026-10-26 — Maintainer MCP mode, a maintainer secret and change notices
 
