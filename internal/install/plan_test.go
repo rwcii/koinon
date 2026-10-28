@@ -96,7 +96,13 @@ func TestPlanSteps(t *testing.T) {
 // current only as the link to it.
 func TestPlanHomebrew(t *testing.T) {
 	e := planEnv(t, "systemd")
-	brew := filepath.Join(t.TempDir(), "brew with space")
+	// The keg's paths resolved, as homebrewOpt reads them: on macOS the temporary directory
+	// is under a symbolic link (/var to /private/var).
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	brew := filepath.Join(dir, "brew with space")
 	e.o.Source = homebrewKeg(t, brew, "0.7.0", "synthetic binary")
 	opt := filepath.Join(brew, "opt", "koinon", "bin", "koinon")
 	if steps, want := plan(t, e), []string{"'" + opt + "' install"}; !reflect.DeepEqual(steps, want) {
