@@ -87,6 +87,25 @@ Simplified Technical English; context, recommendation and agent_text are Markdow
 and HTML show as literal text). Terminal-copy commands are printable ASCII only. Name recipients by participant address or
 peer name; an unknown name is flagged. Text in a known key format is refused. The maintainer
 gives the verdict in the dashboard or a maintainer client.
+Card form (#562): bring the maintainer only what needs the maintainer, one card for each
+decision, and wait for its verdict. Give one recommendation, not a menu of options; other
+options can follow at the end, each with the facts to judge it.
+- Title: the action, in one line.
+- Context: a short list of facts. Each item has one fact, its source (a file and line, a
+  record, a pull request or a report) and the date you checked it. When the card changes an
+  earlier direction of the maintainer, the first item names that direction and what changes.
+  Quote the maintainer only from the maintainer's own words.
+- Recommendation: the heading "## Recommendation:" and the action in one line, then in this
+  order: **What:** the concrete change, its source and what gets recorded, with numbered steps
+  when there are steps; **Why:** the defect or the goal, from the records (recommend the fix for
+  the defect, not for its symptom); **Fast or complete:** which one it is, each gap or limit
+  that stays, with its source, and the cost in time, money or CI; then, when they apply, the
+  corrections from a peer who reviewed it, each disagreement that is still open, and each open
+  point with how to handle it.
+A recommendation that drops or defers a goal that the maintainer set says so in its heading,
+and names it as a limit in Fast or complete. ASD-STE100 applies to the sentences: short active
+sentences, one idea each, and common words. The labels and their order are the form, so a
+correction of style changes the sentences and keeps the form.
 An item is active (waiting for a verdict), returned (the maintainer's feedback came back to
 its author: change the item as the feedback says with decision_edit, which makes it wait
 again, or withdraw it), in_progress (approved; do the work, then decision_close), archived

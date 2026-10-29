@@ -442,3 +442,65 @@ Recommendation:
 Note:
 
 > One switch for all repositories running on that Koinon instance. We may change this later, but let's keep it simple for now.
+
+<a id="card-form-562"></a>
+
+## CARD-FORM-562
+
+<!-- koinon-decision CARD-FORM-562 revision 1 approved 1793251343863 -->
+
+**Approved**, revision 1, 2026-10-29 05:22:23 UTC.
+
+- Title: Put one decision card form in the Koinon guide, and point the card tools to it
+- Where: Koinon guide (Decisions section), decision_create and decision_edit, PDR 007
+
+Context:
+
+> - The guide and `decision_create` give no card form today. They say only that card prose is ASD-STE100, and which Markdown shows (`internal/setup/guide.go`, Decisions section; checked 2026-10-29).
+> - Card prose in ASD-STE100 is your decision of 2026-10-12, recorded in PDR 007 (#206 comment 6119203856).
+> - Your instruction, 2026-10-29, relayed by claude-unify: "we need to add some guidance to agents using koinon, not leave it up to the agent to make it up." (#562; spelling corrected)
+> - On 2026-10-29, a card of another repository had long sentences with many facts in each (claude-unify's report, #562).
+> - Its later revisions kept the facts but used new headings and list fragments (claude-unify's report, #562).
+> - You said of those revisions: "these cards are suddenly dropping long standing norms" and "why did you change the format?" (2026-10-29, in a session, relayed by claude-unify).
+> - You said to me, 2026-10-29: "[a card of another repository] is a good example of an acceptable content and formatting." (#562 comment). The form below follows that card.
+
+Recommendation:
+
+> ## Recommendation: put the card form below in the guide's Decisions section, and point decision_create and decision_edit to it
+>
+> **What:** one pull request in Koinon:
+> 1. add the text below to the guide's Decisions section, as "Card form";
+> 2. point the `decision_create` description ("Use the card form in koinon guide, Decisions") and the `decision_edit` description ("Keep the card form in koinon guide, Decisions") to it, and docs/USAGE.md too;
+> 3. record this verdict in DECISIONS.md, and cite it from PDR 007 and the changelog.
+>
+> **Why:** the form is new guide text, and this card asks you to decide it. Each agent makes up its own form today, so cards change form from agent to agent and from revision to revision. Every agent family reads the guide (`koinon guide --agent FAMILY`) and sees the tool descriptions when it writes a card. So one text reaches every agent.
+>
+> **Fast or complete:** complete for the base form. Limits: Koinon does not check the form of a card; the text is guidance, not a refusal. An adopting project can add its own rules. Cost: one pull request, about 20 minutes of CI.
+>
+> **Corrections from the peers:** claude-unify proposed a catalog skill too; I recommend no skill, because a second copy can drift. codex-koinon: the text does not make a peer's agreement a condition of a card, because not every agent works in a pair; a reviewed card lists the peer's corrections and open disagreements.
+>
+> **Open point:** the rule that a dropped or deferred goal goes in the heading has no earlier source. It is part of this proposal.
+>
+> **The text** (the guide, as committed):
+>
+> ```text
+> Card form (#562): bring the maintainer only what needs the maintainer, one card for each
+> decision, and wait for its verdict. Give one recommendation, not a menu of options; other
+> options can follow at the end, each with the facts to judge it.
+> - Title: the action, in one line.
+> - Context: a short list of facts. Each item has one fact, its source (a file and line, a
+>   record, a pull request or a report) and the date you checked it. When the card changes an
+>   earlier direction of the maintainer, the first item names that direction and what changes.
+>   Quote the maintainer only from the maintainer's own words.
+> - Recommendation: the heading "## Recommendation:" and the action in one line, then in this
+>   order: **What:** the concrete change, its source and what gets recorded, with numbered steps
+>   when there are steps; **Why:** the defect or the goal, from the records (recommend the fix for
+>   the defect, not for its symptom); **Fast or complete:** which one it is, each gap or limit
+>   that stays, with its source, and the cost in time, money or CI; then, when they apply, the
+>   corrections from a peer who reviewed it, each disagreement that is still open, and each open
+>   point with how to handle it.
+> A recommendation that drops or defers a goal that the maintainer set says so in its heading,
+> and names it as a limit in Fast or complete. ASD-STE100 applies to the sentences: short active
+> sentences, one idea each, and common words. The labels and their order are the form, so a
+> correction of style changes the sentences and keeps the form.
+> ```
