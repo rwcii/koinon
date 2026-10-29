@@ -88,8 +88,8 @@ and HTML show as literal text). Terminal-copy commands are printable ASCII only.
 peer name; an unknown name is flagged. Text in a known key format is refused. The maintainer
 gives the verdict in the dashboard or a maintainer client.
 Card form (#562): bring the maintainer only what needs the maintainer, one card for each
-decision, and wait for its verdict. Give one recommendation, agreed with your pair peer, not a
-menu of options; other options can follow at the end, each with the facts to judge it.
+decision, and wait for its verdict. Give one recommendation, not a menu of options; other
+options can follow at the end, each with the facts to judge it.
 - Title: the action, in one line.
 - Context: a short list of facts. Each item has one fact, its source (a file and line, a
   record, a pull request or a report) and the date you checked it. When the card changes an
@@ -100,8 +100,8 @@ menu of options; other options can follow at the end, each with the facts to jud
   when there are steps; **Why:** the defect or the goal, from the records (recommend the fix for
   the defect, not for its symptom); **Fast or complete:** which one it is, each gap or limit
   that stays, with its source, and the cost in time, money or CI; then, when they apply, the
-  corrections from your peer, each disagreement that is still open, and each open point with
-  how to handle it.
+  corrections from a peer who reviewed it, each disagreement that is still open, and each open
+  point with how to handle it.
 A recommendation that drops or defers a goal that the maintainer set says so in its heading,
 and names it as a limit in Fast or complete. ASD-STE100 applies to the sentences: short active
 sentences, one idea each, and common words. The labels and their order are the form, so a
