@@ -430,7 +430,9 @@ func (s *Store) contextEnables(ctx context.Context) (map[Key]ContextEnable, erro
 }
 
 // Trigger clocks (#196 DoD, approved at Gate B): a trigger needs the context source at most
-// two minutes old and the daemon's last confirmation of it at most 90 seconds old.
+// two minutes old and the daemon's last confirmation of it at most 90 seconds old. In
+// native_compaction an older source counts when its newest confirmation is caught up
+// (DECISIONS.md#IDLE-COMPACT-564): an idle Codex rollout records no new reading.
 const (
 	contextSourceMaxAge       = 2 * time.Minute
 	contextConfirmationMaxAge = 90 * time.Second
@@ -445,6 +447,8 @@ type ContextEvidence struct {
 	Epoch       string
 	SourceAt    int64 // when the source recorded the value (ms)
 	ConfirmedAt int64 // when the daemon last received confirmation (ms)
+	// End is the caught-up mark of that confirmation, or nil (#564).
+	End *RolloutEnd
 }
 
 // ContextTriggerInput is everything the selection reads.
@@ -487,7 +491,7 @@ func SelectContextTrigger(in ContextTriggerInput) (bool, string) {
 		return false, "epoch_unverified"
 	case e.SourceAt > in.Now || e.ConfirmedAt > in.Now:
 		return false, "observation_future"
-	case in.Now-e.SourceAt > contextSourceMaxAge.Milliseconds():
+	case in.Now-e.SourceAt > contextSourceMaxAge.Milliseconds() && (in.Policy.Mode != ContextNativeCompaction || e.End == nil):
 		return false, "source_stale"
 	case in.Now-e.ConfirmedAt > contextConfirmationMaxAge.Milliseconds():
 		return false, "confirmation_stale"

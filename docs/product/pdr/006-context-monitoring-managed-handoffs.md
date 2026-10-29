@@ -93,7 +93,14 @@ audited with its origin: the dashboard, `cli`, or `agent` and the calling sessio
 Claude defaults to the handoff cycle and Codex to its native compaction. The daemon starts a
 cycle from a fresh, verified observation of the session: a context source at most two minutes
 old that the daemon confirmed in the last 90 seconds. For unknown or stale context it shows the
-reason, such as `context_unknown`, `source_stale` or `confirmation_stale`.
+reason, such as `context_unknown`, `source_stale` or `confirmation_stale`. In
+`native_compaction` a Codex reading older than two minutes also counts when the daemon's newest
+confirmation of it is caught up: the reader read the rollout to its end, the last record was
+complete, no read failed and the last turn had ended. An idle Codex rollout records no new
+reading, so an idle session above its threshold compacts without a new turn. The input then
+waits for one more caught-up confirmation of the same rollout, size and turn, and right before
+its first key the daemon reads the rollout itself: it types nothing unless the file and its size
+are still the same.
 
 In Codex's `native_compaction` mode the same trigger makes the daemon enter Codex's own
 `/compact` in the enabled session's pane while Codex is idle, once per crossing. A fresh reading
@@ -138,7 +145,13 @@ to approve the four rules unchanged, or to decline and name the wanted rule for 
 #517. The verdict decides these rules only. The confirmation rule (a fresh reading recorded after the submission's
 receipt, before the deadline) and that a reading of another epoch ends a compaction
 (`epoch_changed`) are implementation details of #509, agreed with the Codex peer; no
-maintainer decision.
+maintainer decision. An older reading of an idle Codex session: Maintainer, 2026-10-29,
+decision board item IDLE-COMPACT-564 (revision 1),
+[DECISIONS.md#IDLE-COMPACT-564](../../../DECISIONS.md#idle-compact-564), "approved". The card
+recommended: "in native_compaction, accept an older reading of an idle Codex session when a
+caught-up read shows that it is current", with the input after a new caught-up confirmation.
+The verdict decides that rule for `native_compaction` only; the two-minute and 90-second clocks
+of the #196 definition of done stay for every other case.
 
 ### Alternatives Considered
 
@@ -542,3 +555,4 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-27 | Executive summary: Grok context is read from its status line (#515) |
 | 2026-10-27 | Decision 3: a Claude session's running background subagents do not hold the cycle back, and the request asks to list them in the handoff (#533), approved on the decision board (SUBAGENT-CLEAR-533) |
 | 2026-10-27 | Decision 5: the Grok adapter is listed, from its Linux checks with Grok Build 1.0.50 (#515) |
+| 2026-10-29 | Decision 1: in `native_compaction` an older reading of an idle Codex session counts when a caught-up read confirms it (#564), approved on the decision board (IDLE-COMPACT-564) |

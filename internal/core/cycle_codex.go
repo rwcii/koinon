@@ -14,8 +14,11 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/rwcii/koinon/internal/platform"
 )
 
 // The Codex cycle adapter (#196). It acts only through the session's own tmux pane, after
@@ -129,14 +132,53 @@ func codexTurnEnded(path string) bool {
 		return false
 	}
 	defer f.Close()
+	_, ended := codexTurnEndedIn(f)
+	return ended
+}
+
+// codexRolloutUnchanged reads the rollout at path and reports "" when it is still the file and
+// size of a compaction's chosen caught-up read (#564) and its last turn ended, all from one
+// opened file. A rollout only grows, so the same file and size hold the same records.
+// Otherwise it gives rollout_unreadable, rollout_changed or turn_not_ended.
+func codexRolloutUnchanged(path string, end RolloutEnd) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return "rollout_unreadable"
+	}
+	defer f.Close()
+	device, inode, size, err := platform.FileIdentity(f)
+	if err != nil {
+		return "rollout_unreadable"
+	}
+	if RolloutFile(device, inode) != end.Rollout || size != end.Size {
+		return "rollout_changed"
+	}
+	read, ended := codexTurnEndedIn(f)
+	switch {
+	case read != end.Size:
+		return "rollout_changed"
+	case !ended:
+		return "turn_not_ended"
+	}
+	return ""
+}
+
+// RolloutFile is the identity of a Codex rollout file in a caught-up mark (#564).
+func RolloutFile(device, inode uint64) string {
+	return strconv.FormatUint(device, 10) + "-" + strconv.FormatUint(inode, 10)
+}
+
+// codexTurnEndedIn reads the end of an open rollout and returns the size it read and whether
+// its last turn ended (codexTurnEnded).
+func codexTurnEndedIn(f *os.File) (int64, bool) {
 	info, err := f.Stat()
 	if err != nil || !info.Mode().IsRegular() {
-		return false
+		return 0, false
 	}
 	offset := max(0, info.Size()-codexRolloutTail)
 	data := make([]byte, info.Size()-offset)
 	if _, err := f.ReadAt(data, offset); err != nil && !errors.Is(err, io.EOF) {
-		return false
+		return 0, false
 	}
 	lines := bytes.Split(data, []byte("\n"))
 	if offset > 0 && len(lines) > 0 {
@@ -163,7 +205,7 @@ func codexTurnEnded(path string) bool {
 			}
 		}
 	}
-	return state == "ended"
+	return info.Size(), state == "ended"
 }
 
 // Probe decides whether the session's cycle can run. The pickup entry is $koinon-pickup: the
@@ -551,6 +593,9 @@ func codexNotReady(t CycleTarget, screen codexScreen) string {
 		path, err := codexRolloutPath(codex, t.SessionID)
 		if err != nil || path == "" {
 			return "rollout_unreadable"
+		}
+		if t.RolloutEnd != nil {
+			return codexRolloutUnchanged(path, *t.RolloutEnd)
 		}
 		if !codexTurnEnded(path) {
 			return "turn_not_ended"

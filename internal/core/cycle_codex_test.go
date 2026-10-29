@@ -96,6 +96,7 @@ type codexTerminal struct {
 	failAt     int
 	noStatus   bool   // /status shows no card
 	onClear    func() // runs as /clear takes effect, with the terminal held
+	atFence    func() // runs at each fence, before the check that follows it
 	codex      string
 	home       string
 	pid, start int64
@@ -247,6 +248,9 @@ func (c *codexTerminal) target(t *testing.T) CycleTarget {
 }
 
 func (c *codexTerminal) fence(context.Context) error {
+	if c.atFence != nil {
+		c.atFence()
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.fences++

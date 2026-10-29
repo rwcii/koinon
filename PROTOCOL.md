@@ -264,7 +264,9 @@ The trigger selection reads the session's state, Enable, family policy, cycle av
 and its stored context observation. It is eligible when used tokens reach the threshold
 percentage of a positive limit (equality and use above the limit included), the context
 source is at most 120 seconds old and its last confirmation at most 90 seconds old, and the
-observation's native epoch has not been selected already. A source or confirmation time later
+observation's native epoch has not been selected already. In `native_compaction` an older
+source also counts when the newest confirmation carries the reader's caught-up mark (#564,
+DECISIONS.md#IDLE-COMPACT-564). A source or confirmation time later
 than the daemon's clock is `observation_future`. Otherwise it names one reason:
 `session_inactive`, `mode_observe`, `not_enabled`,
 `context_cycle_unavailable`, `context_unknown`, `context_counts_unavailable`,
@@ -905,13 +907,20 @@ copying every row unchanged:
   pane showed. Right before the input the session's newest reading must still select it under
   the trigger's rules (fresh source and confirmation, same epoch, at the threshold); the
   crossing's own latch does not count. Without a reading or a recent confirmation, such as after
-  a restart, it waits (`context_unknown`, `confirmation_stale`). It ends `cancelled` with
+  a restart, it waits (`context_unknown`, `confirmation_stale`). When only the caught-up mark
+  admits the reading (#564), the step records that mark as its choice, in memory, and waits
+  (`confirmation_pending`); the input goes after a later confirmation with the same mark and
+  reading. Another mark makes a new choice, a confirmation without one ends the compaction
+  (`source_stale`), and a restart forgets the choice. It ends `cancelled` with
   `mode_changed`, `threshold_changed`, `epoch_changed` or the trigger's reason (such as
   `source_stale` or `below_threshold`) when the mode, the threshold or the reading no longer
   admit it, and `failed` with the Probe's reason. A compaction whose pane is not ready within 15
   minutes of its admission ends `cancelled` (`compact_waiting_timeout.SEEN`).
 - `compact_intent`: recorded before the first key. The adapter types `/compact` only while the
-  composer is empty and the thread's rollout shows its last turn ended, reads it back and
+  composer is empty and the thread's rollout shows its last turn ended (when the step chose a
+  caught-up mark, #564, the adapter reads the rollout itself at the first key and needs the same
+  file, by device and inode, and the same size, from one opened file; else
+  `rollout_changed`, `rollout_unreadable` or `turn_not_ended`, and no key), reads it back and
   submits it with one Enter while the composer holds exactly it. Text that is not submitted is
   erased and the compaction returns to `compact_waiting` with the step's reason, to retry when
   the pane is idle. The fence before each key also holds the family mode and the session's
@@ -2560,7 +2569,18 @@ object: the discovery fields (`name`, held `alias`, `family`, registration `stat
 `repository`), `observed_at` in Unix milliseconds, and `model`, `context`, `activity`.
 Each group has `known` and `stale_after_ms`; an unknown group has `reason` and no value fields.
 A context report may carry `epoch`, the native transcript or thread it was read from; the
-daemon keeps it for the context policy and returns it in no view.
+daemon keeps it for the context policy and returns it in no view. A `codex_rollout` context
+report with an epoch may also carry `end`, its caught-up mark (#564): `rollout` (the file's
+device and inode, `DEVICE-INODE`), `size` (where the read ended) and `turn` (the last turn's
+ID). The reader sends it only when it read the rollout to its end after a complete record,
+within its 4 MiB batch, and the last turn had ended. After a failed read, or a rollout that is
+unreadable or names another thread, it sends its last delivered reading without the mark, at
+each look until the daemon accepts it. A
+report of the same reading with a mark confirms it and replaces the stored mark; one without a
+mark clears a stored mark and confirms nothing, and the next report confirms. These reports
+keep the daemon's state and the Sessions page current on a best-effort basis; the input does
+not depend on them, because the adapter reads the rollout itself before its first key. The
+daemon keeps the mark for the context policy and returns it in no view.
 A known group carries `source`, source timestamp `at`, last confirmation timestamp
 `confirmed_at`, and its allowlisted value fields: model `id`; context `limit_tokens`,
 `used_tokens`, `usage_available` when reported; activity `state`. Source time may be old while
