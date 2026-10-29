@@ -37,6 +37,11 @@ const (
 	registryRecordMax = 64 << 10
 )
 
+// markKept is longer than the daemon's confirmation age (90 s, core contextConfirmationMaxAge)
+// and a report's 2-second bound: after it, a delivered caught-up mark admits nothing, so the
+// report that clears it is not needed (#564).
+const markKept = 2 * time.Minute
+
 var threadKey = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
 // sentValue is the last report of a group and when it was sent.
@@ -94,8 +99,15 @@ func (s *server) report(ctx context.Context, o core.Observation) {
 	now := s.c.Now()
 	s.obs.mu.Lock()
 	if s.obs.sent == nil || len(s.obs.sent) > 4*maxObserved {
-		// Forgetting only costs one repeated report per session.
-		s.obs.sent = map[core.Key]map[string]sentValue{}
+		// Forgetting only costs one repeated report per session. A context delivered with a
+		// caught-up mark within markKept stays: the report that clears it comes from it (#564).
+		kept := map[core.Key]map[string]sentValue{}
+		for k, groups := range s.obs.sent {
+			if v, found := groups["context"]; found && v.value.End != nil && now.Sub(v.at) < markKept {
+				kept[k] = map[string]sentValue{"context": v}
+			}
+		}
+		s.obs.sent = kept
 	}
 	last := s.obs.sent[o.Caller]
 	if last == nil {

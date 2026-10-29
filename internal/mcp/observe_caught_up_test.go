@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -201,5 +202,53 @@ func TestCaughtUpMarkAfterReadFailure(t *testing.T) {
 	busy.clock = busy.clock.Add(confirmEvery) // past the minute in which an unchanged value is not resent
 	if v := busy.context(t); v != nil {
 		t.Fatalf("unmarked failure reported: %+v", v)
+	}
+}
+
+// A full cache of sent reports is reset, but a context delivered with a mark within the
+// confirmation age stays, so the report that clears it is still derived and sent again after
+// a refusal; an older one is dropped, since the daemon's mark no longer admits anything.
+func TestCaughtUpMarkSurvivesCacheReset(t *testing.T) {
+	r := newCaughtUpRollout(t)
+	if v := r.context(t); v == nil || v.End == nil {
+		t.Fatalf("caught up: %+v", v)
+	}
+	caller := core.Key{Family: "codex", ID: "synthetic-thread-1"}
+	fill := func() {
+		for i := range 4*maxObserved + 1 {
+			r.s.report(context.Background(), core.Observation{Caller: core.Key{Family: "codex", ID: fmt.Sprintf("synthetic-other-%d", i)},
+				Model: &core.ObservedValue{Source: "codex_mcp_meta", At: r.clock.UnixMilli(), ID: "gpt-synthetic"}})
+		}
+		r.taken(4*maxObserved + 1)
+	}
+	fill()
+	os.Remove(r.path)
+	r.mu.Lock()
+	r.refuse = 1
+	r.mu.Unlock()
+	for i := range 2 {
+		r.clock = r.clock.Add(time.Second)
+		if v := r.context(t); v == nil || v.End != nil || *v.UsedTokens != 800 {
+			t.Fatalf("clearing report %d after the reset: %+v", i, v)
+		}
+	}
+	r.clock = r.clock.Add(time.Second)
+	if v := r.context(t); v != nil {
+		t.Fatalf("cleared mark reported again: %+v", v)
+	}
+	// A delivered mark older than the confirmation age, and a recent context without a mark,
+	// are dropped at a reset.
+	unmarked := core.Key{Family: "codex", ID: "synthetic-unmarked"}
+	r.s.obs.mu.Lock()
+	r.s.obs.sent[caller] = map[string]sentValue{"context": {core.ObservedValue{Source: "codex_rollout", At: 1, End: &core.RolloutEnd{Rollout: "1-2", Turn: "t"}}, r.clock.Add(-markKept)}}
+	r.s.obs.sent[unmarked] = map[string]sentValue{"context": {core.ObservedValue{Source: "codex_rollout", At: 1}, r.clock}}
+	r.s.obs.mu.Unlock()
+	fill()
+	r.s.obs.mu.Lock()
+	_, expired := r.s.obs.sent[caller]
+	_, plain := r.s.obs.sent[unmarked]
+	r.s.obs.mu.Unlock()
+	if expired || plain {
+		t.Fatalf("kept at the reset: expired mark %v, unmarked context %v", expired, plain)
 	}
 }
