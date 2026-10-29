@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/rwcii/koinon/internal/platform"
@@ -128,8 +129,9 @@ func (g grokStatusFile) read() (grokConfig, error) {
 }
 
 // tomlJSON is a scalar TOML value as JSON: a string, a boolean, an integer, or a finite float
-// spelled with a fraction or an exponent, so that it stays apart from an integer. Any other
-// value, such as an array, a table or a date, has none.
+// spelled with a fraction or an exponent, so that it stays apart from an integer. A scalar
+// that JSON cannot hold, an infinite or NaN float or a date or time, is an object whose
+// "toml" member is its TOML token (grokScalar). An array or a table has none.
 func tomlJSON(v any) (json.RawMessage, bool) {
 	switch v := v.(type) {
 	case string, bool:
@@ -139,20 +141,56 @@ func tomlJSON(v any) (json.RawMessage, bool) {
 		return json.RawMessage(strconv.FormatInt(v, 10)), true
 	case float64:
 		if math.IsInf(v, 0) || math.IsNaN(v) {
-			return nil, false
+			return grokScalar(v)
 		}
 		text := strconv.FormatFloat(v, 'g', -1, 64)
 		if !strings.ContainsAny(text, ".eE") {
 			text += ".0"
 		}
 		return json.RawMessage(text), true
+	case time.Time:
+		return grokScalar(v)
 	}
 	return nil, false
+}
+
+// grokScalar is v as {"toml": token}, with the token that the TOML encoder writes for it.
+func grokScalar(v any) (json.RawMessage, bool) {
+	var b bytes.Buffer
+	if err := toml.NewEncoder(&b).Encode(map[string]any{"v": v}); err != nil {
+		return nil, false
+	}
+	token, ok := strings.CutPrefix(strings.TrimSpace(b.String()), "v = ")
+	if !ok {
+		return nil, false
+	}
+	text, _ := json.Marshal(map[string]string{"toml": token})
+	return text, true
+}
+
+// grokScalarToken is the TOML token of a grokScalar object.
+func grokScalarToken(v json.RawMessage) (string, bool) {
+	var scalar struct {
+		TOML *string `json:"toml"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(v))
+	dec.DisallowUnknownFields()
+	if !strings.HasPrefix(strings.TrimSpace(string(v)), "{") || dec.Decode(&scalar) != nil || scalar.TOML == nil {
+		return "", false
+	}
+	return *scalar.TOML, true
 }
 
 // tomlValue is the TOML value of a value that tomlJSON wrote, as the decoder gives it.
 func tomlValue(v json.RawMessage) (any, error) {
 	text := strings.TrimSpace(string(v))
+	if token, ok := grokScalarToken(v); ok {
+		value, err := decodeTOML([]byte("v = " + token))
+		if err != nil {
+			return nil, err
+		}
+		return value["v"], nil
+	}
 	switch {
 	case strings.HasPrefix(text, `"`):
 		var s string
@@ -169,6 +207,9 @@ func tomlValue(v json.RawMessage) (any, error) {
 
 // tomlToken is v as a TOML value token.
 func tomlToken(v json.RawMessage) string {
+	if token, ok := grokScalarToken(v); ok {
+		return token
+	}
 	value, err := tomlValue(v)
 	if s, ok := value.(string); ok && err == nil {
 		return tomlString(s)
@@ -383,9 +424,16 @@ func valueSpan(line string) (from, to int, ok bool) {
 			return from, from + i + 2, true
 		}
 	case rest != "" && strings.IndexByte("[{\r\n#", rest[0]) < 0:
-		to := strings.IndexAny(rest, " \t#\r\n")
-		if to < 0 {
-			to = len(rest)
+		end := func(at int) int {
+			if to := strings.IndexAny(rest[at:], " \t#\r\n"); to >= 0 {
+				return at + to
+			}
+			return len(rest)
+		}
+		to := end(0)
+		// A date and a time may be apart by one space: 1979-05-27 07:32:00.
+		if _, err := time.Parse("2006-01-02", rest[:to]); err == nil && to+1 < len(rest) && rest[to] == ' ' && rest[to+1] >= '0' && rest[to+1] <= '9' {
+			to = end(to + 1)
 		}
 		return from, from + to, true
 	}
@@ -596,6 +644,51 @@ func expected(c grokConfig, entry json.RawMessage, drop bool) (map[string]any, e
 	return value, nil
 }
 
+// tomlEqual compares two decoded TOML values, with a NaN equal to any other NaN, as the file
+// spells the same nan before and after an edit.
+func tomlEqual(a, b any) bool {
+	switch x := a.(type) {
+	case map[string]any:
+		y, ok := b.(map[string]any)
+		if !ok || len(x) != len(y) {
+			return false
+		}
+		for k, v := range x {
+			if w, set := y[k]; !set || !tomlEqual(v, w) {
+				return false
+			}
+		}
+		return true
+	case []any:
+		y, ok := b.([]any)
+		if !ok || len(x) != len(y) {
+			return false
+		}
+		for i := range x {
+			if !tomlEqual(x[i], y[i]) {
+				return false
+			}
+		}
+		return true
+	case []map[string]any:
+		y, ok := b.([]map[string]any)
+		if !ok || len(x) != len(y) {
+			return false
+		}
+		for i := range x {
+			if !tomlEqual(x[i], y[i]) {
+				return false
+			}
+		}
+		return true
+	case float64:
+		if y, ok := b.(float64); ok && math.IsNaN(x) && math.IsNaN(y) {
+			return true
+		}
+	}
+	return reflect.DeepEqual(a, b)
+}
+
 // write makes the edit, checks that its meaning differs only in the owned keys, and replaces
 // the file as the other status lines do.
 func (g grokStatusFile) write(c grokConfig, entry json.RawMessage, raw map[string]string, drop bool) error {
@@ -616,7 +709,7 @@ func (g grokStatusFile) write(c grokConfig, entry json.RawMessage, raw map[strin
 			}
 		}
 	}
-	if err != nil || !reflect.DeepEqual(after, want) {
+	if err != nil || !tomlEqual(after, want) {
 		return g.unusual()
 	}
 	return g.writeRaw(c.raw, data)

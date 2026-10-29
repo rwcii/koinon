@@ -14,7 +14,9 @@ into a dated release section when promoted to `main`.
   start Grok again, because Grok reads its configuration at startup. If you edited Koinon's
   status-line command, setup keeps it (`statusline_changed`); add `refresh_interval = 30` to the
   table yourself. For a setup from an earlier Koinon, removal restores the interval that the file
-  has at the upgrade. Not yet checked against a live Grok session.
+  has at the upgrade. An interval of `nan`, `inf`, `-inf` or a date also becomes 30, and removal
+  restores it. Checked with Grok Build 1.0.50 on Linux: an idle session stayed
+  `below_threshold` for 162 seconds.
 - An idle Codex, OpenCode or DeepSeek session above its threshold in `handoff_cycle` gets its
   cycle without a new turn (#569, DECISIONS.md#PULLED-IDLE-569). Their context readings do not
   change while the session is idle, so they became older than two minutes and the trigger

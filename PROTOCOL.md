@@ -2780,7 +2780,7 @@ comments and the table's other options stay as they were. An owned
 line keeps its key spelling, its spacing and its comment; only its value changes. The text
 editor supports a plain `[ui.status_line]` table only: invalid TOML is `settings_invalid`, and an
 inline table, a dotted key, an owned value that is a multiline string, a `type` or `command`
-that is not a string, a `refresh_interval` that is not a scalar, or another shape it cannot
+that is not a string, a `refresh_interval` that is an array or a table, or another shape it cannot
 prove is `settings_unusual`; the file is not changed. The previous `type`, `command` and
 `refresh_interval` (or their absence), their values as spelled, and whether setup added the
 table, are saved
@@ -2788,7 +2788,10 @@ once in `grok-statusline.json` in the Go state root, with the file's path. `koin
 --remove-status-line` and the Grok removal restore them in that file while it still holds the
 exact wrapper, and remove the table only when setup added it and no other key is in it. A
 saved spelling is used only when it is a TOML spelling of the saved value; otherwise the value
-is written as a basic string, or as a plain integer, float or boolean. A record saved before
+is written as a basic string, or as a plain integer, float or boolean. A `refresh_interval`
+that JSON cannot hold, `nan`, `inf`, `-inf` or a date or time, is not an integer from 1 to 30,
+so setup writes 30; the record keeps it as its TOML token, and removal restores it as spelled.
+A record saved before
 `refresh_interval` was owned has none in its wrapper: setup and removal compare only its `type`
 and `command`, and the interval that the file has at that time, as spelled, or its absence,
 becomes the one that removal restores. After that, an edit of only the interval is also an

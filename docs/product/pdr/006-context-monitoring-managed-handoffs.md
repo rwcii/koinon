@@ -191,7 +191,10 @@ every 30 seconds: Maintainer, 2026-10-29, decision board item GROK-IDLE-568 (rev
 recommended: "koinon setup grok also owns refresh_interval and sets it to 30 seconds", keeping an
 earlier integer of 1 to 30, the restart of Grok after setup, and, for a record saved before the
 interval was owned, the interval in the file at the upgrade as the one that removal restores.
-The Grok live check of the card (What 6) is not yet done.
+The Grok live check of the card (What 6) was done on 2026-10-29 with Grok Build 1.0.50 on Linux
+at branch head 1448548: setup wrote `refresh_interval = 30`, and an idle session in
+`handoff_cycle` stayed `below_threshold` in ten `koinon context show` readings over 162 seconds
+(docs/sprints/2026-10-12-context-handoff/evidence.md, "Grok idle status line (#568)").
 
 ### Alternatives Considered
 
