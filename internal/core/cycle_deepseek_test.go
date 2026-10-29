@@ -35,6 +35,7 @@ type dshSession struct {
 	nextTurn  []string
 	questions []string
 	lastUsed  *deepSeekModel
+	pressure  string // the contextPressure members, or "" for none (#569)
 }
 
 type dshFake struct {
@@ -206,8 +207,12 @@ func (f *dshFake) serve(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		last, _ := json.Marshal(s.lastUsed)
-		value = fmt.Sprintf(`{"asOfSeq":%d,"values":{"inbox":{"next-turn":[%s],"next-step":[]},"userQuestions":{"active":[%s]},"modelSelection":{"lastUsed":%s,"next":null}}}`,
-			len(s.events)-1, strings.Join(s.nextTurn, ","), strings.Join(s.questions, ","), last)
+		pressure := ""
+		if s.pressure != "" {
+			pressure = `"contextPressure":{` + s.pressure + `},`
+		}
+		value = fmt.Sprintf(`{"asOfSeq":%d,"values":{%s"inbox":{"next-turn":[%s],"next-step":[]},"userQuestions":{"active":[%s]},"modelSelection":{"lastUsed":%s,"next":null}}}`,
+			len(s.events)-1, pressure, strings.Join(s.nextTurn, ","), strings.Join(s.questions, ","), last)
 	case deepSeekPageCall:
 		s := f.sessions[request.Address.SessionID]
 		end := *request.ThroughSeq + 1

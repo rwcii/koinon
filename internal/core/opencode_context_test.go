@@ -24,6 +24,10 @@ type openCodeFake struct {
 	status    int           // a status other than 200 for every request, or 0
 	delay     chan struct{} // when set, each request waits until it is closed or its client gives up
 	calls     map[string]int
+	// sessionStatus is the body of GET /session/status, or "" for a 404; onStatus runs after
+	// each status answer, under the lock: a change between the reads of one round (#569).
+	sessionStatus string
+	onStatus      func(*openCodeFake)
 }
 
 func newOpenCodeFake(t *testing.T) (*openCodeFake, LaunchTarget) {
@@ -62,6 +66,22 @@ func newOpenCodeFake(t *testing.T) (*openCodeFake, LaunchTarget) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		switch {
+		case r.URL.Path == "/session/status":
+			if f.sessionStatus == "" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.Write([]byte(f.sessionStatus))
+			if f.onStatus != nil {
+				f.onStatus(f)
+			}
+		case strings.Count(r.URL.Path, "/") == 2 && strings.HasPrefix(r.URL.Path, "/session/"):
+			id := strings.TrimPrefix(r.URL.Path, "/session/")
+			if _, found := f.messages[id]; !found {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			fmt.Fprintf(w, `{"id":%q}`, id)
 		case r.URL.Path == "/config/providers":
 			w.Write([]byte(f.providers))
 		case strings.HasPrefix(r.URL.Path, "/session/") && strings.HasSuffix(r.URL.Path, "/message") && r.URL.Query().Get("limit") == "4":
@@ -103,7 +123,7 @@ const openCodeTokens = `"tokens":{"total":22314,"input":20520,"output":2,"reason
 func TestOpenCodeContextReading(t *testing.T) {
 	ctx := context.Background()
 	_, target := newOpenCodeFake(t)
-	model, usage, err := openCodeContext(ctx, target, "ses_synthetic")
+	model, usage, _, err := openCodeContext(ctx, target, "ses_synthetic")
 	if err != nil || model == nil || usage == nil {
 		t.Fatalf("reading: %v %+v %+v", err, model, usage)
 	}
@@ -137,7 +157,7 @@ func TestOpenCodeContextChoice(t *testing.T) {
 		"newest in front": "[" + newer + "," + older + "]",
 	} {
 		f.set("ses_synthetic", page)
-		_, usage, err := openCodeContext(ctx, target, "ses_synthetic")
+		_, usage, _, err := openCodeContext(ctx, target, "ses_synthetic")
 		if err != nil || usage == nil || *usage.UsedTokens != 34 || usage.At != 2000 {
 			t.Fatalf("%s: %v %+v", name, err, usage)
 		}
@@ -145,18 +165,18 @@ func TestOpenCodeContextChoice(t *testing.T) {
 	// No finished assistant message yet: nothing, and no error.
 	for _, page := range []string{"[]", "[" + user + "]", "[" + aborted + "," + running + "]"} {
 		f.set("ses_synthetic", page)
-		if model, usage, err := openCodeContext(ctx, target, "ses_synthetic"); err != nil || model != nil || usage != nil {
+		if model, usage, _, err := openCodeContext(ctx, target, "ses_synthetic"); err != nil || model != nil || usage != nil {
 			t.Fatalf("no finished message %s: %v %+v", page, err, usage)
 		}
 	}
 	// Two finished messages at the same time are ambiguous.
 	f.set("ses_synthetic", "["+newer+","+newer+"]")
-	if _, usage, err := openCodeContext(ctx, target, "ses_synthetic"); err == nil || usage != nil {
+	if _, usage, _, err := openCodeContext(ctx, target, "ses_synthetic"); err == nil || usage != nil {
 		t.Fatalf("tie: %v %+v", err, usage)
 	}
 	// A malformed newest message does not fall back to the older valid one.
 	f.set("ses_synthetic", "["+older+","+assistant(`"finish":"stop","time":{"completed":2000},"tokens":{"input":1.5,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}`)+"]")
-	if _, usage, err := openCodeContext(ctx, target, "ses_synthetic"); err == nil || usage != nil {
+	if _, usage, _, err := openCodeContext(ctx, target, "ses_synthetic"); err == nil || usage != nil {
 		t.Fatalf("malformed newest: %v %+v", err, usage)
 	}
 }
@@ -190,13 +210,13 @@ func TestOpenCodeContextMalformed(t *testing.T) {
 		"no model":       `[{"info":{"role":"assistant","providerID":"opencode","finish":"stop","time":{"completed":2000},` + openCodeTokens + `}}]`,
 	} {
 		f.set("ses_synthetic", page)
-		if model, usage, err := openCodeContext(ctx, target, "ses_synthetic"); err == nil || model != nil || usage != nil {
+		if model, usage, _, err := openCodeContext(ctx, target, "ses_synthetic"); err == nil || model != nil || usage != nil {
 			t.Fatalf("%s: %v %+v %+v", name, err, model, usage)
 		}
 	}
 	// An absent total is allowed.
 	f.set("ses_synthetic", finished(`{"input":5,"output":1,"reasoning":0,"cache":{"read":2,"write":0}}`))
-	if _, usage, err := openCodeContext(ctx, target, "ses_synthetic"); err != nil || *usage.UsedTokens != 8 {
+	if _, usage, _, err := openCodeContext(ctx, target, "ses_synthetic"); err != nil || *usage.UsedTokens != 8 {
 		t.Fatalf("no total: %v %+v", err, usage)
 	}
 	// The provider list must name the provider once, and the model under its own ID, with a
@@ -216,7 +236,7 @@ func TestOpenCodeContextMalformed(t *testing.T) {
 		f.mu.Lock()
 		f.providers = providers
 		f.mu.Unlock()
-		if _, usage, err := openCodeContext(ctx, target, "ses_synthetic"); err == nil || usage != nil {
+		if _, usage, _, err := openCodeContext(ctx, target, "ses_synthetic"); err == nil || usage != nil {
 			t.Fatalf("providers %s: %v %+v", name, err, usage)
 		}
 	}
@@ -229,12 +249,12 @@ func TestOpenCodeContextTransport(t *testing.T) {
 	f, target := newOpenCodeFake(t)
 	wrong := target
 	wrong.Password = strings.Repeat("cd", 32)
-	if _, usage, err := openCodeContext(ctx, wrong, "ses_synthetic"); err == nil || usage != nil {
+	if _, usage, _, err := openCodeContext(ctx, wrong, "ses_synthetic"); err == nil || usage != nil {
 		t.Fatalf("wrong password: %v", err)
 	}
 	for _, status := range []int{http.StatusFound, http.StatusNoContent, http.StatusInternalServerError} {
 		f.status = status
-		if _, usage, err := openCodeContext(ctx, target, "ses_synthetic"); err == nil || usage != nil {
+		if _, usage, _, err := openCodeContext(ctx, target, "ses_synthetic"); err == nil || usage != nil {
 			t.Fatalf("status %d: %v", status, err)
 		}
 	}
@@ -242,15 +262,15 @@ func TestOpenCodeContextTransport(t *testing.T) {
 	if f.count("/elsewhere") != 0 {
 		t.Fatal("a redirect was followed")
 	}
-	if _, _, err := openCodeContext(ctx, target, "ses_unknown"); err == nil {
+	if _, _, _, err := openCodeContext(ctx, target, "ses_unknown"); err == nil {
 		t.Fatal("unknown session")
 	}
 	// A session ID is one escaped path segment.
-	if _, _, err := openCodeContext(ctx, target, "../config/providers"); err == nil || f.count("/config/providers") != 0 {
+	if _, _, _, err := openCodeContext(ctx, target, "../config/providers"); err == nil || f.count("/config/providers") != 0 {
 		t.Fatalf("escaped session: %v %v", err, f.calls)
 	}
 	f.set("ses_synthetic", "["+strings.Repeat(" ", openCodeResponseBytes)+"]")
-	if _, usage, err := openCodeContext(ctx, target, "ses_synthetic"); err == nil || usage != nil {
+	if _, usage, _, err := openCodeContext(ctx, target, "ses_synthetic"); err == nil || usage != nil {
 		t.Fatalf("oversized page: %v", err)
 	}
 	f.set("ses_synthetic", "["+assistant(`"finish":"stop","time":{"completed":2000},`+openCodeTokens)+"]")
@@ -258,13 +278,13 @@ func TestOpenCodeContextTransport(t *testing.T) {
 	f.providers = `{"providers":[{"id":"opencode","models":{"big-pickle":{"id":"big-pickle","limit":{"context":200000}}}}],"pad":"` +
 		strings.Repeat("x", openCodeResponseBytes) + `"}`
 	f.mu.Unlock()
-	if _, usage, err := openCodeContext(ctx, target, "ses_synthetic"); err == nil || usage != nil {
+	if _, usage, _, err := openCodeContext(ctx, target, "ses_synthetic"); err == nil || usage != nil {
 		t.Fatalf("oversized providers: %v", err)
 	}
 	f.delay = make(chan struct{})
 	defer close(f.delay)
 	start := time.Now()
-	if _, _, err := openCodeContext(ctx, target, "ses_synthetic"); err == nil || time.Since(start) > 3*openCodeContextTimeout {
+	if _, _, _, err := openCodeContext(ctx, target, "ses_synthetic"); err == nil || time.Since(start) > 3*openCodeContextTimeout {
 		t.Fatalf("timeout: %v after %v", err, time.Since(start))
 	}
 }

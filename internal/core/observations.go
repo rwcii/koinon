@@ -76,6 +76,11 @@ type ObservedValue struct {
 	// its end, the last record was complete and the last turn had ended. The store keeps it
 	// private; no view shows it.
 	End *RolloutEnd `json:"end,omitempty"`
+	// current is a daemon reader's proof that no newer context exists than this reading: an
+	// OpenCode or DeepSeek session read idle with nothing after the reading, in one round
+	// (DECISIONS.md#PULLED-IDLE-569). Only the daemon's own readers set it; no report decodes it
+	// and no view shows it.
+	current bool
 	// activity. TurnError is the fixed code of a failed Codex turn on an idle activity (#250).
 	State     string `json:"state,omitempty"`
 	TurnError string `json:"turn_error,omitempty"`
@@ -118,6 +123,8 @@ type storedValue struct {
 	seen  int64
 	epoch string
 	end   *RolloutEnd // the caught-up mark of the newest confirmation, or nil
+	// current is the proof of the newest confirmation (DECISIONS.md#PULLED-IDLE-569).
+	current bool
 }
 
 // Freshness windows: a value that no report confirmed within its window is shown as
@@ -314,16 +321,16 @@ func (s *Store) Observe(ctx context.Context, o Observation) error {
 			// the mark of a marked value only clears the mark and confirms nothing: a Codex
 			// reader sends it so after a failed read (#564), and its next report confirms.
 			previous, found := current[group]
-			value, epoch, end := *v, v.Epoch, v.End
-			value.Epoch, value.End = "", nil
+			value, epoch, end, proof := *v, v.Epoch, v.End, v.current
+			value.Epoch, value.End, value.current = "", nil, false
 			switch {
 			case !found || v.At > previous.At:
-				current[group] = storedValue{value, now, epoch, end}
+				current[group] = storedValue{value, now, epoch, end, proof}
 			case sameContent(value, previous.ObservedValue) && epoch == previous.epoch && previous.end != nil && end == nil:
 				previous.end = nil
 				current[group] = previous
 			case sameContent(value, previous.ObservedValue) && epoch == previous.epoch:
-				previous.seen, previous.end = now, end
+				previous.seen, previous.end, previous.current = now, end, proof
 				current[group] = previous
 			}
 		}
@@ -395,7 +402,7 @@ func (s *Store) sessionObservations(ctx context.Context, session Session) map[st
 		for group, v := range extras(ctx, session) {
 			if v.At >= current[group].At {
 				v.Epoch, v.End = "", nil
-				current[group] = storedValue{v, now, "", nil}
+				current[group] = storedValue{v, now, "", nil, false}
 			}
 		}
 	}
@@ -513,5 +520,18 @@ func (s *Store) contextEvidence(k Key) ContextEvidence {
 	if !found {
 		return ContextEvidence{}
 	}
-	return ContextEvidence{Found: true, UsedTokens: v.UsedTokens, LimitTokens: v.LimitTokens, Epoch: v.epoch, SourceAt: v.At, ConfirmedAt: v.seen, End: v.end}
+	return ContextEvidence{Found: true, UsedTokens: v.UsedTokens, LimitTokens: v.LimitTokens, Epoch: v.epoch, SourceAt: v.At, ConfirmedAt: v.seen, End: v.end,
+		Current: v.current}
+}
+
+// clearContextProof ends the proof of a session's stored context reading at once and confirms
+// nothing: a daemon reader calls it after a read that failed or gave no reading
+// (DECISIONS.md#PULLED-IDLE-569).
+func (s *Store) clearContextProof(k Key) {
+	s.observed.mu.Lock()
+	defer s.observed.mu.Unlock()
+	if v, found := s.observed.byKey[k]["context"]; found && v.current {
+		v.current = false
+		s.observed.byKey[k]["context"] = v
+	}
 }

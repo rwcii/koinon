@@ -47,11 +47,13 @@ func (c *openCodeCount) UnmarshalJSON(data []byte) error {
 // openCodeMessage is the allowlisted part of one message: its parts are not decoded.
 type openCodeMessage struct {
 	Info struct {
+		ID         string `json:"id"`
 		Role       string `json:"role"`
 		Finish     string `json:"finish"`
 		ProviderID string `json:"providerID"`
 		ModelID    string `json:"modelID"`
 		Time       struct {
+			Created   openCodeCount `json:"created"`
 			Completed openCodeCount `json:"completed"`
 		} `json:"time"`
 		Tokens *struct {
@@ -108,13 +110,14 @@ func openCodeGet(ctx context.Context, client *http.Client, target LaunchTarget, 
 
 // openCodeContext reads the model and context of one OpenCode session. Without a finished
 // assistant message it returns nothing. A newest finished message that cannot be read is an
-// error, never a fallback to an older one.
-func openCodeContext(ctx context.Context, target LaunchTarget, id string) (model, usage *ObservedValue, err error) {
+// error, never a fallback to an older one. last is that message's ID when it is also the
+// session's newest message, by its creation time, and "" otherwise (DECISIONS.md#PULLED-IDLE-569).
+func openCodeContext(ctx context.Context, target LaunchTarget, id string) (model, usage *ObservedValue, last string, err error) {
 	client, close := httpClient()
 	defer close()
 	var messages []openCodeMessage
 	if err := openCodeGet(ctx, client, target, "/session/"+url.PathEscape(id)+"/message?limit="+strconv.Itoa(openCodeMessagePage), &messages); err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 	newest, ties := -1, 0
 	for i, m := range messages {
@@ -130,30 +133,30 @@ func openCodeContext(ctx context.Context, target LaunchTarget, id string) (model
 		}
 	}
 	if newest < 0 {
-		return nil, nil, nil
+		return nil, nil, "", nil
 	}
 	info := messages[newest].Info
 	tokens := info.Tokens
 	if ties > 0 || tokens == nil || tokens.Cache == nil {
-		return nil, nil, errOpenCodeContext
+		return nil, nil, "", errOpenCodeContext
 	}
 	var used int64
 	for _, count := range []openCodeCount{tokens.Input, tokens.Output, tokens.Reasoning, tokens.Cache.Read, tokens.Cache.Write} {
 		if !count.ok || count.value > maxSafeInt-used {
-			return nil, nil, errOpenCodeContext
+			return nil, nil, "", errOpenCodeContext
 		}
 		used += count.value
 	}
 	if tokens.Total.present && (!tokens.Total.ok || tokens.Total.value != used) {
-		return nil, nil, errOpenCodeContext
+		return nil, nil, "", errOpenCodeContext
 	}
 	name := info.ProviderID + "/" + info.ModelID
 	if info.ProviderID == "" || info.ModelID == "" || !modelID.MatchString(name) {
-		return nil, nil, errOpenCodeContext
+		return nil, nil, "", errOpenCodeContext
 	}
 	var providers openCodeProviders
 	if err := openCodeGet(ctx, client, target, "/config/providers", &providers); err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 	var limit int64
 	found := 0
@@ -167,17 +170,33 @@ func openCodeContext(ctx context.Context, target LaunchTarget, id string) (model
 		}
 	}
 	if found != 1 || limit == 0 {
-		return nil, nil, errOpenCodeContext
+		return nil, nil, "", errOpenCodeContext
 	}
 	at := info.Time.Completed.value
 	return &ObservedValue{Source: "opencode_server", At: at, ID: name},
-		&ObservedValue{Source: "opencode_server", At: at, LimitTokens: &limit, UsedTokens: &used, Epoch: id}, nil
+		&ObservedValue{Source: "opencode_server", At: at, LimitTokens: &limit, UsedTokens: &used, Epoch: id}, newestMessage(messages, newest), nil
+}
+
+// newestMessage is the ID of message i when it was created after every other message of the
+// page, and "" otherwise: a later user message or an unfinished reply is newer context.
+func newestMessage(messages []openCodeMessage, i int) string {
+	created := messages[i].Info.Time.Created
+	if messages[i].Info.ID == "" || !created.ok {
+		return ""
+	}
+	for j, m := range messages {
+		if j != i && (!m.Info.Time.Created.ok || m.Info.Time.Created.value >= created.value) {
+			return ""
+		}
+	}
+	return messages[i].Info.ID
 }
 
 // openCodeSent is the last reading that the poller recorded for one session.
 type openCodeSent struct {
 	model, usage ObservedValue
 	mark         int64 // the source's own position of the reading, such as a usage event's seq, or 0
+	current      bool  // the reading's proof (DECISIONS.md#PULLED-IDLE-569)
 	at           time.Time
 }
 
@@ -189,7 +208,7 @@ type openCodeContextState struct {
 // openCodeContextRound reads every active launched OpenCode session once, at most
 // openCodeContextWorkers at a time, and returns when all reads ended. A reading is recorded
 // when it changed, and an unchanged one once a minute; a failed read records nothing, so it
-// confirms no earlier reading.
+// confirms no earlier reading, and it ends the reading's proof at once.
 func (s *Store) openCodeContextRound(ctx context.Context) {
 	now := s.now()
 	rows, err := s.db.QueryContext(ctx, `SELECT id,wake_target FROM sessions WHERE family='opencode' AND retired_at=0 AND expires_at>?`, now.UnixMilli())
@@ -232,38 +251,67 @@ func (s *Store) openCodeContextRound(ctx context.Context) {
 	wg.Wait()
 }
 
+// readOpenCodeContext reads one session's context. The reading is current when its message is
+// the session's newest, `GET /session/status` then shows that exact session idle, and a second
+// read gives the same reading and newest message (DECISIONS.md#PULLED-IDLE-569).
 func (s *Store) readOpenCodeContext(ctx context.Context, k Key, launch string) {
 	target, err := s.openCodeTarget(ctx, launch)
 	if err != nil {
+		s.dropReading(&s.openCodeContext, k)
 		return
 	}
-	model, usage, err := openCodeContext(ctx, target, k.ID)
+	model, usage, last, err := openCodeContext(ctx, target, k.ID)
 	if err != nil || usage == nil {
+		s.dropReading(&s.openCodeContext, k)
 		return
 	}
-	s.recordReading(ctx, &s.openCodeContext, k, model, usage, 0, openCodeContextConfirm)
+	current := false
+	if last != "" {
+		status, cancel := context.WithTimeout(ctx, openCodeContextTimeout)
+		state, err := openCodeStatus(status, target, k.ID)
+		cancel()
+		if err == nil && state == "idle" {
+			_, again, lastAgain, err := openCodeContext(ctx, target, k.ID)
+			current = err == nil && again != nil && lastAgain == last && sameReading(*again, *usage)
+		}
+	}
+	s.recordReading(ctx, &s.openCodeContext, k, model, usage, 0, current, openCodeContextConfirm)
 }
 
 // recordReading records a polled reading when it changed, and an unchanged one again once
 // confirm passed (#513, #514). An unchanged reading keeps its source time. mark is the
 // reading's position in its source: a new mark is a new reading even with the same values.
-func (s *Store) recordReading(ctx context.Context, state *openCodeContextState, k Key, model, usage *ObservedValue, mark int64, confirm time.Duration) {
+// current is the reading's proof; a change of it is recorded at once (DECISIONS.md#PULLED-IDLE-569).
+func (s *Store) recordReading(ctx context.Context, state *openCodeContextState, k Key, model, usage *ObservedValue, mark int64, current bool, confirm time.Duration) {
 	now := s.now()
 	state.mu.Lock()
 	last, found := state.sent[k]
 	state.mu.Unlock()
-	if found && *model == last.model && sameReading(*usage, last.usage) && mark == last.mark && now.Sub(last.at) < confirm && !now.Before(last.at) {
+	if found && *model == last.model && sameReading(*usage, last.usage) && mark == last.mark && current == last.current &&
+		now.Sub(last.at) < confirm && !now.Before(last.at) {
 		return
 	}
-	if s.Observe(ctx, Observation{Caller: k, Model: model, Context: usage}) != nil {
+	proved := *usage
+	proved.current = current
+	if s.Observe(ctx, Observation{Caller: k, Model: model, Context: &proved}) != nil {
+		s.dropReading(state, k)
 		return
 	}
 	state.mu.Lock()
 	if state.sent == nil {
 		state.sent = map[Key]openCodeSent{}
 	}
-	state.sent[k] = openCodeSent{*model, *usage, mark, now}
+	state.sent[k] = openCodeSent{*model, *usage, mark, current, now}
 	state.mu.Unlock()
+}
+
+// dropReading forgets the last recorded reading of k, so that the next one is recorded, and
+// ends the stored reading's proof at once (DECISIONS.md#PULLED-IDLE-569).
+func (s *Store) dropReading(state *openCodeContextState, k Key) {
+	state.mu.Lock()
+	delete(state.sent, k)
+	state.mu.Unlock()
+	s.clearContextProof(k)
 }
 
 // forget drops the readings of sessions that are not live.

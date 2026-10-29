@@ -35,6 +35,11 @@ type deepSeekFake struct {
 	page        func(records []string) []string
 	delay       chan struct{}
 	calls       map[string]int
+	// listed puts the session in session/list, with running; afterList runs after each list
+	// answer, under the lock: a change between the reads of the quiet point (#569).
+	listed    bool
+	running   bool
+	afterList func(*deepSeekFake)
 }
 
 func newDeepSeekFake(t *testing.T) (*deepSeekFake, wakeTarget) {
@@ -106,7 +111,7 @@ func (f *deepSeekFake) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		f.mu.Lock()
 	}
-	if method != deepSeekProjectionsCall && method != deepSeekPageCall || r.Method != http.MethodPost {
+	if method != deepSeekProjectionsCall && method != deepSeekPageCall && method != "session/list" || r.Method != http.MethodPost {
 		t.Errorf("a request that is not a read: %s %s", r.Method, r.URL.Path)
 		w.WriteHeader(http.StatusNotFound)
 		return
@@ -166,6 +171,17 @@ func (f *deepSeekFake) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		fmt.Fprintf(w, `{"type":"server-response","rpcId":%q,"result":%s}`, rpcID, result)
 	}
+	if method == "session/list" {
+		items := ""
+		if f.listed {
+			items = fmt.Sprintf(`{"sessionId":%q,"updatedAt":%d,"running":%t,"cwd":"/synthetic"}`, f.session, 1000+len(f.events), f.running)
+		}
+		respond(`{"ok":true,"value":{"items":[` + items + `]}}`)
+		if f.afterList != nil {
+			f.afterList(f)
+		}
+		return
+	}
 	request := document.Payload.Args.Request
 	if method == deepSeekProjectionsCall {
 		if request.SessionID != f.session {
@@ -201,7 +217,7 @@ func (f *deepSeekFake) serve(w http.ResponseWriter, r *http.Request) {
 
 func readDeepSeek(t *testing.T, target wakeTarget) (model, usage *ObservedValue, err error) {
 	t.Helper()
-	model, usage, _, err = deepSeekContext(context.Background(), target, "session-synthetic")
+	model, usage, _, _, err = deepSeekContext(context.Background(), target, "session-synthetic")
 	return model, usage, err
 }
 
@@ -375,12 +391,12 @@ func TestDeepSeekContextTransport(t *testing.T) {
 	f, target := newDeepSeekFake(t)
 	other := target
 	other.DSHURL = "http://example.invalid"
-	if _, _, _, err := deepSeekContext(context.Background(), other, "session-synthetic"); err == nil {
+	if _, _, _, _, err := deepSeekContext(context.Background(), other, "session-synthetic"); err == nil {
 		t.Fatal("a non-loopback origin")
 	}
 	other = target
 	other.DSHCredentials = filepath.Join(t.TempDir(), "missing.yaml")
-	if _, _, _, err := deepSeekContext(context.Background(), other, "session-synthetic"); err == nil || f.count(deepSeekProjectionsCall) != 0 {
+	if _, _, _, _, err := deepSeekContext(context.Background(), other, "session-synthetic"); err == nil || f.count(deepSeekProjectionsCall) != 0 {
 		t.Fatal("a missing credential file")
 	}
 	f.set(func(f *deepSeekFake) { f.delay = make(chan struct{}) })

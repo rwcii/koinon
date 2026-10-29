@@ -74,7 +74,7 @@ func TestIdleCompactionThroughCaughtUpRead(t *testing.T) {
 }
 
 // Without a caught-up mark, with an old confirmation or below the threshold, an old reading
-// admits nothing; nor does the handoff cycle accept the mark.
+// admits nothing. The handoff cycle accepts the mark too (DECISIONS.md#PULLED-IDLE-569).
 func TestIdleCompactionAdmitsOnlyCaughtUpReadings(t *testing.T) {
 	cases := map[string]func(f *compactFixture, old time.Time){
 		// A busy session, a batch-bounded or partial read and a read failure all report no mark.
@@ -113,7 +113,7 @@ func TestIdleCompactionAdmitsOnlyCaughtUpReadings(t *testing.T) {
 	f.caught(t, 800, f.k.ID, f.clock.Add(-30*time.Minute), rolloutEnd(5000))
 	policy := ContextFamilyPolicy{Family: "codex", Mode: ContextHandoffCycle, Threshold: 75}
 	if _, reason := SelectContextTrigger(ContextTriggerInput{Active: true, Enabled: true, Policy: policy, CycleAvailable: true,
-		Evidence: f.s.contextEvidence(f.k), Now: f.clock.UnixMilli()}); reason != "source_stale" {
+		Evidence: f.s.contextEvidence(f.k), Now: f.clock.UnixMilli()}); reason != "" {
 		t.Fatalf("handoff_cycle with a caught-up mark: %q", reason)
 	}
 }

@@ -236,39 +236,47 @@ func (c *deepSeekClient) read(ctx context.Context, method string, request, value
 
 // deepSeekContext reads the model and context of one DeepSeek session, and the seq of the
 // usage event that the reading came from. Before its first usage it returns nothing; an
-// incoherent or unreadable reading is an error, never a fallback to an older one.
-func deepSeekContext(ctx context.Context, target wakeTarget, id string) (model, usage *ObservedValue, seq int64, err error) {
+// incoherent or unreadable reading is an error, never a fallback to an older one. The reading
+// is current when the cycle adapter's quiet-point check then passes and the projections are
+// read again at the same log position: the session is idle, and its newest usage, with no model
+// or context change after it, is the reading's (DECISIONS.md#PULLED-IDLE-569).
+func deepSeekContext(ctx context.Context, target wakeTarget, id string) (model, usage *ObservedValue, seq int64, current bool, err error) {
 	ctx, cancel := context.WithTimeout(ctx, deepSeekContextScan)
 	defer cancel()
 	client, err := newDeepSeekClient(ctx, target)
 	if err != nil {
-		return nil, nil, 0, errDeepSeekContext
+		return nil, nil, 0, false, errDeepSeekContext
 	}
 	defer client.close()
 	var projections deepSeekProjections
 	if err := client.call(ctx, deepSeekProjectionsCall, map[string]any{"sessionId": id}, &projections); err != nil {
-		return nil, nil, 0, err
+		return nil, nil, 0, false, err
 	}
 	pressure := projections.Values.ContextPressure
 	if pressure == nil || !pressure.PressureTokens.present {
-		return nil, nil, 0, nil
+		return nil, nil, 0, false, nil
 	}
 	selection := projections.Values.ModelSelection
 	if !projections.AsOfSeq.ok || !pressure.PressureTokens.ok || !pressure.ContextWindow.ok ||
 		pressure.ContextWindow.value <= 0 || selection == nil || selection.LastUsed == nil {
-		return nil, nil, 0, errDeepSeekContext
+		return nil, nil, 0, false, errDeepSeekContext
 	}
 	name := selection.LastUsed.Provider + "/" + selection.LastUsed.Model
 	if selection.LastUsed.Provider == "" || selection.LastUsed.Model == "" || !modelID.MatchString(name) {
-		return nil, nil, 0, errDeepSeekContext
+		return nil, nil, 0, false, errDeepSeekContext
 	}
 	at, seq, err := deepSeekUsageTime(ctx, client, id, projections.AsOfSeq.value, pressure.PressureTokens.value)
 	if err != nil {
-		return nil, nil, 0, err
+		return nil, nil, 0, false, err
 	}
 	used, limit := pressure.PressureTokens.value, pressure.ContextWindow.value
+	if seen, _, err := deepSeekQuiet(ctx, client, id); err == nil && seen == "" {
+		var again deepSeekProjections
+		current = client.call(ctx, deepSeekProjectionsCall, map[string]any{"sessionId": id}, &again) == nil &&
+			again.AsOfSeq.ok && again.AsOfSeq.value == projections.AsOfSeq.value
+	}
 	return &ObservedValue{Source: deepSeekContextSource, At: at, ID: name},
-		&ObservedValue{Source: deepSeekContextSource, At: at, LimitTokens: &limit, UsedTokens: &used, Epoch: id}, seq, nil
+		&ObservedValue{Source: deepSeekContextSource, At: at, LimitTokens: &limit, UsedTokens: &used, Epoch: id}, seq, current, nil
 }
 
 // deepSeekUsageTime scans the session's log back from asOfSeq to the newest event with a
@@ -328,7 +336,7 @@ func deepSeekUsageTime(ctx context.Context, client *deepSeekClient, id string, a
 // deepSeekContextRound reads every active DeepSeek session with a harness target once, at
 // most deepSeekContextWorkers at a time, and returns when all reads ended. A reading is
 // recorded when it changed, and an unchanged one once a minute; a failed read records
-// nothing, so it confirms no earlier reading.
+// nothing, so it confirms no earlier reading, and it ends the reading's proof at once.
 func (s *Store) deepSeekContextRound(ctx context.Context) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id,wake_target FROM sessions WHERE family='deepseek' AND retired_at=0 AND expires_at>?`, s.now().UnixMilli())
 	if err != nil {
@@ -363,10 +371,13 @@ func (s *Store) deepSeekContextRound(ctx context.Context) {
 		wg.Add(1)
 		go func() {
 			defer func() { <-slots; wg.Done() }()
-			model, usage, seq, err := deepSeekContext(ctx, session.target, session.id)
-			if err == nil && usage != nil {
-				s.recordReading(ctx, &s.deepSeekContext, Key{"deepseek", session.id}, model, usage, seq, deepSeekContextConfirm)
+			k := Key{"deepseek", session.id}
+			model, usage, seq, current, err := deepSeekContext(ctx, session.target, session.id)
+			if err != nil || usage == nil {
+				s.dropReading(&s.deepSeekContext, k)
+				return
 			}
+			s.recordReading(ctx, &s.deepSeekContext, k, model, usage, seq, current, deepSeekContextConfirm)
 		}()
 	}
 	wg.Wait()
