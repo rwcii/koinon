@@ -27,6 +27,9 @@ import (
 const (
 	statusLineRecord = "claude-statusline.json"
 	settingsMax      = 1 << 20
+	// claudeRefresh runs the Claude status line at least every 30 seconds, also while the
+	// session is idle, so that its context reading stays within the trigger's clocks (#566).
+	claudeRefresh = 30
 )
 
 // SettingsError is a refusal to edit the Claude settings file.
@@ -66,6 +69,9 @@ type statusLine struct {
 	// the members that a wrapper adds when no earlier entry exists.
 	hook, record, missing string
 	defaults              []field
+	// refresh is the most seconds between two runs of the status line while the session is
+	// idle (Claude Code's refreshInterval, DECISIONS.md#CLAUDE-IDLE-566), or 0 for none.
+	refresh int
 }
 
 func (l statusLine) name() string {
@@ -280,7 +286,19 @@ func (l statusLine) wrapperEntry(original json.RawMessage) json.RawMessage {
 	if original == nil {
 		fields = append(fields, l.defaults...)
 	}
+	if l.refresh > 0 && !validRefresh(lookup(fields, "refreshInterval"), l.refresh) {
+		interval, _ := json.Marshal(l.refresh)
+		fields = replace(fields, "refreshInterval", interval)
+	}
 	return encodeFields(fields)
+}
+
+// validRefresh reports whether an entry's refreshInterval is one that Claude Code accepts, a
+// number of at least 1, and at most limit seconds. Claude Code takes any other value as unset,
+// which means no refresh.
+func validRefresh(value json.RawMessage, limit int) bool {
+	var n float64
+	return value != nil && json.Unmarshal(value, &n) == nil && n >= 1 && n <= float64(limit)
 }
 
 // plainWrapper reports whether a wrapper is spelled exactly as wrapperEntry writes it: the hook
@@ -563,7 +581,7 @@ func (l statusLine) remove() (StatusLineResult, error) {
 
 // ClaudeStatusLine sets up the status-line hook, or removes it when remove is set.
 func ClaudeStatusLine(binary, state, configDir string, remove bool) (StatusLineResult, error) {
-	return statusLine{binary: binary, settings: filepath.Join(configDir, "settings.json")}.run(state, remove)
+	return statusLine{binary: binary, settings: filepath.Join(configDir, "settings.json"), refresh: claudeRefresh}.run(state, remove)
 }
 
 // AgyStatusLine sets up or removes the agy status-line hook in the Antigravity CLI settings

@@ -485,6 +485,15 @@ alert once, through the browser's Web Locks; a browser without them can speak it
 and a browser that does not keep site data keeps the switch for that page only (the Settings
 page says so). The **Test** button speaks a sample sentence.
 
+Claude sessions report their context through the status line that `koinon setup claude`
+installs. Koinon's status-line entry runs every 30 seconds (Claude Code's `refreshInterval`),
+also while the session is idle, so an idle Claude session at its threshold gets its handoff
+cycle without a new turn (#566, DECISIONS.md#CLAUDE-IDLE-566). This needs Claude Code 2.1.97 or
+later. An interval of 1 to 30 seconds that your entry already had stays. After an upgrade, run
+`koinon setup claude` again to add the interval. If you edited Koinon's status-line entry, setup
+keeps it and reports `statusline_changed`: add `"refreshInterval": 30` to the entry yourself.
+The status-line command then runs every 30 seconds in each Claude session; it calls no model.
+
 agy sessions report their context and activity through the status line that `koinon setup agy`
 installs, so the Sessions page shows their readings. The agy family default stays `observe`.
 OpenCode sessions started with `koinon opencode` show their model and context too: the daemon

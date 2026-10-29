@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- An idle Claude session above its threshold gets its handoff cycle without a new turn (#566,
+  DECISIONS.md#CLAUDE-IDLE-566). Claude Code runs the status line on events, so the context
+  reading of an idle session became older than two minutes and the trigger showed
+  `source_stale`. Now the status-line entry that `koinon setup claude` writes has
+  `"refreshInterval": 30`, so Claude Code runs it every 30 seconds, also while idle. This needs
+  Claude Code 2.1.97 or later. An earlier interval of 1 to 30 seconds stays, and removal restores
+  the earlier entry. Upgrade: run `koinon setup claude` again. If you edited Koinon's status-line
+  entry, setup keeps it (`statusline_changed`); add `"refreshInterval": 30` to it yourself.
 - An idle Codex session above its threshold in `native_compaction` compacts without a new turn
   (#564, DECISIONS.md#IDLE-COMPACT-564). Codex writes no new context reading while it is idle,
   so the reading became older than two minutes and the trigger showed `source_stale`; the
