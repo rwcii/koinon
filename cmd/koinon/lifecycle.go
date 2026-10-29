@@ -81,7 +81,7 @@ func planCommand(ctx context.Context, o install.Options, out io.Writer) error {
 		return coded(err)
 	}
 	if len(steps) == 0 {
-		_, err = fmt.Fprintln(out, "The Koinon installation is current.")
+		_, err = fmt.Fprintln(out, install.Current)
 		return err
 	}
 	_, err = fmt.Fprintln(out, strings.Join(steps, "\n"))

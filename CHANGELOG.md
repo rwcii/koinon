@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- After `brew install` and `brew upgrade`, a current installation's caveats say only "The
+  Koinon installation is current." (#561). Before, they showed that sentence under "The steps
+  that this installation needs:" and asked to check again after the steps.
+
 ## 2026-10-29 — A spoken alert, an install plan after Homebrew, and sessions that follow a new port
 
 This release adds a spoken alert to the dashboard: with the switch on, the browser says when a

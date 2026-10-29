@@ -90,7 +90,8 @@ ${bottle}  on_macos do
   # Each command has its own line: the expanded opt_bin path would break a wrapped sentence.
   # koinon install --plan reads this machine and prints only the steps that it still needs;
   # it changes nothing (#551). Homebrew keeps the person's PATH, where the agents' CLIs are,
-  # in HOMEBREW_PATH. When the plan cannot run or check everything, the fixed steps show.
+  # in HOMEBREW_PATH. When the plan cannot run or check everything, the fixed steps show. A
+  # current installation has no steps, so it shows the plan's sentence alone (#561).
   def caveats
     plan = begin
       require "open3"
@@ -100,7 +101,11 @@ ${bottle}  on_macos do
     rescue StandardError
       nil
     end
-    text = if plan
+    current = "The Koinon installation is current."
+    done = plan&.strip == current
+    text = if done
+      "#{current}\n"
+    elsif plan
       "The steps that this installation needs:\n#{plan.lines.map { |line| "  #{line}" }.join}"
     else
       fixed = <<~EOS
@@ -123,9 +128,13 @@ ${bottle}  on_macos do
       end
       fixed
     end
+    unless done
+      text += <<~EOS
+        Check again after these steps:
+          #{opt_bin}/koinon install --plan
+      EOS
+    end
     text + <<~EOS
-      Check again after these steps:
-        #{opt_bin}/koinon install --plan
 
       To upgrade:
         brew update

@@ -17,6 +17,10 @@ import (
 	"github.com/rwcii/koinon/internal/setup"
 )
 
+// Current is what `koinon install --plan` prints for an installation that needs nothing. The
+// Homebrew caveats show it alone, without the steps heading and the recheck (#561).
+const Current = "The Koinon installation is current."
+
 // Plan returns the commands that this machine's installation still needs, in order, and
 // changes nothing (#551). An empty plan means the installation is current. A check that
 // cannot finish is an error, so a plan is never partial: a missing step is never reported
