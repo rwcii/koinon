@@ -291,9 +291,9 @@ func (s *Store) recordReading(ctx context.Context, state *openCodeContextState, 
 		now.Sub(last.at) < confirm && !now.Before(last.at) {
 		return
 	}
-	proved := *usage
-	proved.current = current
-	if s.Observe(ctx, Observation{Caller: k, Model: model, Context: &proved}) != nil {
+	newestModel, proved := *model, *usage
+	newestModel.newest, proved.current, proved.newest = true, current, true
+	if s.Observe(ctx, Observation{Caller: k, Model: &newestModel, Context: &proved}) != nil || !s.holdsReading(k, *usage) {
 		s.dropReading(state, k)
 		return
 	}
@@ -303,6 +303,16 @@ func (s *Store) recordReading(ctx context.Context, state *openCodeContextState, 
 	}
 	state.sent[k] = openCodeSent{*model, *usage, mark, current, now}
 	state.mu.Unlock()
+}
+
+// holdsReading reports whether the store holds reading as k's context. A reading that the
+// store did not take, such as one older than the stored reading, leaves no proof standing.
+func (s *Store) holdsReading(k Key, reading ObservedValue) bool {
+	s.observed.mu.Lock()
+	defer s.observed.mu.Unlock()
+	v, found := s.observed.byKey[k]["context"]
+	return found && v.Source == reading.Source && v.At == reading.At && v.epoch == reading.Epoch &&
+		v.UsedTokens != nil && v.LimitTokens != nil && *v.UsedTokens == *reading.UsedTokens && *v.LimitTokens == *reading.LimitTokens
 }
 
 // dropReading forgets the last recorded reading of k, so that the next one is recorded, and

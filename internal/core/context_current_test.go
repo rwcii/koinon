@@ -104,6 +104,26 @@ func TestContextProofInTheStore(t *testing.T) {
 	if e := s.contextEvidence(k); e.Current || e.Epoch != "ses_other" {
 		t.Fatalf("new epoch: %+v", e)
 	}
+	// A different report at the same source time changes nothing, unless a daemon reader read
+	// it as its source's newest: then it replaces the reading, with its own proof.
+	tied := func(used int64, newest, current bool) {
+		t.Helper()
+		clock = clock.Add(time.Second)
+		v := ObservedValue{Source: "opencode_server", At: old + 1, LimitTokens: int64p(1000), UsedTokens: int64p(used), Epoch: "ses_other",
+			current: current, newest: newest}
+		if err := s.Observe(ctx, Observation{Caller: k, Context: &v}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tied(800, true, true)
+	tied(100, false, false)
+	if e := s.contextEvidence(k); !e.Current || *e.UsedTokens != 800 {
+		t.Fatalf("a tied report: %+v", e)
+	}
+	tied(100, true, false)
+	if e := s.contextEvidence(k); e.Current || *e.UsedTokens != 100 {
+		t.Fatalf("a tied newest report: %+v", e)
+	}
 	// An old, different report changes nothing, its proof included.
 	report(old-1, "ses_synthetic", true)
 	if e := s.contextEvidence(k); e.Current || e.Epoch != "ses_other" {
@@ -257,6 +277,23 @@ func TestOpenCodeCurrentReading(t *testing.T) {
 	if r := reason(); r != "source_stale" {
 		t.Fatalf("changed between the reads: %q", r)
 	}
+	// A reading that the store does not take, here one older than the stored reading, leaves no
+	// proof standing and is not cached as recorded.
+	f.onStatus = nil
+	f.set("ses_synthetic", openCodeIdlePage)
+	*clock = clock.Add(time.Second)
+	s.openCodeContextRound(ctx)
+	if r := reason(); r != "" {
+		t.Fatalf("before an older reading: %q", r)
+	}
+	f.set("ses_synthetic", strings.Replace(openCodeIdlePage, `"completed":1793073206710`, `"completed":1793073206000`, 1))
+	for range 2 {
+		*clock = clock.Add(time.Second)
+		s.openCodeContextRound(ctx)
+		if e := s.contextEvidence(k); e.Current || e.SourceAt != 1793073206710 {
+			t.Fatalf("older reading: %+v", e)
+		}
+	}
 	// A daemon restart forgets the proof; the first current round after it admits again.
 	f.onStatus = nil
 	f.set("ses_synthetic", openCodeIdlePage)
@@ -363,8 +400,33 @@ func TestDeepSeekCurrentReading(t *testing.T) {
 			t.Fatalf("%s: %q", name, r)
 		}
 	}
+	// A newer usage event in the same millisecond as the reading's, with other counts, is the
+	// new reading: quiet, it gets its own proof; busy, none, and the old proof ends.
+	for _, busy := range []bool{false, true} {
+		f.set(func(f *deepSeekFake) { f.quietSample(); f.afterList = nil })
+		if r := round(); r != "" {
+			t.Fatalf("busy %t, before: %q", busy, r)
+		}
+		f.set(func(f *deepSeekFake) {
+			f.add(`"type":"turn/start","data":{}`)
+			f.add(`"type":"assistant/message","data":{"usage":{"inputTokens":100}}`)
+			f.events[len(f.events)-1] = strings.Replace(f.events[len(f.events)-1], fmt.Sprintf(`"time":%d`, 1791916440000+int64(len(f.events)-1)*1000), `"time":1791916498000`, 1)
+			f.add(`"type":"turn/end","data":{}`)
+			f.projections = strings.Replace(f.projections, `"pressureTokens":9688`, `"pressureTokens":100`, 1)
+			f.projections = strings.Replace(f.projections, `"asOfSeq":60`, `"asOfSeq":63`, 1)
+			f.running = busy
+		})
+		r := round()
+		e := s.contextEvidence(k)
+		if *e.UsedTokens != 100 || e.SourceAt != 1791916498000 || e.Current == busy {
+			t.Fatalf("busy %t: tied newer usage: %+v", busy, e)
+		}
+		if want := map[bool]string{false: "", true: "source_stale"}[busy]; r != want {
+			t.Fatalf("busy %t: %q", busy, r)
+		}
+	}
 	// A failed read ends the proof at once and confirms nothing.
-	f.set(func(f *deepSeekFake) { f.quietSample(); f.afterList = nil })
+	f.set(func(f *deepSeekFake) { f.quietSample(); f.afterList = nil; f.running = false })
 	round()
 	confirmed := s.contextEvidence(k).ConfirmedAt
 	f.set(func(f *deepSeekFake) { f.status = http.StatusInternalServerError })

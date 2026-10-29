@@ -81,6 +81,10 @@ type ObservedValue struct {
 	// (DECISIONS.md#PULLED-IDLE-569). Only the daemon's own readers set it; no report decodes it
 	// and no view shows it.
 	current bool
+	// newest marks a daemon reader's reading as its source's newest: at the same source time
+	// it replaces a different stored reading, such as a new usage event in the same
+	// millisecond (DECISIONS.md#PULLED-IDLE-569). No report decodes it.
+	newest bool
 	// activity. TurnError is the fixed code of a failed Codex turn on an idle activity (#250).
 	State     string `json:"state,omitempty"`
 	TurnError string `json:"turn_error,omitempty"`
@@ -321,10 +325,11 @@ func (s *Store) Observe(ctx context.Context, o Observation) error {
 			// the mark of a marked value only clears the mark and confirms nothing: a Codex
 			// reader sends it so after a failed read (#564), and its next report confirms.
 			previous, found := current[group]
-			value, epoch, end, proof := *v, v.Epoch, v.End, v.current
-			value.Epoch, value.End, value.current = "", nil, false
+			value, epoch, end, proof, newest := *v, v.Epoch, v.End, v.current, v.newest
+			value.Epoch, value.End, value.current, value.newest = "", nil, false, false
 			switch {
-			case !found || v.At > previous.At:
+			case !found || v.At > previous.At ||
+				newest && v.At == previous.At && (!sameContent(value, previous.ObservedValue) || epoch != previous.epoch):
 				current[group] = storedValue{value, now, epoch, end, proof}
 			case sameContent(value, previous.ObservedValue) && epoch == previous.epoch && previous.end != nil && end == nil:
 				previous.end = nil
