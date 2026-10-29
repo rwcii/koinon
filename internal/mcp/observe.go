@@ -188,6 +188,9 @@ func (s *server) observeOnce(ctx context.Context) {
 			}
 		case "codex":
 			o.Model, o.Context, o.Activity = s.codexRollout(c.key.ID)
+			if o.Context == nil {
+				o.Context = s.unmarked(c.key)
+			}
 		}
 		// The daemon attributes a terminal only to a launched or a Claude session; this
 		// server offers it only for those, so that a shared server's environment is not
@@ -205,6 +208,22 @@ func (s *server) observeOnce(ctx context.Context) {
 		s.obs.mu.Unlock()
 		s.report(ctx, o)
 	}
+}
+
+// unmarked is the caller's last delivered context without its caught-up mark, while that
+// delivered context carried one, or nil. A rollout that failed, cannot be read or names
+// another thread gives no reading; this report ends the daemon's caught-up state at once, and
+// is sent again at each look until the daemon accepts it (DECISIONS.md#IDLE-COMPACT-564).
+func (s *server) unmarked(caller core.Key) *core.ObservedValue {
+	s.obs.mu.Lock()
+	defer s.obs.mu.Unlock()
+	last, found := s.obs.sent[caller]["context"]
+	if !found || last.value.End == nil {
+		return nil
+	}
+	value := last.value
+	value.End = nil
+	return &value
 }
 
 // terminal reads this server's tmux pane from its environment and asks tmux for the pane's
@@ -325,7 +344,6 @@ type rollout struct {
 	offset       int64
 	skipping     bool // inside a record longer than rolloutLine
 	caughtUp     bool // the last read reached the end of the file at a record boundary (#564)
-	marked       bool // the last context reading carried the caught-up mark
 	turn         string
 	model        *core.ObservedValue
 	context      *core.ObservedValue
@@ -365,17 +383,8 @@ func (s *server) codexRollout(thread string) (model, context, activity *core.Obs
 		}
 	}
 	if err := r.consume(thread); err != nil {
-		// A failed, unreadable or foreign rollout ends the caught-up state at once: a marked
-		// reading is sent once more without its mark, which the daemon takes as no
-		// confirmation (DECISIONS.md#IDLE-COMPACT-564).
-		previous, marked := r.context, r.marked
 		*r = rollout{searched: now}
-		if !marked || previous == nil {
-			return nil, nil, nil
-		}
-		value := *previous
-		value.Epoch = thread
-		return nil, &value, nil
+		return nil, nil, nil
 	}
 	// The rollout's first record proved its thread, which is the context's native epoch. A
 	// read that caught up while the last turn had ended marks the reading as current, though
@@ -387,7 +396,6 @@ func (s *server) codexRollout(thread string) (model, context, activity *core.Obs
 		if r.caughtUp && threadKey.MatchString(r.turn) && r.activity != nil && r.activity.State == "idle" {
 			value.End = &core.RolloutEnd{Rollout: strconv.FormatUint(r.device, 10) + "-" + strconv.FormatUint(r.node, 10), Size: r.offset, Turn: r.turn}
 		}
-		r.marked = value.End != nil
 		context = &value
 	}
 	return r.model, context, r.activity

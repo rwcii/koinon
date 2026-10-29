@@ -2571,7 +2571,8 @@ report with an epoch may also carry `end`, its caught-up mark (#564): `rollout` 
 device and inode, `DEVICE-INODE`), `size` (where the read ended) and `turn` (the last turn's
 ID). The reader sends it only when it read the rollout to its end after a complete record,
 within its 4 MiB batch, and the last turn had ended. After a failed read, or a rollout that is
-unreadable or names another thread, it sends the marked reading once more without the mark. A
+unreadable or names another thread, it sends its last delivered reading without the mark, at
+each look until the daemon accepts it. A
 report of the same reading with a mark confirms it and replaces the stored mark; one without a
 mark clears a stored mark and confirms nothing, and the next report confirms. The daemon keeps
 the mark for the context policy and returns it in no view.

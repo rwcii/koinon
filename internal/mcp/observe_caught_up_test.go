@@ -146,9 +146,9 @@ func TestCaughtUpMarkNeedsTheWholeRollout(t *testing.T) {
 	}
 }
 
-// A read failure, an unreadable rollout or one of another thread sends the marked reading once
-// more without its mark, so the daemon's caught-up state ends at once; the reader then reads
-// the rollout from its start.
+// A read failure, an unreadable rollout or one of another thread sends the last delivered
+// reading without its mark, until the daemon accepts it, so the daemon's caught-up state ends
+// at once; the reader then reads the rollout from its start.
 func TestCaughtUpMarkAfterReadFailure(t *testing.T) {
 	r := newCaughtUpRollout(t)
 	v := r.context(t)
@@ -162,11 +162,17 @@ func TestCaughtUpMarkAfterReadFailure(t *testing.T) {
 		f.Close()
 		t.Skip("this user reads files without read permission")
 	}
-	r.clock = r.clock.Add(time.Second)
-	if v := r.context(t); v == nil || v.End != nil || *v.UsedTokens != 800 || v.Epoch != "synthetic-thread-1" {
-		t.Fatalf("unreadable rollout: %+v", v)
+	// The daemon refuses the first report that clears the mark: it is sent again until accepted.
+	r.mu.Lock()
+	r.refuse = 1
+	r.mu.Unlock()
+	for i := range 2 {
+		r.clock = r.clock.Add(time.Second)
+		if v := r.context(t); v == nil || v.End != nil || *v.UsedTokens != 800 || v.Epoch != "synthetic-thread-1" {
+			t.Fatalf("unreadable rollout, report %d: %+v", i, v)
+		}
 	}
-	if reader := r.s.obs.rollouts["synthetic-thread-1"]; reader.offset != 0 || reader.caughtUp || reader.marked {
+	if reader := r.s.obs.rollouts["synthetic-thread-1"]; reader.offset != 0 || reader.caughtUp {
 		t.Fatalf("reader kept its place: %+v", reader)
 	}
 	r.clock = r.clock.Add(2 * confirmEvery)

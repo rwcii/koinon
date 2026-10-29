@@ -22,6 +22,7 @@ type observeHarness struct {
 	*harness
 	mu      sync.Mutex
 	reports []core.Observation
+	refuse  int // the number of the next reports that the daemon refuses
 }
 
 func newObserveHarness(t *testing.T, client, parent string) *observeHarness {
@@ -41,7 +42,16 @@ func newObserveHarness(t *testing.T, client, parent string) *observeHarness {
 			json.NewDecoder(r.Body).Decode(&report)
 			o.mu.Lock()
 			o.reports = append(o.reports, report)
+			refused := o.refuse > 0
+			if refused {
+				o.refuse--
+			}
 			o.mu.Unlock()
+			if refused {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				fmt.Fprint(w, `{"ok":false,"error":{"code":"unavailable","message":"synthetic outage"}}`)
+				return
+			}
 			fmt.Fprint(w, `{"ok":true}`)
 		case "/v1/sessions/register", "/v1/sessions/renew":
 			fmt.Fprint(w, `{"ok":true,"session":{"revision":1}}`)
