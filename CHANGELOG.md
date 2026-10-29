@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-10-29 — A spoken alert, an install plan after Homebrew, and sessions that follow a new port
+
+This release adds a spoken alert to the dashboard: with the switch on, the browser says when a
+decision or task starts to wait for the maintainer. After `brew install` and `brew upgrade`,
+Homebrew shows the steps that this machine still needs, from the new `koinon install --plan`.
+The Claude permission rules that setup offers cover the `koinon` commands that agents run, and
+a running session follows the daemon to a new port. The state schema stays at 36.
+
 - The dashboard can speak when a decision or task starts to wait for you (#553,
   DECISIONS.md#SPEAK-SCOPE-553). A switch on the Settings page turns the alert on in this
   browser; while a dashboard page is open, the browser says the item's repository, for example
@@ -47,6 +55,21 @@ into a dated release section when promoted to `main`.
   commits (#548). A promotion from `develop` carries commits that merged before #536 added the
   check, and `develop`'s history is not rewritten, so the v0.6.0 promotion failed the check on
   one of them. A pull request to any other branch still has its commit messages checked.
+
+Upgrade from v0.6.0 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary, which ends current dashboard logins: log in again with the
+maintainer secret, or run `koinon dashboard` for a one-time link. Homebrew then shows the steps
+that `koinon install --plan` finds; run them, and run `koinon install --plan` again to check.
+A running `koinon mcp` server runs the new release without a session restart.
+
+Upgrade notes:
+
+- To add the new Claude permission rules, run `koinon setup claude` in a terminal and answer
+  yes.
+- A session that a launcher of v0.6.0 or earlier started keeps the daemon address it was given
+  until it starts again.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
 
 ## 2026-10-28 — Decision board feedback and tasks, decision records, and cycles for more agents
 
