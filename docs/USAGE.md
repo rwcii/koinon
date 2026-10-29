@@ -225,7 +225,8 @@ UNIX_SECONDS --as FAMILY:ID`, with optional `--order`, `--where`, `--agent-text`
 change them with `decision_edit` (`koinon decision edit --reference REF --if-revision N ...`).
 Agents read decision status with `decision_list` (`--filter waiting|active|returned|in_progress|archived|mine`,
 paged with `--after`) and `decision_get` (`--reference REF`).
-Write card prose in ASD-STE100; context, recommendation and agent text are Markdown, and
+Use the card form in the guide's Decisions section (`koinon guide --agent FAMILY`) and write
+card prose in ASD-STE100; context, recommendation and agent text are Markdown, and
 terminal-copy commands are printable ASCII. Known key formats are refused. Credentials,
 personal data, private session IDs and peer message bodies stay in their own stores; a card
 holds the decision's own text. Markdown renders as

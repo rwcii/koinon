@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The guide gives one form for decision cards (#562). Its Decisions section says what a card
+  holds: the title as the action, the context as short facts with their sources, and the
+  recommendation with "## Recommendation:" and **What:**, **Why:** and **Fast or complete:**,
+  in that order. ASD-STE100 applies to the sentences, and the form stays. The
+  `decision_create` and `decision_edit` descriptions point to it. Before, the guide said only
+  that card prose is ASD-STE100, so each agent made up its own form.
+
 ## 2026-10-29 — A spoken alert, an install plan after Homebrew, and sessions that follow a new port
 
 This release adds a spoken alert to the dashboard: with the switch on, the browser says when a
