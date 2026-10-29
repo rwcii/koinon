@@ -6,12 +6,11 @@ into a dated release section when promoted to `main`.
 ## Unreleased
 
 - The guide gives one form for decision cards (#562, DECISIONS.md#CARD-FORM-562). Its
-  Decisions section says what a card
-  holds: the title as the action, the context as short facts with their sources, and the
-  recommendation with "## Recommendation:" and **What:**, **Why:** and **Fast or complete:**,
-  in that order. ASD-STE100 applies to the sentences, and the form stays. The
-  `decision_create` and `decision_edit` descriptions point to it. Before, the guide said only
-  that card prose is ASD-STE100, so each agent made up its own form.
+  Decisions section says what a card holds: the title as the action, the context as short
+  facts with their sources, and the recommendation with "## Recommendation:" and **What:**,
+  **Why:** and **Fast or complete:**, in that order. ASD-STE100 applies to the sentences, and
+  the form stays. The `decision_create` and `decision_edit` descriptions point to it. Before,
+  the guide said only that card prose is ASD-STE100, so each agent made up its own form.
 - After `brew install` and `brew upgrade`, a current installation's caveats say only "The
   Koinon installation is current." (#561). Before, they showed that sentence under "The steps
   that this installation needs:" and asked to check again after the steps.
