@@ -546,3 +546,54 @@ Recommendation:
 > **Corrections from the peers:** codex-koinon showed that a fresh confirmation alone does not prove that the reading is current, because a read can stop before the end of the rollout. The rule now needs a caught-up read, and a new one before the input.
 >
 > **Open point:** I did not check whether an idle Claude session in `handoff_cycle` has the same gap. I check it during this work, and file it as its own issue if it does.
+
+<a id="claude-idle-566"></a>
+
+## CLAUDE-IDLE-566
+
+<!-- koinon-decision CLAUDE-IDLE-566 revision 1 approved 1793280765119 -->
+
+**Approved**, revision 1, 2026-10-29 13:32:45 UTC.
+
+- Title: Make Koinon's Claude status line run every 30 seconds, so an idle Claude session gets its handoff cycle
+- Where: koinon setup claude (internal/setup/statusline.go), PDR 006
+
+Context:
+
+> - The trigger needs a context reading at most 2 minutes old, and its confirmation at most 90 seconds old. These clocks are from the #196 definition of done, which you approved at Gate B (`internal/core/context_policy.go`; checked 2026-10-29). This card does not change them.
+> - A Claude session's context comes only from its status line. Koinon's hook gives each reading the time of the hook run (`internal/setup/hooks.go:169`; checked 2026-10-29).
+> - Claude Code runs the status line on a new event. So an idle Claude session's reading gets older than 2 minutes, and the trigger shows `source_stale` (PROTOCOL.md, "Session observations"; #566).
+> - So an idle Claude session in `handoff_cycle` gets no cycle when its crossing comes while it is idle: after an Enable, a lower threshold or a daemon restart. It starts its next turn with a full context (#566, filed 2026-10-29).
+> - Claude Code 2.1.312, the version on this machine, has the setting `statusLine.refreshInterval`: "Re-run the status line command every N seconds in addition to event-driven updates" (its settings schema, read from the installed binary, 2026-10-29). The value must be a number of at least 1; another value counts as unset, and then there is no refresh (the same schema; the Claude Code settings reference, "statusLine").
+> - Claude Code added the setting in version 2.1.97: "Added `refreshInterval` status line setting to re-run the status line command every N seconds" (anthropics/claude-code CHANGELOG.md, section 2.1.97, at commit 0e1f478; checked 2026-10-29).
+> - You said, 2026-10-29, about an older Claude Code without the setting: "in such a case, we can specify a minimum client version, and move on." (in a session).
+> - PDR 006, Decision 5: an adapter runs with any version of its CLI, and Koinon shows no certification status for a version.
+> - `koinon setup claude` already writes the `statusLine` entry in the Claude settings. It wraps your status-line command, keeps the entry's other fields, and restores the earlier entry on removal (`internal/setup/statusline.go`).
+> - Setup and removal leave a Koinon entry that you edited as it is, and report `statusline_changed` (#530, #532; PROTOCOL.md, the Claude status-line paragraph). This card does not change that rule.
+
+Recommendation:
+
+> ## Recommendation: koinon setup claude sets refreshInterval to 30 seconds in Koinon's status-line entry
+>
+> **What:** one pull request in Koinon:
+> 1. The Claude status-line entry that `koinon setup claude` writes gets `"refreshInterval": 30`. An earlier entry with a valid interval from 1 to 30 seconds keeps its own value. No interval, a longer one, or one that Claude Code does not accept (such as 0, a negative number, a value under 1 or a value that is not a number) becomes 30.
+> 2. Removal restores the earlier entry as it was, with its own interval or none, under the existing rule: an entry that you edited stays as it is.
+> 3. An existing installation gets the setting at its next `koinon setup claude`, unless you edited Koinon's entry. Then setup reports `statusline_changed`, and you add `"refreshInterval": 30` to your entry yourself. The changelog and docs/USAGE.md give both steps.
+> 4. The docs give Claude Code 2.1.97 as the minimum version for the handoff cycle of an idle Claude session. Koinon does not check the version, as PDR 006, Decision 5 says.
+> 5. Tests: a new entry; an earlier entry with an interval of 1, of 30, of 120, of 0, a negative one, one under 1 and one that is not a number; the upgrade of an existing Koinon entry; an edited Koinon entry, also one where only the interval changed (`statusline_changed`, kept at setup and at removal); and removal, which restores the earlier entry exactly.
+> 6. PDR 006, PROTOCOL.md, docs/USAGE.md, docs/INSTALL.md and the changelog give the rule and the minimum version. DECISIONS.md records this verdict.
+>
+> **Why:** the defect is that the source of an idle Claude session reports nothing, not the 2-minute clock. With the refresh, Claude Code runs the status line every 30 seconds while the session is idle. Each run is a new reading from Claude Code itself, so the existing clocks admit it and no rule changes. 30 seconds gives a margin of three runs inside the 90-second confirmation age.
+>
+> **Fast or complete:** complete for Claude Code 2.1.97 and later. Limits:
+> - An older Claude Code does not have the setting, so the gap stays there. The docs give the minimum version, as you said.
+> - A Koinon entry that you edited keeps the gap until you add the interval yourself, because setup does not change an edited entry.
+> - Your status-line command runs every 30 seconds in each Claude session, as well as on events.
+> - I checked the setting in the binary, not in a live idle session. The live check is an open point.
+> - Cost: one pull request, about 20 minutes of CI.
+>
+> **Corrections from the peers:** codex-koinon: keep only an interval that Claude Code accepts (1 to 30), because a kept 0 or invalid value turns the refresh off; and name the existing rule for an edited entry, with its upgrade step and limit, instead of saying that every installation gets the setting.
+>
+> **Open points:**
+> - Live check: after the merge, you run `koinon setup claude` on this machine. I then confirm with `koinon context show` that an idle Claude session stays fresh, and report it.
+> - agy and Grok sessions in `handoff_cycle` read their context from their status lines too, which also run on events (PROTOCOL.md). They can have the same gap. Grok has its own `refresh_interval` option. I check both and file them as their own issue.

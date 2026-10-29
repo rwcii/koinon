@@ -2557,8 +2557,10 @@ confirms it and keeps its source time, and an older, different report changes no
 that no report confirmed within its window shows `unknown` with `observation_stale`: 2 minutes
 for activity and terminal, 30 minutes for model and context. Polled sources are confirmed every
 minute while they stay readable; hooks and tool calls confirm only by their next event, so an
-agy session's idle state and a Claude session's status-line values go stale when no new event
-comes. A session that is not active shows `unknown` with `session_expired` or
+agy session's idle state goes stale when no new event comes. A Claude session's status-line
+values are confirmed at least every 30 seconds while Koinon's status-line entry has its
+`refreshInterval` (Claude Code 2.1.97 or later), and go stale when no new event comes without
+it. A session that is not active shows `unknown` with `session_expired` or
 `session_retired`. A group without a value shows `no_source` when the family has none, else
 `not_observed`.
 
@@ -2696,7 +2698,12 @@ pieces across checks, and no conversation text is kept or sent.
 1 MiB, and returns its output and exit status, or
 prints the model's display name without one, and reports the model and context of the input's
 `session_id`. `koinon setup claude` makes it the `statusLine` entry, keeping the entry's other
-fields and wrapping its previous command. The previous entry is saved once, before the settings
+fields and wrapping its previous command. The entry gets `"refreshInterval": 30`, so Claude Code
+runs it at least every 30 seconds, also while the session is idle (#566,
+DECISIONS.md#CLAUDE-IDLE-566; Claude Code 2.1.97 or later, not checked). A previous interval
+that is a number from 1 to 30 stays as it was; no interval, a longer one or one that Claude Code
+does not accept (below 1, or not a number) becomes 30. The saved previous entry keeps its own
+interval or none. The previous entry is saved once, before the settings
 change, in `claude-statusline.json` in the Go state root. `koinon setup claude --remove-status-line`
 restores it while the entry is still Koinon's, and keeps an entry the user changed. Setup leaves
 a wrapper that the user edited alone (`statusline_changed`), also when it runs an earlier Koinon

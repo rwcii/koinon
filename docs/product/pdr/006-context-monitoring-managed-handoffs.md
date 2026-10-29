@@ -100,7 +100,11 @@ complete, no read failed and the last turn had ended. An idle Codex rollout reco
 reading, so an idle session above its threshold compacts without a new turn. The input then
 waits for one more caught-up confirmation of the same rollout, size and turn, and right before
 its first key the daemon reads the rollout itself: it types nothing unless the file and its size
-are still the same.
+are still the same. A Claude session's context comes from its status line, which Claude Code
+runs on events. The status-line entry that `koinon setup claude` writes runs it at least every
+30 seconds (`refreshInterval`), also while the session is idle, so an idle Claude session keeps a
+fresh reading and gets its cycle at the threshold under the same clocks. This needs Claude Code
+2.1.97 or later; Koinon does not check the version (Decision 5).
 
 In Codex's `native_compaction` mode the same trigger makes the daemon enter Codex's own
 `/compact` in the enabled session's pane while Codex is idle, once per crossing. A fresh reading
@@ -151,7 +155,14 @@ decision board item IDLE-COMPACT-564 (revision 1),
 recommended: "in native_compaction, accept an older reading of an idle Codex session when a
 caught-up read shows that it is current", with the input after a new caught-up confirmation.
 The verdict decides that rule for `native_compaction` only; the two-minute and 90-second clocks
-of the #196 definition of done stay for every other case.
+of the #196 definition of done stay for every other case. The Claude status line every 30
+seconds: Maintainer, 2026-10-29, decision board item CLAUDE-IDLE-566 (revision 1),
+[DECISIONS.md#CLAUDE-IDLE-566](../../../DECISIONS.md#claude-idle-566), "approved". The card
+recommended: "koinon setup claude sets refreshInterval to 30 seconds in Koinon's status-line
+entry", keeping an earlier valid interval of 1 to 30 seconds and an entry that the person
+edited. Before the card, about a Claude Code version without the setting, the maintainer said
+"in such a case, we can specify a minimum client version, and move on." (2026-10-29, session
+transcript); the docs give 2.1.97, the version that added the setting.
 
 ### Alternatives Considered
 
@@ -556,3 +567,4 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-27 | Decision 3: a Claude session's running background subagents do not hold the cycle back, and the request asks to list them in the handoff (#533), approved on the decision board (SUBAGENT-CLEAR-533) |
 | 2026-10-27 | Decision 5: the Grok adapter is listed, from its Linux checks with Grok Build 1.0.50 (#515) |
 | 2026-10-29 | Decision 1: in `native_compaction` an older reading of an idle Codex session counts when a caught-up read confirms it (#564), approved on the decision board (IDLE-COMPACT-564) |
+| 2026-10-29 | Decision 1: Koinon's Claude status line runs at least every 30 seconds, so an idle Claude session gets its cycle; Claude Code 2.1.97 or later (#566), approved on the decision board (CLAUDE-IDLE-566) |
