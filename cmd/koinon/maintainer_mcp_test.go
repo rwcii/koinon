@@ -6,9 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -238,6 +240,41 @@ func TestMaintainerMCPOverStdio(t *testing.T) {
 	p.in.Close()
 	if err := p.end(); err != nil {
 		t.Fatalf("end of input: %v", err)
+	}
+}
+
+// Without --address, the process finds the daemon at its recorded port for each call: after
+// a restart on another port it reaches the new daemon, whose answer ends the token, and exits,
+// in place of answering daemon_unavailable for ever (#549).
+func TestMaintainerMCPFollowsRecordedPort(t *testing.T) {
+	t.Setenv("KOINON_DAEMON_ADDRESS", "")
+	root := filepath.Join(t.TempDir(), "state")
+	d := maintainerMCPDaemon(t, root, "127.0.0.1:0", true)
+	record := func(address string) {
+		t.Helper()
+		_, port, _ := net.SplitHostPort(address)
+		n, _ := strconv.Atoi(port)
+		if err := core.RecordPort(root, n); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record(d.Addresses()[0])
+	p := startMaintainerMCP(t, []string{"--maintainer", "--client", "koinon-voice", "--secret-stdin", "--state-dir", root}, mcpSecret+"\n")
+	p.request("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}})
+	if reply, isError := p.tool("peers", map[string]any{}); isError {
+		t.Fatalf("peers: %v", reply)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatal(err)
+	}
+	moved := maintainerMCPDaemon(t, root, "127.0.0.1:0", false)
+	record(moved.Addresses()[0])
+	if reply, isError := p.tool("board_list", map[string]any{}); !isError || reply["code"] != "maintainer_token_expired" {
+		t.Fatalf("after the move: %v", reply)
+	}
+	var refused core.RefusedError
+	if err := p.end(); !errors.As(err, &refused) || refused.Code != "maintainer_token_expired" {
+		t.Fatalf("exit: %v", err)
 	}
 }
 

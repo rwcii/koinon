@@ -151,7 +151,7 @@ func (m maintainerFlags) used(flags *flag.FlagSet) bool {
 // standard input before the MCP stream or from a private file, exchanges it once for a
 // maintainer token and then serves the maintainer tools. A refusal ends the command before
 // any MCP output. It registers no agent session.
-func maintainerMCP(ctx context.Context, state, address string, m maintainerFlags, flags *flag.FlagSet, in io.Reader, out io.Writer) error {
+func maintainerMCP(ctx context.Context, state, address string, resolve func() (string, error), m maintainerFlags, flags *flag.FlagSet, in io.Reader, out io.Writer) error {
 	fileGiven := false
 	flags.Visit(func(f *flag.Flag) { fileGiven = fileGiven || f.Name == "secret-file" })
 	switch {
@@ -180,7 +180,7 @@ func maintainerMCP(ctx context.Context, state, address string, m maintainerFlags
 	if err != nil {
 		return err
 	}
-	return mcp.ServeMaintainer(ctx, mcp.MaintainerConfig{StateDir: state, Address: address, Token: token, Client: *m.client, Version: version}, in, out)
+	return mcp.ServeMaintainer(ctx, mcp.MaintainerConfig{StateDir: state, Address: address, Resolve: resolve, Token: token, Client: *m.client, Version: version}, in, out)
 }
 
 // readSecretFile reads the first line of a secret file: a regular file, not a symbolic link,

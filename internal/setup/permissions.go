@@ -13,25 +13,49 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
 
+// ClaudeCommands are the agent-facing koinon commands that the recommended Claude rules
+// allow, each with and without its arguments (DECISIONS.md#CLI-RULES-550). install, uninstall,
+// upgrade, serve, setup, maintainer, dashboard, the context changes, sessions and participant
+// holder stay out.
+var ClaudeCommands = []string{"guide", "status", "context show", "peers", "peer-status", "inbox", "ack", "send",
+	"cycle-status", "cycle-ready", "cycle-pickup", "decision", "work", "claim renew", "memory",
+	"room list", "room members", "room post", "room read", "library"}
+
 // The recommended server-wide permission rules of docs/PERMISSIONS.md for each family: the
-// koinon server's tools and the read-only commands that the guide tells agents to run.
+// koinon server's tools and the commands that agents run.
 var (
-	ClaudePermissions = []string{
-		"mcp__koinon__*",
-		"Bash(koinon guide --agent claude)",
-		"Bash(koinon context show)",
-		"Bash(koinon status)",
-	}
-	AgyPermissions = []string{"mcp(koinon/*)", "command(koinon guide --agent agy)"}
+	ClaudePermissions = claudeBashRules("koinon")
+	AgyPermissions    = []string{"mcp(koinon/*)", "command(koinon guide --agent agy)"}
 	// CodexPermissions is the key that setup sets in the [mcp_servers.koinon] table.
 	CodexPermissions = []string{`default_tools_approval_mode = "approve"`}
 	// OpenCodePermissions are members of the permission object: a key, or bash.KEY.
 	OpenCodePermissions = []string{`"koinon_*": "allow"`, `"bash": {"koinon guide --agent opencode": "allow"}`}
 )
+
+// claudeBashRules are the server rule and the Bash rules of ClaudeCommands for program.
+func claudeBashRules(program string) []string {
+	rules := []string{"mcp__koinon__*"}
+	for _, command := range ClaudeCommands {
+		rules = append(rules, "Bash("+program+" "+command+")", "Bash("+program+" "+command+" *)")
+	}
+	return rules
+}
+
+// claudePermissions are ClaudePermissions and the same Bash rules for binary, the absolute
+// path that the installed Claude configuration runs, which agents also call; a path that the
+// shell must quote is quoted as setup quotes it in commands.
+func claudePermissions(binary string) []string {
+	rules := slices.Clone(ClaudePermissions)
+	if binary != "" && binary != "koinon" {
+		rules = append(rules, claudeBashRules(ShellWord(binary))[1:]...)
+	}
+	return rules
+}
 
 // GrokPermissionNote is the launch rule that Grok takes instead of a settings file.
 const GrokPermissionNote = "Grok takes its rule at launch: koinon grok --allow 'MCPTool(koinon__*)'. No file was changed."
@@ -64,11 +88,19 @@ func Permissions(o Options, add bool) (PermissionsResult, error) {
 		if dir == "" {
 			dir = claudeConfigDir(os.Getenv)
 		}
-		err = allowList(&result, statusLine{settings: filepath.Join(dir, "settings.json")}, ClaudePermissions, func(rule string) []string {
+		binary := o.Binary
+		if binary == "" {
+			binary, _ = os.Executable()
+		}
+		err = allowList(&result, statusLine{settings: filepath.Join(dir, "settings.json")}, claudePermissions(binary), func(rule string) []string {
 			if rule == "mcp__koinon__*" {
 				return []string{"mcp__koinon"}
 			}
-			return []string{"Bash(koinon *)", "Bash(koinon:*)"}
+			program := "koinon"
+			if word := ShellWord(binary); strings.HasPrefix(rule, "Bash("+word+" ") {
+				program = word
+			}
+			return []string{"Bash(" + program + " *)", "Bash(" + program + ":*)"}
 		}, add)
 	case "agy":
 		err = allowList(&result, statusLine{settings: agySettingsFile(o), label: "Antigravity settings"}, AgyPermissions, func(rule string) []string {
@@ -354,6 +386,18 @@ type Inspection struct {
 	CLI         string             `json:"cli,omitempty"`
 	Configured  bool               `json:"configured"`
 	Permissions *PermissionsResult `json:"permissions,omitempty"`
+	// Error is set when the CLI's own read failed, so Configured is not known (#551).
+	Error string `json:"error,omitempty"`
+}
+
+// absent reports whether a failed read of the koinon server says that there is none: Claude
+// Code and Codex answer a get of a missing server with an error.
+func absent(family, output string) bool {
+	switch family {
+	case "claude", "codex":
+		return strings.Contains(ansi.ReplaceAllString(output, ""), "No MCP server named")
+	}
+	return false
 }
 
 // Inspect finds the family's CLI on PATH (or o.CLI), whether its koinon server runs exactly
@@ -368,8 +412,14 @@ func Inspect(ctx context.Context, o Options) Inspection {
 		return in
 	}
 	in.CLI = cli
-	if out, err := runCLI(ctx, cli, getCommand(o.Family)...); err == nil {
+	// Only a completed answer counts: "No MCP server named" with a nonzero exit means that
+	// the server is not there; output that did not end, or a stopped CLI, is not read.
+	var exit *exec.ExitError
+	switch out, err := readCLI(ctx, 250*time.Millisecond, cli, getCommand(o.Family)...); {
+	case err == nil:
 		in.Configured = configured(o.Family, out, o.Binary)
+	case !errors.As(err, &exit) || ctx.Err() != nil || !absent(o.Family, out):
+		in.Error = fmt.Sprintf("%s %s: %v", cli, strings.Join(getCommand(o.Family), " "), err)
 	}
 	if result, err := Permissions(o, false); err == nil {
 		in.Permissions = &result

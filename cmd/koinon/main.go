@@ -145,11 +145,12 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		}
 		return serve(ctx, *state, []string{*listen, *listen6}, *lockWait, out)
 	}
+	given := addressGiven(flags)
 	if err := resolveAddress(flags); err != nil {
 		return err
 	}
 	if args[0] == "mcp" && maintainer.used(flags) {
-		return maintainerMCP(ctx, *state, *address, maintainer, flags, in, out)
+		return maintainerMCP(ctx, *state, *address, followAddress(*state, given), maintainer, flags, in, out)
 	}
 	if args[0] == "mcp" {
 		directory, err := os.Getwd()
@@ -160,7 +161,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		resume := os.Getenv(mcpResumeVariable)
 		os.Unsetenv(mcpResumeVariable)
 		changed, replace := mcpReplacement()
-		return mcp.Serve(ctx, mcp.Config{StateDir: *state, Address: *address, Getenv: os.Getenv,
+		return mcp.Serve(ctx, mcp.Config{StateDir: *state, Address: *address, Resolve: followAddress(*state, given), Getenv: os.Getenv,
 			ParentPID: os.Getppid(), Command: platform.ProcessCommand, Directory: directory, Now: time.Now,
 			TmuxSession: mcp.TmuxSessionName,
 			Tmux:        mcp.RunTmux, Parents: platform.ProcessParents, TmuxExecutable: mcp.LookTmux,
@@ -364,6 +365,7 @@ func replacedExecutable(start, now os.FileInfo, err error) bool {
 }
 
 const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N] [--agent FAMILY]... [--no-start] [--system]
+       koinon install --plan [--prefix DIR] [--state-dir DIR]
        koinon uninstall [--prefix DIR] [--state-dir DIR] [--agent FAMILY]...
        koinon upgrade --from-python [--python-prefix DIR] [--prefix DIR] [--state-dir DIR] [--agent FAMILY]... [--repository KEY=PATH]... [--python PATH]
        koinon upgrade --status [--state-dir DIR]

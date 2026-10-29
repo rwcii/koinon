@@ -163,3 +163,75 @@ func TestDecisionCitationsResolve(t *testing.T) {
 		t.Error("the pull request text workflow does not run the check on each edit")
 	}
 }
+
+// The pull request text job checks the title and body of every pull request, and the commit
+// messages of one whose base is not main: a promotion to main carries develop's commits, some
+// from before the check, and develop's history is not rewritten (#548). The job's own script
+// runs here against a repository with a legacy citation in its history.
+func TestPullRequestTextChecksCommitsOutsideMain(t *testing.T) {
+	workflow := read(t, ".github/workflows/pr-text.yml")
+	if !strings.Contains(workflow, "BASE_REF: ${{ github.event.pull_request.base.ref }}") {
+		t.Fatal("the job does not read the base branch")
+	}
+	_, after, found := strings.Cut(workflow, "        run: |\n")
+	if !found {
+		t.Fatal("the job has no run script")
+	}
+	var lines []string
+	for _, line := range strings.Split(after, "\n") {
+		if line != "" && !strings.HasPrefix(line, "          ") {
+			break
+		}
+		lines = append(lines, strings.TrimPrefix(line, "          "))
+	}
+	script := strings.Join(lines, "\n")
+
+	repo := t.TempDir()
+	git := func(args ...string) string {
+		t.Helper()
+		out, err := exec.Command("git", append([]string{"-C", repo, "-c", "user.name=Synthetic",
+			"-c", "user.email=synthetic@example.invalid", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"}, args...)...).Output()
+		if err != nil {
+			t.Fatalf("git %v: %v", args, err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git("init", "-q")
+	if err := os.MkdirAll(filepath.Join(repo, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "scripts/decision-citations.sh"), []byte(read(t, "scripts/decision-citations.sh")), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	git("add", "scripts")
+	git("commit", "-q", "-m", "Synthetic base")
+	base := git("rev-parse", "HEAD")
+	git("commit", "-q", "--allow-empty", "-m", "Synthetic legacy commit that cites verdict 61")
+	legacy := git("rev-parse", "HEAD")
+	git("commit", "-q", "--allow-empty", "-m", "Synthetic clean commit")
+	clean := git("rev-parse", "HEAD")
+
+	for _, c := range []struct {
+		name, baseRef, title, base, head string
+		refused                          bool
+	}{
+		{"promotion with a legacy commit", "main", "Release", base, clean, false},
+		{"develop pull request with the legacy commit", "develop", "Change", base, clean, true},
+		{"promotion title with a verdict ID", "main", "Release after verdict 5", base, clean, true},
+		{"develop title with a verdict ID", "develop", "Change after verdict 5", legacy, clean, true},
+		{"develop pull request with clean commits", "develop", "Change", legacy, clean, false},
+	} {
+		cmd := exec.Command("bash", "-e", "-c", script)
+		cmd.Dir = repo
+		cmd.Env = append(os.Environ(), "TITLE="+c.title, "BODY=Synthetic body", "BASE="+c.base, "HEAD="+c.head, "BASE_REF="+c.baseRef)
+		if out, err := cmd.CombinedOutput(); (err != nil) != c.refused {
+			t.Errorf("%s: refused %v, want %v\n%s", c.name, err != nil, c.refused, out)
+		}
+	}
+	cmd := exec.Command("bash", "-e", "-c", script)
+	cmd.Dir = repo
+	cmd.Env = append(os.Environ(), "TITLE=Change", "BODY=Synthetic body after VERDICT 7", "BASE="+base, "HEAD="+base, "BASE_REF=main")
+	if err := cmd.Run(); err == nil {
+		t.Error("a promotion body with a verdict ID was accepted")
+	}
+}

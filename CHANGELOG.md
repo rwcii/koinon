@@ -5,6 +5,72 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-10-29 — A spoken alert, an install plan after Homebrew, and sessions that follow a new port
+
+This release adds a spoken alert to the dashboard: with the switch on, the browser says when a
+decision or task starts to wait for the maintainer. After `brew install` and `brew upgrade`,
+Homebrew shows the steps that this machine still needs, from the new `koinon install --plan`.
+The Claude permission rules that setup offers cover the `koinon` commands that agents run, and
+a running session follows the daemon to a new port. The state schema stays at 36.
+
+- The dashboard can speak when a decision or task starts to wait for you (#553,
+  DECISIONS.md#SPEAK-SCOPE-553). A switch on the Settings page turns the alert on in this
+  browser; while a dashboard page is open, the browser says the item's repository, for example
+  "koinon: a decision waits for you". The browser speaks, not the daemon, so the alert sounds
+  where you read the dashboard, also through an SSH tunnel. One switch covers every repository
+  of the Koinon instance; the browser keeps it for that dashboard address. A browser speaks only
+  after a click on the page, so an alert that it stopped waits for your next click. The new
+  `GET /dashboard/waiting` gives the page the waiting items and the decision change version.
+- After `brew install` and `brew upgrade`, Homebrew shows the steps that this machine still
+  needs (#551). The new `koinon install --plan` reads the installation, changes nothing, and
+  prints one command per line: `koinon install` when no daemon is installed or the installed
+  binary is not this one, `koinon install --system` for an older macOS system-mode copy,
+  `koinon maintainer secret set` when no secret is set, and `koinon setup FAMILY --binary` with
+  the installed binary for each agent whose CLI is installed without Koinon; or that the
+  installation is current. The formula
+  runs it and, when a check cannot finish, shows the fixed list of one-time steps instead.
+  `GET /v1/status` reports `maintainer_secret_set`. The install's agent review shows an agent
+  whose CLI failed as "not read". The caveats no longer list the v0.3.0 upgrade step; the plan
+  finds that copy.
+- The Claude permission rules that `koinon install` and `koinon setup claude` offer cover the
+  `koinon` commands that agents run (#550, DECISIONS.md#CLI-RULES-550). The offer had four rules,
+  so each other CLI call by a Claude agent, such as `koinon decision record` or a call while
+  the MCP tools did not work, needed an approval. The offer now holds `mcp__koinon__*` and, with
+  and without arguments, `guide`, `status`, `context show`, `peers`, `peer-status`, `inbox`,
+  `ack`, `send`, `cycle-status`, `cycle-ready`, `cycle-pickup`, `decision`, `work`,
+  `claim renew`, `memory`, `room list`, `room members`, `room post`, `room read` and `library`,
+  for the PATH name `koinon` and for the installed binary's absolute path. Commands that change
+  the installation, the service, the maintainer's settings or a login stay out. The rules are
+  still added only after a yes at a terminal; run `koinon setup claude` in a terminal to add
+  them.
+- A session follows the daemon to a new port (#549). After `koinon install --port N`, a
+  running `koinon mcp` server kept the former address and answered `daemon_unavailable` on
+  every tool call, and in a session that `koinon claude` or another launcher started, every
+  `koinon` command also used the former address, because the launcher put it in the agent's
+  `KOINON_DAEMON_ADDRESS`; `koinon status` then showed the service as `manual`. `koinon mcp`
+  without `--address` now finds the address again for each call, and a launcher sets
+  `KOINON_DAEMON_ADDRESS` only for an address other than the installed one. A session that a
+  launcher of v0.6.0 or earlier started keeps the former address until it starts again.
+- The `decision-citations` check of a pull request to `main` reads its title and body, not its
+  commits (#548). A promotion from `develop` carries commits that merged before #536 added the
+  check, and `develop`'s history is not rewritten, so the v0.6.0 promotion failed the check on
+  one of them. A pull request to any other branch still has its commit messages checked.
+
+Upgrade from v0.6.0 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary, which ends current dashboard logins: log in again with the
+maintainer secret, or run `koinon dashboard` for a one-time link. Homebrew then shows the steps
+that `koinon install --plan` finds; run them, and run `koinon install --plan` again to check.
+A running `koinon mcp` server runs the new release without a session restart.
+
+Upgrade notes:
+
+- To add the new Claude permission rules, run `koinon setup claude` in a terminal and answer
+  yes.
+- A session that a launcher of v0.6.0 or earlier started keeps the daemon address it was given
+  until it starts again.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+
 ## 2026-10-28 — Decision board feedback and tasks, decision records, and cycles for more agents
 
 This release changes how the maintainer answers the decision board: a decision takes Approve,

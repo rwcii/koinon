@@ -376,3 +376,69 @@ Recommendation:
 > Order: build it after #536.
 >
 > If you decline: say what to change.
+
+<a id="cli-rules-550"></a>
+
+## CLI-RULES-550
+
+<!-- koinon-decision CLI-RULES-550 revision 2 approved 1793208842866 -->
+
+**Approved**, revision 2, 2026-10-28 17:34:02 UTC.
+
+- Title: Recommended Claude permission rules cover the agent-facing Koinon CLI
+- Where: rwcii/koinon #550: internal/setup/permissions.go (ClaudePermissions), docs/PERMISSIONS.md, guide
+
+Context:
+
+> Issue #550 (filed from the Mac install): each `koinon` CLI call by a Claude agent needs a manual permission prompt. You had to tell the agent to add rules by hand.
+>
+> Now `koinon install` and `koinon setup claude` on a terminal offer only four rules: `mcp__koinon__*`, `Bash(koinon guide --agent claude)`, `Bash(koinon context show)`, `Bash(koinon status)`. The person answers yes or no; without a terminal nothing changes. The rules use only the PATH name `koinon`, but the installed Claude config calls the absolute binary path, so agents also use that path.
+>
+> Agents run the CLI when the MCP tools do not work (as in #549) and when a skill says so (for example `koinon decision record`).
+
+Recommendation:
+
+> Approve. The offered rules become, for the PATH name `koinon` and for the installed binary's absolute path:
+>
+> - `mcp__koinon__*`
+> - `koinon guide`, `status`, `context show`, `peers`, `peer-status`, `inbox`, `ack`, `send`, `cycle-status`, `cycle-ready`, `cycle-pickup`
+> - `koinon decision` (create, edit, list, get, history, pending, ack, close, withdraw, restore, record)
+> - `koinon work` and `koinon claim renew`
+> - `koinon memory`
+> - `koinon room` (list, members, post, read)
+> - `koinon library`
+>
+> Each with and without its arguments. Left out: `install`, `uninstall`, `upgrade`, `serve`, `setup`, `maintainer`, `dashboard` (it gives a login), `context set/enable/disable/threshold`, `sessions` and `participant holder`.
+>
+> The offer stays the same: a yes on the terminal adds them; nothing is added without it. `koinon uninstall` leaves rules in place, as now.
+
+<a id="speak-scope-553"></a>
+
+## SPEAK-SCOPE-553
+
+<!-- koinon-decision SPEAK-SCOPE-553 revision 1 approved 1793226390913 -->
+
+**Approved**, revision 1, 2026-10-28 22:26:30 UTC.
+
+- Title: Spoken alert: one switch for all repositories, or one switch for each repository?
+- Where: rwcii/koinon #553: dashboard Settings page, app.js
+
+Context:
+
+> Issue #553. You asked: "can we make it distinct per project?" You decided that the speech runs in the browser ("browser").
+>
+> The alert speaks when a new decision or task starts to wait for you. It says the repository, for example "Koinon: a decision waits for you".
+>
+> Open question: do you turn the alert on or off with one switch for all repositories, or with one switch for each repository?
+>
+> Facts:
+> - The browser keeps the switch, because the speech runs in that browser. A different browser or computer has its own switch.
+> - A browser speaks only after a click on the page. The dashboard reloads the whole page after each action. After a reload, the alert speaks after your next click on the page. The page shows a note when the browser stopped the speech.
+
+Recommendation:
+
+> One switch for all repositories. Each alert says its repository, so the alert is distinct for each project. A switch for each repository adds a list to maintain. Add it later if you want to mute one repository.
+
+Note:
+
+> One switch for all repositories running on that Koinon instance. We may change this later, but let's keep it simple for now.

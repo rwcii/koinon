@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -92,13 +93,13 @@ func TestClaudePermissionRules(t *testing.T) {
 	t.Run("absent file", func(t *testing.T) {
 		dir := filepath.Join(t.TempDir(), "claude")
 		result, err := claudeRules(dir, false)
-		if err != nil || result.Outcome != "missing" || len(result.Missing) != len(ClaudePermissions) || result.Note != missingNote {
+		if err != nil || result.Outcome != "missing" || len(result.Missing) != len(claudeWant) || result.Note != missingNote {
 			t.Fatalf("check: %+v %v", result, err)
 		}
 		if _, err := os.Stat(dir); !os.IsNotExist(err) {
 			t.Fatal("the check created the configuration directory")
 		}
-		if result, err = claudeRules(dir, true); err != nil || result.Outcome != "added" || len(result.Added) != len(ClaudePermissions) {
+		if result, err = claudeRules(dir, true); err != nil || result.Outcome != "added" || len(result.Added) != len(claudeWant) {
 			t.Fatalf("add: %+v %v", result, err)
 		}
 		info, err := os.Stat(result.SettingsFile)
@@ -106,34 +107,39 @@ func TestClaudePermissionRules(t *testing.T) {
 			t.Fatalf("settings file: %v %v", info, err)
 		}
 		var got struct{ Permissions struct{ Allow []string } }
-		if json.Unmarshal(read(t, result.SettingsFile), &got) != nil || !slices.Equal(got.Permissions.Allow, ClaudePermissions) {
+		if json.Unmarshal(read(t, result.SettingsFile), &got) != nil || !slices.Equal(got.Permissions.Allow, claudeWant) {
 			t.Fatalf("allow: %v", got.Permissions.Allow)
 		}
 	})
 	t.Run("merge keeps other settings", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "settings.json")
-		before := `{"theme":"dark","permissions":{"deny":["Bash(sudo *)"],"allow":["mcp__other__read","Bash(koinon guide --agent claude)","Read(\u002ftmp)"],"defaultMode":"auto"},"statusLine":{"type":"command","command":"x"}}`
+		before := `{"theme":"dark","permissions":{"deny":["Bash(sudo *)"],"allow":["mcp__other__read","Bash(koinon status)","Read(\u002ftmp)"],"defaultMode":"auto"},"statusLine":{"type":"command","command":"x"}}`
 		if err := os.WriteFile(path, []byte(before), 0640); err != nil {
 			t.Fatal(err)
 		}
 		result, err := claudeRules(dir, false)
-		if err != nil || result.Outcome != "missing" || slices.Contains(result.Missing, "Bash(koinon guide --agent claude)") || len(result.Missing) != 3 {
+		if err != nil || result.Outcome != "missing" || slices.Contains(result.Missing, "Bash(koinon status)") || len(result.Missing) != len(claudeWant)-1 {
 			t.Fatalf("check: %+v %v", result, err)
 		}
 		if string(read(t, path)) != before {
 			t.Fatal("the check changed the settings")
 		}
-		if result, err = claudeRules(dir, true); err != nil || result.Outcome != "added" || len(result.Added) != 3 || result.Missing != nil {
+		if result, err = claudeRules(dir, true); err != nil || result.Outcome != "added" || len(result.Added) != len(claudeWant)-1 || result.Missing != nil {
 			t.Fatalf("add: %+v %v", result, err)
 		}
 		var got map[string]any
 		if json.Unmarshal(read(t, path), &got) != nil {
 			t.Fatal("invalid settings after add")
 		}
+		allow := []any{"mcp__other__read", "Bash(koinon status)", "Read(/tmp)"}
+		for _, rule := range claudeWant {
+			if rule != "Bash(koinon status)" {
+				allow = append(allow, rule)
+			}
+		}
 		want := map[string]any{"theme": "dark", "statusLine": map[string]any{"type": "command", "command": "x"},
-			"permissions": map[string]any{"deny": []any{"Bash(sudo *)"}, "defaultMode": "auto",
-				"allow": []any{"mcp__other__read", "Bash(koinon guide --agent claude)", "Read(/tmp)", "mcp__koinon__*", "Bash(koinon context show)", "Bash(koinon status)"}}}
+			"permissions": map[string]any{"deny": []any{"Bash(sudo *)"}, "defaultMode": "auto", "allow": allow}}
 		if !reflect.DeepEqual(got, want) {
 			t.Fatalf("settings: %v", got)
 		}
@@ -149,12 +155,20 @@ func TestClaudePermissionRules(t *testing.T) {
 		}
 	})
 	t.Run("broader rules cover", func(t *testing.T) {
+		// A broad rule covers the forms of its own program only: the PATH name or the binary.
+		path, binary := claudeWant[1:len(ClaudePermissions)], claudeWant[len(ClaudePermissions):]
 		dir := t.TempDir()
-		for _, allow := range []string{`["mcp__koinon","Bash(koinon *)"]`, `["mcp__koinon__*","Bash(koinon:*)"]`} {
+		for allow, missing := range map[string][]string{
+			`["mcp__koinon","Bash(koinon *)","Bash(/opt/koinon/bin/koinon *)"]`:    nil,
+			`["mcp__koinon__*","Bash(koinon:*)","Bash(/opt/koinon/bin/koinon:*)"]`: nil,
+			`["mcp__koinon","Bash(koinon *)"]`:                                     binary,
+			`["mcp__koinon","Bash(/opt/koinon/bin/koinon *)"]`:                     path,
+		} {
 			if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"permissions":{"allow":`+allow+`}}`), 0600); err != nil {
 				t.Fatal(err)
 			}
-			if result, err := claudeRules(dir, false); err != nil || result.Outcome != "present" {
+			result, err := claudeRules(dir, false)
+			if err != nil || !slices.Equal(result.Missing, missing) || (missing == nil) != (result.Outcome == "present") {
 				t.Fatalf("%s: %+v %v", allow, result, err)
 			}
 		}
@@ -202,8 +216,47 @@ func TestClaudePermissionRules(t *testing.T) {
 	})
 }
 
+// claudeWant are the rules that setup recommends for the binary of claudeRules.
+var claudeWant = claudePermissions("/opt/koinon/bin/koinon")
+
 func claudeRules(dir string, add bool) (PermissionsResult, error) {
-	return Permissions(Options{Family: "claude", ClaudeConfig: dir}, add)
+	return Permissions(Options{Family: "claude", ClaudeConfig: dir, Binary: "/opt/koinon/bin/koinon"}, add)
+}
+
+// The Claude rules allow the agent-facing commands with and without arguments, for the PATH
+// name and for the installed binary, and no command that changes the installation, the
+// service, the maintainer's settings or a login (DECISIONS.md#CLI-RULES-550).
+func TestClaudeRulesCoverAgentCommands(t *testing.T) {
+	if len(ClaudePermissions) != 1+2*len(ClaudeCommands) || ClaudePermissions[0] != "mcp__koinon__*" {
+		t.Fatalf("rules: %q", ClaudePermissions)
+	}
+	for _, command := range []string{"status", "decision", "work", "claim renew", "memory", "room post", "library", "guide", "cycle-pickup"} {
+		for _, rule := range []string{"Bash(koinon " + command + ")", "Bash(koinon " + command + " *)",
+			"Bash(/opt/koinon/bin/koinon " + command + ")", "Bash(/opt/koinon/bin/koinon " + command + " *)"} {
+			if !slices.Contains(claudeWant, rule) {
+				t.Errorf("missing %s", rule)
+			}
+		}
+	}
+	for _, rule := range claudeWant {
+		for _, left := range []string{"install", "uninstall", "upgrade", "serve", "setup", "maintainer", "dashboard",
+			"context set", "context enable", "context disable", "context threshold", "sessions", "participant"} {
+			if strings.HasPrefix(strings.TrimPrefix(strings.TrimPrefix(rule, "Bash(koinon "), "Bash(/opt/koinon/bin/koinon "), left) {
+				t.Errorf("%s allows %s", rule, left)
+			}
+		}
+	}
+	if len(claudeWant) != 1+4*len(ClaudeCommands) {
+		t.Fatalf("binary rules: %d", len(claudeWant))
+	}
+	// A path that the shell must quote is quoted, as setup quotes it in commands.
+	quoted := claudePermissions("/Users/Synthetic User/koinon's/bin/koinon")
+	if want := `Bash('/Users/Synthetic User/koinon'"'"'s/bin/koinon' status *)`; !slices.Contains(quoted, want) {
+		t.Fatalf("quoted path: %q", quoted[len(ClaudePermissions):len(ClaudePermissions)+4])
+	}
+	if got := claudePermissions("koinon"); !slices.Equal(got, ClaudePermissions) {
+		t.Fatalf("PATH name only: %q", got)
+	}
 }
 
 // Setup reports each family's rules and changes none of them.
@@ -415,7 +468,8 @@ func TestInspectReadsOnly(t *testing.T) {
 	cli, _, log := syntheticCLI(t, "claude")
 	o := Options{Family: "claude", CLI: cli, Binary: "/opt/koinon/bin/koinon", StateDir: filepath.Join(dir, "state"),
 		ClaudeConfig: filepath.Join(dir, "claude")}
-	if in := Inspect(context.Background(), o); in.CLI != cli || in.Configured || in.Permissions == nil || in.Permissions.Outcome != "missing" {
+	// "No MCP server named koinon" is an answer: the server is not there (#551).
+	if in := Inspect(context.Background(), o); in.CLI != cli || in.Configured || in.Error != "" || in.Permissions == nil || in.Permissions.Outcome != "missing" {
 		t.Fatalf("before setup: %+v", in)
 	}
 	if _, err := Run(context.Background(), o); err != nil {
@@ -429,11 +483,52 @@ func TestInspectReadsOnly(t *testing.T) {
 	if calls := strings.TrimPrefix(string(after), string(before)); calls != "mcp get koinon\n" {
 		t.Fatalf("inspect ran %q", calls)
 	}
-	if in := Inspect(context.Background(), Options{Family: "claude", CLI: filepath.Join(dir, "none"), Binary: o.Binary}); in.Configured || in.Permissions == nil {
+	// A CLI that fails is not read, which differs from a missing server.
+	if in := Inspect(context.Background(), Options{Family: "claude", CLI: filepath.Join(dir, "none"), Binary: o.Binary}); in.Configured || in.Error == "" || in.Permissions == nil {
 		t.Fatalf("missing CLI: %+v", in)
 	}
 	t.Setenv("PATH", dir)
 	if in := Inspect(context.Background(), Options{Family: "codex", Binary: o.Binary}); in.CLI != "" || in.Permissions != nil {
 		t.Fatalf("no CLI on PATH: %+v", in)
+	}
+}
+
+// A CLI child that holds the output open does not hold an inspection past its context. Output
+// that has not ended after a clean exit, where a child may still write the entry, is an error
+// too, not an answer (#551).
+func TestInspectBoundsAHeldPipe(t *testing.T) {
+	dir := t.TempDir()
+	cli := filepath.Join(dir, "codex")
+	inspect := func(ctx context.Context) (Inspection, time.Duration) {
+		start := time.Now()
+		in := Inspect(ctx, Options{Family: "codex", CLI: cli, Binary: "/opt/koinon/bin/koinon", StateDir: filepath.Join(dir, "state")})
+		return in, time.Since(start)
+	}
+	os.WriteFile(cli, []byte("#!/bin/sh\nsleep 3 &\nwait\n"), 0700)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if in, elapsed := inspect(ctx); elapsed > time.Second || in.Error == "" || in.Configured {
+		t.Fatalf("stopped CLI: %+v after %s", in, elapsed)
+	}
+	os.WriteFile(cli, []byte("#!/bin/sh\n(sleep 1; echo '{\"name\":\"koinon\"}') &\necho starting\n"), 0700)
+	if in, elapsed := inspect(context.Background()); elapsed > 900*time.Millisecond || in.Error == "" || in.Configured {
+		t.Fatalf("clean exit with a writing child: %+v after %s", in, elapsed)
+	}
+	// A missing-server answer counts only when its output ended: a child may still write the
+	// entry, with a clean or a failed exit.
+	for _, status := range []string{"0", "1"} {
+		os.WriteFile(cli, []byte("#!/bin/sh\n(sleep 1; echo '{\"name\":\"koinon\"}') &\necho \"No MCP server named 'koinon' found.\"\nexit "+status+"\n"), 0700)
+		if in, elapsed := inspect(context.Background()); elapsed > 900*time.Millisecond || in.Error == "" || in.Configured {
+			t.Fatalf("exit %s, open output after the missing-server answer: %+v after %s", status, in, elapsed)
+		}
+	}
+	os.WriteFile(cli, []byte("#!/bin/sh\necho \"No MCP server named 'koinon' found.\"\nexit 1\n"), 0700)
+	if in, _ := inspect(context.Background()); in.Error != "" || in.Configured {
+		t.Fatalf("completed missing-server answer: %+v", in)
+	}
+	os.WriteFile(cli, []byte("#!/bin/sh\n(sleep 1; echo '{\"name\":\"koinon\"}') &\necho starting\n"), 0700)
+	// Setup's own runs keep waiting for the whole output.
+	if out, err := runCLI(context.Background(), cli); err != nil || !strings.Contains(out, "koinon") {
+		t.Fatalf("setup run: %q %v", out, err)
 	}
 }

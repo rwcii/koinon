@@ -17,9 +17,7 @@ func addressFlag(flags *flag.FlagSet) *string {
 // --address that was not given is KOINON_DAEMON_ADDRESS, or else 127.0.0.1 at the port that
 // koinon install recorded in the state directory, 47671 by default.
 func resolveAddress(flags *flag.FlagSet) error {
-	given := false
-	flags.Visit(func(f *flag.Flag) { given = given || f.Name == "address" })
-	if given {
+	if addressGiven(flags) {
 		return nil
 	}
 	address, err := core.DaemonAddress(flags.Lookup("state-dir").Value.String(), os.Getenv)
@@ -27,4 +25,21 @@ func resolveAddress(flags *flag.FlagSet) error {
 		return err
 	}
 	return flags.Set("address", address)
+}
+
+// addressGiven reports whether the command line named --address.
+func addressGiven(flags *flag.FlagSet) bool {
+	given := false
+	flags.Visit(func(f *flag.Flag) { given = given || f.Name == "address" })
+	return given
+}
+
+// followAddress gives koinon mcp its daemon address for each call when given is false: the
+// address that resolveAddress chose, read again each time, so a long-running server follows
+// a daemon that restarts on another recorded port (#549). A given --address stays: nil.
+func followAddress(state string, given bool) func() (string, error) {
+	if given {
+		return nil
+	}
+	return func() (string, error) { return core.DaemonAddress(state, os.Getenv) }
 }

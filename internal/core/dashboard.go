@@ -285,6 +285,10 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 	mux.HandleFunc("GET /dashboard/{$}", authed(func(w http.ResponseWriter, r *http.Request, _ string) {
 		http.Redirect(w, r, "/dashboard/sessions", http.StatusSeeOther)
 	}))
+	// The spoken alert's read of the waiting items (#553).
+	mux.HandleFunc("GET /dashboard/waiting", authed(func(w http.ResponseWriter, r *http.Request, _ string) {
+		d.dashboardWaiting(w, r)
+	}))
 	for _, view := range dashboardViews {
 		mux.HandleFunc("GET /dashboard/"+view, authed(func(w http.ResponseWriter, r *http.Request, id string) {
 			data, err := d.dashboardData(r, view)

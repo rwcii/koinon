@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -805,5 +807,50 @@ func TestContextTools(t *testing.T) {
 	// The Codex cycle cannot run for this synthetic session, so its Enable is refused.
 	if got, isError = h.tool("context_enable", map[string]any{"enabled": true}, me); !isError || got["code"] != "context_cycle_unavailable" {
 		t.Fatalf("enable: %v", got)
+	}
+}
+
+// A server that resolves its address for each call follows a daemon that restarts on another
+// recorded port; one with a fixed address does not (#549).
+func TestDaemonRestartOnAnotherPort(t *testing.T) {
+	h := newHarness(t, "codex-mcp-client")
+	h.launch("codex")
+	b := map[string]any{"threadId": "synthetic-b"}
+	_, port, _ := net.SplitHostPort(h.d.Addresses()[0])
+	first, _ := strconv.Atoi(port)
+	if err := core.RecordPort(h.root, first); err != nil {
+		t.Fatal(err)
+	}
+	h.s.c.Resolve = func() (string, error) { return core.DaemonAddress(h.root, h.s.c.Getenv) }
+	if reply, isError := h.tool("inbox", map[string]any{}, b); isError {
+		t.Fatalf("before the move: %v", reply)
+	}
+	if err := h.d.Close(); err != nil {
+		t.Fatal(err)
+	}
+	free, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, port, _ = net.SplitHostPort(free.Addr().String())
+	free.Close()
+	second, _ := strconv.Atoi(port)
+	if err := core.RecordPort(h.root, second); err != nil {
+		t.Fatal(err)
+	}
+	moved, err := core.Start(core.Config{StateDir: h.root, Listen: []string{free.Addr().String()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.d = moved
+	t.Cleanup(func() { moved.Close() })
+	resolve := h.s.c.Resolve
+	h.s.c.Resolve = nil
+	if reply, isError := h.tool("inbox", map[string]any{}, b); !isError || reply["code"] != "daemon_unavailable" {
+		t.Fatalf("fixed address after the move: %v", reply)
+	}
+	h.s.c.Resolve = resolve
+	if reply, isError := h.tool("inbox", map[string]any{}, b); isError {
+		t.Fatalf("after the move: %v", reply)
 	}
 }

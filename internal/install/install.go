@@ -73,6 +73,13 @@ type Options struct {
 	Wait        time.Duration
 	// SystemWait bounds the wait for the system daemon; zero is 90 seconds.
 	SystemWait time.Duration
+	// PlanWait bounds all of a plan's checks, zero is 30 seconds; StatusWait bounds its wait
+	// for the daemon's answer, zero is 20 seconds (#551).
+	PlanWait   time.Duration
+	StatusWait time.Duration
+	// PlanPrefix and PlanState are set when --prefix or --state-dir was given to the plan,
+	// which then repeats it in each command.
+	PlanPrefix, PlanState bool
 }
 
 // Report is the JSON result of an install or an uninstall.
@@ -915,6 +922,8 @@ func reviewFamilies(ctx context.Context, o Options, r *Report) ([]string, error)
 		switch {
 		case in.CLI != "" && in.Configured:
 			state = "set up (" + in.CLI + ")"
+		case in.Error != "":
+			state = "not read (" + in.Error + ")"
 		case in.CLI != "":
 			state = "not set up (" + in.CLI + ")"
 		}
