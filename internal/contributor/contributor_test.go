@@ -13,8 +13,11 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/rwcii/koinon/internal/install"
 )
 
 func root(t *testing.T) string {
@@ -445,12 +448,18 @@ func TestHomebrewFormula(t *testing.T) {
 			t.Errorf("caveats lack %q", want)
 		}
 	}
-	// The recheck follows the plan and the fixed steps alike.
-	for _, want := range []string{"\n    text + <<~EOS\n      Check again after these steps:\n        #{opt_bin}/koinon install --plan\n",
+	// The recheck follows the plan's steps and the fixed steps alike; a current installation,
+	// in the sentence that koinon install --plan prints, shows that sentence alone (#561).
+	for _, want := range []string{"\n    unless done\n      text += <<~EOS\n        Check again after these steps:\n          #{opt_bin}/koinon install --plan\n",
 		"\n        brew update\n        brew upgrade koinon\n        koinon version\n",
 		"restarts\n      on the newly linked binary", "ends the dashboard login", "\n        koinon dashboard\n"} {
 		if !strings.Contains(mac, want) {
 			t.Errorf("caveats lack %q after the fixed steps", want)
+		}
+	}
+	for _, want := range []string{"\n    current = " + strconv.Quote(install.Current) + "\n    done = plan&.strip == current\n    text = if done\n      \"#{current}\\n\"\n    elsif plan\n"} {
+		if !strings.Contains(general, want) {
+			t.Errorf("caveats lack %q", want)
 		}
 	}
 	if strings.Contains(caveats, "v0.3.0") {

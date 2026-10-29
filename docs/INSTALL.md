@@ -47,7 +47,8 @@ has passed, and otherwise keeps the formula of the previous release. Within abou
 
 After `brew install` and `brew upgrade`, Homebrew shows the steps that this machine still
 needs: the formula runs `koinon install --plan` (see Next steps below) and prints its commands,
-or, when the plan cannot check everything, the fixed list of one-time steps. Homebrew runs it
+or "The Koinon installation is current." when there are none, or, when the plan cannot check
+everything, the fixed list of one-time steps. Homebrew runs it
 without `XDG_*`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME` and `KOINON_*`, so it checks the default
 locations; with other locations, run `koinon install --plan` yourself.
 
