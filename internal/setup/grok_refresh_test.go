@@ -161,7 +161,8 @@ func TestGrokRefreshLegacyUpgrade(t *testing.T) {
 	}
 }
 
-// After the upgrade, an edit of only the interval is the person's: setup and removal keep it.
+// After the upgrade, an edit of only the interval is the person's: setup and removal keep it,
+// also an edit to a value that JSON cannot hold.
 func TestGrokRefreshEditAfterMigration(t *testing.T) {
 	for name, setUp := range map[string]func(g grokStatusFile){
 		"new installation": func(g grokStatusFile) {
@@ -169,26 +170,28 @@ func TestGrokRefreshEditAfterMigration(t *testing.T) {
 		},
 		"legacy record": func(g grokStatusFile) { legacy(t, g, "") },
 	} {
-		t.Run(name, func(t *testing.T) {
-			g, _ := grokFixture(t)
-			setUp(g)
-			result, err := g.setUp()
-			mustOutcome(t, result, err, "set_up")
-			data, _ := os.ReadFile(g.settings)
-			edited := strings.Replace(string(data), "refresh_interval = 30", "refresh_interval = 10", 1)
-			if edited == string(data) {
-				t.Fatalf("no interval line:\n%s", data)
-			}
-			os.WriteFile(g.settings, []byte(edited), 0600)
-			for _, step := range []func() (StatusLineResult, error){g.setUp, g.remove} {
-				result, err := step()
-				if err != nil || result.Outcome != "changed" || result.Reason != "statusline_changed" {
-					t.Fatalf("edited interval: %+v %v", result, err)
+		for _, value := range []string{"10", "nan", "1979-05-27"} {
+			t.Run(name+" "+value, func(t *testing.T) {
+				g, _ := grokFixture(t)
+				setUp(g)
+				result, err := g.setUp()
+				mustOutcome(t, result, err, "set_up")
+				data, _ := os.ReadFile(g.settings)
+				edited := strings.Replace(string(data), "refresh_interval = 30", "refresh_interval = "+value, 1)
+				if edited == string(data) {
+					t.Fatalf("no interval line:\n%s", data)
 				}
-				if data, _ := os.ReadFile(g.settings); string(data) != edited {
-					t.Fatalf("edited interval changed:\n%s", data)
+				os.WriteFile(g.settings, []byte(edited), 0600)
+				for _, step := range []func() (StatusLineResult, error){g.setUp, g.remove} {
+					result, err := step()
+					if err != nil || result.Outcome != "changed" || result.Reason != "statusline_changed" {
+						t.Fatalf("edited interval: %+v %v", result, err)
+					}
+					if data, _ := os.ReadFile(g.settings); string(data) != edited {
+						t.Fatalf("edited interval changed:\n%s", data)
+					}
 				}
-			}
-		})
+			})
+		}
 	}
 }
