@@ -917,7 +917,10 @@ copying every row unchanged:
   admit it, and `failed` with the Probe's reason. A compaction whose pane is not ready within 15
   minutes of its admission ends `cancelled` (`compact_waiting_timeout.SEEN`).
 - `compact_intent`: recorded before the first key. The adapter types `/compact` only while the
-  composer is empty and the thread's rollout shows its last turn ended, reads it back and
+  composer is empty and the thread's rollout shows its last turn ended (when the step chose a
+  caught-up mark, #564, the adapter reads the rollout itself at the first key and needs the same
+  file, by device and inode, and the same size, from one opened file; else
+  `rollout_changed`, `rollout_unreadable` or `turn_not_ended`, and no key), reads it back and
   submits it with one Enter while the composer holds exactly it. Text that is not submitted is
   erased and the compaction returns to `compact_waiting` with the step's reason, to retry when
   the pane is idle. The fence before each key also holds the family mode and the session's
@@ -2574,8 +2577,10 @@ within its 4 MiB batch, and the last turn had ended. After a failed read, or a r
 unreadable or names another thread, it sends its last delivered reading without the mark, at
 each look until the daemon accepts it. A
 report of the same reading with a mark confirms it and replaces the stored mark; one without a
-mark clears a stored mark and confirms nothing, and the next report confirms. The daemon keeps
-the mark for the context policy and returns it in no view.
+mark clears a stored mark and confirms nothing, and the next report confirms. These reports
+keep the daemon's state and the Sessions page current on a best-effort basis; the input does
+not depend on them, because the adapter reads the rollout itself before its first key. The
+daemon keeps the mark for the context policy and returns it in no view.
 A known group carries `source`, source timestamp `at`, last confirmation timestamp
 `confirmed_at`, and its allowlisted value fields: model `id`; context `limit_tokens`,
 `used_tokens`, `usage_available` when reported; activity `state`. Source time may be old while

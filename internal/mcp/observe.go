@@ -406,7 +406,7 @@ func (s *server) codexRollout(thread string) (model, context, activity *core.Obs
 		value := *context
 		value.Epoch = thread
 		if r.caughtUp && threadKey.MatchString(r.turn) && r.activity != nil && r.activity.State == "idle" {
-			value.End = &core.RolloutEnd{Rollout: strconv.FormatUint(r.device, 10) + "-" + strconv.FormatUint(r.node, 10), Size: r.offset, Turn: r.turn}
+			value.End = &core.RolloutEnd{Rollout: core.RolloutFile(r.device, r.node), Size: r.offset, Turn: r.turn}
 		}
 		context = &value
 	}

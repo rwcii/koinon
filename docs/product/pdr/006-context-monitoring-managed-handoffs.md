@@ -98,7 +98,9 @@ reason, such as `context_unknown`, `source_stale` or `confirmation_stale`. In
 confirmation of it is caught up: the reader read the rollout to its end, the last record was
 complete, no read failed and the last turn had ended. An idle Codex rollout records no new
 reading, so an idle session above its threshold compacts without a new turn. The input then
-waits for one more caught-up confirmation of the same rollout, size and turn.
+waits for one more caught-up confirmation of the same rollout, size and turn, and right before
+its first key the daemon reads the rollout itself: it types nothing unless the file and its size
+are still the same.
 
 In Codex's `native_compaction` mode the same trigger makes the daemon enter Codex's own
 `/compact` in the enabled session's pane while Codex is idle, once per crossing. A fresh reading

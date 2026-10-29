@@ -20,6 +20,7 @@ type fakeCompactor struct {
 	submitted, received bool
 	compactErr          error
 	beforeCompact       func()
+	rolloutEnds         []*RolloutEnd // the chosen caught-up mark of each input (#564)
 }
 
 func (f *fakeCompactor) CompactProbe(context.Context, CycleTarget) CycleProbe {
@@ -27,7 +28,8 @@ func (f *fakeCompactor) CompactProbe(context.Context, CycleTarget) CycleProbe {
 	return f.compactProbe
 }
 
-func (f *fakeCompactor) Compact(ctx context.Context, _ CycleTarget, fence CycleFence) (bool, bool, error) {
+func (f *fakeCompactor) Compact(ctx context.Context, t CycleTarget, fence CycleFence) (bool, bool, error) {
+	f.rolloutEnds = append(f.rolloutEnds, t.RolloutEnd)
 	if f.beforeCompact != nil {
 		f.beforeCompact()
 	}
@@ -127,6 +129,9 @@ func TestCompactionFlow(t *testing.T) {
 	f.step(t)
 	if v = f.status(t, f.k); v.State != cycleCompactSent || f.compactor.count("enter") != 1 {
 		t.Fatalf("send: %+v %v", v, f.compactor.calls)
+	}
+	if len(f.compactor.rolloutEnds) != 1 || f.compactor.rolloutEnds[0] != nil {
+		t.Fatalf("a fresh reading passed a caught-up mark: %v", f.compactor.rolloutEnds)
 	}
 	if held, err := f.s.paneHeldByCycle(context.Background(), f.k); err != nil || !held {
 		t.Fatalf("a sent compaction does not hold the pane: %v %v", held, err)

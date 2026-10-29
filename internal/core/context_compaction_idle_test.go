@@ -62,6 +62,10 @@ func TestIdleCompactionThroughCaughtUpRead(t *testing.T) {
 	if v = f.status(t, f.k); v.State != cycleCompactSent || f.compactor.count("enter") != 1 {
 		t.Fatalf("send: %+v %v", v, f.compactor.calls)
 	}
+	// The input gets the chosen mark, so the adapter reads the rollout at its first key.
+	if ends := f.compactor.rolloutEnds; len(ends) != 1 || ends[0] == nil || *ends[0] != *rolloutEnd(5000) {
+		t.Fatalf("input mark: %v", ends)
+	}
 	f.clock = f.clock.Add(time.Second)
 	f.now(t, 0)
 	if v = f.status(t, f.k); v.State != cycleComplete || v.Reason != "compacted" {
