@@ -5,6 +5,16 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- An idle Codex, OpenCode or DeepSeek session above its threshold in `handoff_cycle` gets its
+  cycle without a new turn (#569, DECISIONS.md#PULLED-IDLE-569). Their context readings do not
+  change while the session is idle, so they became older than two minutes and the trigger
+  showed `source_stale`. Now an older reading counts while the daemon's newest confirmation, at
+  most 90 seconds old, shows that it is current: for Codex the caught-up mark of #564; for
+  OpenCode the reply is the session's newest message and the server shows the session idle; for
+  DeepSeek the cycle adapter's quiet-point check passes with the reading's usage the newest. A
+  failed OpenCode or DeepSeek read ends that at once; for Codex, a cycle can still start up to
+  90 seconds after its rollout becomes unreadable. The DeepSeek case is not yet checked against a
+  live harness. `native_compaction` does not change.
 - An idle Claude session above its threshold gets its handoff cycle without a new turn (#566,
   DECISIONS.md#CLAUDE-IDLE-566). Claude Code runs the status line on events, so the context
   reading of an idle session became older than two minutes and the trigger showed

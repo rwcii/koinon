@@ -266,7 +266,10 @@ percentage of a positive limit (equality and use above the limit included), the 
 source is at most 120 seconds old and its last confirmation at most 90 seconds old, and the
 observation's native epoch has not been selected already. In `native_compaction` an older
 source also counts when the newest confirmation carries the reader's caught-up mark (#564,
-DECISIONS.md#IDLE-COMPACT-564). A source or confirmation time later
+DECISIONS.md#IDLE-COMPACT-564). In `handoff_cycle` an older source counts when the newest
+confirmation carries that mark or the daemon reader's proof that an `opencode_server` or
+`dsh_projections` reading is current (#569, DECISIONS.md#PULLED-IDLE-569; see "Session
+observations"). A source or confirmation time later
 than the daemon's clock is `observation_future`. Otherwise it names one reason:
 `session_inactive`, `mode_observe`, `not_enabled`,
 `context_cycle_unavailable`, `context_unknown`, `context_counts_unavailable`,
@@ -2553,7 +2556,11 @@ context limit and used tokens, an activity state (`busy`, `idle` or `waiting`) a
 pane (`%N`) and session name, each with its source and the time the source recorded it. The
 daemon keeps the newest report per group for active sessions, with the time it last received a
 report that confirms it: a newer report replaces the value, a report of the same content
-confirms it and keeps its source time, and an older, different report changes nothing. A value
+confirms it and keeps its source time, and an older, different report changes nothing. A
+different report with the same source time changes nothing either, except one from the daemon's
+own OpenCode and DeepSeek readers, which read their source's newest reading: it replaces the
+value, such as a new usage event in the same millisecond (#569); an older one from them, with
+the same content or not, ends the stored reading's proof and confirms nothing. A value
 that no report confirmed within its window shows `unknown` with `observation_stale`: 2 minutes
 for activity and terminal, 30 minutes for model and context. Polled sources are confirmed every
 minute while they stay readable; hooks and tool calls confirm only by their next event, so an
@@ -2613,8 +2620,13 @@ exact 200, no redirect and at most 8 MiB. The reading is the assistant message w
 limit of the message's `providerID` and `modelID` in the provider list, and the source time is
 `time.completed`. Without a finished assistant message there is no reading. A newest finished
 message that cannot be read gives none either, never an older one, and a failed read confirms
-nothing. A changed reading is recorded at once, an unchanged one once a minute. Only these
-counts and IDs are decoded; the message parts that the server sends with them are not kept. The
+nothing. The reading is current (#569) when the message that gave it is the page's newest
+message by `time.created` (each message must have a creation time and none may tie it), a
+fresh `GET /session/status` then shows that exact session idle (an omitted session counts
+only after `GET /session/{id}` confirms it), and a second read of the messages gives the same
+reading and newest message. A changed reading or a change of its proof is recorded at once, an
+unchanged one once a minute; a failed read, one without a reading, or one that the store does
+not take ends the stored proof at once and confirms nothing. Only these counts, IDs and times are decoded; the message parts that the server sends with them are not kept. The
 session's own `tokens` are a sum over its turns, so they are not used. A direct `opencode` start
 has no launch password, so it has no reading, and no cycle: the cycle adapter acts through the
 same server (see "OpenCode cycle adapter").
@@ -2636,9 +2648,15 @@ because the harness keeps the pressure and the window as independent values. The
 usage event's `time`, which an unrelated event, such as a title or a prompt, does not change.
 `inputTokens` is required; an absent cache count is 0, and every count is a JSON integer from 0
 to 2^53-1. Before the first usage there is no reading; any other mismatch or invalid field gives
-none either, never an older one, and a failed read confirms nothing. A changed reading is
-recorded at once, an unchanged one once a minute; a new usage event is a new reading even with
-the same counts and time. Only event types, seqs, times, usage counts and the model and context
+none either, never an older one, and a failed read confirms nothing. The reading is current
+(#569) when the DeepSeek cycle adapter's quiet-point check then passes (`POST
+/api/session/list` and the same projections and pages: not running, no queued input, no open
+question, the newest turn closed, no compaction running, in one stable read) and the
+projections, read again, have the same `asOfSeq`; events after the closed turn that change none
+of these, such as a title, do not end it. A changed reading or a change of its proof is recorded
+at once, an unchanged one once a minute; a new usage event is a new reading even with the same
+counts and time; a failed read, one without a reading, or one that the store does not take ends
+the stored proof at once and confirms nothing. Only event types, seqs, times, usage counts and the model and context
 fields are decoded; message text and other projections are not kept.
 `projectedTokens` is the harness's estimate for its next request, so it is not used. A DeepSeek
 session registered without a harness target has `no_source`. The cycle is under "DeepSeek cycle
