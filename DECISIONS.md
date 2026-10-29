@@ -598,6 +598,60 @@ Recommendation:
 > - Live check: after the merge, you run `koinon setup claude` on this machine. I then confirm with `koinon context show` that an idle Claude session stays fresh, and report it.
 > - agy and Grok sessions in `handoff_cycle` read their context from their status lines too, which also run on events (PROTOCOL.md). They can have the same gap. Grok has its own `refresh_interval` option. I check both and file them as their own issue.
 
+<a id="pulled-idle-569"></a>
+
+## PULLED-IDLE-569
+
+<!-- koinon-decision PULLED-IDLE-569 revision 1 approved 1793290873441 -->
+
+**Approved**, revision 1, 2026-10-29 16:21:13 UTC.
+
+- Title: Let an idle Codex, OpenCode or DeepSeek session above its threshold get its handoff cycle without a new turn
+- Where: context trigger (internal/core/context_policy.go), the Codex, OpenCode and DeepSeek context readers, PDR 006
+
+Context:
+
+> - The trigger needs a context reading at most 2 minutes old (`internal/core/context_policy.go`, `contextSourceMaxAge`; checked 2026-10-29).
+> - The trigger needs the newest confirmation of that reading at most 90 seconds old (the same file, `contextConfirmationMaxAge`; checked 2026-10-29).
+> - Both clocks are from the #196 definition of done, which you approved at Gate B. This card changes how the 2-minute clock applies in `handoff_cycle` to three families.
+> - DECISIONS.md#IDLE-COMPACT-564, which you approved on 2026-10-29, accepts an older Codex reading in `native_compaction` only, when its newest confirmation comes from a caught-up read with the last turn ended.
+> - Codex: the source time is the rollout's last `token_count`, and an idle session writes none (#564; checked 2026-10-29).
+> - Codex: since #564, the session's `koinon mcp` sends the caught-up mark with each confirmation (`internal/mcp/observe.go`; checked 2026-10-29).
+> - Codex: the report that clears the mark after a failed read is best effort. A lost report leaves the last mark until its confirmation is 90 seconds old (PROTOCOL.md, "Session observations"; codex-koinon reproduced it at 4ad7bb0, 2026-10-29).
+> - OpenCode: every 15 seconds the daemon reads the session's newest messages from its own server, and the source time is the newest finished assistant message's completion time (`internal/core/opencode_context.go`; checked 2026-10-29).
+> - OpenCode: the daemon reads the session's activity from `GET /session/status` on the same server (`internal/core/opencode_status.go`; checked 2026-10-29).
+> - DeepSeek: every 15 seconds the daemon reads the session's harness, and the source time is the time of the usage event that gave the context pressure (`internal/core/deepseek_context.go`; checked 2026-10-29).
+> - DeepSeek: the cycle adapter already has a quiet-point check: no running status, no queued input, no open question, the newest turn closed and no compaction running, in one stable read (`internal/core/cycle_deepseek.go`, `deepSeekQuiet`; checked 2026-10-29).
+> - So the reading of an idle session in each of the three families gets older than 2 minutes, though it is still its current context. In `handoff_cycle` the trigger then shows `source_stale`, and the session starts its next turn with a full context (#569, filed 2026-10-29).
+> - Each of the three families has a handoff cycle adapter (#196, #513, #514; checked 2026-10-29).
+> - The family default is `native_compaction` for Codex and `observe` for OpenCode and DeepSeek (`internal/core/context_policy.go`, `defaultContextPolicy`; checked 2026-10-29). So the gap applies only where you chose `handoff_cycle`.
+
+Recommendation:
+
+> ## Recommendation: in handoff_cycle, accept an older reading of an idle Codex, OpenCode or DeepSeek session when the reader shows that the reading is current
+>
+> **What:** one pull request in Koinon:
+> 1. A confirmation is "current" when its reader shows, at that read, that no newer context exists:
+>    - Codex: the caught-up mark of #564, unchanged.
+>    - OpenCode: in the same round, the session's newest message is the finished assistant message that gave the reading, and `GET /session/status` for that exact session shows it idle.
+>    - DeepSeek: in the same round, the adapter's quiet-point check passes, and the reading's usage event is the newest usage, with no model or context change after it. Events after the closed turn that change none of these do not end the proof.
+> 2. In `handoff_cycle`, the trigger accepts a reading older than 2 minutes only when its newest confirmation is current, at most 90 seconds old, of the same epoch, and at the threshold.
+> 3. For OpenCode and DeepSeek the daemon reads the source itself, so a failed read or a read without the proof clears the current state at once. For Codex the clearing report stays best effort, as in #564: after a failed read, the last current confirmation can still admit a cycle until it is 90 seconds old.
+> 4. All other checks of the handoff cycle stay: the Enable, the pins of host and pane, the request, the ready report, the quiet checks and fences before the clear, and the pickup. `native_compaction` stays as #564 decided, and Codex only.
+> 5. Tests, for each family: an idle session with a current reading above the threshold gets its cycle. These do not: a busy session; a newer message, turn or usage after the reading; a source that changes between the reads of one round; a failed read; an old confirmation; a reading below the threshold; a new epoch; a daemon restart, until a new current confirmation. For DeepSeek also: a closed turn followed by events that change nothing still counts.
+> 6. PDR 006, PROTOCOL.md and docs/USAGE.md give the rule. DECISIONS.md records this verdict.
+>
+> **Why:** the 2-minute age makes sure that the reading is the current context. For these sources, a read that shows the session idle with nothing after the reading shows the same thing. So the change keeps the purpose of the rule, as #564 did, and removes the gap. Without it, an idle session above the threshold starts its next turn with a full context.
+>
+> **Fast or complete:** complete for Codex, OpenCode and DeepSeek in `handoff_cycle`. Limits:
+> - Codex: for up to 90 seconds after its rollout becomes unreadable, a cycle can still start from the last current confirmation. Then the session gets a request that it did not need yet. The clear still needs its own ready report, the quiet checks and the fences, so no context is lost.
+> - The OpenCode proof comes from the recorded native evidence (OpenCode 1.18.35, Linux, #513). The DeepSeek proof uses the adapter's existing quiet-point check (DeepSeek Harness 0.2.0-rc.2, #514). I do not run the DeepSeek harness on this machine, so its live check runs in its development container, as for #514. Until that run, the DeepSeek idle trigger is unverified.
+> - Cost: one pull request, about 30 minutes of CI.
+>
+> **Corrections from the peers:** codex-koinon: the Codex clearing report is best effort, so the card names the 90-second window and its effect instead of promising an immediate end; the DeepSeek proof uses the quiet-point check, because a closed turn can be followed by events that change nothing; and each context item has one fact, its source and its date.
+>
+> **Open point:** agy and Grok (#568) need another fix, because their source is a status line. I bring that as its own card.
+
 <a id="grok-idle-568"></a>
 
 ## GROK-IDLE-568

@@ -499,7 +499,10 @@ installs, so the Sessions page shows their readings. The agy family default stay
 OpenCode sessions started with `koinon opencode` show their model and context too: the daemon
 reads them every 15 seconds from the session's own OpenCode server, from the newest finished
 reply and its model's context limit. A direct `opencode` start shows none. The OpenCode family
-default stays `observe`.
+default stays `observe`. In `handoff_cycle` an idle OpenCode, DeepSeek or Codex session above
+its threshold gets its cycle without a new turn: an older reading counts while the daemon's
+newest confirmation shows that the session is idle with nothing after the reading (#569,
+DECISIONS.md#PULLED-IDLE-569). The DeepSeek case is not yet checked against a live harness.
 DeepSeek sessions registered with `koinon register` show their model and context too: the
 daemon reads them every 15 seconds from the session's own harness, with the wake's credential,
 from the token meter's newest usage and the model's context window. Its family default stays
