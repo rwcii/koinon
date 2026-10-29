@@ -309,15 +309,19 @@ func (s *Store) Observe(ctx context.Context, o Observation) error {
 			if v == nil {
 				continue
 			}
-			// A newer report replaces the value; a report of the same content confirms it and
-			// replaces its caught-up mark, which a report without one clears; an older,
-			// different report changes nothing.
+			// A newer report replaces the value; a report of the same content confirms it with
+			// its caught-up mark; an older, different report changes nothing. A report without
+			// the mark of a marked value only clears the mark and confirms nothing: a Codex
+			// reader sends it so after a failed read (#564), and its next report confirms.
 			previous, found := current[group]
 			value, epoch, end := *v, v.Epoch, v.End
 			value.Epoch, value.End = "", nil
 			switch {
 			case !found || v.At > previous.At:
 				current[group] = storedValue{value, now, epoch, end}
+			case sameContent(value, previous.ObservedValue) && epoch == previous.epoch && previous.end != nil && end == nil:
+				previous.end = nil
+				current[group] = previous
 			case sameContent(value, previous.ObservedValue) && epoch == previous.epoch:
 				previous.seen, previous.end = now, end
 				current[group] = previous

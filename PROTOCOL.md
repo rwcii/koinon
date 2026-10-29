@@ -2570,9 +2570,11 @@ daemon keeps it for the context policy and returns it in no view. A `codex_rollo
 report with an epoch may also carry `end`, its caught-up mark (#564): `rollout` (the file's
 device and inode, `DEVICE-INODE`), `size` (where the read ended) and `turn` (the last turn's
 ID). The reader sends it only when it read the rollout to its end after a complete record,
-within its 4 MiB batch, and the last turn had ended. A report of the same reading replaces the
-stored mark, and one without a mark clears it; the daemon keeps it for the context policy and
-returns it in no view.
+within its 4 MiB batch, and the last turn had ended. After a failed read, or a rollout that is
+unreadable or names another thread, it sends the marked reading once more without the mark. A
+report of the same reading with a mark confirms it and replaces the stored mark; one without a
+mark clears a stored mark and confirms nothing, and the next report confirms. The daemon keeps
+the mark for the context policy and returns it in no view.
 A known group carries `source`, source timestamp `at`, last confirmation timestamp
 `confirmed_at`, and its allowlisted value fields: model `id`; context `limit_tokens`,
 `used_tokens`, `usage_available` when reported; activity `state`. Source time may be old while

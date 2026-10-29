@@ -146,11 +146,13 @@ func TestCaughtUpMarkNeedsTheWholeRollout(t *testing.T) {
 	}
 }
 
-// A read failure sends nothing, so the daemon's mark is not confirmed again; the reader then
-// reads the rollout from its start.
+// A read failure, an unreadable rollout or one of another thread sends the marked reading once
+// more without its mark, so the daemon's caught-up state ends at once; the reader then reads
+// the rollout from its start.
 func TestCaughtUpMarkAfterReadFailure(t *testing.T) {
 	r := newCaughtUpRollout(t)
-	if v := r.context(t); v == nil || v.End == nil {
+	v := r.context(t)
+	if v == nil || v.End == nil {
 		t.Fatalf("caught up: %+v", v)
 	}
 	if err := os.Chmod(r.path, 0); err != nil {
@@ -160,16 +162,38 @@ func TestCaughtUpMarkAfterReadFailure(t *testing.T) {
 		f.Close()
 		t.Skip("this user reads files without read permission")
 	}
+	r.clock = r.clock.Add(time.Second)
+	if v := r.context(t); v == nil || v.End != nil || *v.UsedTokens != 800 || v.Epoch != "synthetic-thread-1" {
+		t.Fatalf("unreadable rollout: %+v", v)
+	}
+	if reader := r.s.obs.rollouts["synthetic-thread-1"]; reader.offset != 0 || reader.caughtUp || reader.marked {
+		t.Fatalf("reader kept its place: %+v", reader)
+	}
 	r.clock = r.clock.Add(2 * confirmEvery)
 	if v := r.context(t); v != nil {
-		t.Fatalf("unreadable rollout reported: %+v", v)
-	}
-	if reader := r.s.obs.rollouts["synthetic-thread-1"]; reader.offset != 0 || reader.caughtUp {
-		t.Fatalf("reader kept its place: %+v", reader)
+		t.Fatalf("unreadable rollout reported again: %+v", v)
 	}
 	os.Chmod(r.path, 0600)
 	r.clock = r.clock.Add(rolloutSearch)
 	if v := r.context(t); v == nil || v.End == nil || v.End.Size != r.size() {
 		t.Fatalf("readable again: %+v", v)
+	}
+	// A rollout replaced by one of another thread.
+	os.Remove(r.path)
+	writeLines(t, r.path, map[string]any{"timestamp": "2026-10-29T05:01:00.000Z", "type": "session_meta", "payload": map[string]any{"id": "someone-else"}})
+	r.clock = r.clock.Add(time.Second)
+	if v := r.context(t); v == nil || v.End != nil || *v.UsedTokens != 800 {
+		t.Fatalf("foreign rollout: %+v", v)
+	}
+	// A reader whose reading has no mark sends nothing on a failure, as before.
+	busy := newCaughtUpRollout(t)
+	writeLines(t, busy.path, idleEvent("05", "task_started", "turn-b"))
+	if v := busy.context(t); v == nil || v.End != nil {
+		t.Fatalf("busy: %+v", v)
+	}
+	os.Chmod(busy.path, 0)
+	busy.clock = busy.clock.Add(confirmEvery) // past the minute in which an unchanged value is not resent
+	if v := busy.context(t); v != nil {
+		t.Fatalf("unmarked failure reported: %+v", v)
 	}
 }

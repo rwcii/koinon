@@ -164,6 +164,32 @@ func TestIdleCompactionNeedsTheChosenMark(t *testing.T) {
 	}
 }
 
+// A failed read after the post-choice confirmation ends the mark at once: the compaction ends
+// without input, and the report that clears the mark confirms nothing.
+func TestIdleCompactionAfterFailedRead(t *testing.T) {
+	f := newCompactFixture(t)
+	old := f.clock.Add(-30 * time.Minute)
+	f.caught(t, 800, f.k.ID, old, rolloutEnd(5000))
+	f.step(t)
+	f.clock = f.clock.Add(nextConfirmation)
+	f.caught(t, 800, f.k.ID, old, rolloutEnd(5000))
+	confirmed := f.s.contextEvidence(f.k).ConfirmedAt
+	f.clock = f.clock.Add(5 * time.Second)
+	f.caught(t, 800, f.k.ID, old, nil)
+	if e := f.s.contextEvidence(f.k); e.End != nil || e.ConfirmedAt != confirmed {
+		t.Fatalf("the clearing report: %+v, confirmed at %d", e, confirmed)
+	}
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleCancelled || v.Reason != "source_stale" || f.compactor.count("enter") != 0 || !f.enabled(t) {
+		t.Fatalf("after a failed read: %+v %v", v, f.compactor.calls)
+	}
+	// The next report of the reading without a mark confirms it.
+	f.caught(t, 800, f.k.ID, old, nil)
+	if e := f.s.contextEvidence(f.k); e.ConfirmedAt != f.clock.UnixMilli() {
+		t.Fatalf("next report: %+v", e)
+	}
+}
+
 // A daemon restart forgets the readings and the choice: the compaction waits for a new
 // caught-up reading, chooses it, and enters only after its next confirmation.
 func TestIdleCompactionAfterRestart(t *testing.T) {
