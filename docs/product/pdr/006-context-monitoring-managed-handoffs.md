@@ -104,7 +104,13 @@ are still the same. A Claude session's context comes from its status line, which
 runs on events. The status-line entry that `koinon setup claude` writes runs it at least every
 30 seconds (`refreshInterval`), also while the session is idle, so an idle Claude session keeps a
 fresh reading and gets its cycle at the threshold under the same clocks. This needs Claude Code
-2.1.97 or later; Koinon does not check the version (Decision 5).
+2.1.97 or later; Koinon does not check the version (Decision 5). A Grok session's context also
+comes from its status line, which Grok runs on events. The `[ui.status_line]` table that `koinon
+setup grok` writes has `refresh_interval = 30`, so Grok runs it every 30 seconds, also while the
+session is idle, and an idle Grok session gets its cycle at the threshold under the same clocks.
+Grok reads its configuration at startup, so a running session gets the interval when Grok starts
+again. An earlier integer interval of 1 to 30 seconds stays; that range is Koinon's choice, not
+one that Grok documents.
 
 In Codex's `native_compaction` mode the same trigger makes the daemon enter Codex's own
 `/compact` in the enabled session's pane while Codex is idle, once per crossing. A fresh reading
@@ -162,7 +168,13 @@ recommended: "koinon setup claude sets refreshInterval to 30 seconds in Koinon's
 entry", keeping an earlier valid interval of 1 to 30 seconds and an entry that the person
 edited. Before the card, about a Claude Code version without the setting, the maintainer said
 "in such a case, we can specify a minimum client version, and move on." (2026-10-29, session
-transcript); the docs give 2.1.97, the version that added the setting.
+transcript); the docs give 2.1.97, the version that added the setting. The Grok status line
+every 30 seconds: Maintainer, 2026-10-29, decision board item GROK-IDLE-568 (revision 1),
+[DECISIONS.md#GROK-IDLE-568](../../../DECISIONS.md#grok-idle-568), "approved". The card
+recommended: "koinon setup grok also owns refresh_interval and sets it to 30 seconds", keeping an
+earlier integer of 1 to 30, the restart of Grok after setup, and, for a record saved before the
+interval was owned, the interval in the file at the upgrade as the one that removal restores.
+The Grok live check of the card (What 6) is not yet done.
 
 ### Alternatives Considered
 
@@ -568,3 +580,4 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-27 | Decision 5: the Grok adapter is listed, from its Linux checks with Grok Build 1.0.50 (#515) |
 | 2026-10-29 | Decision 1: in `native_compaction` an older reading of an idle Codex session counts when a caught-up read confirms it (#564), approved on the decision board (IDLE-COMPACT-564) |
 | 2026-10-29 | Decision 1: Koinon's Claude status line runs at least every 30 seconds, so an idle Claude session gets its cycle; Claude Code 2.1.97 or later (#566), approved on the decision board (CLAUDE-IDLE-566) |
+| 2026-10-29 | Decision 1: Koinon's Grok status line runs at least every 30 seconds, so an idle Grok session gets its cycle after Grok starts again (#568), approved on the decision board (GROK-IDLE-568) |

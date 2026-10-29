@@ -161,8 +161,7 @@ func grokFixture(t *testing.T) (grokStatusFile, string) {
 	if err := os.Mkdir(state, 0700); err != nil {
 		t.Fatal(err)
 	}
-	return grokStatusFile{statusLine{binary: "/opt/koinon", state: state, settings: filepath.Join(home, "config.toml"),
-		label: "Grok configuration", hook: "grok-status", record: "grok-statusline.json", missing: "grok_config_missing"}}, home
+	return newGrokStatusFile("/opt/koinon", state, filepath.Join(home, "config.toml")), home
 }
 
 func grokStatusOf(t *testing.T, path string) map[string]any {
@@ -251,7 +250,7 @@ func TestGrokStatusLineAddsItsTable(t *testing.T) {
 			result, err := g.setUp()
 			mustOutcome(t, result, err, "set_up")
 			table := grokStatusOf(t, g.settings)
-			if len(table) != 2 || table["type"] != "command" || table["command"] != grokWrapper {
+			if len(table) != 3 || table["type"] != "command" || table["command"] != grokWrapper || table["refresh_interval"] != int64(30) {
 				t.Fatalf("table: %+v", table)
 			}
 			result, err = g.remove()
@@ -267,10 +266,10 @@ func TestGrokStatusLineAddsItsTable(t *testing.T) {
 	result, err := g.setUp()
 	mustOutcome(t, result, err, "set_up")
 	data, _ := os.ReadFile(g.settings)
-	os.WriteFile(g.settings, append(data, []byte("refresh_interval = 2\n")...), 0600)
+	os.WriteFile(g.settings, append(data, []byte("padding = 2\n")...), 0600)
 	result, err = g.remove()
 	mustOutcome(t, result, err, "restored")
-	if table := grokStatusOf(t, g.settings); len(table) != 1 || table["refresh_interval"] != int64(2) {
+	if table := grokStatusOf(t, g.settings); len(table) != 1 || table["padding"] != int64(2) {
 		t.Fatalf("kept table: %+v", table)
 	}
 	// A table that was there before keeps its header, even when setup's keys were its only ones.
@@ -466,7 +465,14 @@ func TestValueSpan(t *testing.T) {
 		"k = '''a'''\n":        "",
 		"k = \"open\n":         "",
 		"k = 'open\n":          "",
-		"k = 1\n":              "",
+		"k = 1\n":              "1",
+		"k = 30 # c\n":         "30",
+		"k\t= 1.5":             "1.5",
+		"k = true\r\n":         "true",
+		"k = [1]\n":            "",
+		"k = { a = 1 }\n":      "",
+		"k =\n":                "",
+		"k = # c\n":            "",
 		"k\n":                  "",
 	} {
 		from, to, ok := valueSpan(line)
@@ -531,7 +537,7 @@ func TestGrokStatusLineLexer(t *testing.T) {
 	result, err := g.setUp()
 	mustOutcome(t, result, err, "set_up")
 	table := grokStatusOf(t, g.settings)
-	if table["command"] != grokWrapper+" --command 'old'" || table["type"] != "command" || len(table) != 4 {
+	if table["command"] != grokWrapper+" --command 'old'" || table["type"] != "command" || table["refresh_interval"] != int64(30) || len(table) != 5 {
 		t.Fatalf("table: %+v", table)
 	}
 	raw, _ := os.ReadFile(g.settings)

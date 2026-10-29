@@ -2560,7 +2560,8 @@ minute while they stay readable; hooks and tool calls confirm only by their next
 agy session's idle state goes stale when no new event comes. A Claude session's status-line
 values are confirmed at least every 30 seconds while Koinon's status-line entry has its
 `refreshInterval` (Claude Code 2.1.97 or later), and go stale when no new event comes without
-it. A session that is not active shows `unknown` with `session_expired` or
+it; a Grok session's likewise, while Koinon's `[ui.status_line]` table has its
+`refresh_interval` and Grok was started after it was set (#568). A session that is not active shows `unknown` with `session_expired` or
 `session_retired`. A group without a value shows `no_source` when the family has none, else
 `not_observed`.
 
@@ -2746,23 +2747,34 @@ integers from 0 to 2^53-1 with a positive limit; otherwise there is no context r
 last reading stands until it is stale. `used_percentage` and the cumulative `session_*` counts
 are not used. The input has no time of its own, so the source time is the hook's. Grok sends
 the input when its state changes (at start, during and at the end of a turn, after `/new` and
-`/compact`), not while it is idle, unless the table's `refresh_interval` is set, so an idle
+`/compact`), not while it is idle, unless the table's `refresh_interval` is set, so without it an idle
 session's reading becomes stale after 30 minutes. `koinon setup
 grok` makes `'BINARY' hook grok-status` the `command` of a `[ui.status_line]` table with
 `type = "command"` in Grok's `config.toml` (`--grok-home`, else `$GROK_HOME`, else `~/.grok`).
-Setup owns only the table's `type` and `command`: it edits those lines as text, parses the file
+Setup owns only the table's `type`, `command` and `refresh_interval` (#568,
+DECISIONS.md#GROK-IDLE-568): `refresh_interval = 30` runs the status line every 30 seconds, also
+while the session is idle, so the reading stays inside the trigger's clocks; an earlier integer
+from 1 to 30 stays, and any other value or none becomes 30. That rule is Koinon's choice: Grok's
+documentation gives no range and no first version for the key. Grok reads `config.toml` at
+startup, so a running session gets the interval when Grok starts again. Setup edits those lines as text, parses the file
 before and after, and refuses an edit whose meaning differs anywhere else; other keys, tables,
-comments and the table's other options, such as `refresh_interval`, stay as they were. An owned
+comments and the table's other options stay as they were. An owned
 line keeps its key spelling, its spacing and its comment; only its value changes. The text
 editor supports a plain `[ui.status_line]` table only: invalid TOML is `settings_invalid`, and an
-inline table, a dotted key, an owned value that is a multiline string or another shape it
-cannot prove is `settings_unusual`; the file is not changed. The previous `type` and `command`,
-their values as spelled, and whether setup added the table, are saved
+inline table, a dotted key, an owned value that is a multiline string, a `type` or `command`
+that is not a string, a `refresh_interval` that is not a scalar, or another shape it cannot
+prove is `settings_unusual`; the file is not changed. The previous `type`, `command` and
+`refresh_interval` (or their absence), their values as spelled, and whether setup added the
+table, are saved
 once in `grok-statusline.json` in the Go state root, with the file's path. `koinon setup grok
 --remove-status-line` and the Grok removal restore them in that file while it still holds the
 exact wrapper, and remove the table only when setup added it and no other key is in it. A
 saved spelling is used only when it is a TOML spelling of the saved value; otherwise the value
-is written as a basic string. A
+is written as a basic string, or as a plain integer, float or boolean. A record saved before
+`refresh_interval` was owned has none in its wrapper: setup and removal compare only its `type`
+and `command`, and the interval that the file has at that time, as spelled, or its absence,
+becomes the one that removal restores. After that, an edit of only the interval is also an
+edited wrapper. A
 wrapper that the user edited is left alone (`statusline_changed`), also when it runs an earlier
 Koinon binary and after a removal that kept it, with the Claude Code rule. Setup
 for another `config.toml` while one is set up reports `changed` (`statusline_other_file`). A

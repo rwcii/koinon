@@ -5,6 +5,16 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- An idle Grok session above its threshold gets its handoff cycle without a new turn (#568,
+  DECISIONS.md#GROK-IDLE-568). Grok runs the status line on events, so the context reading of an
+  idle session became older than two minutes and the trigger showed `source_stale`. Now the
+  `[ui.status_line]` table that `koinon setup grok` writes has `refresh_interval = 30`, so Grok
+  runs it every 30 seconds, also while idle. An earlier integer interval of 1 to 30 seconds
+  stays, and removal restores the earlier table. Upgrade: run `koinon setup grok` again, then
+  start Grok again, because Grok reads its configuration at startup. If you edited Koinon's
+  status-line command, setup keeps it (`statusline_changed`); add `refresh_interval = 30` to the
+  table yourself. For a setup from an earlier Koinon, removal restores the interval that the file
+  has at the upgrade. Not yet checked against a live Grok session.
 - An idle Claude session above its threshold gets its handoff cycle without a new turn (#566,
   DECISIONS.md#CLAUDE-IDLE-566). Claude Code runs the status line on events, so the context
   reading of an idle session became older than two minutes and the trigger showed

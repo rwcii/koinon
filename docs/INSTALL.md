@@ -500,7 +500,9 @@ requires the selected agent CLI. Codex must support `queue`, `--no-daemon` and t
 OpenCode must support its server. Claude background jobs require Claude Code's `--bg` and
 `--settings` support. The handoff cycle of an idle Claude session needs Claude Code 2.1.97 or
 later, for the status line's `refreshInterval` (#566); setup does not check the version. Grok Build must support `--session-id` and `grok mcp list --json`
-(verified with Grok Build 1.0.50); setup reports another version and does not refuse it.
+(verified with Grok Build 1.0.50); setup reports another version and does not refuse it. The
+handoff cycle of an idle Grok session needs Grok's status-line `refresh_interval` (#568), which
+Grok reads at startup; start Grok again after `koinon setup grok`.
 DeepSeek requires a running harness (live wake verified with DeepSeek Harness 0.2.0-rc.2, #199).
 
 A legacy upgrade additionally needs Python 3.11+ to run the **installed previous release's**

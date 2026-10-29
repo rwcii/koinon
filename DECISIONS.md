@@ -597,3 +597,54 @@ Recommendation:
 > **Open points:**
 > - Live check: after the merge, you run `koinon setup claude` on this machine. I then confirm with `koinon context show` that an idle Claude session stays fresh, and report it.
 > - agy and Grok sessions in `handoff_cycle` read their context from their status lines too, which also run on events (PROTOCOL.md). They can have the same gap. Grok has its own `refresh_interval` option. I check both and file them as their own issue.
+
+<a id="grok-idle-568"></a>
+
+## GROK-IDLE-568
+
+<!-- koinon-decision GROK-IDLE-568 revision 1 approved 1793292193629 -->
+
+**Approved**, revision 1, 2026-10-29 16:43:13 UTC.
+
+- Title: Make Koinon's Grok status line run every 30 seconds, so an idle Grok session gets its handoff cycle
+- Where: koinon setup grok (internal/setup/grok_status.go), PDR 006
+
+Context:
+
+> - The trigger needs a context reading at most 2 minutes old, and its confirmation at most 90 seconds old (`internal/core/context_policy.go`, `contextSourceMaxAge` and `contextConfirmationMaxAge`; checked 2026-10-29). These clocks are from the #196 definition of done, which you approved at Gate B. This card does not change them.
+> - A Grok session's context comes only from its status line, and the source time is the time of the hook run (PROTOCOL.md, the Grok status-line paragraph; checked 2026-10-29).
+> - Grok's documentation: "An idle session does not re-run the script. Set `refresh_interval` (seconds) on a `command` row to also run it on a timer." It gives no valid range and no first version with the key (docs.x.ai/build/features/status-line; checked 2026-10-29).
+> - The same page says that Grok reads its configuration at startup, so a change to `config.toml` needs a restart of Grok. docs/USAGE.md already says to start Grok again after `koinon setup grok` (checked 2026-10-29).
+> - So an idle Grok session's reading gets older than 2 minutes, and the trigger shows `source_stale`. An idle Grok session in `handoff_cycle` gets no cycle when its crossing comes while it is idle, and it starts its next turn with a full context (#568, filed 2026-10-29).
+> - `koinon setup grok` owns only `type` and `command` of the `[ui.status_line]` table in Grok's `config.toml`, and keeps `refresh_interval` as it was. It saves the earlier values in `grok-statusline.json` and restores them on removal (PROTOCOL.md, the Grok status-line paragraph; `internal/setup/grok_status.go`; checked 2026-10-29).
+> - Setup and removal leave a Koinon entry that you edited as it is, and report `statusline_changed` (PROTOCOL.md, the same paragraph). This card does not change that rule.
+> - DECISIONS.md#CLAUDE-IDLE-566, which you approved on 2026-10-29, closed the same gap for Claude with Claude Code's `statusLine.refreshInterval`, 30 seconds, and kept a valid interval of 1 to 30 seconds.
+> - Grok runs only in its development container on this machine. Its native evidence is Grok Build 1.0.50 on Linux, and that evidence leaves `refresh_interval` unverified (docs/sprints/2026-10-12-context-handoff/evidence.md, #515).
+> - `grok-statusline.json` of an existing installation holds only `type` and `command`, so it has no record of an earlier `refresh_interval` (`internal/setup/grok_status.go`; codex-koinon reproduced it at efdd411, 2026-10-29).
+
+Recommendation:
+
+> ## Recommendation: koinon setup grok also owns refresh_interval and sets it to 30 seconds
+>
+> **What:** one pull request in Koinon:
+> 1. `refresh_interval` becomes an owned key of the `[ui.status_line]` table, with `type` and `command`. Setup writes `refresh_interval = 30`. An earlier integer value from 1 to 30 stays. No value, a longer one, or one that is not an integer of at least 1 becomes 30. This 1-to-30 rule is Koinon's own choice, as in DECISIONS.md#CLAUDE-IDLE-566; it is not a range that Grok documents.
+> 2. A new installation saves the earlier `refresh_interval`, as spelled, or its absence, with the other owned keys in `grok-statusline.json`. Removal restores it, or removes the key when there was none, under the existing rule: an entry that you edited stays as it is.
+> 3. An existing installation: at its next `koinon setup grok`, setup checks only `type` and `command` against the old record, because the old record owned only these. When they are unchanged, setup saves the `refresh_interval` that is in the file at that time, as spelled, or its absence, as the earlier value for removal, and then applies rule 1. From then on, an edit of only the interval is also `statusline_changed`. When `type` or `command` changed, setup reports `statusline_changed` as now, and you add `refresh_interval = 30` yourself.
+> 4. After setup, or after you add the interval yourself, start Grok again: Grok reads its configuration at startup. The changelog and docs/USAGE.md give the steps of rules 3 and 4.
+> 5. Tests: a new table; an earlier interval of 1, of 30, of 120, of 0, a negative one, a float and a string; an old record with no interval in the file, with an interval, and with an interval that changed after the earlier setup; setup again after the upgrade, and removal after it; an edited Koinon entry before the upgrade (`type` or `command`) and after it (only the interval), each `statusline_changed`, kept at setup and at removal; and removal, which restores the earlier table exactly.
+> 6. Live check before the merge, in the `grok-dev` container as for #515: the branch binary's setup, then a Grok process started after that setup, idle for more than 2 minutes, whose `koinon context show` reading stays inside the existing clocks; `grok inspect` shows no problem with the key. The check proves the value 30. It does not prove which other values Grok accepts.
+> 7. PDR 006, PROTOCOL.md, docs/USAGE.md and the changelog give the rule. DECISIONS.md records this verdict.
+>
+> **Why:** the defect is that the source of an idle Grok session reports nothing, not the 2-minute clock. With the timer, Grok runs the status line every 30 seconds while the session is idle. Each run is a new reading from Grok itself, so the existing clocks admit it and no rule changes. 30 seconds gives a margin of three runs inside the 90-second confirmation age. It is the rule that you approved for Claude.
+>
+> **Fast or complete:** complete for Grok in `handoff_cycle`. Limits:
+> - Until the live check of What 6, it is unverified that Grok Build 1.0.50 accepts `refresh_interval = 30` and runs the status line while idle. The documentation gives no first version with the key; a Grok without it keeps the gap.
+> - An existing installation: when you changed the interval after the earlier setup, removal restores the interval that was in the file at the upgrade, not the one from before the earlier setup. The old record has no evidence of the earlier one.
+> - A Koinon entry that you edited keeps the gap until you add the interval yourself.
+> - A running Grok session keeps the gap until you start it again.
+> - Your wrapped status-line command runs every 30 seconds in each Grok session, as well as on events.
+> - Cost: one pull request, about 20 minutes of CI, and the container check.
+>
+> **Corrections from the peers:** codex-koinon: the live check is planned, not done, and the 1-to-30 rule is Koinon's choice, not a Grok range; an old record owns only `type` and `command`, so the upgrade saves the interval that is in the file at that time and the edit check starts there; and Grok needs a restart after a change of its configuration.
+>
+> **Open point:** agy has no setting that runs its status line while idle (Antigravity CLI 1.4.7; #568). Its fix needs another source and uses the rule of DECISIONS.md#PULLED-IDLE-569, which you approved on 2026-10-29, so I bring it as its own card.
