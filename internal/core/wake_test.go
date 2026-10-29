@@ -32,7 +32,9 @@ func TestWakeCrashAfterAcceptanceHelper(t *testing.T) {
 func TestWakeCrashAfterAcceptanceRetries(t *testing.T) {
 	s, root, sender, receiver, message, clock := wakeFixture(t, "codex")
 	s.db.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// The bound ends a child that hangs; a loaded runner can take more than seconds to start
+	// it (#558).
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestWakeCrashAfterAcceptanceHelper$")
 	cmd.Env = append(os.Environ(), "KOINON_WAKE_CRASH_STATE="+root)
