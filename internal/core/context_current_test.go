@@ -472,3 +472,49 @@ func TestDeepSeekIdleSessionGetsItsCycle(t *testing.T) {
 		}
 	}
 }
+
+// A daemon reading that the store does not take, because it is older than the stored reading,
+// ends the stored proof inside the report, before admission reads it: no cycle starts from the
+// stored reading. This holds for other counts while busy, and for the same counts while quiet,
+// which would otherwise confirm the stored reading with the new proof (codex-koinon's
+// reproduction, 2026-10-29).
+func TestRejectedReaderReadingAdmitsNothing(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		used int64
+		busy bool
+	}{{"other counts, busy", 100, true}, {"same counts, quiet", 900, false}} {
+		ctx := context.Background()
+		g := newDSHFixture(t)
+		g.fake.set(func(f *dshFake) {
+			f.add(dshRequester, `"type":"turn/start","data":{}`)
+			f.add(dshRequester, fmt.Sprintf(`"type":"assistant/message","data":{"usage":{"inputTokens":%d}}`, c.used))
+			f.add(dshRequester, `"type":"turn/end","data":{}`)
+			f.sessions[dshRequester].pressure = fmt.Sprintf(`"pressureTokens":%d,"contextWindow":1000`, c.used)
+			f.sessions[dshRequester].running = c.busy
+		})
+		_, usage, _, current, err := deepSeekContext(ctx, g.target, g.k.ID)
+		if err != nil || usage == nil || current == c.busy {
+			t.Fatalf("%s: native reading %+v %t %v", c.name, usage, current, err)
+		}
+		// The stored reading is newer than the native one and carries a proof, as one can while
+		// the cycle's other conditions are not met.
+		stored := ObservedValue{Source: usage.Source, At: usage.At + 1000, UsedTokens: int64p(900), LimitTokens: int64p(1000)}
+		g.s.observed.mu.Lock()
+		if g.s.observed.byKey == nil {
+			g.s.observed.byKey = map[Key]map[string]storedValue{}
+		}
+		g.s.observed.byKey[g.k] = map[string]storedValue{"context": {ObservedValue: stored, seen: g.clock.UnixMilli(), epoch: dshRequester, current: true}}
+		g.s.observed.mu.Unlock()
+		g.s.deepSeekContextRound(ctx)
+		if e := g.s.contextEvidence(g.k); e.Current || e.SourceAt != stored.At || e.ConfirmedAt != g.clock.UnixMilli() {
+			t.Fatalf("%s: stored reading %+v", c.name, e)
+		}
+		if v, err := g.s.ContextCycleStatus(ctx, g.k); err != nil || v != nil {
+			t.Fatalf("%s: a cycle started: %+v %v", c.name, v, err)
+		}
+		if n, err := cyclesWhere(ctx, g.s.db, `family='deepseek'`); err != nil || len(n) != 0 {
+			t.Fatalf("%s: cycles %+v %v", c.name, n, err)
+		}
+	}
+}

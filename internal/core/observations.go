@@ -331,6 +331,12 @@ func (s *Store) Observe(ctx context.Context, o Observation) error {
 			case !found || v.At > previous.At ||
 				newest && v.At == previous.At && (!sameContent(value, previous.ObservedValue) || epoch != previous.epoch):
 				current[group] = storedValue{value, now, epoch, end, proof}
+			case newest && v.At < previous.At:
+				// A daemon reader's newest reading is older than the stored one, with the same
+				// content or not: the stored reading is not its source's current one, so its proof
+				// ends here, before any admission reads it, and nothing is confirmed.
+				previous.current = false
+				current[group] = previous
 			case sameContent(value, previous.ObservedValue) && epoch == previous.epoch && previous.end != nil && end == nil:
 				previous.end = nil
 				current[group] = previous

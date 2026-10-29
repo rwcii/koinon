@@ -305,8 +305,9 @@ func (s *Store) recordReading(ctx context.Context, state *openCodeContextState, 
 	state.mu.Unlock()
 }
 
-// holdsReading reports whether the store holds reading as k's context. A reading that the
-// store did not take, such as one older than the stored reading, leaves no proof standing.
+// holdsReading reports whether the store holds reading as k's context. The store already ended
+// the proof of a reading that it did not take (Observe); the reader then also forgets its last
+// recorded reading.
 func (s *Store) holdsReading(k Key, reading ObservedValue) bool {
 	s.observed.mu.Lock()
 	defer s.observed.mu.Unlock()

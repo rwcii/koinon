@@ -2559,7 +2559,8 @@ report that confirms it: a newer report replaces the value, a report of the same
 confirms it and keeps its source time, and an older, different report changes nothing. A
 different report with the same source time changes nothing either, except one from the daemon's
 own OpenCode and DeepSeek readers, which read their source's newest reading: it replaces the
-value, such as a new usage event in the same millisecond (#569). A value
+value, such as a new usage event in the same millisecond (#569); an older one from them, with
+the same content or not, ends the stored reading's proof and confirms nothing. A value
 that no report confirmed within its window shows `unknown` with `observation_stale`: 2 minutes
 for activity and terminal, 30 minutes for model and context. Polled sources are confirmed every
 minute while they stay readable; hooks and tool calls confirm only by their next event, so an
