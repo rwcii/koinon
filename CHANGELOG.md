@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The documentation says that an idle agy session above its threshold in `handoff_cycle` gets its
+  handoff cycle at its next turn, not while it is idle (#568, DECISIONS.md#AGY-IDLE-568). Koinon
+  has no verified status-line timer for Antigravity CLI 1.4.7, its hook reports are not retried,
+  and it has no verified native record that shows the session idle with nothing after the
+  reading. Behavior does not change. #571 keeps the goal of a cycle without a new turn open.
 - An idle Grok session above its threshold gets its handoff cycle without a new turn (#568,
   DECISIONS.md#GROK-IDLE-568). Grok runs the status line on events, so the context reading of an
   idle session became older than two minutes and the trigger showed `source_stale`. Now the
