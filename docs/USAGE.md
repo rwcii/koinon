@@ -510,7 +510,14 @@ from the token meter's newest usage and the model's context window. Its family d
 Grok Build sessions report their model and context through the status line that `koinon setup
 grok` installs in `~/.grok/config.toml` (start Grok again after setup): the context window's
 current tokens and its size. An input without both counts leaves the last reading as it was.
-Its family default stays `observe`.
+Its family default stays `observe`. Koinon's `[ui.status_line]` table has `refresh_interval =
+30`, so Grok runs the status line every 30 seconds, also while the session is idle, and an idle
+Grok session at its threshold gets its handoff cycle without a new turn (#568,
+DECISIONS.md#GROK-IDLE-568). An interval of 1 to 30 seconds that your table already had stays.
+After an upgrade, run `koinon setup grok` again, then start Grok again: Grok reads its
+configuration at startup. If you edited Koinon's status-line command, setup keeps it and reports
+`statusline_changed`: add `refresh_interval = 30` to the table yourself, then start Grok again.
+The status-line command then runs every 30 seconds in each Grok session; it calls no model.
 
 Claude Code sessions launched with `koinon claude` on Linux and macOS can run the cycle, and
 Codex sessions launched with `koinon codex` in tmux on Linux and macOS can run it too (family

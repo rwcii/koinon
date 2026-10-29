@@ -113,7 +113,13 @@ start a cycle, whose own ready report and checks still apply. A Claude session's
 from its status line, which Claude Code runs on events. The status-line entry that `koinon setup claude` writes runs it at least every
 30 seconds (`refreshInterval`), also while the session is idle, so an idle Claude session keeps a
 fresh reading and gets its cycle at the threshold under the same clocks. This needs Claude Code
-2.1.97 or later; Koinon does not check the version (Decision 5).
+2.1.97 or later; Koinon does not check the version (Decision 5). A Grok session's context also
+comes from its status line, which Grok runs on events. The `[ui.status_line]` table that `koinon
+setup grok` writes has `refresh_interval = 30`, so Grok runs it every 30 seconds, also while the
+session is idle, and an idle Grok session gets its cycle at the threshold under the same clocks.
+Grok reads its configuration at startup, so a running session gets the interval when Grok starts
+again. An earlier integer interval of 1 to 30 seconds stays; that range is Koinon's choice, not
+one that Grok documents.
 
 In Codex's `native_compaction` mode the same trigger makes the daemon enter Codex's own
 `/compact` in the enabled session's pane while Codex is idle, once per crossing. A fresh reading
@@ -179,7 +185,16 @@ recommended: "in handoff_cycle, accept an older reading of an idle Codex, OpenCo
 session when the reader shows that the reading is current", with the proof of each reader above
 and the 90-second Codex window as a stated limit. The verdict decides that rule for
 `handoff_cycle` and these three families only; `native_compaction` stays as IDLE-COMPACT-564
-decided.
+decided. The Grok status line
+every 30 seconds: Maintainer, 2026-10-29, decision board item GROK-IDLE-568 (revision 1),
+[DECISIONS.md#GROK-IDLE-568](../../../DECISIONS.md#grok-idle-568), "approved". The card
+recommended: "koinon setup grok also owns refresh_interval and sets it to 30 seconds", keeping an
+earlier integer of 1 to 30, the restart of Grok after setup, and, for a record saved before the
+interval was owned, the interval in the file at the upgrade as the one that removal restores.
+The Grok live check of the card (What 6) was done on 2026-10-29 with Grok Build 1.0.50 on Linux
+at branch head 1448548: setup wrote `refresh_interval = 30`, and an idle session in
+`handoff_cycle` stayed `below_threshold` in ten `koinon context show` readings over 162 seconds
+(docs/sprints/2026-10-12-context-handoff/evidence.md, "Grok idle status line (#568)").
 
 ### Alternatives Considered
 
@@ -586,3 +601,4 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-29 | Decision 1: in `native_compaction` an older reading of an idle Codex session counts when a caught-up read confirms it (#564), approved on the decision board (IDLE-COMPACT-564) |
 | 2026-10-29 | Decision 1: Koinon's Claude status line runs at least every 30 seconds, so an idle Claude session gets its cycle; Claude Code 2.1.97 or later (#566), approved on the decision board (CLAUDE-IDLE-566) |
 | 2026-10-29 | Decision 1: in `handoff_cycle` an older reading of an idle Codex, OpenCode or DeepSeek session counts when its reader shows that it is current (#569), approved on the decision board (PULLED-IDLE-569) |
+| 2026-10-29 | Decision 1: Koinon's Grok status line runs at least every 30 seconds, so an idle Grok session gets its cycle after Grok starts again (#568), approved on the decision board (GROK-IDLE-568) |

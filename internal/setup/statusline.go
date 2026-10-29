@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -71,7 +72,11 @@ type statusLine struct {
 	defaults              []field
 	// refresh is the most seconds between two runs of the status line while the session is
 	// idle (Claude Code's refreshInterval, DECISIONS.md#CLAUDE-IDLE-566), or 0 for none.
-	refresh int
+	// refreshKey names the member, "refreshInterval" when empty, and refreshInteger keeps only
+	// an integer value (Grok's refresh_interval, DECISIONS.md#GROK-IDLE-568).
+	refresh        int
+	refreshKey     string
+	refreshInteger bool
 }
 
 func (l statusLine) name() string {
@@ -286,17 +291,25 @@ func (l statusLine) wrapperEntry(original json.RawMessage) json.RawMessage {
 	if original == nil {
 		fields = append(fields, l.defaults...)
 	}
-	if l.refresh > 0 && !validRefresh(lookup(fields, "refreshInterval"), l.refresh) {
+	key := l.refreshKey
+	if key == "" {
+		key = "refreshInterval"
+	}
+	if l.refresh > 0 && !validRefresh(lookup(fields, key), l.refresh, l.refreshInteger) {
 		interval, _ := json.Marshal(l.refresh)
-		fields = replace(fields, "refreshInterval", interval)
+		fields = replace(fields, key, interval)
 	}
 	return encodeFields(fields)
 }
 
-// validRefresh reports whether an entry's refreshInterval is one that Claude Code accepts, a
-// number of at least 1, and at most limit seconds. Claude Code takes any other value as unset,
-// which means no refresh.
-func validRefresh(value json.RawMessage, limit int) bool {
+// validRefresh reports whether an entry's interval is one to keep: a number of at least 1, and
+// at most limit seconds; with integer, only an integer, spelled without a fraction or exponent.
+// Claude Code takes any other value as unset, which means no refresh.
+func validRefresh(value json.RawMessage, limit int, integer bool) bool {
+	if integer {
+		n, err := strconv.ParseInt(string(bytes.TrimSpace(value)), 10, 64)
+		return value != nil && err == nil && n >= 1 && n <= int64(limit)
+	}
 	var n float64
 	return value != nil && json.Unmarshal(value, &n) == nil && n >= 1 && n <= float64(limit)
 }

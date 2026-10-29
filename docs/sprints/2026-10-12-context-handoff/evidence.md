@@ -509,7 +509,32 @@ saw. Only field names, types, counts and comparisons of IDs are named here.
 - `/compact` kept the same `session_id`; `context_tokens` fell from 19409 to 19137 (the context
   was mostly Grok's own instructions), and the reading followed.
 
-Not yet verified: macOS; a session with `refresh_interval` set.
+Not yet verified: macOS. A session with `refresh_interval` set is in "Grok idle status line
+(#568)".
+
+## Grok idle status line (#568)
+
+Grok Build 1.0.50 in its Linux development container, 2026-10-29, with a binary built from
+branch head 1448548 (DECISIONS.md#GROK-IDLE-568, What 6). The container's `config.toml` was
+backed up first, and a daemon ran with a fresh `XDG_STATE_HOME`.
+
+- Setup. `koinon setup grok --binary ...` printed `set_up`; the file had no earlier
+  `[ui.status_line]` table, and the new one had `type`, `command` and `refresh_interval = 30`.
+  `grok inspect` reported nothing for the status line (only its earlier `[hooks]` warning).
+- Idle session. `koinon context set grok --mode handoff_cycle --threshold 100`, then Grok started
+  in a private tmux socket. One prompt made it call the koinon `peers` tool once; then the
+  session was left idle. After Enable, `koinon context show` every 18 seconds from 18:19:43Z to
+  18:22:25Z (162 seconds) printed `on 100% (family) below_threshold` in all ten readings. The
+  trigger reports `below_threshold` only after its `source_stale` and `confirmation_stale`
+  checks pass, so each reading was fresh; without the interval, an idle reading becomes
+  `source_stale` after two minutes. `context show` prints no reading ages, so the callback
+  cadence was not measured.
+- Cleanup. Disable, the tmux server stopped, `--remove-status-line` printed `restored`, the
+  daemon stopped, the configuration restored from its backup (`cmp` equal, same SHA-256), the
+  state directory removed and the container stopped. The test conversation stays in Grok's
+  history.
+
+Not yet verified: macOS; interval values other than 30.
 
 ## Grok cycle adapter (#515)
 
