@@ -702,3 +702,49 @@ Recommendation:
 > **Corrections from the peers:** codex-koinon: the live check is planned, not done, and the 1-to-30 rule is Koinon's choice, not a Grok range; an old record owns only `type` and `command`, so the upgrade saves the interval that is in the file at that time and the edit check starts there; and Grok needs a restart after a change of its configuration.
 >
 > **Open point:** agy has no setting that runs its status line while idle (Antigravity CLI 1.4.7; #568). Its fix needs another source and uses the rule of DECISIONS.md#PULLED-IDLE-569, which you approved on 2026-10-29, so I bring it as its own card.
+
+<a id="agy-idle-568"></a>
+
+## AGY-IDLE-568
+
+<!-- koinon-decision AGY-IDLE-568 revision 1 approved 1793295007501 -->
+
+**Approved**, revision 1, 2026-10-29 17:30:07 UTC.
+
+- Title: Document that an idle agy session gets its handoff cycle at its next turn, and track the idle source in a new issue
+- Where: PDR 006, PROTOCOL.md, docs/USAGE.md; a new issue for the agy idle source
+
+Context:
+
+> - #568 is done when an idle agy or Grok session in `handoff_cycle` at or above its threshold gets its cycle without a new turn, "or the docs say why it cannot" (#568, "Done when"; checked 2026-10-29).
+> - DECISIONS.md#GROK-IDLE-568, which you approved on 2026-10-29, closes the Grok half with Grok's `refresh_interval`.
+> - An agy session's context comes only from its status line (`agy_statusline`; PROTOCOL.md, "Session observations"; checked 2026-10-29). Antigravity CLI runs it when its state changes, not while it is idle (#512 evidence). I found no setting in Antigravity CLI 1.4.7 that runs it on a timer (a search of the installed binary, 2026-10-29). So an idle agy session's reading gets older than 2 minutes, and the trigger shows `source_stale`.
+> - DECISIONS.md#PULLED-IDLE-569, which you approved on 2026-10-29, admits an older reading only when its reader shows that no newer context exists.
+> - Koinon's status-line hook sends each report once, with a one-second timeout and no retry (`internal/setup/hooks.go`; codex-koinon, 2026-10-29). So a turn can happen without a new reading in the daemon, and the last `idle` report alone does not show that the session is still idle.
+> - I checked two other native sources on this machine (2026-10-29, keys and counts only, no text):
+>   - The conversation's SQLite files. codex-koinon showed with a WAL reproduction that file metadata cannot tell the checkpoint after a turn from a later turn whose reports were lost.
+>   - The conversation's `transcript.jsonl`. In 27 files with 538 steps, the steps have `created_at` to the second only (201 adjacent steps share a second), no field for the model or the context window, and no record that a turn ended: a `DONE` model step is followed by tool steps in the same turn 219 times. 9 of 27 files end with a step without token counts. codex-koinon showed that a newer turn with equal counts in the same second gets bound to the old reading.
+> - So Koinon has no verified idle source for Antigravity CLI 1.4.7. This does not show that no native source exists.
+> - When the idle session starts its next turn, the status line reports again, and the trigger starts the cycle from that fresh reading (PROTOCOL.md, "Session observations"). The session then runs that turn with its full context.
+
+Recommendation:
+
+> ## Recommendation: partial fix of #568 for agy: the docs say that an idle agy session gets its cycle at its next turn, and a new issue keeps the idle goal open
+>
+> **What:** one pull request in Koinon, plus one new issue:
+> 1. PDR 006, PROTOCOL.md and docs/USAGE.md say: in `handoff_cycle`, an idle agy session above its threshold gets its cycle at its next turn, not while it is idle. They give the reason: Koinon has no verified status-line timer for Antigravity CLI 1.4.7 (the inspected binary showed no timer setting, and idle timer behavior is not live-checked), Koinon's hook reports are not retried, and Koinon has no verified native record that shows the session idle with nothing after the reading. The changelog says the same.
+> 2. Koinon adds no agy idle reader, and no trigger rule changes for agy.
+> 3. I file a new issue, "An idle agy session above its threshold gets its handoff cycle without a new turn", with the facts of this card, the two sources that failed and why, and what would close it: a verified Antigravity status-line timer (the binary search found none; not live-checked), or a native record that ties a reading to a closed turn with its model and window. The docs link to it.
+> 4. #568 closes when the Grok PR (DECISIONS.md#GROK-IDLE-568) and this PR are merged; the new issue holds the rest of the agy goal.
+> 5. DECISIONS.md records this verdict.
+>
+> **Why:** a cycle from a reading that may be old can come from wrong counts. The two native sources that I checked do not prove that the reading is current, so a rule built on them could start a cycle from wrong counts, or keep one alive. The docs path is the alternative that #568 gives, and the new issue keeps the goal visible until agy gives a source.
+>
+> **Fast or complete:** partial. Limits:
+> - An idle agy session above its threshold in `handoff_cycle` starts its next turn with its full context, and gets its cycle during that turn.
+> - agy's default mode is `observe`, so this applies only where you chose `handoff_cycle` for agy (`internal/core/context_policy.go`, `defaultContextPolicy`).
+> - Cost: one documentation pull request, about 20 minutes of CI, and one issue.
+>
+> **Corrections from the peers:** codex-koinon: file metadata and the transcript do not prove an idle current reading (two reproductions); say that Koinon has no verified idle source for 1.4.7, not that none can exist; say that no timer setting was found, not that none exists; and name this a partial fix with the rest of the goal in a new issue.
+>
+> **Open point:** none.

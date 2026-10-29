@@ -119,7 +119,13 @@ setup grok` writes has `refresh_interval = 30`, so Grok runs it every 30 seconds
 session is idle, and an idle Grok session gets its cycle at the threshold under the same clocks.
 Grok reads its configuration at startup, so a running session gets the interval when Grok starts
 again. An earlier integer interval of 1 to 30 seconds stays; that range is Koinon's choice, not
-one that Grok documents.
+one that Grok documents. An agy session's context comes only from its status line, which
+Antigravity CLI runs when its state changes, so in `handoff_cycle` an idle agy session above its
+threshold gets its cycle at its next turn, not while it is idle, and runs that turn with its full
+context. Koinon has no verified status-line timer for Antigravity CLI 1.4.7 (the inspected binary
+showed no timer setting, and idle timer behavior is not live-checked), its hook reports are not
+retried, and it has no verified native record that shows the session idle with nothing after
+the reading. [#571](https://github.com/rwcii/koinon/issues/571) keeps the idle goal open.
 
 In Codex's `native_compaction` mode the same trigger makes the daemon enter Codex's own
 `/compact` in the enabled session's pane while Codex is idle, once per crossing. A fresh reading
@@ -194,7 +200,13 @@ interval was owned, the interval in the file at the upgrade as the one that remo
 The Grok live check of the card (What 6) was done on 2026-10-29 with Grok Build 1.0.50 on Linux
 at branch head 1448548: setup wrote `refresh_interval = 30`, and an idle session in
 `handoff_cycle` stayed `below_threshold` in ten `koinon context show` readings over 162 seconds
-(docs/sprints/2026-10-12-context-handoff/evidence.md, "Grok idle status line (#568)").
+(docs/sprints/2026-10-12-context-handoff/evidence.md, "Grok idle status line (#568)"). An idle
+agy session gets its cycle at its next turn: Maintainer, 2026-10-29, decision board item
+AGY-IDLE-568 (revision 1), [DECISIONS.md#AGY-IDLE-568](../../../DECISIONS.md#agy-idle-568),
+"approved". The card recommended: "partial fix of #568 for agy: the docs say that an idle agy
+session gets its cycle at its next turn, and a new issue keeps the idle goal open", with no agy
+idle reader and no trigger change; [#571](https://github.com/rwcii/koinon/issues/571) holds the rest of
+the goal.
 
 ### Alternatives Considered
 
