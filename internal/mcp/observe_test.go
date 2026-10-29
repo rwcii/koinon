@@ -162,10 +162,12 @@ func TestCodexRolloutAndTerminalAttribution(t *testing.T) {
 		t.Fatal("rollout content reported")
 	}
 	// The completed last record is read once its line ends; unchanged groups are not resent.
+	// The context is, with its caught-up mark (#564).
 	writeLines(t, rollout, "\n")
 	o.s.observeOnce(context.Background())
 	reports = o.taken(1)
-	if len(reports) != 1 || reports[0].Activity == nil || reports[0].Activity.State != "idle" || reports[0].Model != nil || reports[0].Context != nil {
+	if len(reports) != 1 || reports[0].Activity == nil || reports[0].Activity.State != "idle" || reports[0].Model != nil ||
+		reports[0].Context == nil || reports[0].Context.End == nil || *reports[0].Context.UsedTokens != 50000 {
 		t.Fatalf("completed turn: %+v", reports)
 	}
 	// A replaced rollout that names another session is not read.

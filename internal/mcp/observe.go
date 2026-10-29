@@ -324,6 +324,7 @@ type rollout struct {
 	device, node uint64
 	offset       int64
 	skipping     bool // inside a record longer than rolloutLine
+	caughtUp     bool // the last read reached the end of the file at a record boundary (#564)
 	turn         string
 	model        *core.ObservedValue
 	context      *core.ObservedValue
@@ -366,11 +367,16 @@ func (s *server) codexRollout(thread string) (model, context, activity *core.Obs
 		*r = rollout{searched: now}
 		return nil, nil, nil
 	}
-	// The rollout's first record proved its thread, which is the context's native epoch.
+	// The rollout's first record proved its thread, which is the context's native epoch. A
+	// read that caught up while the last turn had ended marks the reading as current, though
+	// an idle rollout records no new one (DECISIONS.md#IDLE-COMPACT-564).
 	context = r.context
 	if context != nil {
 		value := *context
 		value.Epoch = thread
+		if r.caughtUp && threadKey.MatchString(r.turn) && r.activity != nil && r.activity.State == "idle" {
+			value.End = &core.RolloutEnd{Rollout: strconv.FormatUint(r.device, 10) + "-" + strconv.FormatUint(r.node, 10), Size: r.offset, Turn: r.turn}
+		}
 		context = &value
 	}
 	return r.model, context, r.activity
@@ -407,8 +413,10 @@ type rolloutRecord struct {
 }
 
 // consume reads at most one batch of new complete records. A replaced or shortened file is
-// read again from the start, after its first record proves the session.
+// read again from the start, after its first record proves the session. It is caught up only
+// when it reached the end of the file after a complete record, within the batch.
 func (r *rollout) consume(thread string) error {
+	r.caughtUp = false
 	f, err := platform.OpenOwned(r.path)
 	if err != nil {
 		return err
@@ -457,6 +465,7 @@ func (r *rollout) consume(thread string) error {
 			if r.skipping {
 				r.offset += int64(len(line))
 			}
+			r.caughtUp = errors.Is(err, io.EOF) && len(line) == 0 && !r.skipping
 			return nil
 		default:
 			r.offset, consumed = r.offset+int64(len(line)), consumed+int64(len(line))

@@ -191,6 +191,9 @@ type Store struct {
 	// paneSeen holds what each unfinished cycle's last pane inspection saw, for the reason of
 	// a stage timeout (#417).
 	paneSeen paneSeen
+	// compactChoices holds the caught-up mark that each waiting compaction chose its input on
+	// (#564).
+	compactChoices compactChoices
 }
 
 func openStore(root string) (*Store, error) { return openStoreFile(root, "state.sqlite3") }

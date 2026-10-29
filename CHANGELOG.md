@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- An idle Codex session above its threshold in `native_compaction` compacts without a new turn
+  (#564, DECISIONS.md#IDLE-COMPACT-564). Codex writes no new context reading while it is idle,
+  so the reading became older than two minutes and the trigger showed `source_stale`; the
+  session compacted only after its next turn. Now the session's `koinon mcp` marks a reading
+  as caught up when it read the whole rollout and the last turn had ended, and such a reading
+  counts at any age. Koinon types `/compact` after the next caught-up read, about one minute
+  later. The other checks stay, and `handoff_cycle` does not change.
 - The guide gives one form for decision cards (#562, DECISIONS.md#CARD-FORM-562). Its
   Decisions section says what a card holds: the title as the action, the context as short
   facts with their sources, and the recommendation with "## Recommendation:" and **What:**,

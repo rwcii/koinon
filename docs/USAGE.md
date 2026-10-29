@@ -545,7 +545,10 @@ session's Enable.
 In `native_compaction`, an enabled Codex session launched with `koinon codex` in tmux gets
 Codex's own `/compact` when its context reaches the threshold: the daemon types it in the
 session's pane once Codex is idle at an empty prompt, once per crossing, and waits for a fresh
-reading below the threshold to confirm it. It needs no pickup skill and no participant address,
+reading below the threshold to confirm it. An idle session compacts too, though Codex writes no
+new reading while it is idle: the session's `koinon mcp` reads the whole rollout each minute,
+and when the last turn has ended its unchanged reading still counts. The input then waits for
+the next such read, about one minute. It needs no pickup skill and no participant address,
 and Koinon changes no Codex setting. A busy pane only delays the compaction; if Codex is not
 idle within 15 minutes, the compaction ends and the next reading at the threshold starts
 another. A compaction that is not confirmed within 10 minutes, or whose submission cannot be

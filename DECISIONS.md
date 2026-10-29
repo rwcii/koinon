@@ -504,3 +504,45 @@ Recommendation:
 > sentences, one idea each, and common words. The labels and their order are the form, so a
 > correction of style changes the sentences and keeps the form.
 > ```
+
+<a id="idle-compact-564"></a>
+
+## IDLE-COMPACT-564
+
+<!-- koinon-decision IDLE-COMPACT-564 revision 1 approved 1793271279278 -->
+
+**Approved**, revision 1, 2026-10-29 10:54:39 UTC.
+
+- Title: Let an idle Codex session above its threshold compact without a new turn
+- Where: native_compaction trigger (internal/core/context_policy.go), PDR 006
+
+Context:
+
+> - The trigger needs a context reading at most 2 minutes old, and its confirmation at most 90 seconds old. These clocks are from the #196 definition of done, which you approved at Gate B (#196 comment 6136155493; the definition of done at d78822d; `internal/core/context_policy.go:432`; checked 2026-10-29). This card changes how the 2-minute clock applies to an idle Codex session in `native_compaction`.
+> - On 2026-10-29 at 05:35 UTC, `native_compaction` was on for each Codex session on this machine, at 60% (`koinon context show`).
+> - One idle Codex session was at 68%: its rollout's last `token_count` was at 05:04 UTC, 322443 of 475000 tokens.
+> - Its state was `source_stale`, and no compaction started (`koinon context show`, 05:35 UTC).
+> - A Codex rollout gets no new `token_count` while the session is idle. So the reading of an idle session is always older than 2 minutes, though it is still its current context.
+> - The session's own `koinon mcp` reads its rollout every 5 seconds, and sends an unchanged reading again each minute (`internal/mcp/observe.go:30-31`).
+> - A read can stop before the end of the rollout: after one 4 MiB batch, or at a partial last record. It then reports the older reading as current and idle. codex-koinon reproduced both cases with synthetic rollouts (2026-10-29). So a fresh confirmation alone does not show that the reading is current.
+> - Filed as #564 (2026-10-29).
+
+Recommendation:
+
+> ## Recommendation: in native_compaction, accept an older reading of an idle Codex session when a caught-up read shows that it is current
+>
+> **What:** one pull request in Koinon:
+> 1. The reader marks a Codex reading "caught up" only when it read the rollout to its end, the last record is complete, and no read failed. It sends the rollout's identity, its size at that end and the last turn's ID with the reading.
+> 2. In `native_compaction`, the trigger accepts a reading older than 2 minutes only when its newest confirmation is caught up, at most 90 seconds old, for the same rollout and epoch, and the last turn is complete. A changed, partial or unreadable rollout ends the caught-up state.
+> 3. Before Koinon types `/compact`, it needs a new caught-up confirmation, received after its choice, with the same rollout size and turn.
+> 4. All other checks stay: the threshold, one compaction for each crossing, an idle and empty prompt in the pane, and a fresh reading after `/compact` to confirm it. The `handoff_cycle` mode does not change.
+> 5. Tests: an idle session with a caught-up reading above the threshold compacts. These do not: a busy session; an old confirmation; a reading below the threshold; a read that stopped at a 4 MiB batch with newer records after it; a partial last record; a read failure; another rollout or thread; a new epoch; a daemon or `koinon mcp` restart, until a new caught-up confirmation.
+> 6. PDR 006 and docs/USAGE.md give the rule; DECISIONS.md records this verdict.
+>
+> **Why:** the 2-minute age makes sure that the reading is the current context. For an idle Codex session, a caught-up confirmation shows the same thing: the reader read the whole rollout, and the reading is its last record. So the change keeps the purpose of the rule and removes the gap. Without it, an idle session above the threshold starts its next turn with a full context, and compacts only after that turn.
+>
+> **Fast or complete:** complete for Codex `native_compaction`. Limit: an idle session compacts within about one minute after it becomes eligible, at the next confirmation. Cost: one pull request. The reading gets new fields, which can need a state schema step. About 20 minutes of CI.
+>
+> **Corrections from the peers:** codex-koinon showed that a fresh confirmation alone does not prove that the reading is current, because a read can stop before the end of the rollout. The rule now needs a caught-up read, and a new one before the input.
+>
+> **Open point:** I did not check whether an idle Claude session in `handoff_cycle` has the same gap. I check it during this work, and file it as its own issue if it does.
