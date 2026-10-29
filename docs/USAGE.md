@@ -498,7 +498,8 @@ agy sessions report their context and activity through the status line that `koi
 installs, so the Sessions page shows their readings. The agy family default stays `observe`.
 Antigravity CLI runs the status line when its state changes, not while the session is idle, so
 in `handoff_cycle` an idle agy session above its threshold gets its cycle at its next turn and
-runs that turn with its full context (DECISIONS.md#AGY-IDLE-568, #571). Koinon has no verified
+runs that turn with its full context (DECISIONS.md#AGY-IDLE-568,
+[#571](https://github.com/rwcii/koinon/issues/571)). Koinon has no verified
 status-line timer for Antigravity CLI 1.4.7 (the inspected binary showed no timer setting, and
 idle timer behavior is not live-checked), its hook reports are not retried, and it has no
 verified native record that shows the session idle with nothing after the reading.

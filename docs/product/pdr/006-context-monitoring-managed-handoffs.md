@@ -125,7 +125,7 @@ threshold gets its cycle at its next turn, not while it is idle, and runs that t
 context. Koinon has no verified status-line timer for Antigravity CLI 1.4.7 (the inspected binary
 showed no timer setting, and idle timer behavior is not live-checked), its hook reports are not
 retried, and it has no verified native record that shows the session idle with nothing after
-the reading. #571 keeps the idle goal open.
+the reading. [#571](https://github.com/rwcii/koinon/issues/571) keeps the idle goal open.
 
 In Codex's `native_compaction` mode the same trigger makes the daemon enter Codex's own
 `/compact` in the enabled session's pane while Codex is idle, once per crossing. A fresh reading
@@ -205,7 +205,8 @@ agy session gets its cycle at its next turn: Maintainer, 2026-10-29, decision bo
 AGY-IDLE-568 (revision 1), [DECISIONS.md#AGY-IDLE-568](../../../DECISIONS.md#agy-idle-568),
 "approved". The card recommended: "partial fix of #568 for agy: the docs say that an idle agy
 session gets its cycle at its next turn, and a new issue keeps the idle goal open", with no agy
-idle reader and no trigger change; #571 holds the rest of the goal.
+idle reader and no trigger change; [#571](https://github.com/rwcii/koinon/issues/571) holds the rest of
+the goal.
 
 ### Alternatives Considered
 
