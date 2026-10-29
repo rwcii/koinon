@@ -2412,6 +2412,17 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   audit ID, stores repository, work items work ID). Pages follow a keyset: `after` is an opaque
   cursor of the last listed row's sort values, so a page neither repeats nor skips a row when
   rows are added; a malformed cursor is 400. Next-page links keep `sort`, `dir`, `q`, `to` and `peers`.
+- **Spoken alert.** `GET /dashboard/waiting[?after=ID]` gives a signed-in browser one page, in
+  one read transaction, of the decisions and tasks that wait (state `active`, kind not `fyi`), by
+  ID: `{"version": V, "items": [{"reference", "revision", "kind", "repository"}], "next": ID,
+  "more": BOOL}`, at most 200 items. `version` is the `decisions` change version, which each
+  decision write moves; `repository` is the base name of the author participant's repository,
+  empty for a plain peer's item. A bad `after` is 400. The Settings page's switch (#553,
+  DECISIONS.md#SPEAK-SCOPE-553) is browser state: `speak.js` reads page 1, stops when `version`
+  equals the stored one, otherwise reads every page and starts again when a page's `version`
+  differs. It compares the items' `reference@revision` with the stored set; new ones become
+  sentences in the same stored value, which the browser speaks one at a time under the Web Lock
+  `koinon-speak`, removing a sentence only at the utterance's end.
 - **Actions.** Each action is a `POST` under `/dashboard/actions/` with the request protection
   above, and answers `303` to the view it changed with a fixed `notice` code, so a reload never
   repeats it. Forms are limited to 4 KiB; the send form takes up to 3 × 65,536 + 4,096 bytes of

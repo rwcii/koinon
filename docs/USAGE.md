@@ -469,6 +469,21 @@ session; the page names the reason (for example a session that is not in its lau
 or a missing `koinon-pickup` skill, with the `koinon install` step that installs it). Disabling always works. A stored mode or threshold that is not valid
 keeps the family default, and the Settings page names the error.
 
+The Settings page also turns on the spoken alert (#553, DECISIONS.md#SPEAK-SCOPE-553). While it
+is on and a dashboard page is open, the browser says each decision or task that starts to wait
+for you, with its repository: "koinon: a decision waits for you", or "koinon: 2 items wait for
+you" for several at once. An item that a new revision returns to waiting is new again. The
+browser speaks, through its own speech synthesis, on the computer where you read the dashboard,
+also through an SSH tunnel; the daemon speaks nothing. One switch covers every repository of
+the Koinon instance. The browser keeps the switch and the alert's state for the dashboard
+address (scheme, host and port), so `127.0.0.1`, `[::1]`, a tunnel's local port and a new port
+each have their own. When the switch turns on, the items that already wait are not spoken.
+A browser speaks only after a click on the page: an alert that the browser stopped waits, with a
+note on the page, and is spoken at the next click in any dashboard tab. Open tabs speak each
+alert once, through the browser's Web Locks; a browser without them can speak it in two tabs,
+and a browser that does not keep site data keeps the switch for that page only (the Settings
+page says so). The **Test** button speaks a sample sentence.
+
 agy sessions report their context and activity through the status line that `koinon setup agy`
 installs, so the Sessions page shows their readings. The agy family default stays `observe`.
 OpenCode sessions started with `koinon opencode` show their model and context too: the daemon
