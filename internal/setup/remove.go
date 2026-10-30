@@ -33,7 +33,7 @@ func Remove(ctx context.Context, o Options) (Report, error) {
 	}
 	var err error
 	if o.Binary == "" {
-		if o.Binary, err = os.Executable(); err != nil {
+		if o.Binary, err = defaultBinary(); err != nil {
 			return report, err
 		}
 	}

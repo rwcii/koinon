@@ -5,6 +5,16 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- `koinon setup FAMILY` without `--binary` records the formula's opt path,
+  `<brew>/opt/koinon/bin/koinon`, for a binary in a Homebrew keg (#577). Before, it recorded the
+  versioned keg path, `<brew>/Cellar/koinon/<version>/bin/koinon`, in the agent's MCP entry, its
+  status line and the Claude permission rules; the cleanup of the next `brew upgrade` deletes
+  that keg, so the status line and the MCP server then failed. `--binary` is still used as given.
+  Upgrade: if you ran `koinon setup FAMILY` by hand on a Homebrew installation, run it again once;
+  it rewrites an unedited Koinon entry to the opt path. A status line that you edited stays as
+  it is (`statusline_changed`); change its path yourself. Permission rules for the old keg path
+  stay in the settings file and match nothing.
+
 ## 2026-10-30 — Handoff cycles and compaction for idle sessions
 
 This release lets an idle session above its context threshold get its handoff cycle, or its

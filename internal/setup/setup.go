@@ -25,7 +25,7 @@ import (
 type Options struct {
 	Family   string
 	CLI      string // absolute agent CLI; default: the CLI on PATH, reported
-	Binary   string // absolute koinon binary; default: this executable
+	Binary   string // absolute koinon binary; default: defaultBinary
 	AgyRoot  string // agy global customization root; default ~/.gemini/config
 	Opencode string // OpenCode global configuration directory; default $XDG_CONFIG_HOME/opencode
 	// CodexHome holds the Codex hooks.json; default $CODEX_HOME, else ~/.codex.
@@ -96,7 +96,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	}
 	var err error
 	if o.Binary == "" {
-		if o.Binary, err = os.Executable(); err != nil {
+		if o.Binary, err = defaultBinary(); err != nil {
 			return report, err
 		}
 	}
@@ -356,6 +356,23 @@ func Adopt(ctx context.Context, o Options) (Report, bool, error) {
 	report.Changed = append(report.Changed, o.Family+" CLI in launchers.json")
 	report.Note = "An earlier setup configured this family; its CLI was recorded for the launcher, and its configuration was not changed."
 	return report, true, nil
+}
+
+// executable gives this binary's path; tests replace it.
+var executable = os.Executable
+
+// defaultBinary is the koinon binary that setup records when none is given: this executable,
+// or the formula's opt path for a binary in a Homebrew keg, which a brew upgrade and its
+// cleanup keep (#577).
+func defaultBinary() (string, error) {
+	path, err := executable()
+	if err != nil {
+		return "", err
+	}
+	if opt := platform.HomebrewOpt(path); opt != "" {
+		return opt, nil
+	}
+	return path, nil
 }
 
 var (

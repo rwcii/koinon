@@ -96,7 +96,7 @@ func TestPlanSteps(t *testing.T) {
 // current only as the link to it.
 func TestPlanHomebrew(t *testing.T) {
 	e := planEnv(t, "systemd")
-	// The keg's paths resolved, as homebrewOpt reads them: on macOS the temporary directory
+	// The keg's paths resolved, as platform.HomebrewOpt reads them: on macOS the temporary directory
 	// is under a symbolic link (/var to /private/var).
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
