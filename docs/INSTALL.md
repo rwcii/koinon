@@ -540,7 +540,10 @@ Native hook trust and optional terminal operations remain separate. Read the ins
 `koinon setup FAMILY` installs the MCP entry through the selected agent's CLI. Families are
 `claude`, `codex`, `agy`, `opencode`, `grok` and `deepseek`; DeepSeek uses the explicit command path
 until its MCP support is verified. `--cli ABS_PATH` selects the native CLI and `--binary
-ABS_PATH` selects the installed Koinon binary. Setup does not create an agent conversation.
+ABS_PATH` selects the installed Koinon binary, as given. Without `--binary`, setup records the
+running binary, or the formula's opt path, `<brew>/opt/koinon/bin/koinon`, for a binary in a
+Homebrew keg, because `brew upgrade` and its cleanup remove the versioned keg (#577). Setup does
+not create an agent conversation.
 Codex and Antigravity identify the calling conversation on every MCP call; Claude uses its
 native session environment and verified executable; OpenCode needs the managed identity
 plugin; Grok uses the `GROK_SESSION_ID` that Grok Build gives its MCP server, with a verified
