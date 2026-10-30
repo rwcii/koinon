@@ -124,13 +124,7 @@ type PickupSkill struct {
 }
 
 // DefaultPrefix is the Go installation prefix.
-func DefaultPrefix() (string, error) {
-	python, err := legacy.DefaultPrefix()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(python, "go"), nil
-}
+func DefaultPrefix() (string, error) { return legacy.GoPrefix() }
 
 func (o *Options) defaults() error {
 	var err error
@@ -225,7 +219,7 @@ func (o *Options) defaults() error {
 }
 
 // Binary is the installed binary's path under prefix.
-func Binary(prefix string) string { return filepath.Join(prefix, "bin", "koinon") }
+func Binary(prefix string) string { return legacy.GoBinary(prefix) }
 
 // linkMarker records, in the prefix, the link that the install created.
 func linkMarker(prefix string) string { return filepath.Join(prefix, "link") }

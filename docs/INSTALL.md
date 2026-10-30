@@ -540,14 +540,18 @@ Native hook trust and optional terminal operations remain separate. Read the ins
 `koinon setup FAMILY` installs the MCP entry through the selected agent's CLI. Families are
 `claude`, `codex`, `agy`, `opencode`, `grok` and `deepseek`; DeepSeek uses the explicit command path
 until its MCP support is verified. `--cli ABS_PATH` selects the native CLI and `--binary
-ABS_PATH` selects the installed Koinon binary, as given. Without `--binary`, setup records the
-running binary, or the formula's opt path, `<brew>/opt/koinon/bin/koinon`, for a binary in a
-Homebrew keg, because `brew upgrade` and its cleanup remove the versioned keg (#577). If an
-earlier Koinon ran `koinon setup FAMILY` by hand on a Homebrew installation, run it again once:
-it rewrites an unedited Koinon MCP entry and status line to the opt path. A status line that you
-edited stays as it is (`statusline_changed`); change its path yourself. Permission rules for the
-opt path are offered as before, only after a yes at a terminal; rules for the old keg path stay
-and match nothing. Setup does not create an agent conversation.
+ABS_PATH` selects the installed Koinon binary, as given. Without `--binary`, setup records, in
+this order (#577): the default installation's binary, `<prefix>/bin/koinon` of the default
+prefix, when the running binary is that same file, which is the binary that `koinon install`
+configures and `koinon install --plan` checks; else the formula's opt path,
+`<brew>/opt/koinon/bin/koinon`, for a binary in a Homebrew keg, because `brew upgrade` and its
+cleanup remove the versioned keg; else the running binary. An installation with another
+`--prefix` needs `--binary`. If an earlier Koinon ran `koinon setup FAMILY` by hand on a
+Homebrew installation, `koinon install --plan` shows `koinon setup FAMILY --binary` with the
+installed binary; run it once. It rewrites an unedited Koinon MCP entry and status line. A
+status line that you edited stays as it is (`statusline_changed`); change its path yourself.
+Permission rules for the new path are offered as before, only after a yes at a terminal; rules
+for an old path stay. Setup does not create an agent conversation.
 Codex and Antigravity identify the calling conversation on every MCP call; Claude uses its
 native session environment and verified executable; OpenCode needs the managed identity
 plugin; Grok uses the `GROK_SESSION_ID` that Grok Build gives its MCP server, with a verified

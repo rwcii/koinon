@@ -247,3 +247,111 @@ func TestSetupClaudeRepairsACellarPath(t *testing.T) {
 		t.Fatalf("edited wrapper changed: %s", data)
 	}
 }
+
+// installAt makes the default installation's binary under a new XDG_DATA_HOME a link to
+// target, as `koinon install` from a Homebrew keg leaves it, and returns its path.
+func installAt(t *testing.T, target string) string {
+	t.Helper()
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("XDG_DATA_HOME", base)
+	installed := filepath.Join(base, "koinon", "go", "bin", "koinon")
+	if err := os.MkdirAll(filepath.Dir(installed), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, installed); err != nil {
+		t.Fatal(err)
+	}
+	return installed
+}
+
+// The default installation's binary comes first when the running binary is that same file:
+// install configures it and its plan checks it. A separate copy, a broken link or no
+// installation falls back to the opt path, then to the executable (#577).
+func TestDefaultBinaryPrefersTheInstalledBinary(t *testing.T) {
+	brew := brewRoot(t)
+	opt := filepath.Join(brew, "opt", "koinon", "bin", "koinon")
+	old := brewKeg(t, brew, "0.8.0")
+	installed := installAt(t, opt)
+	check := func(name, running, want string) {
+		t.Helper()
+		runningAs(t, running)
+		if got, err := defaultBinary(); err != nil || got != want {
+			t.Fatalf("%s: %q %v, want %q", name, got, err, want)
+		}
+	}
+	check("keg", old, installed)
+	check("the installed link", installed, installed)
+	check("the opt link", opt, installed)
+	current := brewKeg(t, brew, "0.9.0")
+	os.RemoveAll(filepath.Join(brew, "Cellar", "koinon", "0.8.0"))
+	check("after an upgrade", current, installed)
+
+	// A separate copy with the same content is another file.
+	data, _ := os.ReadFile(current)
+	os.Remove(installed)
+	if err := os.WriteFile(installed, data, 0755); err != nil {
+		t.Fatal(err)
+	}
+	check("a copy of the keg binary", current, opt)
+	os.Remove(installed)
+	os.Symlink(filepath.Join(brew, "missing"), installed)
+	check("a broken link", current, opt)
+
+	// A copy install outside Homebrew, run as itself, through a link, or as another copy.
+	os.Remove(installed)
+	os.WriteFile(installed, []byte("copy"), 0755)
+	check("the installed copy", installed, installed)
+	link := filepath.Join(t.TempDir(), "koinon")
+	os.Symlink(installed, link)
+	check("a link to the installed copy", link, installed)
+	other := filepath.Join(t.TempDir(), "koinon")
+	os.WriteFile(other, []byte("copy"), 0755)
+	check("another copy", other, other)
+}
+
+// Default setup from a Homebrew keg configures the installed binary, so the check that
+// `koinon install --plan` makes, Inspect with that binary, finds it configured (#577).
+func TestSetupClaudeDefaultMatchesThePlan(t *testing.T) {
+	ctx := context.Background()
+	brew := brewRoot(t)
+	opt := filepath.Join(brew, "opt", "koinon", "bin", "koinon")
+	keg := brewKeg(t, brew, "0.8.0")
+	installed := installAt(t, opt)
+	runningAs(t, keg)
+	cli, entries, _ := syntheticCLI(t, "claude")
+	config, state := t.TempDir(), filepath.Join(t.TempDir(), "state")
+	o := Options{Family: "claude", CLI: cli, ClaudeConfig: config, StateDir: state}
+	if report, err := Run(ctx, o); err != nil || report.StatusLine.Outcome != "set_up" {
+		t.Fatalf("setup: %+v %v", report, err)
+	}
+	if data, _ := os.ReadFile(entries); strings.TrimSpace(string(data)) != "koinon "+installed+" mcp" {
+		t.Fatalf("MCP entry %q", data)
+	}
+	if command := claudeStatusCommand(t, config); !strings.HasPrefix(command, "'"+installed+"' hook claude-status") {
+		t.Fatalf("status line %q", command)
+	}
+	if in := Inspect(ctx, Options{Family: "claude", CLI: cli, Binary: installed, ClaudeConfig: config, StateDir: state}); in.Error != "" || !in.Configured {
+		t.Fatalf("the plan's check: %+v", in)
+	}
+	missing, err := Permissions(o, false)
+	if err != nil || !slices.Contains(missing.Missing, "Bash("+ShellWord(installed)+" status)") {
+		t.Fatalf("missing rules %+v %v", missing, err)
+	}
+	if report, err := Remove(ctx, o); err != nil || report.StatusLine.Outcome != "restored" {
+		t.Fatalf("remove: %+v %v", report, err)
+	}
+	if data, _ := os.ReadFile(entries); strings.TrimSpace(string(data)) != "" {
+		t.Fatalf("MCP entry after removal %q", data)
+	}
+	// --binary is used as given.
+	o.Binary = opt
+	if _, err := Run(ctx, o); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(entries); strings.TrimSpace(string(data)) != "koinon "+opt+" mcp" {
+		t.Fatalf("MCP entry with --binary %q", data)
+	}
+}
