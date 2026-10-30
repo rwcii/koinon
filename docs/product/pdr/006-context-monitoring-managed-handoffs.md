@@ -93,7 +93,39 @@ audited with its origin: the dashboard, `cli`, or `agent` and the calling sessio
 Claude defaults to the handoff cycle and Codex to its native compaction. The daemon starts a
 cycle from a fresh, verified observation of the session: a context source at most two minutes
 old that the daemon confirmed in the last 90 seconds. For unknown or stale context it shows the
-reason, such as `context_unknown`, `source_stale` or `confirmation_stale`.
+reason, such as `context_unknown`, `source_stale` or `confirmation_stale`. In
+`native_compaction` a Codex reading older than two minutes also counts when the daemon's newest
+confirmation of it is caught up: the reader read the rollout to its end, the last record was
+complete, no read failed and the last turn had ended. An idle Codex rollout records no new
+reading, so an idle session above its threshold compacts without a new turn. The input then
+waits for one more caught-up confirmation of the same rollout, size and turn, and right before
+its first key the daemon reads the rollout itself: it types nothing unless the file and its size
+are still the same. In `handoff_cycle` a Codex, OpenCode or DeepSeek reading older than two
+minutes also counts when the daemon's newest confirmation of it, at most 90 seconds old and of
+the same epoch, shows that it is current: for Codex the same caught-up mark; for OpenCode, in
+one round, the reply that gave the reading is the session's newest message and
+`GET /session/status` shows that session idle; for DeepSeek, in one round, the cycle adapter's
+quiet-point check passes and the newest usage, with no model or context change after it, is
+the reading's. For OpenCode and DeepSeek the daemon reads the source itself, so a failed read or
+a read without that proof ends it at once. The Codex reader's report that ends its mark is best
+effort: for up to 90 seconds after its rollout becomes unreadable, the last mark can still
+start a cycle, whose own ready report and checks still apply. A Claude session's context comes
+from its status line, which Claude Code runs on events. The status-line entry that `koinon setup claude` writes runs it at least every
+30 seconds (`refreshInterval`), also while the session is idle, so an idle Claude session keeps a
+fresh reading and gets its cycle at the threshold under the same clocks. This needs Claude Code
+2.1.97 or later; Koinon does not check the version (Decision 5). A Grok session's context also
+comes from its status line, which Grok runs on events. The `[ui.status_line]` table that `koinon
+setup grok` writes has `refresh_interval = 30`, so Grok runs it every 30 seconds, also while the
+session is idle, and an idle Grok session gets its cycle at the threshold under the same clocks.
+Grok reads its configuration at startup, so a running session gets the interval when Grok starts
+again. An earlier integer interval of 1 to 30 seconds stays; that range is Koinon's choice, not
+one that Grok documents. An agy session's context comes only from its status line, which
+Antigravity CLI runs when its state changes, so in `handoff_cycle` an idle agy session above its
+threshold gets its cycle at its next turn, not while it is idle, and runs that turn with its full
+context. Koinon has no verified status-line timer for Antigravity CLI 1.4.7 (the inspected binary
+showed no timer setting, and idle timer behavior is not live-checked), its hook reports are not
+retried, and it has no verified native record that shows the session idle with nothing after
+the reading. [#571](https://github.com/rwcii/koinon/issues/571) keeps the idle goal open.
 
 In Codex's `native_compaction` mode the same trigger makes the daemon enter Codex's own
 `/compact` in the enabled session's pane while Codex is idle, once per crossing. A fresh reading
@@ -138,7 +170,43 @@ to approve the four rules unchanged, or to decline and name the wanted rule for 
 #517. The verdict decides these rules only. The confirmation rule (a fresh reading recorded after the submission's
 receipt, before the deadline) and that a reading of another epoch ends a compaction
 (`epoch_changed`) are implementation details of #509, agreed with the Codex peer; no
-maintainer decision.
+maintainer decision. An older reading of an idle Codex session: Maintainer, 2026-10-29,
+decision board item IDLE-COMPACT-564 (revision 1),
+[DECISIONS.md#IDLE-COMPACT-564](../../../DECISIONS.md#idle-compact-564), "approved". The card
+recommended: "in native_compaction, accept an older reading of an idle Codex session when a
+caught-up read shows that it is current", with the input after a new caught-up confirmation.
+The verdict decides that rule for `native_compaction` only; the two-minute and 90-second clocks
+of the #196 definition of done stay for every other case. The Claude status line every 30
+seconds: Maintainer, 2026-10-29, decision board item CLAUDE-IDLE-566 (revision 1),
+[DECISIONS.md#CLAUDE-IDLE-566](../../../DECISIONS.md#claude-idle-566), "approved". The card
+recommended: "koinon setup claude sets refreshInterval to 30 seconds in Koinon's status-line
+entry", keeping an earlier valid interval of 1 to 30 seconds and an entry that the person
+edited. Before the card, about a Claude Code version without the setting, the maintainer said
+"in such a case, we can specify a minimum client version, and move on." (2026-10-29, session
+transcript); the docs give 2.1.97, the version that added the setting. An older reading of an
+idle Codex, OpenCode or DeepSeek session in `handoff_cycle`: Maintainer, 2026-10-29, decision
+board item PULLED-IDLE-569 (revision 1),
+[DECISIONS.md#PULLED-IDLE-569](../../../DECISIONS.md#pulled-idle-569), "approved". The card
+recommended: "in handoff_cycle, accept an older reading of an idle Codex, OpenCode or DeepSeek
+session when the reader shows that the reading is current", with the proof of each reader above
+and the 90-second Codex window as a stated limit. The verdict decides that rule for
+`handoff_cycle` and these three families only; `native_compaction` stays as IDLE-COMPACT-564
+decided. The Grok status line
+every 30 seconds: Maintainer, 2026-10-29, decision board item GROK-IDLE-568 (revision 1),
+[DECISIONS.md#GROK-IDLE-568](../../../DECISIONS.md#grok-idle-568), "approved". The card
+recommended: "koinon setup grok also owns refresh_interval and sets it to 30 seconds", keeping an
+earlier integer of 1 to 30, the restart of Grok after setup, and, for a record saved before the
+interval was owned, the interval in the file at the upgrade as the one that removal restores.
+The Grok live check of the card (What 6) was done on 2026-10-29 with Grok Build 1.0.50 on Linux
+at branch head 1448548: setup wrote `refresh_interval = 30`, and an idle session in
+`handoff_cycle` stayed `below_threshold` in ten `koinon context show` readings over 162 seconds
+(docs/sprints/2026-10-12-context-handoff/evidence.md, "Grok idle status line (#568)"). An idle
+agy session gets its cycle at its next turn: Maintainer, 2026-10-29, decision board item
+AGY-IDLE-568 (revision 1), [DECISIONS.md#AGY-IDLE-568](../../../DECISIONS.md#agy-idle-568),
+"approved". The card recommended: "partial fix of #568 for agy: the docs say that an idle agy
+session gets its cycle at its next turn, and a new issue keeps the idle goal open", with no agy
+idle reader and no trigger change; [#571](https://github.com/rwcii/koinon/issues/571) holds the rest of
+the goal.
 
 ### Alternatives Considered
 
@@ -542,3 +610,7 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-27 | Executive summary: Grok context is read from its status line (#515) |
 | 2026-10-27 | Decision 3: a Claude session's running background subagents do not hold the cycle back, and the request asks to list them in the handoff (#533), approved on the decision board (SUBAGENT-CLEAR-533) |
 | 2026-10-27 | Decision 5: the Grok adapter is listed, from its Linux checks with Grok Build 1.0.50 (#515) |
+| 2026-10-29 | Decision 1: in `native_compaction` an older reading of an idle Codex session counts when a caught-up read confirms it (#564), approved on the decision board (IDLE-COMPACT-564) |
+| 2026-10-29 | Decision 1: Koinon's Claude status line runs at least every 30 seconds, so an idle Claude session gets its cycle; Claude Code 2.1.97 or later (#566), approved on the decision board (CLAUDE-IDLE-566) |
+| 2026-10-29 | Decision 1: in `handoff_cycle` an older reading of an idle Codex, OpenCode or DeepSeek session counts when its reader shows that it is current (#569), approved on the decision board (PULLED-IDLE-569) |
+| 2026-10-29 | Decision 1: Koinon's Grok status line runs at least every 30 seconds, so an idle Grok session gets its cycle after Grok starts again (#568), approved on the decision board (GROK-IDLE-568) |

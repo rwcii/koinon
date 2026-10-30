@@ -37,6 +37,11 @@ const (
 	registryRecordMax = 64 << 10
 )
 
+// markKept is longer than the daemon's confirmation age (90 s, core contextConfirmationMaxAge)
+// and a report's 2-second bound: after it, a delivered caught-up mark admits nothing, so the
+// report that clears it is not needed (#564).
+const markKept = 2 * time.Minute
+
 var threadKey = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
 // sentValue is the last report of a group and when it was sent.
@@ -94,8 +99,15 @@ func (s *server) report(ctx context.Context, o core.Observation) {
 	now := s.c.Now()
 	s.obs.mu.Lock()
 	if s.obs.sent == nil || len(s.obs.sent) > 4*maxObserved {
-		// Forgetting only costs one repeated report per session.
-		s.obs.sent = map[core.Key]map[string]sentValue{}
+		// Forgetting only costs one repeated report per session. A context delivered with a
+		// caught-up mark within markKept stays: the report that clears it comes from it (#564).
+		kept := map[core.Key]map[string]sentValue{}
+		for k, groups := range s.obs.sent {
+			if v, found := groups["context"]; found && v.value.End != nil && now.Sub(v.at) < markKept {
+				kept[k] = map[string]sentValue{"context": v}
+			}
+		}
+		s.obs.sent = kept
 	}
 	last := s.obs.sent[o.Caller]
 	if last == nil {
@@ -188,6 +200,9 @@ func (s *server) observeOnce(ctx context.Context) {
 			}
 		case "codex":
 			o.Model, o.Context, o.Activity = s.codexRollout(c.key.ID)
+			if o.Context == nil {
+				o.Context = s.unmarked(c.key)
+			}
 		}
 		// The daemon attributes a terminal only to a launched or a Claude session; this
 		// server offers it only for those, so that a shared server's environment is not
@@ -205,6 +220,22 @@ func (s *server) observeOnce(ctx context.Context) {
 		s.obs.mu.Unlock()
 		s.report(ctx, o)
 	}
+}
+
+// unmarked is the caller's last delivered context without its caught-up mark, while that
+// delivered context carried one, or nil. A rollout that failed, cannot be read or names
+// another thread gives no reading; this report ends the daemon's caught-up state at once, and
+// is sent again at each look until the daemon accepts it (DECISIONS.md#IDLE-COMPACT-564).
+func (s *server) unmarked(caller core.Key) *core.ObservedValue {
+	s.obs.mu.Lock()
+	defer s.obs.mu.Unlock()
+	last, found := s.obs.sent[caller]["context"]
+	if !found || last.value.End == nil {
+		return nil
+	}
+	value := last.value
+	value.End = nil
+	return &value
 }
 
 // terminal reads this server's tmux pane from its environment and asks tmux for the pane's
@@ -324,6 +355,7 @@ type rollout struct {
 	device, node uint64
 	offset       int64
 	skipping     bool // inside a record longer than rolloutLine
+	caughtUp     bool // the last read reached the end of the file at a record boundary (#564)
 	turn         string
 	model        *core.ObservedValue
 	context      *core.ObservedValue
@@ -366,11 +398,16 @@ func (s *server) codexRollout(thread string) (model, context, activity *core.Obs
 		*r = rollout{searched: now}
 		return nil, nil, nil
 	}
-	// The rollout's first record proved its thread, which is the context's native epoch.
+	// The rollout's first record proved its thread, which is the context's native epoch. A
+	// read that caught up while the last turn had ended marks the reading as current, though
+	// an idle rollout records no new one (DECISIONS.md#IDLE-COMPACT-564).
 	context = r.context
 	if context != nil {
 		value := *context
 		value.Epoch = thread
+		if r.caughtUp && threadKey.MatchString(r.turn) && r.activity != nil && r.activity.State == "idle" {
+			value.End = &core.RolloutEnd{Rollout: core.RolloutFile(r.device, r.node), Size: r.offset, Turn: r.turn}
+		}
 		context = &value
 	}
 	return r.model, context, r.activity
@@ -407,8 +444,10 @@ type rolloutRecord struct {
 }
 
 // consume reads at most one batch of new complete records. A replaced or shortened file is
-// read again from the start, after its first record proves the session.
+// read again from the start, after its first record proves the session. It is caught up only
+// when it reached the end of the file after a complete record, within the batch.
 func (r *rollout) consume(thread string) error {
+	r.caughtUp = false
 	f, err := platform.OpenOwned(r.path)
 	if err != nil {
 		return err
@@ -457,6 +496,7 @@ func (r *rollout) consume(thread string) error {
 			if r.skipping {
 				r.offset += int64(len(line))
 			}
+			r.caughtUp = errors.Is(err, io.EOF) && len(line) == 0 && !r.skipping
 			return nil
 		default:
 			r.offset, consumed = r.offset+int64(len(line)), consumed+int64(len(line))

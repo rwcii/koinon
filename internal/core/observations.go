@@ -72,6 +72,19 @@ type ObservedValue struct {
 	// Epoch is the native session of a context value: the Claude transcript or the Codex
 	// thread that the reporter read (#196). The store keeps it private; no view shows it.
 	Epoch string `json:"epoch,omitempty"`
+	// End is a Codex context reading's caught-up mark (#564): the reader read the rollout to
+	// its end, the last record was complete and the last turn had ended. The store keeps it
+	// private; no view shows it.
+	End *RolloutEnd `json:"end,omitempty"`
+	// current is a daemon reader's proof that no newer context exists than this reading: an
+	// OpenCode or DeepSeek session read idle with nothing after the reading, in one round
+	// (DECISIONS.md#PULLED-IDLE-569). Only the daemon's own readers set it; no report decodes it
+	// and no view shows it.
+	current bool
+	// newest marks a daemon reader's reading as its source's newest: at the same source time
+	// it replaces a different stored reading, such as a new usage event in the same
+	// millisecond (DECISIONS.md#PULLED-IDLE-569). No report decodes it.
+	newest bool
 	// activity. TurnError is the fixed code of a failed Codex turn on an idle activity (#250).
 	State     string `json:"state,omitempty"`
 	TurnError string `json:"turn_error,omitempty"`
@@ -84,6 +97,14 @@ type ObservedValue struct {
 	// session outside tmux or a background job without its attach client reports why.
 	Naming string `json:"naming,omitempty"`
 	Target string `json:"target,omitempty"`
+}
+
+// RolloutEnd is where a caught-up read of a Codex rollout ended: the file's identity (device
+// and inode), its size at that end and the last turn's ID.
+type RolloutEnd struct {
+	Rollout string `json:"rollout"`
+	Size    int64  `json:"size"`
+	Turn    string `json:"turn"`
 }
 
 // Observation is one report. Absent groups are left as they were.
@@ -105,6 +126,9 @@ type storedValue struct {
 	ObservedValue
 	seen  int64
 	epoch string
+	end   *RolloutEnd // the caught-up mark of the newest confirmation, or nil
+	// current is the proof of the newest confirmation (DECISIONS.md#PULLED-IDLE-569).
+	current bool
 }
 
 // Freshness windows: a value that no report confirmed within its window is shown as
@@ -137,6 +161,7 @@ var (
 	namingTarget = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,127}$`)
 	maxSafeInt   = int64(1<<53 - 1)
 	nativeEpoch  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	rolloutFile  = regexp.MustCompile(`^[0-9]{1,20}-[0-9]{1,20}$`)
 	activityKind = map[string]bool{"busy": true, "idle": true, "waiting": true}
 	// turnErrors are the Codex turn error codes (codex_error_info) that an activity can carry.
 	turnErrors = map[string]bool{"server_overloaded": true, "usage_limit_exceeded": true, "unauthorized": true,
@@ -182,6 +207,10 @@ func (v *ObservedValue) valid(group string, now int64) bool {
 		return false
 	}
 	if v.Epoch != "" && (group != "context" || v.Source != "claude_statusline" && v.Source != "codex_rollout" && v.Source != "agy_statusline" && v.Source != "opencode_server" && v.Source != "dsh_projections" && v.Source != "grok_statusline" || !nativeEpoch.MatchString(v.Epoch)) {
+		return false
+	}
+	if e := v.End; e != nil && (group != "context" || v.Source != "codex_rollout" || v.Epoch == "" || !rolloutFile.MatchString(e.Rollout) ||
+		e.Size < 0 || e.Size > maxSafeInt || !nativeEpoch.MatchString(e.Turn)) {
 		return false
 	}
 	if v.TurnError != "" && (group != "activity" || v.Source != "codex_rollout" || v.State != "idle" || !turnErrors[v.TurnError]) {
@@ -291,16 +320,28 @@ func (s *Store) Observe(ctx context.Context, o Observation) error {
 			if v == nil {
 				continue
 			}
-			// A newer report replaces the value; a report of the same content confirms it; an
-			// older, different report changes nothing.
+			// A newer report replaces the value; a report of the same content confirms it with
+			// its caught-up mark; an older, different report changes nothing. A report without
+			// the mark of a marked value only clears the mark and confirms nothing: a Codex
+			// reader sends it so after a failed read (#564), and its next report confirms.
 			previous, found := current[group]
-			value, epoch := *v, v.Epoch
-			value.Epoch = ""
+			value, epoch, end, proof, newest := *v, v.Epoch, v.End, v.current, v.newest
+			value.Epoch, value.End, value.current, value.newest = "", nil, false, false
 			switch {
-			case !found || v.At > previous.At:
-				current[group] = storedValue{value, now, epoch}
+			case !found || v.At > previous.At ||
+				newest && v.At == previous.At && (!sameContent(value, previous.ObservedValue) || epoch != previous.epoch):
+				current[group] = storedValue{value, now, epoch, end, proof}
+			case newest && v.At < previous.At:
+				// A daemon reader's newest reading is older than the stored one, with the same
+				// content or not: the stored reading is not its source's current one, so its proof
+				// ends here, before any admission reads it, and nothing is confirmed.
+				previous.current = false
+				current[group] = previous
+			case sameContent(value, previous.ObservedValue) && epoch == previous.epoch && previous.end != nil && end == nil:
+				previous.end = nil
+				current[group] = previous
 			case sameContent(value, previous.ObservedValue) && epoch == previous.epoch:
-				previous.seen = now
+				previous.seen, previous.end, previous.current = now, end, proof
 				current[group] = previous
 			}
 		}
@@ -371,8 +412,8 @@ func (s *Store) sessionObservations(ctx context.Context, session Session) map[st
 	if extras != nil {
 		for group, v := range extras(ctx, session) {
 			if v.At >= current[group].At {
-				v.Epoch = ""
-				current[group] = storedValue{v, now, ""}
+				v.Epoch, v.End = "", nil
+				current[group] = storedValue{v, now, "", nil, false}
 			}
 		}
 	}
@@ -490,5 +531,18 @@ func (s *Store) contextEvidence(k Key) ContextEvidence {
 	if !found {
 		return ContextEvidence{}
 	}
-	return ContextEvidence{Found: true, UsedTokens: v.UsedTokens, LimitTokens: v.LimitTokens, Epoch: v.epoch, SourceAt: v.At, ConfirmedAt: v.seen}
+	return ContextEvidence{Found: true, UsedTokens: v.UsedTokens, LimitTokens: v.LimitTokens, Epoch: v.epoch, SourceAt: v.At, ConfirmedAt: v.seen, End: v.end,
+		Current: v.current}
+}
+
+// clearContextProof ends the proof of a session's stored context reading at once and confirms
+// nothing: a daemon reader calls it after a read that failed or gave no reading
+// (DECISIONS.md#PULLED-IDLE-569).
+func (s *Store) clearContextProof(k Key) {
+	s.observed.mu.Lock()
+	defer s.observed.mu.Unlock()
+	if v, found := s.observed.byKey[k]["context"]; found && v.current {
+		v.current = false
+		s.observed.byKey[k]["context"] = v
+	}
 }

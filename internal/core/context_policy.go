@@ -430,7 +430,11 @@ func (s *Store) contextEnables(ctx context.Context) (map[Key]ContextEnable, erro
 }
 
 // Trigger clocks (#196 DoD, approved at Gate B): a trigger needs the context source at most
-// two minutes old and the daemon's last confirmation of it at most 90 seconds old.
+// two minutes old and the daemon's last confirmation of it at most 90 seconds old. In
+// native_compaction an older source counts when its newest confirmation is caught up
+// (DECISIONS.md#IDLE-COMPACT-564): an idle Codex rollout records no new reading. In
+// handoff_cycle it also counts when that confirmation is caught up, or carries a daemon reader's
+// proof that the OpenCode or DeepSeek reading is current (DECISIONS.md#PULLED-IDLE-569).
 const (
 	contextSourceMaxAge       = 2 * time.Minute
 	contextConfirmationMaxAge = 90 * time.Second
@@ -445,6 +449,10 @@ type ContextEvidence struct {
 	Epoch       string
 	SourceAt    int64 // when the source recorded the value (ms)
 	ConfirmedAt int64 // when the daemon last received confirmation (ms)
+	// End is the caught-up mark of that confirmation, or nil (#564).
+	End *RolloutEnd
+	// Current is a daemon reader's proof that the reading is current (DECISIONS.md#PULLED-IDLE-569).
+	Current bool
 }
 
 // ContextTriggerInput is everything the selection reads.
@@ -487,7 +495,7 @@ func SelectContextTrigger(in ContextTriggerInput) (bool, string) {
 		return false, "epoch_unverified"
 	case e.SourceAt > in.Now || e.ConfirmedAt > in.Now:
 		return false, "observation_future"
-	case in.Now-e.SourceAt > contextSourceMaxAge.Milliseconds():
+	case in.Now-e.SourceAt > contextSourceMaxAge.Milliseconds() && !currentReading(in.Policy.Mode, e):
 		return false, "source_stale"
 	case in.Now-e.ConfirmedAt > contextConfirmationMaxAge.Milliseconds():
 		return false, "confirmation_stale"
@@ -497,6 +505,20 @@ func SelectContextTrigger(in ContextTriggerInput) (bool, string) {
 		return false, "already_selected_for_epoch"
 	}
 	return true, ""
+}
+
+// currentReading reports a reading whose newest confirmation shows that no newer context
+// exists, so its source age does not count: in native_compaction a Codex caught-up mark
+// (DECISIONS.md#IDLE-COMPACT-564), and in handoff_cycle that mark or a daemon reader's proof
+// (DECISIONS.md#PULLED-IDLE-569). The confirmation age, the epoch and the threshold still apply.
+func currentReading(mode string, e ContextEvidence) bool {
+	switch mode {
+	case ContextNativeCompaction:
+		return e.End != nil
+	case ContextHandoffCycle:
+		return e.End != nil || e.Current
+	}
+	return false
 }
 
 // contextLatches remembers, per session, the epoch whose crossing was selected, so that

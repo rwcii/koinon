@@ -56,6 +56,53 @@ func (p *paneSeen) keep(active []cycleRow) {
 	}
 }
 
+// compactChoices holds, in memory, the caught-up mark that each waiting compaction chose its
+// input on when only that mark admits its reading (#564). The input needs a later
+// confirmation of the same mark; a restart forgets the choice, so the input waits for a new
+// one.
+type compactChoices struct {
+	mu sync.Mutex
+	m  map[string]compactChoice
+}
+
+type compactChoice struct {
+	end    RolloutEnd
+	source int64 // the reading's source time
+	at     int64
+}
+
+// confirmed reports whether e, a reading with its caught-up mark, confirms the cycle's choice:
+// the same reading and mark, confirmed after the choice. Otherwise a different or missing
+// choice becomes e at now.
+func (p *compactChoices) confirmed(id string, e ContextEvidence, now int64) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	choice, ok := p.m[id]
+	if ok && choice.end == *e.End && choice.source == e.SourceAt {
+		return e.ConfirmedAt > choice.at
+	}
+	if p.m == nil {
+		p.m = map[string]compactChoice{}
+	}
+	p.m[id] = compactChoice{*e.End, e.SourceAt, now}
+	return false
+}
+
+// keep forgets every cycle that is not in active.
+func (p *compactChoices) keep(active []cycleRow) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	ids := map[string]bool{}
+	for _, c := range active {
+		ids[c.ID] = true
+	}
+	for id := range p.m {
+		if !ids[id] {
+			delete(p.m, id)
+		}
+	}
+}
+
 // errPaneInMode refuses the key that returns a pane from copy mode, in an inspection that
 // only reads.
 var errPaneInMode = errors.New("pane_in_mode")
@@ -197,6 +244,7 @@ func (s *Store) cycleStep(ctx context.Context) error {
 		return err
 	}
 	s.paneSeen.keep(cycles)
+	s.compactChoices.keep(cycles)
 	s.cycleWork.keep(cycles)
 	for _, c := range cycles {
 		if err := ctx.Err(); err != nil {
@@ -525,8 +573,8 @@ func (s *Store) stepCompaction(ctx context.Context, c cycleRow, t CycleTarget, a
 	// threshold, or a reading that no longer selects it, ends it before any input. The fence
 	// holds the mode and threshold through the input, so the confirmation compares with the
 	// threshold in force at the send.
-	policy, e := s.sessionContextPolicy(c.Family, enables[k]), s.contextEvidence(k)
-	switch reason := compactionStale(c, policy, e, s.now().UnixMilli()); reason {
+	policy, e, now := s.sessionContextPolicy(c.Family, enables[k]), s.contextEvidence(k), s.now().UnixMilli()
+	switch reason := compactionStale(c, policy, e, now); reason {
 	case "":
 	case "context_unknown", "confirmation_stale":
 		s.paneSeen.set(c.ID, reason)
@@ -534,6 +582,18 @@ func (s *Store) stepCompaction(ctx context.Context, c cycleRow, t CycleTarget, a
 	default:
 		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleCancelled, reason)
 		return err
+	}
+	// A reading older than the source age counts only through its caught-up mark: the input
+	// then needs a confirmation of the same mark received after this choice, and the adapter
+	// reads the rollout at its first key and needs it unchanged since the mark, whatever the
+	// reports said (DECISIONS.md#IDLE-COMPACT-564).
+	if now-e.SourceAt > contextSourceMaxAge.Milliseconds() {
+		if e.End == nil || !s.compactChoices.confirmed(c.ID, e, now) {
+			s.paneSeen.set(c.ID, "confirmation_pending")
+			return nil
+		}
+		end := *e.End
+		t.RolloutEnd = &end
 	}
 	if probe := compact.CompactProbe(ctx, t); probe.Reason != "" {
 		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, probe.Reason)

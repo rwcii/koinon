@@ -47,7 +47,8 @@ has passed, and otherwise keeps the formula of the previous release. Within abou
 
 After `brew install` and `brew upgrade`, Homebrew shows the steps that this machine still
 needs: the formula runs `koinon install --plan` (see Next steps below) and prints its commands,
-or, when the plan cannot check everything, the fixed list of one-time steps. Homebrew runs it
+or "The Koinon installation is current." when there are none, or, when the plan cannot check
+everything, the fixed list of one-time steps. Homebrew runs it
 without `XDG_*`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME` and `KOINON_*`, so it checks the default
 locations; with other locations, run `koinon install --plan` yourself.
 
@@ -497,8 +498,11 @@ reports, and never refuses, other repositories nested in its start directory. Ag
 requires the selected agent CLI. Codex must support `queue`, `--no-daemon` and the
 `mcp_servers.koinon.env_vars` configuration override (verified with Codex CLI 0.161.0).
 OpenCode must support its server. Claude background jobs require Claude Code's `--bg` and
-`--settings` support. Grok Build must support `--session-id` and `grok mcp list --json`
-(verified with Grok Build 1.0.50); setup reports another version and does not refuse it.
+`--settings` support. The handoff cycle of an idle Claude session needs Claude Code 2.1.97 or
+later, for the status line's `refreshInterval` (#566); setup does not check the version. Grok Build must support `--session-id` and `grok mcp list --json`
+(verified with Grok Build 1.0.50); setup reports another version and does not refuse it. The
+handoff cycle of an idle Grok session needs Grok's status-line `refresh_interval` (#568,
+verified with Grok Build 1.0.50), which Grok reads at startup; start Grok again after `koinon setup grok`.
 DeepSeek requires a running harness (live wake verified with DeepSeek Harness 0.2.0-rc.2, #199).
 
 A legacy upgrade additionally needs Python 3.11+ to run the **installed previous release's**

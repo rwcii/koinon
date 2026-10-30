@@ -225,7 +225,8 @@ UNIX_SECONDS --as FAMILY:ID`, with optional `--order`, `--where`, `--agent-text`
 change them with `decision_edit` (`koinon decision edit --reference REF --if-revision N ...`).
 Agents read decision status with `decision_list` (`--filter waiting|active|returned|in_progress|archived|mine`,
 paged with `--after`) and `decision_get` (`--reference REF`).
-Write card prose in ASD-STE100; context, recommendation and agent text are Markdown, and
+Use the card form in the guide's Decisions section (`koinon guide --agent FAMILY`) and write
+card prose in ASD-STE100; context, recommendation and agent text are Markdown, and
 terminal-copy commands are printable ASCII. Known key formats are refused. Credentials,
 personal data, private session IDs and peer message bodies stay in their own stores; a card
 holds the decision's own text. Markdown renders as
@@ -484,12 +485,31 @@ alert once, through the browser's Web Locks; a browser without them can speak it
 and a browser that does not keep site data keeps the switch for that page only (the Settings
 page says so). The **Test** button speaks a sample sentence.
 
+Claude sessions report their context through the status line that `koinon setup claude`
+installs. Koinon's status-line entry runs every 30 seconds (Claude Code's `refreshInterval`),
+also while the session is idle, so an idle Claude session at its threshold gets its handoff
+cycle without a new turn (#566, DECISIONS.md#CLAUDE-IDLE-566). This needs Claude Code 2.1.97 or
+later. An interval of 1 to 30 seconds that your entry already had stays. After an upgrade, run
+`koinon setup claude` again to add the interval. If you edited Koinon's status-line entry, setup
+keeps it and reports `statusline_changed`: add `"refreshInterval": 30` to the entry yourself.
+The status-line command then runs every 30 seconds in each Claude session; it calls no model.
+
 agy sessions report their context and activity through the status line that `koinon setup agy`
 installs, so the Sessions page shows their readings. The agy family default stays `observe`.
+Antigravity CLI runs the status line when its state changes, not while the session is idle, so
+in `handoff_cycle` an idle agy session above its threshold gets its cycle at its next turn and
+runs that turn with its full context (DECISIONS.md#AGY-IDLE-568,
+[#571](https://github.com/rwcii/koinon/issues/571)). Koinon has no verified
+status-line timer for Antigravity CLI 1.4.7 (the inspected binary showed no timer setting, and
+idle timer behavior is not live-checked), its hook reports are not retried, and it has no
+verified native record that shows the session idle with nothing after the reading.
 OpenCode sessions started with `koinon opencode` show their model and context too: the daemon
 reads them every 15 seconds from the session's own OpenCode server, from the newest finished
 reply and its model's context limit. A direct `opencode` start shows none. The OpenCode family
-default stays `observe`.
+default stays `observe`. In `handoff_cycle` an idle OpenCode, DeepSeek or Codex session above
+its threshold gets its cycle without a new turn: an older reading counts while the daemon's
+newest confirmation shows that the session is idle with nothing after the reading (#569,
+DECISIONS.md#PULLED-IDLE-569). The DeepSeek case is not yet checked against a live harness.
 DeepSeek sessions registered with `koinon register` show their model and context too: the
 daemon reads them every 15 seconds from the session's own harness, with the wake's credential,
 from the token meter's newest usage and the model's context window. Its family default stays
@@ -497,7 +517,14 @@ from the token meter's newest usage and the model's context window. Its family d
 Grok Build sessions report their model and context through the status line that `koinon setup
 grok` installs in `~/.grok/config.toml` (start Grok again after setup): the context window's
 current tokens and its size. An input without both counts leaves the last reading as it was.
-Its family default stays `observe`.
+Its family default stays `observe`. Koinon's `[ui.status_line]` table has `refresh_interval =
+30`, so Grok runs the status line every 30 seconds, also while the session is idle, and an idle
+Grok session at its threshold gets its handoff cycle without a new turn (#568,
+DECISIONS.md#GROK-IDLE-568). An interval of 1 to 30 seconds that your table already had stays.
+After an upgrade, run `koinon setup grok` again, then start Grok again: Grok reads its
+configuration at startup. If you edited Koinon's status-line command, setup keeps it and reports
+`statusline_changed`: add `refresh_interval = 30` to the table yourself, then start Grok again.
+The status-line command then runs every 30 seconds in each Grok session; it calls no model.
 
 Claude Code sessions launched with `koinon claude` on Linux and macOS can run the cycle, and
 Codex sessions launched with `koinon codex` in tmux on Linux and macOS can run it too (family
@@ -544,7 +571,10 @@ session's Enable.
 In `native_compaction`, an enabled Codex session launched with `koinon codex` in tmux gets
 Codex's own `/compact` when its context reaches the threshold: the daemon types it in the
 session's pane once Codex is idle at an empty prompt, once per crossing, and waits for a fresh
-reading below the threshold to confirm it. It needs no pickup skill and no participant address,
+reading below the threshold to confirm it. An idle session compacts too, though Codex writes no
+new reading while it is idle: the session's `koinon mcp` reads the whole rollout each minute,
+and when the last turn has ended its unchanged reading still counts. The input then waits for
+the next such read, about one minute. It needs no pickup skill and no participant address,
 and Koinon changes no Codex setting. A busy pane only delays the compaction; if Codex is not
 idle within 15 minutes, the compaction ends and the next reading at the threshold starts
 another. A compaction that is not confirmed within 10 minutes, or whose submission cannot be

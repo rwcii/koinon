@@ -5,6 +5,85 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-10-30 — Handoff cycles and compaction for idle sessions
+
+This release lets an idle session above its context threshold get its handoff cycle, or its
+Codex compaction, without a new turn. Before, the context reading of an idle session became
+older than two minutes, the trigger showed `source_stale`, and the session started its next
+turn with a full context. Claude and Grok now run Koinon's status line every 30 seconds; for
+Codex, OpenCode and DeepSeek the daemon accepts an older reading when a current read shows that
+nothing came after it. An idle agy session still gets its cycle at its next turn. The guide
+gives one form for decision cards. The state schema stays at 36.
+
+- The documentation says that an idle agy session above its threshold in `handoff_cycle` gets its
+  handoff cycle at its next turn, not while it is idle (#568, DECISIONS.md#AGY-IDLE-568). Koinon
+  has no verified status-line timer for Antigravity CLI 1.4.7, its hook reports are not retried,
+  and it has no verified native record that shows the session idle with nothing after the
+  reading. Behavior does not change. [#571](https://github.com/rwcii/koinon/issues/571) keeps the goal of a cycle
+  without a new turn open.
+- An idle Grok session above its threshold gets its handoff cycle without a new turn (#568,
+  DECISIONS.md#GROK-IDLE-568). Grok runs the status line on events, so the context reading of an
+  idle session became older than two minutes and the trigger showed `source_stale`. Now the
+  `[ui.status_line]` table that `koinon setup grok` writes has `refresh_interval = 30`, so Grok
+  runs it every 30 seconds, also while idle. An earlier integer interval of 1 to 30 seconds
+  stays, and removal restores the earlier table. Upgrade: run `koinon setup grok` again, then
+  start Grok again, because Grok reads its configuration at startup. If you edited Koinon's
+  status-line command, setup keeps it (`statusline_changed`); add `refresh_interval = 30` to the
+  table yourself. For a setup from an earlier Koinon, removal restores the interval that the file
+  has at the upgrade. An interval of `nan`, `inf`, `-inf` or a date also becomes 30, and removal
+  restores it. Checked with Grok Build 1.0.50 on Linux: an idle session stayed
+  `below_threshold` for 162 seconds.
+- An idle Codex, OpenCode or DeepSeek session above its threshold in `handoff_cycle` gets its
+  cycle without a new turn (#569, DECISIONS.md#PULLED-IDLE-569). Their context readings do not
+  change while the session is idle, so they became older than two minutes and the trigger
+  showed `source_stale`. Now an older reading counts while the daemon's newest confirmation, at
+  most 90 seconds old, shows that it is current: for Codex the caught-up mark of #564; for
+  OpenCode the reply is the session's newest message and the server shows the session idle; for
+  DeepSeek the cycle adapter's quiet-point check passes with the reading's usage the newest. A
+  failed OpenCode or DeepSeek read ends that at once; for Codex, a cycle can still start up to
+  90 seconds after its rollout becomes unreadable. The DeepSeek case is not yet checked against a
+  live harness. `native_compaction` does not change.
+- An idle Claude session above its threshold gets its handoff cycle without a new turn (#566,
+  DECISIONS.md#CLAUDE-IDLE-566). Claude Code runs the status line on events, so the context
+  reading of an idle session became older than two minutes and the trigger showed
+  `source_stale`. Now the status-line entry that `koinon setup claude` writes has
+  `"refreshInterval": 30`, so Claude Code runs it every 30 seconds, also while idle. This needs
+  Claude Code 2.1.97 or later. An earlier interval of 1 to 30 seconds stays, and removal restores
+  the earlier entry. Upgrade: run `koinon setup claude` again. If you edited Koinon's status-line
+  entry, setup keeps it (`statusline_changed`); add `"refreshInterval": 30` to it yourself.
+- An idle Codex session above its threshold in `native_compaction` compacts without a new turn
+  (#564, DECISIONS.md#IDLE-COMPACT-564). Codex writes no new context reading while it is idle,
+  so the reading became older than two minutes and the trigger showed `source_stale`; the
+  session compacted only after its next turn. Now the session's `koinon mcp` marks a reading
+  as caught up when it read the whole rollout and the last turn had ended, and such a reading
+  counts at any age. Koinon types `/compact` after the next caught-up read, about one minute
+  later. The other checks stay, and `handoff_cycle` does not change.
+- The guide gives one form for decision cards (#562, DECISIONS.md#CARD-FORM-562). Its
+  Decisions section says what a card holds: the title as the action, the context as short
+  facts with their sources, and the recommendation with "## Recommendation:" and **What:**,
+  **Why:** and **Fast or complete:**, in that order. ASD-STE100 applies to the sentences, and
+  the form stays. The `decision_create` and `decision_edit` descriptions point to it. Before,
+  the guide said only that card prose is ASD-STE100, so each agent made up its own form.
+- After `brew install` and `brew upgrade`, a current installation's caveats say only "The
+  Koinon installation is current." (#561). Before, they showed that sentence under "The steps
+  that this installation needs:" and asked to check again after the steps.
+
+Upgrade from v0.7.0 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary, which ends current dashboard logins: log in again with the
+maintainer secret, or run `koinon dashboard` for a one-time link. Homebrew then shows the steps
+that `koinon install --plan` finds; run them, and run `koinon install --plan` again to check.
+A running `koinon mcp` server runs the new release without a session restart.
+
+Upgrade notes:
+
+- Claude: run `koinon setup claude` again to add `"refreshInterval": 30` to Koinon's
+  status-line entry. This needs Claude Code 2.1.97 or later. If you edited the entry, add the
+  interval yourself.
+- Grok: run `koinon setup grok` again, then start Grok again. If you edited Koinon's
+  status-line command, add `refresh_interval = 30` to the table yourself.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+
 ## 2026-10-29 — A spoken alert, an install plan after Homebrew, and sessions that follow a new port
 
 This release adds a spoken alert to the dashboard: with the switch on, the browser says when a

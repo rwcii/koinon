@@ -264,7 +264,12 @@ The trigger selection reads the session's state, Enable, family policy, cycle av
 and its stored context observation. It is eligible when used tokens reach the threshold
 percentage of a positive limit (equality and use above the limit included), the context
 source is at most 120 seconds old and its last confirmation at most 90 seconds old, and the
-observation's native epoch has not been selected already. A source or confirmation time later
+observation's native epoch has not been selected already. In `native_compaction` an older
+source also counts when the newest confirmation carries the reader's caught-up mark (#564,
+DECISIONS.md#IDLE-COMPACT-564). In `handoff_cycle` an older source counts when the newest
+confirmation carries that mark or the daemon reader's proof that an `opencode_server` or
+`dsh_projections` reading is current (#569, DECISIONS.md#PULLED-IDLE-569; see "Session
+observations"). A source or confirmation time later
 than the daemon's clock is `observation_future`. Otherwise it names one reason:
 `session_inactive`, `mode_observe`, `not_enabled`,
 `context_cycle_unavailable`, `context_unknown`, `context_counts_unavailable`,
@@ -905,13 +910,20 @@ copying every row unchanged:
   pane showed. Right before the input the session's newest reading must still select it under
   the trigger's rules (fresh source and confirmation, same epoch, at the threshold); the
   crossing's own latch does not count. Without a reading or a recent confirmation, such as after
-  a restart, it waits (`context_unknown`, `confirmation_stale`). It ends `cancelled` with
+  a restart, it waits (`context_unknown`, `confirmation_stale`). When only the caught-up mark
+  admits the reading (#564), the step records that mark as its choice, in memory, and waits
+  (`confirmation_pending`); the input goes after a later confirmation with the same mark and
+  reading. Another mark makes a new choice, a confirmation without one ends the compaction
+  (`source_stale`), and a restart forgets the choice. It ends `cancelled` with
   `mode_changed`, `threshold_changed`, `epoch_changed` or the trigger's reason (such as
   `source_stale` or `below_threshold`) when the mode, the threshold or the reading no longer
   admit it, and `failed` with the Probe's reason. A compaction whose pane is not ready within 15
   minutes of its admission ends `cancelled` (`compact_waiting_timeout.SEEN`).
 - `compact_intent`: recorded before the first key. The adapter types `/compact` only while the
-  composer is empty and the thread's rollout shows its last turn ended, reads it back and
+  composer is empty and the thread's rollout shows its last turn ended (when the step chose a
+  caught-up mark, #564, the adapter reads the rollout itself at the first key and needs the same
+  file, by device and inode, and the same size, from one opened file; else
+  `rollout_changed`, `rollout_unreadable` or `turn_not_ended`, and no key), reads it back and
   submits it with one Enter while the composer holds exactly it. Text that is not submitted is
   erased and the compaction returns to `compact_waiting` with the step's reason, to retry when
   the pane is idle. The fence before each key also holds the family mode and the session's
@@ -2544,12 +2556,24 @@ context limit and used tokens, an activity state (`busy`, `idle` or `waiting`) a
 pane (`%N`) and session name, each with its source and the time the source recorded it. The
 daemon keeps the newest report per group for active sessions, with the time it last received a
 report that confirms it: a newer report replaces the value, a report of the same content
-confirms it and keeps its source time, and an older, different report changes nothing. A value
+confirms it and keeps its source time, and an older, different report changes nothing. A
+different report with the same source time changes nothing either, except one from the daemon's
+own OpenCode and DeepSeek readers, which read their source's newest reading: it replaces the
+value, such as a new usage event in the same millisecond (#569); an older one from them, with
+the same content or not, ends the stored reading's proof and confirms nothing. A value
 that no report confirmed within its window shows `unknown` with `observation_stale`: 2 minutes
 for activity and terminal, 30 minutes for model and context. Polled sources are confirmed every
 minute while they stay readable; hooks and tool calls confirm only by their next event, so an
-agy session's idle state and a Claude session's status-line values go stale when no new event
-comes. A session that is not active shows `unknown` with `session_expired` or
+agy session's idle state goes stale when no new event comes. A Claude session's status-line
+values are confirmed at least every 30 seconds while Koinon's status-line entry has its
+`refreshInterval` (Claude Code 2.1.97 or later), and go stale when no new event comes without
+it; a Grok session's likewise, while Koinon's `[ui.status_line]` table has its
+`refresh_interval` and Grok was started after it was set (#568). In `handoff_cycle` an idle agy
+session above its threshold therefore gets its cycle at its next turn, not while it is idle
+(DECISIONS.md#AGY-IDLE-568, [#571](https://github.com/rwcii/koinon/issues/571)): Koinon has no verified
+status-line timer for Antigravity CLI 1.4.7 (the inspected binary showed no timer setting, and
+idle timer behavior is not live-checked), its hook reports are not retried, and it has no verified native record that
+shows the session idle with nothing after the reading. A session that is not active shows `unknown` with `session_expired` or
 `session_retired`. A group without a value shows `no_source` when the family has none, else
 `not_observed`.
 
@@ -2560,7 +2584,18 @@ object: the discovery fields (`name`, held `alias`, `family`, registration `stat
 `repository`), `observed_at` in Unix milliseconds, and `model`, `context`, `activity`.
 Each group has `known` and `stale_after_ms`; an unknown group has `reason` and no value fields.
 A context report may carry `epoch`, the native transcript or thread it was read from; the
-daemon keeps it for the context policy and returns it in no view.
+daemon keeps it for the context policy and returns it in no view. A `codex_rollout` context
+report with an epoch may also carry `end`, its caught-up mark (#564): `rollout` (the file's
+device and inode, `DEVICE-INODE`), `size` (where the read ended) and `turn` (the last turn's
+ID). The reader sends it only when it read the rollout to its end after a complete record,
+within its 4 MiB batch, and the last turn had ended. After a failed read, or a rollout that is
+unreadable or names another thread, it sends its last delivered reading without the mark, at
+each look until the daemon accepts it. A
+report of the same reading with a mark confirms it and replaces the stored mark; one without a
+mark clears a stored mark and confirms nothing, and the next report confirms. These reports
+keep the daemon's state and the Sessions page current on a best-effort basis; the input does
+not depend on them, because the adapter reads the rollout itself before its first key. The
+daemon keeps the mark for the context policy and returns it in no view.
 A known group carries `source`, source timestamp `at`, last confirmation timestamp
 `confirmed_at`, and its allowlisted value fields: model `id`; context `limit_tokens`,
 `used_tokens`, `usage_available` when reported; activity `state`. Source time may be old while
@@ -2591,8 +2626,13 @@ exact 200, no redirect and at most 8 MiB. The reading is the assistant message w
 limit of the message's `providerID` and `modelID` in the provider list, and the source time is
 `time.completed`. Without a finished assistant message there is no reading. A newest finished
 message that cannot be read gives none either, never an older one, and a failed read confirms
-nothing. A changed reading is recorded at once, an unchanged one once a minute. Only these
-counts and IDs are decoded; the message parts that the server sends with them are not kept. The
+nothing. The reading is current (#569) when the message that gave it is the page's newest
+message by `time.created` (each message must have a creation time and none may tie it), a
+fresh `GET /session/status` then shows that exact session idle (an omitted session counts
+only after `GET /session/{id}` confirms it), and a second read of the messages gives the same
+reading and newest message. A changed reading or a change of its proof is recorded at once, an
+unchanged one once a minute; a failed read, one without a reading, or one that the store does
+not take ends the stored proof at once and confirms nothing. Only these counts, IDs and times are decoded; the message parts that the server sends with them are not kept. The
 session's own `tokens` are a sum over its turns, so they are not used. A direct `opencode` start
 has no launch password, so it has no reading, and no cycle: the cycle adapter acts through the
 same server (see "OpenCode cycle adapter").
@@ -2614,9 +2654,15 @@ because the harness keeps the pressure and the window as independent values. The
 usage event's `time`, which an unrelated event, such as a title or a prompt, does not change.
 `inputTokens` is required; an absent cache count is 0, and every count is a JSON integer from 0
 to 2^53-1. Before the first usage there is no reading; any other mismatch or invalid field gives
-none either, never an older one, and a failed read confirms nothing. A changed reading is
-recorded at once, an unchanged one once a minute; a new usage event is a new reading even with
-the same counts and time. Only event types, seqs, times, usage counts and the model and context
+none either, never an older one, and a failed read confirms nothing. The reading is current
+(#569) when the DeepSeek cycle adapter's quiet-point check then passes (`POST
+/api/session/list` and the same projections and pages: not running, no queued input, no open
+question, the newest turn closed, no compaction running, in one stable read) and the
+projections, read again, have the same `asOfSeq`; events after the closed turn that change none
+of these, such as a title, do not end it. A changed reading or a change of its proof is recorded
+at once, an unchanged one once a minute; a new usage event is a new reading even with the same
+counts and time; a failed read, one without a reading, or one that the store does not take ends
+the stored proof at once and confirms nothing. Only event types, seqs, times, usage counts and the model and context
 fields are decoded; message text and other projections are not kept.
 `projectedTokens` is the harness's estimate for its next request, so it is not used. A DeepSeek
 session registered without a harness target has `no_source`. The cycle is under "DeepSeek cycle
@@ -2676,7 +2722,12 @@ pieces across checks, and no conversation text is kept or sent.
 1 MiB, and returns its output and exit status, or
 prints the model's display name without one, and reports the model and context of the input's
 `session_id`. `koinon setup claude` makes it the `statusLine` entry, keeping the entry's other
-fields and wrapping its previous command. The previous entry is saved once, before the settings
+fields and wrapping its previous command. The entry gets `"refreshInterval": 30`, so Claude Code
+runs it at least every 30 seconds, also while the session is idle (#566,
+DECISIONS.md#CLAUDE-IDLE-566; Claude Code 2.1.97 or later, not checked). A previous interval
+that is a number from 1 to 30 stays as it was; no interval, a longer one or one that Claude Code
+does not accept (below 1, or not a number) becomes 30. The saved previous entry keeps its own
+interval or none. The previous entry is saved once, before the settings
 change, in `claude-statusline.json` in the Go state root. `koinon setup claude --remove-status-line`
 restores it while the entry is still Koinon's, and keeps an entry the user changed. Setup leaves
 a wrapper that the user edited alone (`statusline_changed`), also when it runs an earlier Koinon
@@ -2719,23 +2770,37 @@ integers from 0 to 2^53-1 with a positive limit; otherwise there is no context r
 last reading stands until it is stale. `used_percentage` and the cumulative `session_*` counts
 are not used. The input has no time of its own, so the source time is the hook's. Grok sends
 the input when its state changes (at start, during and at the end of a turn, after `/new` and
-`/compact`), not while it is idle, unless the table's `refresh_interval` is set, so an idle
+`/compact`), not while it is idle, unless the table's `refresh_interval` is set, so without it an idle
 session's reading becomes stale after 30 minutes. `koinon setup
 grok` makes `'BINARY' hook grok-status` the `command` of a `[ui.status_line]` table with
 `type = "command"` in Grok's `config.toml` (`--grok-home`, else `$GROK_HOME`, else `~/.grok`).
-Setup owns only the table's `type` and `command`: it edits those lines as text, parses the file
+Setup owns only the table's `type`, `command` and `refresh_interval` (#568,
+DECISIONS.md#GROK-IDLE-568): `refresh_interval = 30` runs the status line every 30 seconds, also
+while the session is idle, so the reading stays inside the trigger's clocks; an earlier integer
+from 1 to 30 stays, and any other value or none becomes 30. That rule is Koinon's choice: Grok's
+documentation gives no range and no first version for the key. Grok reads `config.toml` at
+startup, so a running session gets the interval when Grok starts again. Setup edits those lines as text, parses the file
 before and after, and refuses an edit whose meaning differs anywhere else; other keys, tables,
-comments and the table's other options, such as `refresh_interval`, stay as they were. An owned
+comments and the table's other options stay as they were. An owned
 line keeps its key spelling, its spacing and its comment; only its value changes. The text
 editor supports a plain `[ui.status_line]` table only: invalid TOML is `settings_invalid`, and an
-inline table, a dotted key, an owned value that is a multiline string or another shape it
-cannot prove is `settings_unusual`; the file is not changed. The previous `type` and `command`,
-their values as spelled, and whether setup added the table, are saved
+inline table, a dotted key, an owned value that is a multiline string, a `type` or `command`
+that is not a string, a `refresh_interval` that is an array or a table, or another shape it cannot
+prove is `settings_unusual`; the file is not changed. The previous `type`, `command` and
+`refresh_interval` (or their absence), their values as spelled, and whether setup added the
+table, are saved
 once in `grok-statusline.json` in the Go state root, with the file's path. `koinon setup grok
 --remove-status-line` and the Grok removal restore them in that file while it still holds the
 exact wrapper, and remove the table only when setup added it and no other key is in it. A
 saved spelling is used only when it is a TOML spelling of the saved value; otherwise the value
-is written as a basic string. A
+is written as a basic string, or as a plain integer, float or boolean. A `refresh_interval`
+that JSON cannot hold, `nan`, `inf`, `-inf` or a date or time, is not an integer from 1 to 30,
+so setup writes 30; the record keeps it as its TOML token, and removal restores it as spelled.
+A record saved before
+`refresh_interval` was owned has none in its wrapper: setup and removal compare only its `type`
+and `command`, and the interval that the file has at that time, as spelled, or its absence,
+becomes the one that removal restores. After that, an edit of only the interval is also an
+edited wrapper. A
 wrapper that the user edited is left alone (`statusline_changed`), also when it runs an earlier
 Koinon binary and after a removal that kept it, with the Claude Code rule. Setup
 for another `config.toml` while one is set up reports `changed` (`statusline_other_file`). A

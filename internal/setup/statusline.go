@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -27,6 +28,9 @@ import (
 const (
 	statusLineRecord = "claude-statusline.json"
 	settingsMax      = 1 << 20
+	// claudeRefresh runs the Claude status line at least every 30 seconds, also while the
+	// session is idle, so that its context reading stays within the trigger's clocks (#566).
+	claudeRefresh = 30
 )
 
 // SettingsError is a refusal to edit the Claude settings file.
@@ -66,6 +70,13 @@ type statusLine struct {
 	// the members that a wrapper adds when no earlier entry exists.
 	hook, record, missing string
 	defaults              []field
+	// refresh is the most seconds between two runs of the status line while the session is
+	// idle (Claude Code's refreshInterval, DECISIONS.md#CLAUDE-IDLE-566), or 0 for none.
+	// refreshKey names the member, "refreshInterval" when empty, and refreshInteger keeps only
+	// an integer value (Grok's refresh_interval, DECISIONS.md#GROK-IDLE-568).
+	refresh        int
+	refreshKey     string
+	refreshInteger bool
 }
 
 func (l statusLine) name() string {
@@ -280,7 +291,27 @@ func (l statusLine) wrapperEntry(original json.RawMessage) json.RawMessage {
 	if original == nil {
 		fields = append(fields, l.defaults...)
 	}
+	key := l.refreshKey
+	if key == "" {
+		key = "refreshInterval"
+	}
+	if l.refresh > 0 && !validRefresh(lookup(fields, key), l.refresh, l.refreshInteger) {
+		interval, _ := json.Marshal(l.refresh)
+		fields = replace(fields, key, interval)
+	}
 	return encodeFields(fields)
+}
+
+// validRefresh reports whether an entry's interval is one to keep: a number of at least 1, and
+// at most limit seconds; with integer, only an integer, spelled without a fraction or exponent.
+// Claude Code takes any other value as unset, which means no refresh.
+func validRefresh(value json.RawMessage, limit int, integer bool) bool {
+	if integer {
+		n, err := strconv.ParseInt(string(bytes.TrimSpace(value)), 10, 64)
+		return value != nil && err == nil && n >= 1 && n <= int64(limit)
+	}
+	var n float64
+	return value != nil && json.Unmarshal(value, &n) == nil && n >= 1 && n <= float64(limit)
 }
 
 // plainWrapper reports whether a wrapper is spelled exactly as wrapperEntry writes it: the hook
@@ -563,7 +594,7 @@ func (l statusLine) remove() (StatusLineResult, error) {
 
 // ClaudeStatusLine sets up the status-line hook, or removes it when remove is set.
 func ClaudeStatusLine(binary, state, configDir string, remove bool) (StatusLineResult, error) {
-	return statusLine{binary: binary, settings: filepath.Join(configDir, "settings.json")}.run(state, remove)
+	return statusLine{binary: binary, settings: filepath.Join(configDir, "settings.json"), refresh: claudeRefresh}.run(state, remove)
 }
 
 // AgyStatusLine sets up or removes the agy status-line hook in the Antigravity CLI settings

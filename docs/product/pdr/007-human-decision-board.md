@@ -110,7 +110,10 @@ approval; an fyi that needs an answer is a decision item or a task. The `ACTION 
 marker on an `fyi` item, from the existing board design, is retired: the upgrade makes each open
 one a task. Card text (context, recommendation and comments) is rendered from
 Markdown, code and commands appear in code blocks, and agents write card prose in ASD-STE100
-Simplified Technical English.
+Simplified Technical English. Agents use one card form, which the guide's Decisions section
+gives (#562): the title is the action; the context is short facts, each with its source and
+date; the recommendation has the heading "Recommendation:", then What, Why and Fast or
+complete, in that order. ASD-STE100 applies to the sentences, and the form stays.
 
 **Provenance:** Requested in #206 (issue body, requirements 1, 2, 5, 6, 8, 10, 11, 12 and
 the settled point on rows); a request record. Agent withdrawal: requested in #504 (issue body,
@@ -126,7 +129,11 @@ actions, and an fyi item is acknowledged, not dismissed. Using the existing boar
 design to the dashboard." (posted from the maintainer's account without agent framing;
 authorship not otherwise verified). Card text: Maintainer, 2026-10-12: "card comments should be
 formattable in markdown. code should be displayed in code blocks so it's readable, and all
-prose should be in asd-ste100" (#206 comment 6119203856). The `ACTION FOR YOU` marker: Proposed in the #206 plan; approved with the plan at Gate B (#206 comment 6150911355); retired by #537. Lifecycle: Maintainer, 2026-10-13:
+prose should be in asd-ste100" (#206 comment 6119203856). Card form: Maintainer, 2026-10-29,
+relayed by claude-unify: "we need to add some guidance to agents using koinon, not leave it up
+to the agent to make it up." (#562); the form, with its guide text, approved on the decision
+board ([DECISIONS.md#CARD-FORM-562](../../../DECISIONS.md#card-form-562)). Intent: every agent
+writes a card in the same form, so the maintainer reads each card the same way. The `ACTION FOR YOU` marker: Proposed in the #206 plan; approved with the plan at Gate B (#206 comment 6150911355); retired by #537. Lifecycle: Maintainer, 2026-10-13:
 "we don't build systems that fail at some arbitrary limit. closed items should be archived.
 after 30 days, archived items should be moved to a log file in case an old decision needs to
 be resurrected. nothing gets deleted, but the lifecycle becomes active > in progress >
@@ -323,3 +330,4 @@ blocks, which the maintainer copies into a terminal, hold printable ASCII only. 
 | 2026-10-26 | Decision 1: agents withdraw active items with a reason, and a restore reopens them (#504) |
 | 2026-10-28 | Decision 4: a verdict read asks the agent to record the verdict in `DECISIONS.md` (#536; WDR 001, Decision 7) |
 | 2026-10-28 | Decisions 1, 2 and 4, requirement 7: the task kind, feedback that returns an item to its author, and Acknowledge on an `fyi` item, delivered to the recipients; the `ACTION FOR YOU` marker is retired (#537; [DECISIONS.md#BOARD-VERDICTS-537](../../../DECISIONS.md#board-verdicts-537)) |
+| 2026-10-29 | Decision 1: the card form in the guide's Decisions section (#562; [DECISIONS.md#CARD-FORM-562](../../../DECISIONS.md#card-form-562)) |

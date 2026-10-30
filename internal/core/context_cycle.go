@@ -409,6 +409,10 @@ type CycleTarget struct {
 	// SuccessorEpoch is the native epoch that the reset proved, from reset_verified on, or "".
 	// A SessionAdapter's created session is recorded from clear_received on.
 	SuccessorEpoch string
+	// RolloutEnd is the caught-up mark that a compaction chose when only that mark admitted
+	// its reading (#564): the input then reads the rollout and needs it unchanged since. Else
+	// nil.
+	RolloutEnd *RolloutEnd
 	// Holds reports that the session holds a participant address, which a new native session
 	// after the reset must take over to report the pickup (Codex).
 	Holds bool

@@ -442,3 +442,309 @@ Recommendation:
 Note:
 
 > One switch for all repositories running on that Koinon instance. We may change this later, but let's keep it simple for now.
+
+<a id="card-form-562"></a>
+
+## CARD-FORM-562
+
+<!-- koinon-decision CARD-FORM-562 revision 1 approved 1793251343863 -->
+
+**Approved**, revision 1, 2026-10-29 05:22:23 UTC.
+
+- Title: Put one decision card form in the Koinon guide, and point the card tools to it
+- Where: Koinon guide (Decisions section), decision_create and decision_edit, PDR 007
+
+Context:
+
+> - The guide and `decision_create` give no card form today. They say only that card prose is ASD-STE100, and which Markdown shows (`internal/setup/guide.go`, Decisions section; checked 2026-10-29).
+> - Card prose in ASD-STE100 is your decision of 2026-10-12, recorded in PDR 007 (#206 comment 6119203856).
+> - Your instruction, 2026-10-29, relayed by claude-unify: "we need to add some guidance to agents using koinon, not leave it up to the agent to make it up." (#562; spelling corrected)
+> - On 2026-10-29, a card of another repository had long sentences with many facts in each (claude-unify's report, #562).
+> - Its later revisions kept the facts but used new headings and list fragments (claude-unify's report, #562).
+> - You said of those revisions: "these cards are suddenly dropping long standing norms" and "why did you change the format?" (2026-10-29, in a session, relayed by claude-unify).
+> - You said to me, 2026-10-29: "[a card of another repository] is a good example of an acceptable content and formatting." (#562 comment). The form below follows that card.
+
+Recommendation:
+
+> ## Recommendation: put the card form below in the guide's Decisions section, and point decision_create and decision_edit to it
+>
+> **What:** one pull request in Koinon:
+> 1. add the text below to the guide's Decisions section, as "Card form";
+> 2. point the `decision_create` description ("Use the card form in koinon guide, Decisions") and the `decision_edit` description ("Keep the card form in koinon guide, Decisions") to it, and docs/USAGE.md too;
+> 3. record this verdict in DECISIONS.md, and cite it from PDR 007 and the changelog.
+>
+> **Why:** the form is new guide text, and this card asks you to decide it. Each agent makes up its own form today, so cards change form from agent to agent and from revision to revision. Every agent family reads the guide (`koinon guide --agent FAMILY`) and sees the tool descriptions when it writes a card. So one text reaches every agent.
+>
+> **Fast or complete:** complete for the base form. Limits: Koinon does not check the form of a card; the text is guidance, not a refusal. An adopting project can add its own rules. Cost: one pull request, about 20 minutes of CI.
+>
+> **Corrections from the peers:** claude-unify proposed a catalog skill too; I recommend no skill, because a second copy can drift. codex-koinon: the text does not make a peer's agreement a condition of a card, because not every agent works in a pair; a reviewed card lists the peer's corrections and open disagreements.
+>
+> **Open point:** the rule that a dropped or deferred goal goes in the heading has no earlier source. It is part of this proposal.
+>
+> **The text** (the guide, as committed):
+>
+> ```text
+> Card form (#562): bring the maintainer only what needs the maintainer, one card for each
+> decision, and wait for its verdict. Give one recommendation, not a menu of options; other
+> options can follow at the end, each with the facts to judge it.
+> - Title: the action, in one line.
+> - Context: a short list of facts. Each item has one fact, its source (a file and line, a
+>   record, a pull request or a report) and the date you checked it. When the card changes an
+>   earlier direction of the maintainer, the first item names that direction and what changes.
+>   Quote the maintainer only from the maintainer's own words.
+> - Recommendation: the heading "## Recommendation:" and the action in one line, then in this
+>   order: **What:** the concrete change, its source and what gets recorded, with numbered steps
+>   when there are steps; **Why:** the defect or the goal, from the records (recommend the fix for
+>   the defect, not for its symptom); **Fast or complete:** which one it is, each gap or limit
+>   that stays, with its source, and the cost in time, money or CI; then, when they apply, the
+>   corrections from a peer who reviewed it, each disagreement that is still open, and each open
+>   point with how to handle it.
+> A recommendation that drops or defers a goal that the maintainer set says so in its heading,
+> and names it as a limit in Fast or complete. ASD-STE100 applies to the sentences: short active
+> sentences, one idea each, and common words. The labels and their order are the form, so a
+> correction of style changes the sentences and keeps the form.
+> ```
+
+<a id="idle-compact-564"></a>
+
+## IDLE-COMPACT-564
+
+<!-- koinon-decision IDLE-COMPACT-564 revision 1 approved 1793271279278 -->
+
+**Approved**, revision 1, 2026-10-29 10:54:39 UTC.
+
+- Title: Let an idle Codex session above its threshold compact without a new turn
+- Where: native_compaction trigger (internal/core/context_policy.go), PDR 006
+
+Context:
+
+> - The trigger needs a context reading at most 2 minutes old, and its confirmation at most 90 seconds old. These clocks are from the #196 definition of done, which you approved at Gate B (#196 comment 6136155493; the definition of done at d78822d; `internal/core/context_policy.go:432`; checked 2026-10-29). This card changes how the 2-minute clock applies to an idle Codex session in `native_compaction`.
+> - On 2026-10-29 at 05:35 UTC, `native_compaction` was on for each Codex session on this machine, at 60% (`koinon context show`).
+> - One idle Codex session was at 68%: its rollout's last `token_count` was at 05:04 UTC, 322443 of 475000 tokens.
+> - Its state was `source_stale`, and no compaction started (`koinon context show`, 05:35 UTC).
+> - A Codex rollout gets no new `token_count` while the session is idle. So the reading of an idle session is always older than 2 minutes, though it is still its current context.
+> - The session's own `koinon mcp` reads its rollout every 5 seconds, and sends an unchanged reading again each minute (`internal/mcp/observe.go:30-31`).
+> - A read can stop before the end of the rollout: after one 4 MiB batch, or at a partial last record. It then reports the older reading as current and idle. codex-koinon reproduced both cases with synthetic rollouts (2026-10-29). So a fresh confirmation alone does not show that the reading is current.
+> - Filed as #564 (2026-10-29).
+
+Recommendation:
+
+> ## Recommendation: in native_compaction, accept an older reading of an idle Codex session when a caught-up read shows that it is current
+>
+> **What:** one pull request in Koinon:
+> 1. The reader marks a Codex reading "caught up" only when it read the rollout to its end, the last record is complete, and no read failed. It sends the rollout's identity, its size at that end and the last turn's ID with the reading.
+> 2. In `native_compaction`, the trigger accepts a reading older than 2 minutes only when its newest confirmation is caught up, at most 90 seconds old, for the same rollout and epoch, and the last turn is complete. A changed, partial or unreadable rollout ends the caught-up state.
+> 3. Before Koinon types `/compact`, it needs a new caught-up confirmation, received after its choice, with the same rollout size and turn.
+> 4. All other checks stay: the threshold, one compaction for each crossing, an idle and empty prompt in the pane, and a fresh reading after `/compact` to confirm it. The `handoff_cycle` mode does not change.
+> 5. Tests: an idle session with a caught-up reading above the threshold compacts. These do not: a busy session; an old confirmation; a reading below the threshold; a read that stopped at a 4 MiB batch with newer records after it; a partial last record; a read failure; another rollout or thread; a new epoch; a daemon or `koinon mcp` restart, until a new caught-up confirmation.
+> 6. PDR 006 and docs/USAGE.md give the rule; DECISIONS.md records this verdict.
+>
+> **Why:** the 2-minute age makes sure that the reading is the current context. For an idle Codex session, a caught-up confirmation shows the same thing: the reader read the whole rollout, and the reading is its last record. So the change keeps the purpose of the rule and removes the gap. Without it, an idle session above the threshold starts its next turn with a full context, and compacts only after that turn.
+>
+> **Fast or complete:** complete for Codex `native_compaction`. Limit: an idle session compacts within about one minute after it becomes eligible, at the next confirmation. Cost: one pull request. The reading gets new fields, which can need a state schema step. About 20 minutes of CI.
+>
+> **Corrections from the peers:** codex-koinon showed that a fresh confirmation alone does not prove that the reading is current, because a read can stop before the end of the rollout. The rule now needs a caught-up read, and a new one before the input.
+>
+> **Open point:** I did not check whether an idle Claude session in `handoff_cycle` has the same gap. I check it during this work, and file it as its own issue if it does.
+
+<a id="claude-idle-566"></a>
+
+## CLAUDE-IDLE-566
+
+<!-- koinon-decision CLAUDE-IDLE-566 revision 1 approved 1793280765119 -->
+
+**Approved**, revision 1, 2026-10-29 13:32:45 UTC.
+
+- Title: Make Koinon's Claude status line run every 30 seconds, so an idle Claude session gets its handoff cycle
+- Where: koinon setup claude (internal/setup/statusline.go), PDR 006
+
+Context:
+
+> - The trigger needs a context reading at most 2 minutes old, and its confirmation at most 90 seconds old. These clocks are from the #196 definition of done, which you approved at Gate B (`internal/core/context_policy.go`; checked 2026-10-29). This card does not change them.
+> - A Claude session's context comes only from its status line. Koinon's hook gives each reading the time of the hook run (`internal/setup/hooks.go:169`; checked 2026-10-29).
+> - Claude Code runs the status line on a new event. So an idle Claude session's reading gets older than 2 minutes, and the trigger shows `source_stale` (PROTOCOL.md, "Session observations"; #566).
+> - So an idle Claude session in `handoff_cycle` gets no cycle when its crossing comes while it is idle: after an Enable, a lower threshold or a daemon restart. It starts its next turn with a full context (#566, filed 2026-10-29).
+> - Claude Code 2.1.312, the version on this machine, has the setting `statusLine.refreshInterval`: "Re-run the status line command every N seconds in addition to event-driven updates" (its settings schema, read from the installed binary, 2026-10-29). The value must be a number of at least 1; another value counts as unset, and then there is no refresh (the same schema; the Claude Code settings reference, "statusLine").
+> - Claude Code added the setting in version 2.1.97: "Added `refreshInterval` status line setting to re-run the status line command every N seconds" (anthropics/claude-code CHANGELOG.md, section 2.1.97, at commit 0e1f478; checked 2026-10-29).
+> - You said, 2026-10-29, about an older Claude Code without the setting: "in such a case, we can specify a minimum client version, and move on." (in a session).
+> - PDR 006, Decision 5: an adapter runs with any version of its CLI, and Koinon shows no certification status for a version.
+> - `koinon setup claude` already writes the `statusLine` entry in the Claude settings. It wraps your status-line command, keeps the entry's other fields, and restores the earlier entry on removal (`internal/setup/statusline.go`).
+> - Setup and removal leave a Koinon entry that you edited as it is, and report `statusline_changed` (#530, #532; PROTOCOL.md, the Claude status-line paragraph). This card does not change that rule.
+
+Recommendation:
+
+> ## Recommendation: koinon setup claude sets refreshInterval to 30 seconds in Koinon's status-line entry
+>
+> **What:** one pull request in Koinon:
+> 1. The Claude status-line entry that `koinon setup claude` writes gets `"refreshInterval": 30`. An earlier entry with a valid interval from 1 to 30 seconds keeps its own value. No interval, a longer one, or one that Claude Code does not accept (such as 0, a negative number, a value under 1 or a value that is not a number) becomes 30.
+> 2. Removal restores the earlier entry as it was, with its own interval or none, under the existing rule: an entry that you edited stays as it is.
+> 3. An existing installation gets the setting at its next `koinon setup claude`, unless you edited Koinon's entry. Then setup reports `statusline_changed`, and you add `"refreshInterval": 30` to your entry yourself. The changelog and docs/USAGE.md give both steps.
+> 4. The docs give Claude Code 2.1.97 as the minimum version for the handoff cycle of an idle Claude session. Koinon does not check the version, as PDR 006, Decision 5 says.
+> 5. Tests: a new entry; an earlier entry with an interval of 1, of 30, of 120, of 0, a negative one, one under 1 and one that is not a number; the upgrade of an existing Koinon entry; an edited Koinon entry, also one where only the interval changed (`statusline_changed`, kept at setup and at removal); and removal, which restores the earlier entry exactly.
+> 6. PDR 006, PROTOCOL.md, docs/USAGE.md, docs/INSTALL.md and the changelog give the rule and the minimum version. DECISIONS.md records this verdict.
+>
+> **Why:** the defect is that the source of an idle Claude session reports nothing, not the 2-minute clock. With the refresh, Claude Code runs the status line every 30 seconds while the session is idle. Each run is a new reading from Claude Code itself, so the existing clocks admit it and no rule changes. 30 seconds gives a margin of three runs inside the 90-second confirmation age.
+>
+> **Fast or complete:** complete for Claude Code 2.1.97 and later. Limits:
+> - An older Claude Code does not have the setting, so the gap stays there. The docs give the minimum version, as you said.
+> - A Koinon entry that you edited keeps the gap until you add the interval yourself, because setup does not change an edited entry.
+> - Your status-line command runs every 30 seconds in each Claude session, as well as on events.
+> - I checked the setting in the binary, not in a live idle session. The live check is an open point.
+> - Cost: one pull request, about 20 minutes of CI.
+>
+> **Corrections from the peers:** codex-koinon: keep only an interval that Claude Code accepts (1 to 30), because a kept 0 or invalid value turns the refresh off; and name the existing rule for an edited entry, with its upgrade step and limit, instead of saying that every installation gets the setting.
+>
+> **Open points:**
+> - Live check: after the merge, you run `koinon setup claude` on this machine. I then confirm with `koinon context show` that an idle Claude session stays fresh, and report it.
+> - agy and Grok sessions in `handoff_cycle` read their context from their status lines too, which also run on events (PROTOCOL.md). They can have the same gap. Grok has its own `refresh_interval` option. I check both and file them as their own issue.
+
+<a id="pulled-idle-569"></a>
+
+## PULLED-IDLE-569
+
+<!-- koinon-decision PULLED-IDLE-569 revision 1 approved 1793290873441 -->
+
+**Approved**, revision 1, 2026-10-29 16:21:13 UTC.
+
+- Title: Let an idle Codex, OpenCode or DeepSeek session above its threshold get its handoff cycle without a new turn
+- Where: context trigger (internal/core/context_policy.go), the Codex, OpenCode and DeepSeek context readers, PDR 006
+
+Context:
+
+> - The trigger needs a context reading at most 2 minutes old (`internal/core/context_policy.go`, `contextSourceMaxAge`; checked 2026-10-29).
+> - The trigger needs the newest confirmation of that reading at most 90 seconds old (the same file, `contextConfirmationMaxAge`; checked 2026-10-29).
+> - Both clocks are from the #196 definition of done, which you approved at Gate B. This card changes how the 2-minute clock applies in `handoff_cycle` to three families.
+> - DECISIONS.md#IDLE-COMPACT-564, which you approved on 2026-10-29, accepts an older Codex reading in `native_compaction` only, when its newest confirmation comes from a caught-up read with the last turn ended.
+> - Codex: the source time is the rollout's last `token_count`, and an idle session writes none (#564; checked 2026-10-29).
+> - Codex: since #564, the session's `koinon mcp` sends the caught-up mark with each confirmation (`internal/mcp/observe.go`; checked 2026-10-29).
+> - Codex: the report that clears the mark after a failed read is best effort. A lost report leaves the last mark until its confirmation is 90 seconds old (PROTOCOL.md, "Session observations"; codex-koinon reproduced it at 4ad7bb0, 2026-10-29).
+> - OpenCode: every 15 seconds the daemon reads the session's newest messages from its own server, and the source time is the newest finished assistant message's completion time (`internal/core/opencode_context.go`; checked 2026-10-29).
+> - OpenCode: the daemon reads the session's activity from `GET /session/status` on the same server (`internal/core/opencode_status.go`; checked 2026-10-29).
+> - DeepSeek: every 15 seconds the daemon reads the session's harness, and the source time is the time of the usage event that gave the context pressure (`internal/core/deepseek_context.go`; checked 2026-10-29).
+> - DeepSeek: the cycle adapter already has a quiet-point check: no running status, no queued input, no open question, the newest turn closed and no compaction running, in one stable read (`internal/core/cycle_deepseek.go`, `deepSeekQuiet`; checked 2026-10-29).
+> - So the reading of an idle session in each of the three families gets older than 2 minutes, though it is still its current context. In `handoff_cycle` the trigger then shows `source_stale`, and the session starts its next turn with a full context (#569, filed 2026-10-29).
+> - Each of the three families has a handoff cycle adapter (#196, #513, #514; checked 2026-10-29).
+> - The family default is `native_compaction` for Codex and `observe` for OpenCode and DeepSeek (`internal/core/context_policy.go`, `defaultContextPolicy`; checked 2026-10-29). So the gap applies only where you chose `handoff_cycle`.
+
+Recommendation:
+
+> ## Recommendation: in handoff_cycle, accept an older reading of an idle Codex, OpenCode or DeepSeek session when the reader shows that the reading is current
+>
+> **What:** one pull request in Koinon:
+> 1. A confirmation is "current" when its reader shows, at that read, that no newer context exists:
+>    - Codex: the caught-up mark of #564, unchanged.
+>    - OpenCode: in the same round, the session's newest message is the finished assistant message that gave the reading, and `GET /session/status` for that exact session shows it idle.
+>    - DeepSeek: in the same round, the adapter's quiet-point check passes, and the reading's usage event is the newest usage, with no model or context change after it. Events after the closed turn that change none of these do not end the proof.
+> 2. In `handoff_cycle`, the trigger accepts a reading older than 2 minutes only when its newest confirmation is current, at most 90 seconds old, of the same epoch, and at the threshold.
+> 3. For OpenCode and DeepSeek the daemon reads the source itself, so a failed read or a read without the proof clears the current state at once. For Codex the clearing report stays best effort, as in #564: after a failed read, the last current confirmation can still admit a cycle until it is 90 seconds old.
+> 4. All other checks of the handoff cycle stay: the Enable, the pins of host and pane, the request, the ready report, the quiet checks and fences before the clear, and the pickup. `native_compaction` stays as #564 decided, and Codex only.
+> 5. Tests, for each family: an idle session with a current reading above the threshold gets its cycle. These do not: a busy session; a newer message, turn or usage after the reading; a source that changes between the reads of one round; a failed read; an old confirmation; a reading below the threshold; a new epoch; a daemon restart, until a new current confirmation. For DeepSeek also: a closed turn followed by events that change nothing still counts.
+> 6. PDR 006, PROTOCOL.md and docs/USAGE.md give the rule. DECISIONS.md records this verdict.
+>
+> **Why:** the 2-minute age makes sure that the reading is the current context. For these sources, a read that shows the session idle with nothing after the reading shows the same thing. So the change keeps the purpose of the rule, as #564 did, and removes the gap. Without it, an idle session above the threshold starts its next turn with a full context.
+>
+> **Fast or complete:** complete for Codex, OpenCode and DeepSeek in `handoff_cycle`. Limits:
+> - Codex: for up to 90 seconds after its rollout becomes unreadable, a cycle can still start from the last current confirmation. Then the session gets a request that it did not need yet. The clear still needs its own ready report, the quiet checks and the fences, so no context is lost.
+> - The OpenCode proof comes from the recorded native evidence (OpenCode 1.18.35, Linux, #513). The DeepSeek proof uses the adapter's existing quiet-point check (DeepSeek Harness 0.2.0-rc.2, #514). I do not run the DeepSeek harness on this machine, so its live check runs in its development container, as for #514. Until that run, the DeepSeek idle trigger is unverified.
+> - Cost: one pull request, about 30 minutes of CI.
+>
+> **Corrections from the peers:** codex-koinon: the Codex clearing report is best effort, so the card names the 90-second window and its effect instead of promising an immediate end; the DeepSeek proof uses the quiet-point check, because a closed turn can be followed by events that change nothing; and each context item has one fact, its source and its date.
+>
+> **Open point:** agy and Grok (#568) need another fix, because their source is a status line. I bring that as its own card.
+
+<a id="grok-idle-568"></a>
+
+## GROK-IDLE-568
+
+<!-- koinon-decision GROK-IDLE-568 revision 1 approved 1793292193629 -->
+
+**Approved**, revision 1, 2026-10-29 16:43:13 UTC.
+
+- Title: Make Koinon's Grok status line run every 30 seconds, so an idle Grok session gets its handoff cycle
+- Where: koinon setup grok (internal/setup/grok_status.go), PDR 006
+
+Context:
+
+> - The trigger needs a context reading at most 2 minutes old, and its confirmation at most 90 seconds old (`internal/core/context_policy.go`, `contextSourceMaxAge` and `contextConfirmationMaxAge`; checked 2026-10-29). These clocks are from the #196 definition of done, which you approved at Gate B. This card does not change them.
+> - A Grok session's context comes only from its status line, and the source time is the time of the hook run (PROTOCOL.md, the Grok status-line paragraph; checked 2026-10-29).
+> - Grok's documentation: "An idle session does not re-run the script. Set `refresh_interval` (seconds) on a `command` row to also run it on a timer." It gives no valid range and no first version with the key (docs.x.ai/build/features/status-line; checked 2026-10-29).
+> - The same page says that Grok reads its configuration at startup, so a change to `config.toml` needs a restart of Grok. docs/USAGE.md already says to start Grok again after `koinon setup grok` (checked 2026-10-29).
+> - So an idle Grok session's reading gets older than 2 minutes, and the trigger shows `source_stale`. An idle Grok session in `handoff_cycle` gets no cycle when its crossing comes while it is idle, and it starts its next turn with a full context (#568, filed 2026-10-29).
+> - `koinon setup grok` owns only `type` and `command` of the `[ui.status_line]` table in Grok's `config.toml`, and keeps `refresh_interval` as it was. It saves the earlier values in `grok-statusline.json` and restores them on removal (PROTOCOL.md, the Grok status-line paragraph; `internal/setup/grok_status.go`; checked 2026-10-29).
+> - Setup and removal leave a Koinon entry that you edited as it is, and report `statusline_changed` (PROTOCOL.md, the same paragraph). This card does not change that rule.
+> - DECISIONS.md#CLAUDE-IDLE-566, which you approved on 2026-10-29, closed the same gap for Claude with Claude Code's `statusLine.refreshInterval`, 30 seconds, and kept a valid interval of 1 to 30 seconds.
+> - Grok runs only in its development container on this machine. Its native evidence is Grok Build 1.0.50 on Linux, and that evidence leaves `refresh_interval` unverified (docs/sprints/2026-10-12-context-handoff/evidence.md, #515).
+> - `grok-statusline.json` of an existing installation holds only `type` and `command`, so it has no record of an earlier `refresh_interval` (`internal/setup/grok_status.go`; codex-koinon reproduced it at efdd411, 2026-10-29).
+
+Recommendation:
+
+> ## Recommendation: koinon setup grok also owns refresh_interval and sets it to 30 seconds
+>
+> **What:** one pull request in Koinon:
+> 1. `refresh_interval` becomes an owned key of the `[ui.status_line]` table, with `type` and `command`. Setup writes `refresh_interval = 30`. An earlier integer value from 1 to 30 stays. No value, a longer one, or one that is not an integer of at least 1 becomes 30. This 1-to-30 rule is Koinon's own choice, as in DECISIONS.md#CLAUDE-IDLE-566; it is not a range that Grok documents.
+> 2. A new installation saves the earlier `refresh_interval`, as spelled, or its absence, with the other owned keys in `grok-statusline.json`. Removal restores it, or removes the key when there was none, under the existing rule: an entry that you edited stays as it is.
+> 3. An existing installation: at its next `koinon setup grok`, setup checks only `type` and `command` against the old record, because the old record owned only these. When they are unchanged, setup saves the `refresh_interval` that is in the file at that time, as spelled, or its absence, as the earlier value for removal, and then applies rule 1. From then on, an edit of only the interval is also `statusline_changed`. When `type` or `command` changed, setup reports `statusline_changed` as now, and you add `refresh_interval = 30` yourself.
+> 4. After setup, or after you add the interval yourself, start Grok again: Grok reads its configuration at startup. The changelog and docs/USAGE.md give the steps of rules 3 and 4.
+> 5. Tests: a new table; an earlier interval of 1, of 30, of 120, of 0, a negative one, a float and a string; an old record with no interval in the file, with an interval, and with an interval that changed after the earlier setup; setup again after the upgrade, and removal after it; an edited Koinon entry before the upgrade (`type` or `command`) and after it (only the interval), each `statusline_changed`, kept at setup and at removal; and removal, which restores the earlier table exactly.
+> 6. Live check before the merge, in the `grok-dev` container as for #515: the branch binary's setup, then a Grok process started after that setup, idle for more than 2 minutes, whose `koinon context show` reading stays inside the existing clocks; `grok inspect` shows no problem with the key. The check proves the value 30. It does not prove which other values Grok accepts.
+> 7. PDR 006, PROTOCOL.md, docs/USAGE.md and the changelog give the rule. DECISIONS.md records this verdict.
+>
+> **Why:** the defect is that the source of an idle Grok session reports nothing, not the 2-minute clock. With the timer, Grok runs the status line every 30 seconds while the session is idle. Each run is a new reading from Grok itself, so the existing clocks admit it and no rule changes. 30 seconds gives a margin of three runs inside the 90-second confirmation age. It is the rule that you approved for Claude.
+>
+> **Fast or complete:** complete for Grok in `handoff_cycle`. Limits:
+> - Until the live check of What 6, it is unverified that Grok Build 1.0.50 accepts `refresh_interval = 30` and runs the status line while idle. The documentation gives no first version with the key; a Grok without it keeps the gap.
+> - An existing installation: when you changed the interval after the earlier setup, removal restores the interval that was in the file at the upgrade, not the one from before the earlier setup. The old record has no evidence of the earlier one.
+> - A Koinon entry that you edited keeps the gap until you add the interval yourself.
+> - A running Grok session keeps the gap until you start it again.
+> - Your wrapped status-line command runs every 30 seconds in each Grok session, as well as on events.
+> - Cost: one pull request, about 20 minutes of CI, and the container check.
+>
+> **Corrections from the peers:** codex-koinon: the live check is planned, not done, and the 1-to-30 rule is Koinon's choice, not a Grok range; an old record owns only `type` and `command`, so the upgrade saves the interval that is in the file at that time and the edit check starts there; and Grok needs a restart after a change of its configuration.
+>
+> **Open point:** agy has no setting that runs its status line while idle (Antigravity CLI 1.4.7; #568). Its fix needs another source and uses the rule of DECISIONS.md#PULLED-IDLE-569, which you approved on 2026-10-29, so I bring it as its own card.
+
+<a id="agy-idle-568"></a>
+
+## AGY-IDLE-568
+
+<!-- koinon-decision AGY-IDLE-568 revision 1 approved 1793295007501 -->
+
+**Approved**, revision 1, 2026-10-29 17:30:07 UTC.
+
+- Title: Document that an idle agy session gets its handoff cycle at its next turn, and track the idle source in a new issue
+- Where: PDR 006, PROTOCOL.md, docs/USAGE.md; a new issue for the agy idle source
+
+Context:
+
+> - #568 is done when an idle agy or Grok session in `handoff_cycle` at or above its threshold gets its cycle without a new turn, "or the docs say why it cannot" (#568, "Done when"; checked 2026-10-29).
+> - DECISIONS.md#GROK-IDLE-568, which you approved on 2026-10-29, closes the Grok half with Grok's `refresh_interval`.
+> - An agy session's context comes only from its status line (`agy_statusline`; PROTOCOL.md, "Session observations"; checked 2026-10-29). Antigravity CLI runs it when its state changes, not while it is idle (#512 evidence). I found no setting in Antigravity CLI 1.4.7 that runs it on a timer (a search of the installed binary, 2026-10-29). So an idle agy session's reading gets older than 2 minutes, and the trigger shows `source_stale`.
+> - DECISIONS.md#PULLED-IDLE-569, which you approved on 2026-10-29, admits an older reading only when its reader shows that no newer context exists.
+> - Koinon's status-line hook sends each report once, with a one-second timeout and no retry (`internal/setup/hooks.go`; codex-koinon, 2026-10-29). So a turn can happen without a new reading in the daemon, and the last `idle` report alone does not show that the session is still idle.
+> - I checked two other native sources on this machine (2026-10-29, keys and counts only, no text):
+>   - The conversation's SQLite files. codex-koinon showed with a WAL reproduction that file metadata cannot tell the checkpoint after a turn from a later turn whose reports were lost.
+>   - The conversation's `transcript.jsonl`. In 27 files with 538 steps, the steps have `created_at` to the second only (201 adjacent steps share a second), no field for the model or the context window, and no record that a turn ended: a `DONE` model step is followed by tool steps in the same turn 219 times. 9 of 27 files end with a step without token counts. codex-koinon showed that a newer turn with equal counts in the same second gets bound to the old reading.
+> - So Koinon has no verified idle source for Antigravity CLI 1.4.7. This does not show that no native source exists.
+> - When the idle session starts its next turn, the status line reports again, and the trigger starts the cycle from that fresh reading (PROTOCOL.md, "Session observations"). The session then runs that turn with its full context.
+
+Recommendation:
+
+> ## Recommendation: partial fix of #568 for agy: the docs say that an idle agy session gets its cycle at its next turn, and a new issue keeps the idle goal open
+>
+> **What:** one pull request in Koinon, plus one new issue:
+> 1. PDR 006, PROTOCOL.md and docs/USAGE.md say: in `handoff_cycle`, an idle agy session above its threshold gets its cycle at its next turn, not while it is idle. They give the reason: Koinon has no verified status-line timer for Antigravity CLI 1.4.7 (the inspected binary showed no timer setting, and idle timer behavior is not live-checked), Koinon's hook reports are not retried, and Koinon has no verified native record that shows the session idle with nothing after the reading. The changelog says the same.
+> 2. Koinon adds no agy idle reader, and no trigger rule changes for agy.
+> 3. I file a new issue, "An idle agy session above its threshold gets its handoff cycle without a new turn", with the facts of this card, the two sources that failed and why, and what would close it: a verified Antigravity status-line timer (the binary search found none; not live-checked), or a native record that ties a reading to a closed turn with its model and window. The docs link to it.
+> 4. #568 closes when the Grok PR (DECISIONS.md#GROK-IDLE-568) and this PR are merged; the new issue holds the rest of the agy goal.
+> 5. DECISIONS.md records this verdict.
+>
+> **Why:** a cycle from a reading that may be old can come from wrong counts. The two native sources that I checked do not prove that the reading is current, so a rule built on them could start a cycle from wrong counts, or keep one alive. The docs path is the alternative that #568 gives, and the new issue keeps the goal visible until agy gives a source.
+>
+> **Fast or complete:** partial. Limits:
+> - An idle agy session above its threshold in `handoff_cycle` starts its next turn with its full context, and gets its cycle during that turn.
+> - agy's default mode is `observe`, so this applies only where you chose `handoff_cycle` for agy (`internal/core/context_policy.go`, `defaultContextPolicy`).
+> - Cost: one documentation pull request, about 20 minutes of CI, and one issue.
+>
+> **Corrections from the peers:** codex-koinon: file metadata and the transcript do not prove an idle current reading (two reproductions); say that Koinon has no verified idle source for 1.4.7, not that none can exist; say that no timer setting was found, not that none exists; and name this a partial fix with the rest of the goal in a new issue.
+>
+> **Open point:** none.
