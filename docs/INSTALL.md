@@ -542,8 +542,12 @@ Native hook trust and optional terminal operations remain separate. Read the ins
 until its MCP support is verified. `--cli ABS_PATH` selects the native CLI and `--binary
 ABS_PATH` selects the installed Koinon binary, as given. Without `--binary`, setup records the
 running binary, or the formula's opt path, `<brew>/opt/koinon/bin/koinon`, for a binary in a
-Homebrew keg, because `brew upgrade` and its cleanup remove the versioned keg (#577). Setup does
-not create an agent conversation.
+Homebrew keg, because `brew upgrade` and its cleanup remove the versioned keg (#577). If an
+earlier Koinon ran `koinon setup FAMILY` by hand on a Homebrew installation, run it again once:
+it rewrites an unedited Koinon MCP entry and status line to the opt path. A status line that you
+edited stays as it is (`statusline_changed`); change its path yourself. Permission rules for the
+opt path are offered as before, only after a yes at a terminal; rules for the old keg path stay
+and match nothing. Setup does not create an agent conversation.
 Codex and Antigravity identify the calling conversation on every MCP call; Claude uses its
 native session environment and verified executable; OpenCode needs the managed identity
 plugin; Grok uses the `GROK_SESSION_ID` that Grok Build gives its MCP server, with a verified
