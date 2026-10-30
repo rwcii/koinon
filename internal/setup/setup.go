@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/rwcii/koinon/internal/launcher"
+	"github.com/rwcii/koinon/internal/legacy"
 	"github.com/rwcii/koinon/internal/platform"
 )
 
@@ -361,18 +362,38 @@ func Adopt(ctx context.Context, o Options) (Report, bool, error) {
 // executable gives this binary's path; tests replace it.
 var executable = os.Executable
 
-// defaultBinary is the koinon binary that setup records when none is given: this executable,
-// or the formula's opt path for a binary in a Homebrew keg, which a brew upgrade and its
-// cleanup keep (#577).
+// defaultBinary is the koinon binary that setup records when none is given: DefaultBinary of
+// this executable.
 func defaultBinary() (string, error) {
 	path, err := executable()
 	if err != nil {
 		return "", err
 	}
-	if opt := platform.HomebrewOpt(path); opt != "" {
-		return opt, nil
+	return DefaultBinary(path), nil
+}
+
+// DefaultBinary is the koinon binary that setup records for the running binary at path when
+// no --binary is given (#577), in this order: the default installation's binary when path is
+// that same file, which `koinon install` configures and its plan checks; the formula's opt
+// path for a binary in a Homebrew keg, which a brew upgrade and its cleanup keep; else path.
+func DefaultBinary(path string) string {
+	if installed, err := legacy.DefaultGoBinary(); err == nil && sameFile(installed, path) {
+		return installed
 	}
-	return path, nil
+	if opt := platform.HomebrewOpt(path); opt != "" {
+		return opt
+	}
+	return path
+}
+
+// sameFile reports whether a and b, with their links resolved, are one existing regular file.
+func sameFile(a, b string) bool {
+	first, err := os.Stat(a)
+	if err != nil || !first.Mode().IsRegular() {
+		return false
+	}
+	second, err := os.Stat(b)
+	return err == nil && os.SameFile(first, second)
 }
 
 var (
