@@ -15,7 +15,7 @@ import (
 
 func init() {
 	toolList = append(toolList, map[string]any{"name": "decision_record",
-		"description": "Record a decision item's verdicts in DECISIONS.md at the root of this checkout, or of the named directory in a checkout of the same repository. Appends the entry of each verdict that the file does not hold yet, in verdict order, with the card text that the maintainer saw; a dismissal is not recorded, and a repeated call appends nothing. Commit DECISIONS.md with the work, and cite the decision as DECISIONS.md#REFERENCE. A recorded entry is public repository text.",
+		"description": "Record a decision item's verdicts in DECISIONS.md at the root of this checkout, or of the named directory in a checkout of the same repository. Appends the entry of each verdict that the file does not hold yet, in verdict order, with the card text that the maintainer saw; a dismissal is not recorded, and a repeated call appends nothing. Commit DECISIONS.md with the work, and name the decision by its reference, never by verdict ID. A recorded entry is public repository text.",
 		"inputSchema": object(map[string]any{"reference": decisionReferenceSchema, "directory": text}, "reference")})
 }
 

@@ -268,7 +268,9 @@ by reading or parsing the dashboard HTML. A reopen does not cancel an unacknowle
 A read of a decided item, the pending list and the verdict notice also tell the agent to record
 the verdict, other than an `fyi` acknowledgement, in its repository's `DECISIONS.md` with
 `decision_record`, and the item read gives
-the entry and the path; the record and its citations follow WDR 001, Decision 7 (#536).
+the entry and the path (#536). Repository text names a decision by its reference, never by its
+verdict ID, which exists only in this machine's store. How a project cites its decisions is
+that project's own rule; Koinon's own repository follows WDR 001, Decision 7 (#580).
 
 **Provenance:** Requested in #206 (issue body, requirement 9 and the settled point on
 delivery); a request record. Stored, queryable
@@ -331,3 +333,4 @@ blocks, which the maintainer copies into a terminal, hold printable ASCII only. 
 | 2026-10-28 | Decision 4: a verdict read asks the agent to record the verdict in `DECISIONS.md` (#536; WDR 001, Decision 7) |
 | 2026-10-28 | Decisions 1, 2 and 4, requirement 7: the task kind, feedback that returns an item to its author, and Acknowledge on an `fyi` item, delivered to the recipients; the `ACTION FOR YOU` marker is retired (#537; [DECISIONS.md#BOARD-VERDICTS-537](../../../DECISIONS.md#board-verdicts-537)) |
 | 2026-10-29 | Decision 1: the card form in the guide's Decisions section (#562; [DECISIONS.md#CARD-FORM-562](../../../DECISIONS.md#card-form-562)) |
+| 2026-10-31 | Decision 4: the product text names a decision by its reference and leaves the citation rule to the project (#580) |

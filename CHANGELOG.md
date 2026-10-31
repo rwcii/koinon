@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Koinon's decision text no longer tells a project how to cite a decision (#580). The
+  `decision_record` tool description, its instruction (also in `decision_get`,
+  `decision_pending` and the verdict message), the guide's Decisions section and the header of
+  a new `DECISIONS.md` told every project to cite `DECISIONS.md#REFERENCE`, which conflicted
+  with a project whose own rule differs. Now they say to name a decision by its reference and
+  never by its verdict ID, which exists only in this machine's store; the citation rule is the
+  project's own. An existing `DECISIONS.md` does not change.
 - `koinon setup FAMILY` without `--binary` records a binary path that a `brew upgrade` keeps
   (#577). Before, it recorded the running binary, which for Homebrew is the versioned keg path
   `<brew>/Cellar/koinon/<version>/bin/koinon`, in the agent's MCP entry, its status line and the

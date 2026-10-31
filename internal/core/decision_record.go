@@ -28,8 +28,8 @@ const decisionRecordHeader = `# Decisions
 The maintainer's verdicts on the Koinon decision board, appended by Koinon's ` + "`decision_record`" + `
 tool. Each entry holds the card text that the maintainer saw when giving the verdict, and the
 maintainer's note or feedback, with spelling and typing errors corrected. Entries are only
-appended, never changed. Cite an entry as ` + "`DECISIONS.md#REFERENCE`" + `; a link's target
-is the reference in lower case.
+appended, never changed. Each entry is named by its reference; a link's target is the
+reference in lower case.
 `
 
 // ErrDecisionRecord refuses a record file that is not a regular file, or that is too large to
@@ -76,7 +76,7 @@ type DecisionRecord struct {
 const decisionRecordInstruction = "Record the verdicts in DECISIONS.md with decision_record and this reference. " + decisionRecordCommit
 
 // decisionRecordCommit is what an agent does with the appended entries before it commits them.
-const decisionRecordCommit = "Correct the spelling and typing errors in the maintainer's words in each new entry, and keep their meaning and wording; then commit DECISIONS.md with the work. Cite the decision as DECISIONS.md#REFERENCE, never by verdict ID."
+const decisionRecordCommit = "Correct the spelling and typing errors in the maintainer's words in each new entry, and keep their meaning and wording; then commit DECISIONS.md with the work. Name a decision by its reference: a verdict ID exists only in this machine's store and does not go into repository text."
 
 // DecisionRecordResult is the outcome of one RecordDecision: the file, and the verdicts that it
 // appended, that it already held, and that are not recorded because they are fyi
