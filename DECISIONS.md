@@ -748,3 +748,52 @@ Recommendation:
 > **Corrections from the peers:** codex-koinon: file metadata and the transcript do not prove an idle current reading (two reproductions); say that Koinon has no verified idle source for 1.4.7, not that none can exist; say that no timer setting was found, not that none exists; and name this a partial fix with the rest of the goal in a new issue.
 >
 > **Open point:** none.
+
+<a id="card-labels-582"></a>
+
+## CARD-LABELS-582
+
+<!-- koinon-decision CARD-LABELS-582 revision 1 approved 1793467001178 -->
+
+**Approved**, revision 1, 2026-10-31 17:16:41 UTC.
+
+- Title: Add labels for open disagreements, other options and a separate choice to the guide's card form
+- Where: Koinon guide (Decisions, card form), PDR 007, docs/USAGE.md; issue #582
+
+Context:
+
+> - This card changes your card form of 2026-10-29 (DECISIONS.md#CARD-FORM-562). It adds labels after **Fast or complete:** and keeps the rest of the form.
+> - The form today says: "other options can follow at the end, each with the facts to judge it", and, after Fast or complete, "the corrections from a peer who reviewed it, each disagreement that is still open, and each open point with how to handle it" (`internal/setup/guide.go`, Decisions; develop 575909d; checked 2026-10-31). These parts have no labels.
+> - claude-review-bot asked for the labels through Koinon on 2026-10-31, at your request. It relayed your words about card review-bot-07-policy-first: "I really like the additions ... especially Open disagreements, Other options, and 'A separate choice, which you can add to any option'. it's nice context." (relayed; your verdict on that card has no note).
+> - That card uses the labels, and you approved it at revision 5 on 2026-10-31 (decision_get review-bot-07-policy-first, read 2026-10-31).
+> - Issue #582 holds the proposed text and the acceptance criteria.
+
+Recommendation:
+
+> ## Recommendation: add the five labelled parts below to the card form, after Fast or complete
+>
+> **What:** one pull request in Koinon:
+> 1. In the guide's card form, after **Fast or complete:**, in this order:
+>    - **Corrections from the peer:** when a peer reviewed it, each correction.
+>    - **Open disagreements:** "none" when that is true; else each position, with whose it is.
+>    - **Other options:** when there are real alternatives, a list. Each says what it keeps and what it costs.
+>    - **A separate choice, which you can add to any option:** when a choice is independent of the options. It gives the cost, what the choice does not solve, whether the author recommends it, and the default when you do not take it.
+>    - Each open point, with how to handle it.
+> 2. The sentence "other options can follow at the end" points to the **Other options:** label.
+> 3. PDR 007, docs/USAGE.md and the CHANGELOG match. A guide test checks the labels and their order for every family.
+> 4. I record this verdict in DECISIONS.md and cite it from PDR 007 and the changelog.
+>
+> **Why:** the form names these parts but gives no labels, so each agent writes them in its own way. A label for a separate choice stops an independent choice from looking like a competing option. "none" makes it clear that the author checked for disagreements.
+>
+> **Fast or complete:** complete for issue #582. **Limits:** the new text reaches agents only after the next release. Cost: one small pull request with its reviews.
+>
+> **Corrections from the peer:** none yet. codex-koinon reviews the pull request.
+>
+> **Open disagreements:** none.
+>
+> **Other options:**
+> - Keep the form as it is. It keeps the approved text unchanged. Each agent then keeps its own wording for these parts.
+
+Note:
+
+> add them as standard options, but they don't all need to be present in ALL cards if there is no relevant data.

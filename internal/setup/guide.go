@@ -89,7 +89,7 @@ peer name; an unknown name is flagged. Text in a known key format is refused. Th
 gives the verdict in the dashboard or a maintainer client.
 Card form (#562): bring the maintainer only what needs the maintainer, one card for each
 decision, and wait for its verdict. Give one recommendation, not a menu of options; other
-options can follow at the end, each with the facts to judge it.
+options can follow at the end, under **Other options:**.
 - Title: the action, in one line.
 - Context: a short list of facts. Each item has one fact, its source (a file and line, a
   record, a pull request or a report) and the date you checked it. When the card changes an
@@ -99,9 +99,17 @@ options can follow at the end, each with the facts to judge it.
   order: **What:** the concrete change, its source and what gets recorded, with numbered steps
   when there are steps; **Why:** the defect or the goal, from the records (recommend the fix for
   the defect, not for its symptom); **Fast or complete:** which one it is, each gap or limit
-  that stays, with its source, and the cost in time, money or CI; then, when they apply, the
-  corrections from a peer who reviewed it, each disagreement that is still open, and each open
-  point with how to handle it.
+  that stays, with its source, and the cost in time, money or CI. Then these labels, in this
+  order; give each one only when it has relevant data (#582):
+  **Corrections from the peer:** each correction from a peer who reviewed it;
+  **Open disagreements:** each position that is still open, with whose it is, or "none" when a
+  peer reviewed it and no disagreement is open;
+  **Other options:** the real alternatives, a list in which each says what it keeps and what it
+  costs;
+  **A separate choice, which you can add to any option:** a choice that is independent of the
+  options, with its cost, what it does not solve, whether you recommend it, and the default
+  when the maintainer does not take it.
+  Then each open point with how to handle it.
 A recommendation that drops or defers a goal that the maintainer set says so in its heading,
 and names it as a limit in Fast or complete. ASD-STE100 applies to the sentences: short active
 sentences, one idea each, and common words. The labels and their order are the form, so a

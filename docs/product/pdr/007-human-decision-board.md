@@ -113,7 +113,9 @@ Markdown, code and commands appear in code blocks, and agents write card prose i
 Simplified Technical English. Agents use one card form, which the guide's Decisions section
 gives (#562): the title is the action; the context is short facts, each with its source and
 date; the recommendation has the heading "Recommendation:", then What, Why and Fast or
-complete, in that order. ASD-STE100 applies to the sentences, and the form stays.
+complete, in that order, then, each only when it has relevant data, Corrections from the peer,
+Open disagreements, Other options and A separate choice, which you can add to any option
+(#582). ASD-STE100 applies to the sentences, and the form stays.
 
 **Provenance:** Requested in #206 (issue body, requirements 1, 2, 5, 6, 8, 10, 11, 12 and
 the settled point on rows); a request record. Agent withdrawal: requested in #504 (issue body,
@@ -133,7 +135,12 @@ prose should be in asd-ste100" (#206 comment 6119203856). Card form: Maintainer,
 relayed by claude-unify: "we need to add some guidance to agents using koinon, not leave it up
 to the agent to make it up." (#562); the form, with its guide text, approved on the decision
 board ([DECISIONS.md#CARD-FORM-562](../../../DECISIONS.md#card-form-562)). Intent: every agent
-writes a card in the same form, so the maintainer reads each card the same way. The `ACTION FOR YOU` marker: Proposed in the #206 plan; approved with the plan at Gate B (#206 comment 6150911355); retired by #537. Lifecycle: Maintainer, 2026-10-13:
+writes a card in the same form, so the maintainer reads each card the same way. Labels after
+Fast or complete: approved on the decision board, Maintainer, 2026-10-31, with the note "add
+them as standard options, but they don't all need to be present in ALL cards if there is no
+relevant data." ([DECISIONS.md#CARD-LABELS-582](../../../DECISIONS.md#card-labels-582), #582).
+Intent: each card gives these parts under the same labels, and a card leaves out a label that
+has nothing to say. The `ACTION FOR YOU` marker: Proposed in the #206 plan; approved with the plan at Gate B (#206 comment 6150911355); retired by #537. Lifecycle: Maintainer, 2026-10-13:
 "we don't build systems that fail at some arbitrary limit. closed items should be archived.
 after 30 days, archived items should be moved to a log file in case an old decision needs to
 be resurrected. nothing gets deleted, but the lifecycle becomes active > in progress >
@@ -333,4 +340,5 @@ blocks, which the maintainer copies into a terminal, hold printable ASCII only. 
 | 2026-10-28 | Decision 4: a verdict read asks the agent to record the verdict in `DECISIONS.md` (#536; WDR 001, Decision 7) |
 | 2026-10-28 | Decisions 1, 2 and 4, requirement 7: the task kind, feedback that returns an item to its author, and Acknowledge on an `fyi` item, delivered to the recipients; the `ACTION FOR YOU` marker is retired (#537; [DECISIONS.md#BOARD-VERDICTS-537](../../../DECISIONS.md#board-verdicts-537)) |
 | 2026-10-29 | Decision 1: the card form in the guide's Decisions section (#562; [DECISIONS.md#CARD-FORM-562](../../../DECISIONS.md#card-form-562)) |
+| 2026-10-31 | Decision 1: the card form's labels after Fast or complete (#582; [DECISIONS.md#CARD-LABELS-582](../../../DECISIONS.md#card-labels-582)) |
 | 2026-10-31 | Decision 4: the product text names a decision by its reference and leaves the citation rule to the project (#580) |
