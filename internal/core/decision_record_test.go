@@ -315,7 +315,12 @@ func TestDecisionRecordTextLeavesCitationToTheProject(t *testing.T) {
 	}
 	root := t.TempDir()
 	path := filepath.Join(root, DecisionRecordFile)
-	earlier := decisionRecordTitle + " on the Koinon decision board, appended by Koinon's `decision_record`\ntool. Cite an entry as `DECISIONS.md#REFERENCE`; a link's target\nis the reference in lower case.\n"
+	// The header that Koinon wrote before #580, as at 95bbe41.
+	earlier := "# Decisions\n\nThe maintainer's verdicts on the Koinon decision board, appended by Koinon's `decision_record`\n" +
+		"tool. Each entry holds the card text that the maintainer saw when giving the verdict, and the\n" +
+		"maintainer's note or feedback, with spelling and typing errors corrected. Entries are only\n" +
+		"appended, never changed. Cite an entry as `DECISIONS.md#REFERENCE`; a link's target\n" +
+		"is the reference in lower case.\n"
 	if err := os.WriteFile(path, []byte(earlier), 0o644); err != nil {
 		t.Fatal(err)
 	}
