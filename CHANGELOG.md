@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The card form in `koinon guide`, Decisions, gives labels for the parts after **Fast or
+  complete:**, in this order: **Corrections from the peer:**, **Open disagreements:**,
+  **Other options:** (each with what it keeps and what it costs) and **A separate choice,
+  which you can add to any option:** (its cost, what it does not solve, whether the author
+  recommends it, and the default). A card gives each label only when it has relevant data
+  (#582, DECISIONS.md#CARD-LABELS-582).
 - Koinon's decision text no longer tells a project how to cite a decision (#580). The
   `decision_record` tool description, its instruction (also in `decision_get`,
   `decision_pending` and the verdict message), the guide's Decisions section and the header of
