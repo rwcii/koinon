@@ -297,3 +297,45 @@ func TestDecisionEntryBounds(t *testing.T) {
 		t.Fatalf("oversized entry: %d bytes", len(body))
 	}
 }
+
+// The record text names a decision by its reference and keeps the verdict ID out of
+// repository text; how a project cites a decision is that project's own rule (#580). A record
+// that Koinon wrote with the earlier header is still a Koinon record.
+func TestDecisionRecordTextLeavesCitationToTheProject(t *testing.T) {
+	for name, text := range map[string]string{"header": decisionRecordHeader, "commit": decisionRecordCommit, "instruction": decisionRecordInstruction} {
+		if strings.Contains(text, "DECISIONS.md#") || strings.Contains(strings.ToLower(text), "cite") {
+			t.Fatalf("%s tells the project how to cite: %s", name, text)
+		}
+	}
+	if !strings.Contains(decisionRecordCommit, "by its reference") || !strings.Contains(decisionRecordCommit, "verdict ID exists only in this machine's store") {
+		t.Fatalf("commit instruction: %s", decisionRecordCommit)
+	}
+	if !strings.HasPrefix(decisionRecordHeader, decisionRecordTitle) || !strings.Contains(decisionRecordHeader, "named by its reference") {
+		t.Fatalf("header: %s", decisionRecordHeader)
+	}
+	root := t.TempDir()
+	path := filepath.Join(root, DecisionRecordFile)
+	// The header that Koinon wrote before #580, as at 95bbe41.
+	earlier := "# Decisions\n\nThe maintainer's verdicts on the Koinon decision board, appended by Koinon's `decision_record`\n" +
+		"tool. Each entry holds the card text that the maintainer saw when giving the verdict, and the\n" +
+		"maintainer's note or feedback, with spelling and typing errors corrected. Entries are only\n" +
+		"appended, never changed. Cite an entry as `DECISIONS.md#REFERENCE`; a link's target\n" +
+		"is the reference in lower case.\n"
+	if err := os.WriteFile(path, []byte(earlier), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	verdicts := []DecisionVerdict{recordVerdict(1, 1, "approved", 1_800_000_000_000, "")}
+	if got, err := RecordDecision(root, "R-1", "", verdicts); err != nil || len(got.Appended) != 1 {
+		t.Fatalf("earlier header: %+v %v", got, err)
+	}
+	data, _ := os.ReadFile(path)
+	if !strings.HasPrefix(string(data), earlier) || strings.Count(string(data), "# Decisions") != 1 {
+		t.Fatalf("earlier record changed:\n%s", data)
+	}
+	if got, err := RecordDecision(root, "R-1", "", verdicts); err != nil || len(got.Appended) != 0 || len(got.Present) != 1 {
+		t.Fatalf("repeated record: %+v %v", got, err)
+	}
+	if again, _ := os.ReadFile(path); !bytes.Equal(again, data) {
+		t.Fatalf("repeated record changed the file:\n%s", again)
+	}
+}

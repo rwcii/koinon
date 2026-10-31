@@ -275,8 +275,9 @@ The agent that handles a verdict records it in the repository, except an fyi
 acknowledgement, which holds no decision: `decision_record` (`koinon
 decision record --reference REF`) appends the verdict's entry, with the card text that you saw
 and your note, to `DECISIONS.md` at the root of its checkout. The agent corrects the spelling
-and typing errors in your words, commits the file with the work, and cites the decision as
-`DECISIONS.md#REFERENCE`, never by verdict ID. An item is recorded only in the repository it
+and typing errors in your words, commits the file with the work, and names the decision by its reference, never by verdict ID,
+which exists only in this machine's store. How a project cites its decisions is that project's
+own rule. An item is recorded only in the repository it
 was created in. When a repository's `DECISIONS.md` is not a Koinon record, the agent asks you
 on the board and changes nothing. A recorded entry is public, so agents write every card as
 public text.

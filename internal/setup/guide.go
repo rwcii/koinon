@@ -127,10 +127,10 @@ your checkout (directory names another checkout of the same repository), once pe
 decision_get, decision_pending and the verdict message show the entry and the path. Before you commit, correct the spelling and typing
 errors in the maintainer's words in each new entry (notes, feedback and quotes), and keep
 their meaning and wording; do the same wherever you put the maintainer's words into the
-repository. Commit DECISIONS.md with the work. Cite a decision
-in a commit, a pull request or a document as DECISIONS.md#REFERENCE (a link's target is the
-reference in lower case), never by verdict ID: a
-verdict ID exists only in this machine's store. A recorded entry is public repository text,
+repository. Commit DECISIONS.md with the work. Name a decision
+by its reference (a link's target in DECISIONS.md is the reference in lower case), never by
+verdict ID: a verdict ID exists only in this machine's store. How a project cites its
+decisions is that project's own rule. A recorded entry is public repository text,
 so write every card as public text (#536).
 
 ## Participants
