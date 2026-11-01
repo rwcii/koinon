@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -250,7 +251,8 @@ func TestSessionCycleFlow(t *testing.T) {
 	if c = g.cycle(t, v.ID); c.State != cycleResetVerified || g.session.count("select") != 1 || g.session.count("create") != 1 {
 		t.Fatalf("after proof: %+v %v", c, g.session.calls)
 	}
-	// The successor's early report, before its receipt, changes nothing.
+	// The successor's early report, before its receipt, changes nothing: Koinon is entering the
+	// pickup (#588).
 	successor := g.successor(t)
 	g.session.receipt = false
 	g.step(t) // pickup intent; the worker sends
@@ -258,7 +260,8 @@ func TestSessionCycleFlow(t *testing.T) {
 	if c = g.cycle(t, v.ID); c.State != cyclePickupIntent {
 		t.Fatalf("after dispatch: %+v", c)
 	}
-	if _, err := g.s.ContextCyclePickup(context.Background(), successor, "synthetic-created-1", v.ID, c.Revision, g.name, "resumed", "synthetic"); !errors.Is(err, ErrCycleChanged) {
+	if _, err := g.s.ContextCyclePickup(context.Background(), successor, "synthetic-created-1", v.ID, c.Revision, g.name, "resumed", "synthetic"); errorCode(err) != ErrCyclePickupNotReady.Code ||
+		!strings.Contains(err.Error(), "the cycle is at pickup_intent; Koinon is entering the pickup;") {
 		t.Fatalf("early report: %v", err)
 	}
 	// While the request is pending, a cycle step returns and the wake lock is free.

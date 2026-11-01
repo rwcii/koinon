@@ -352,17 +352,24 @@ caller, epoch, host, pane, socket or another session.
   returns `next`, the instruction to end the turn, start no other work and stay idle, because the clear waits for the
   idle prompt.
 - `POST /v1/cycles/pickup` (`context_cycle_pickup`) takes `cycle_id`, `revision`, the same file
-  name, `outcome` `resumed` or `paused` and a `report` of 1 to 1,024 UTF-8 bytes. A
-  `waiting_pickup` cycle completes when the caller runs under a new epoch (the epoch that the
-  adapter proved) and is the requester itself or a managed successor: an active session of the
-  same family in the same host and pane that holds the cycle's participant address. The
-  `revision` is one that the caller read while the cycle awaited the report: that of its
-  `waiting_pickup` stage or of a later stage of the prompt wait that began there (#520). The
+  name, `outcome` `resumed` or `paused` and a `report` of 1 to 1,024 UTF-8 bytes. A cycle at
+  `reset_verified` or `waiting_pickup` completes when the caller runs under a new epoch (the
+  epoch that the adapter proved) and is the requester itself or a managed successor: an active
+  session of the same family in the same host and pane that holds the cycle's participant
+  address, with or without a repository. At `reset_verified` the session restored the handoff
+  before Koinon entered the pickup (#588). The `revision` is one that the caller read while
+  the cycle accepted the report: that of its `reset_verified` or `waiting_pickup` stage, or of
+  a later stage of a prompt wait that began at either (#520). The
   report is also accepted in that prompt wait (`waiting_prompt` or `prompt_intent` with
-  `prompt_from` `waiting_pickup`), because the call that the prompt approves can be the report
-  itself; an answer changes the revision, and the approved call can arrive after it, so the
-  report keeps the revision that it read. A
-  successor's completion moves the Enable to it. The report is private runtime data; status,
+  `prompt_from` `reset_verified` or `waiting_pickup`), because the call that the prompt approves
+  can be the report itself; an answer changes the revision, and the approved call can arrive
+  after it, so the report keeps the revision that it read. At `reset_verified` the report and
+  Koinon's pickup input compete under the cycle's revision: after the report, Koinon enters no
+  pickup input; after the input's intent, the report is accepted again at `waiting_pickup`. A
+  report to an active cycle at another stage is refused with `cycle_pickup_not_ready` (HTTP 409)
+  and the current cycle in `details`; its `error` names the stage, says "the reset is not
+  verified yet" before `reset_verified` and "Koinon is entering the pickup" at `pickup_intent`.
+  A successor's completion moves the Enable to it. The report is private runtime data; status,
   audit and the dashboard show its size only.
 
 Ready and pickup check in their write transaction that the cycle is before its stage and cycle

@@ -5,6 +5,16 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A managed cycle accepts the pickup report at `reset_verified`, before Koinon enters the
+  pickup (#588, DECISIONS.md#PICKUP-RESET-588). Before, a session that restored its handoff on its own after the verified
+  reset got `cycle_changed`, Koinon waited for an idle pane to enter the pickup, and the cycle
+  could fail at its stage deadline, which turns the Enable off. Now the report completes the
+  cycle with the same checks as at `waiting_pickup`, and Koinon enters no pickup input after
+  it; when Koinon's pickup input starts first, the report is accepted at `waiting_pickup` as
+  before. A report at another stage of an active cycle is refused with
+  `cycle_pickup_not_ready`, whose message names the stage. The pickup skill and the guide say
+  the same.
+
 ## 2026-11-01 — Managed cycles that keep their Enable, and procedure steps put back
 
 This release makes managed context cycles more reliable. A cycle request and its wake notice
