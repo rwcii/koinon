@@ -246,10 +246,12 @@ while fresh and for the current published name.
   cycle clears your context at your idle prompt, and enters Koinon's own pickup skill, koinon-pickup, which the
   daemon writes for the person and which loads skill.pickup. If your pane does not become
   idle, overwatch sends the request again under a new revision; pause and report again.
-- After a clear, call context_cycle_status. For a cycle in waiting_pickup, finish your
-  canonical pickup of the returned handoff file, then call context_cycle_pickup with the cycle
-  ID, revision, file name, outcome resumed or paused, and a short report of the restored work,
-  within five minutes of the pickup input. Its catalog_digest is the catalog whose pickup
+- After a clear, call context_cycle_status. For a cycle in reset_verified or waiting_pickup,
+  with or without a repository, finish your canonical pickup of the returned handoff file, then
+  call context_cycle_pickup with the cycle ID, revision, file name, outcome resumed or paused,
+  and a short report of the restored work, before the cycle's stage_deadline. A report at
+  reset_verified completes the cycle before Koinon enters the pickup. A cycle_pickup_not_ready
+  refusal names the cycle's stage: read the cycle again and report at one of these stages. Its catalog_digest is the catalog whose pickup
   procedure the cycle pinned; library_read returns the same digest.
 - context_cycle_ready and context_cycle_pickup move the cycle on; a stale or conflicting
   report returns the current state.

@@ -72,7 +72,7 @@ func (d *Daemon) cycleRoutes(mux *http.ServeMux) {
 // cycle's current state with its refusal, so the caller can read where it stands.
 func cycleReply(w http.ResponseWriter, cycle CycleView, err error) {
 	if err != nil {
-		if refusal, ok := err.(Refusal); ok && refusal == ErrCycleChanged && cycle.ID != "" {
+		if refusal, ok := err.(Refusal); ok && (refusal == ErrCycleChanged || refusal.Code == ErrCyclePickupNotReady.Code) && cycle.ID != "" {
 			respond(w, http.StatusConflict, map[string]any{"ok": false, "code": refusal.Code, "error": refusal.Message, "details": map[string]any{"cycle": cycle}})
 			return
 		}
