@@ -660,7 +660,7 @@ func (s *Store) cycleNoticeSuffix(ctx context.Context, b wakeBatch) (string, err
 	if err != nil {
 		return "", err
 	}
-	return " Managed context-cycle request " + id + ".", nil
+	return " Managed context-cycle request " + id + ": answer it before other work.", nil
 }
 
 // cycleReadyNext is the instruction of a successful ready report (#431).

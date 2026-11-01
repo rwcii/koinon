@@ -29,9 +29,21 @@ func TestAgentTextHasNoLimitPhrases(t *testing.T) {
 			}
 		}
 	}
-	for _, want := range []string{"Call the koinon library_read tool for item skill.pickup and follow the returned procedure."} {
+	// The pickup entries check the cycle's catalog digest and stop when they cannot read the
+	// procedure (DECISIONS.md#RESTORE-STEPS-487).
+	for _, want := range []string{"Call the koinon library_read tool for item skill.pickup. When context_cycle_status shows a cycle,\n" +
+		"the catalog_digest that library_read returns must equal the cycle's catalog_digest; if it differs,\n" +
+		"or the tool is unavailable, stop and report that. Otherwise follow the returned procedure."} {
 		if !strings.Contains(string(core.PickupSkill()), want) {
 			t.Errorf("koinon-pickup lacks %q", want)
+		}
+	}
+	for _, want := range []string{"Run koinon library read skill.pickup --as deepseek:$DSH_SESSION_ID. When koinon cycle-status\n" +
+		"--as deepseek:$DSH_SESSION_ID shows a cycle, the catalog_digest that library read returns must\n" +
+		"equal the cycle's catalog_digest; if it differs, or the command fails, stop and report that.\n" +
+		"Otherwise follow the returned procedure."} {
+		if !strings.Contains(string(core.DeepSeekPickupSkill()), want) {
+			t.Errorf("DeepSeek koinon-pickup lacks %q", want)
 		}
 	}
 }
@@ -66,10 +78,12 @@ func TestSkillTextHasNoLimitPhrases(t *testing.T) {
 		t.Fatal(err)
 	}
 	steps := map[string][]string{
-		"check":          {"When a required check\nfails, fix the cause and run the check again."},
-		"handoff":        {"`_handoff/` directory of the main checkout", "When the output is `not ready`, tell the maintainer which check failed", "Report the path of the new file."},
-		"koinon-guide":   {"report the command and its output to the maintainer."},
-		"pair":           {"The driver edits,\nstages and commits.", "takes a material disagreement to the maintainer."},
+		"check":        {"When a required check\nfails, fix the cause and run the check again."},
+		"handoff":      {"`_handoff/` directory of the main checkout", "When the output is `not ready`, stop: tell the maintainer which check failed, with the output,\nand write no handoff.", "Report the path of the new file."},
+		"koinon-guide": {"report the command and its output to the maintainer."},
+		"pair": {"The driver edits,\nstages and commits.", "takes a material disagreement to the maintainer.",
+			"When the increment is committed, tested and has no accepted blocker, hand over the exact hash",
+			"Do not swap during an unfinished fix or check."},
 		"peer-review":    {"Report each failure that a test or a command reproduces", "Read back the status and the\nevidence link."},
 		"peer-tmux":      {"An authorized cycle runs\nthrough all its steps", "ask the\nmaintainer which pane to use.", "ask the peer to save it again"},
 		"pickup":         {"Then start the next action.", "ask the maintainer what to resume."},

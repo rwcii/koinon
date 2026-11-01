@@ -226,8 +226,8 @@ while fresh and for the current published name.
   session's Enable, set in the dashboard, with koinon context enable or through context_enable,
   turns these cycles on.
 - The request is in your session's own inbox, also when you hold a participant address. A
-  wake notice whose range holds it ends with "Managed context-cycle request ID." Read that
-  inbox range first.
+  wake notice whose range holds it ends with "Managed context-cycle request ID: answer it
+  before other work." Read that inbox range first.
 - On a request: pause your work at the next safe stopping point and start no new work. In a
   Claude session the clear does not stop your background subagents: do not stop them or wait for them; list each
   one that still runs in the handoff, with its task and where its result goes, and the new

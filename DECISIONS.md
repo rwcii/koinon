@@ -877,3 +877,47 @@ Recommendation:
 >
 > **Other options:**
 > - Keep Decision 2 as it is. After #584, a new Enable works, but you must notice each failure and enable the session again.
+
+<a id="restore-steps-487"></a>
+
+## RESTORE-STEPS-487
+
+<!-- koinon-decision RESTORE-STEPS-487 revision 3 approved 1793501718423 -->
+
+**Approved**, revision 3, 2026-11-01 02:55:18 UTC.
+
+- Title: Put back four procedure steps that #487 removed as limit text
+- Where: internal/core/context_cycle.go, internal/core/cycle_pickup.go, internal/core/team_skills.go, agents/skills (handoff, pair), core.RemovedLimitPhrases
+
+Context:
+
+> - This card changes part of your direction of 2026-10-25 on #487: "remove all limit text. remove all of the caveats, controls, etc. the agents have their own built in safeties, they do not need you adding more complications."
+> - You asked on 2026-10-31: "what else did you change in prior versions that would cause this kind of failure?" The failure was CYCLE-NO-NEW-WORK-487: I had removed a step of the cycle as limit text (DECISIONS.md#CYCLE-NO-NEW-WORK-487).
+> - An audit of #487 commits cd0db4e and 0cf3979 (released in v0.5.0) found 16 removed procedure steps. I checked the four below in the diffs myself. In the separate choice, I checked the peer-review, refusal-review, check and handoff texts; the sprint and peer-tmux texts come from the audit only. None is on develop today (checked 2026-11-01).
+> - 1: the cycle wake notice said "Managed context-cycle request ID: answer it before other work." Now it ends "Managed context-cycle request ID." (cd0db4e, `context_cycle.go`). An agent can do other work first and miss the 15-minute ready deadline.
+> - 2: the handoff skill said "When the output is `STOP`, stop and tell the maintainer; do not write a handoff into a path Git can commit." Now it says only to report the failed check (0cf3979). An agent can write the handoff into a tracked path, and the cycle refuses it.
+> - 3: the pair skill said "When the increment is committed, tested and has no accepted blocker, hand over" and "Do not swap during unfinished fixes/checks." Both conditions are gone (0cf3979). Drivers can swap in the middle of a fix.
+> - 4: the koinon-pickup and team skill entries said that the catalog digest from library_read must equal the cycle's digest, and "if it differs, or the tool is unavailable, stop and report that." (cd0db4e). After a clear with no MCP tools, the agent can do the pickup without the procedure and miss its report.
+> - The #487 tests block "before other work" and "stop and report" (`core.RemovedLimitPhrases`).
+
+Recommendation:
+
+> ## Recommendation: put back steps 1 to 4 in one pull request
+>
+> **What:** one pull request in Koinon, after PR #585:
+> 1. The wake notice ends again: "Managed context-cycle request ID: answer it before other work." The guide quotes it.
+> 2. The handoff skill: on `not ready`, stop, tell the maintainer which check failed, and write no handoff.
+> 3. The pair skill: hand over when the increment is committed, tested and has no accepted blocker; do not swap during an unfinished fix or check.
+> 4. The koinon-pickup and team skill entries: check that the catalog digest matches; if it differs or the tool is unavailable, stop and report that.
+> 5. `core.RemovedLimitPhrases` no longer lists the restored phrases. The CHANGELOG cites this card. Tests check each text.
+>
+> **Why:** each one is a step of a procedure, not a safety limit. Without it, the procedure can fail as the cycle did.
+>
+> **Fast or complete:** complete for the four steps. **Limits:** it does not decide the lower-impact items below. Cost: one pull request with its reviews.
+>
+> **Corrections from the peer:** codex-koinon corrected the order of the labels below.
+>
+> **Other options:**
+> - Keep the text as it is. It keeps your #487 direction. Each of these procedures can fail as the cycle did.
+>
+> **A separate choice, which you can add to any option:** put back five lower-impact steps too, from the same audit: peer-review and refusal-review "A failed or mismatched read-back is not approval" and "Never approve with an accepted blocker open"; check "A failed required check stops publication"; handoff "Do not commit, stage or push anything for a handoff"; sprint "start dependent chunks only after their dependencies merge"; peer-tmux "Do not press Enter again by rule" and "Do not substitute killing or restarting the process". Cost: the same pull request, a little larger. It does not cover the seven items that the audit marked as possible. I recommend it. Without your approval, these stay as they are.
