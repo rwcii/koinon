@@ -33,6 +33,28 @@ type Install struct {
 	Config map[string]any
 }
 
+// GoBinary is the Go runtime's binary in its installation prefix.
+func GoBinary(prefix string) string { return filepath.Join(prefix, "bin", "koinon") }
+
+// GoPrefix is the Go runtime's default installation prefix: go beside the Python one.
+func GoPrefix() (string, error) {
+	python, err := DefaultPrefix()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(python, "go"), nil
+}
+
+// DefaultGoBinary is the binary of the Go runtime's default installation, the one that
+// `koinon install` configures each agent with.
+func DefaultGoBinary() (string, error) {
+	prefix, err := GoPrefix()
+	if err != nil {
+		return "", err
+	}
+	return GoBinary(prefix), nil
+}
+
 // DefaultPrefix is the Python runtime's default installation prefix.
 func DefaultPrefix() (string, error) {
 	base := os.Getenv("XDG_DATA_HOME")

@@ -76,8 +76,8 @@ func Plan(ctx context.Context, o Options) ([]string, error) {
 		} else if differ {
 			return []string{b + " install --system" + prefix + state}, nil
 		}
-	case homebrewOpt(o.Source) != "":
-		if differ, err := notLinked(binary, homebrewOpt(o.Source)); err != nil {
+	case platform.HomebrewOpt(o.Source) != "":
+		if differ, err := notLinked(binary, platform.HomebrewOpt(o.Source)); err != nil {
 			return nil, err
 		} else if differ {
 			return []string{install}, nil
@@ -116,7 +116,7 @@ func Plan(ctx context.Context, o Options) ([]string, error) {
 // planBinary is the command word for the binary that runs the plan: the formula's opt path
 // when it runs from a Homebrew keg, so the command stays right after the next upgrade.
 func planBinary(source string) string {
-	if opt := homebrewOpt(source); opt != "" {
+	if opt := platform.HomebrewOpt(source); opt != "" {
 		source = opt
 	}
 	return setup.ShellWord(source)

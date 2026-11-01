@@ -166,9 +166,9 @@ func TestContextCycleReadyRefusalsAreRecorded(t *testing.T) {
 	if done.State != cycleFailed || done.Reason != "waiting_ready_timeout.refused.cycle_artifact_invalid" || len(done.Refusals) != 3 {
 		t.Fatalf("timeout: %+v", done)
 	}
-	// The failure ends the Enable, as each failed cycle does.
-	if e, _ := f.s.contextEnables(context.Background()); e[f.k].Enabled {
-		t.Fatal("Enable still on after the failure")
+	// A first ready timeout before any input keeps the Enable (DECISIONS.md#READY-TIMEOUT-ENABLE-487).
+	if e, _ := f.s.contextEnables(context.Background()); !e[f.k].Enabled {
+		t.Fatal("a first ready timeout ended the Enable")
 	}
 	var reason string
 	if err := f.s.db.QueryRow(`SELECT reason FROM audit WHERE action='context-cycle' AND result='failed'`).Scan(&reason); err != nil ||
@@ -220,7 +220,7 @@ func TestSchemaThirtyKeepsState(t *testing.T) {
 	f := newCycleFixture(t)
 	f.readyCycle(t)
 	rows := rowsOf(t, f.s.db)
-	if _, err := fixtureExec(f.s, undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+`PRAGMA user_version=29`); err != nil {
+	if _, err := fixtureExec(f.s, undoSchemaThirtySeven+undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+`PRAGMA user_version=29`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(f.s.db, 29); err != nil {

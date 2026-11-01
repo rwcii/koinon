@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/rwcii/koinon/internal/launcher"
+	"github.com/rwcii/koinon/internal/legacy"
 	"github.com/rwcii/koinon/internal/platform"
 )
 
@@ -25,7 +26,7 @@ import (
 type Options struct {
 	Family   string
 	CLI      string // absolute agent CLI; default: the CLI on PATH, reported
-	Binary   string // absolute koinon binary; default: this executable
+	Binary   string // absolute koinon binary; default: defaultBinary
 	AgyRoot  string // agy global customization root; default ~/.gemini/config
 	Opencode string // OpenCode global configuration directory; default $XDG_CONFIG_HOME/opencode
 	// CodexHome holds the Codex hooks.json; default $CODEX_HOME, else ~/.codex.
@@ -96,7 +97,7 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	}
 	var err error
 	if o.Binary == "" {
-		if o.Binary, err = os.Executable(); err != nil {
+		if o.Binary, err = defaultBinary(); err != nil {
 			return report, err
 		}
 	}
@@ -356,6 +357,43 @@ func Adopt(ctx context.Context, o Options) (Report, bool, error) {
 	report.Changed = append(report.Changed, o.Family+" CLI in launchers.json")
 	report.Note = "An earlier setup configured this family; its CLI was recorded for the launcher, and its configuration was not changed."
 	return report, true, nil
+}
+
+// executable gives this binary's path; tests replace it.
+var executable = os.Executable
+
+// defaultBinary is the koinon binary that setup records when none is given: DefaultBinary of
+// this executable.
+func defaultBinary() (string, error) {
+	path, err := executable()
+	if err != nil {
+		return "", err
+	}
+	return DefaultBinary(path), nil
+}
+
+// DefaultBinary is the koinon binary that setup records for the running binary at path when
+// no --binary is given (#577), in this order: the default installation's binary when path is
+// that same file, which `koinon install` configures and its plan checks; the formula's opt
+// path for a binary in a Homebrew keg, which a brew upgrade and its cleanup keep; else path.
+func DefaultBinary(path string) string {
+	if installed, err := legacy.DefaultGoBinary(); err == nil && sameFile(installed, path) {
+		return installed
+	}
+	if opt := platform.HomebrewOpt(path); opt != "" {
+		return opt
+	}
+	return path
+}
+
+// sameFile reports whether a and b, with their links resolved, are one existing regular file.
+func sameFile(a, b string) bool {
+	first, err := os.Stat(a)
+	if err != nil || !first.Mode().IsRegular() {
+		return false
+	}
+	second, err := os.Stat(b)
+	return err == nil && os.SameFile(first, second)
 }
 
 var (

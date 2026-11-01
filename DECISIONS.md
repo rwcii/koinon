@@ -748,3 +748,176 @@ Recommendation:
 > **Corrections from the peers:** codex-koinon: file metadata and the transcript do not prove an idle current reading (two reproductions); say that Koinon has no verified idle source for 1.4.7, not that none can exist; say that no timer setting was found, not that none exists; and name this a partial fix with the rest of the goal in a new issue.
 >
 > **Open point:** none.
+
+<a id="card-labels-582"></a>
+
+## CARD-LABELS-582
+
+<!-- koinon-decision CARD-LABELS-582 revision 1 approved 1793467001178 -->
+
+**Approved**, revision 1, 2026-10-31 17:16:41 UTC.
+
+- Title: Add labels for open disagreements, other options and a separate choice to the guide's card form
+- Where: Koinon guide (Decisions, card form), PDR 007, docs/USAGE.md; issue #582
+
+Context:
+
+> - This card changes your card form of 2026-10-29 (DECISIONS.md#CARD-FORM-562). It adds labels after **Fast or complete:** and keeps the rest of the form.
+> - The form today says: "other options can follow at the end, each with the facts to judge it", and, after Fast or complete, "the corrections from a peer who reviewed it, each disagreement that is still open, and each open point with how to handle it" (`internal/setup/guide.go`, Decisions; develop 575909d; checked 2026-10-31). These parts have no labels.
+> - claude-review-bot asked for the labels through Koinon on 2026-10-31, at your request. It relayed your words about card review-bot-07-policy-first: "I really like the additions ... especially Open disagreements, Other options, and 'A separate choice, which you can add to any option'. it's nice context." (relayed; your verdict on that card has no note).
+> - That card uses the labels, and you approved it at revision 5 on 2026-10-31 (decision_get review-bot-07-policy-first, read 2026-10-31).
+> - Issue #582 holds the proposed text and the acceptance criteria.
+
+Recommendation:
+
+> ## Recommendation: add the five labelled parts below to the card form, after Fast or complete
+>
+> **What:** one pull request in Koinon:
+> 1. In the guide's card form, after **Fast or complete:**, in this order:
+>    - **Corrections from the peer:** when a peer reviewed it, each correction.
+>    - **Open disagreements:** "none" when that is true; else each position, with whose it is.
+>    - **Other options:** when there are real alternatives, a list. Each says what it keeps and what it costs.
+>    - **A separate choice, which you can add to any option:** when a choice is independent of the options. It gives the cost, what the choice does not solve, whether the author recommends it, and the default when you do not take it.
+>    - Each open point, with how to handle it.
+> 2. The sentence "other options can follow at the end" points to the **Other options:** label.
+> 3. PDR 007, docs/USAGE.md and the CHANGELOG match. A guide test checks the labels and their order for every family.
+> 4. I record this verdict in DECISIONS.md and cite it from PDR 007 and the changelog.
+>
+> **Why:** the form names these parts but gives no labels, so each agent writes them in its own way. A label for a separate choice stops an independent choice from looking like a competing option. "none" makes it clear that the author checked for disagreements.
+>
+> **Fast or complete:** complete for issue #582. **Limits:** the new text reaches agents only after the next release. Cost: one small pull request with its reviews.
+>
+> **Corrections from the peer:** none yet. codex-koinon reviews the pull request.
+>
+> **Open disagreements:** none.
+>
+> **Other options:**
+> - Keep the form as it is. It keeps the approved text unchanged. Each agent then keeps its own wording for these parts.
+
+Note:
+
+> add them as standard options, but they don't all need to be present in ALL cards if there is no relevant data.
+
+<a id="cycle-no-new-work-487"></a>
+
+## CYCLE-NO-NEW-WORK-487
+
+<!-- koinon-decision CYCLE-NO-NEW-WORK-487 revision 1 approved 1793490775910 -->
+
+**Approved**, revision 1, 2026-10-31 23:52:55 UTC.
+
+- Title: Put "start no new work" back into the managed cycle request, the guide and the ready reply
+- Where: internal/core/context_cycle.go (cycle request, cycleReadyNext), koinon guide (Managed cycle reporting), PDR 006
+
+Context:
+
+> - This card changes part of your direction of 2026-10-25 on #487: "remove all limit text. remove all of the caveats, controls, etc. the agents have their own built in safeties, they do not need you adding more complications."
+> - In PR #490 for #487 (commit cd0db4e, released in v0.5.0), I removed "and start no new work" from the cycle request and the guide, and changed the ready reply from "start no other work" to "stay idle" (`git show cd0db4e`, checked 2026-10-31).
+> - The request now says only: "Pause your work at the next safe stopping point." (`internal/core/context_cycle.go`, develop 0c3e0a9; checked 2026-10-31).
+> - On 2026-10-31 at 05:06 UTC, claude-review-bot read a cycle request and wrote: "I'll post the summary and do the verified merge first, then write the handoff." The merge call waited until 05:23:54, the 15-minute ready deadline passed, and the cycle failed (`waiting_ready_timeout.read`). The failure turned its Enable off (agent transcript and daemon store, read 2026-10-31).
+> - The failure at 21:47 UTC had another cause: the request arrived while a merge call was already waiting, so the agent did not read it in time. This change does not help that case.
+
+Recommendation:
+
+> ## Recommendation: put "start no new work" back as a step of the cycle
+>
+> **What:** one pull request in Koinon:
+> 1. The cycle request says again: "Pause your work at the next safe stopping point and start no new work."
+> 2. The guide's Managed cycle reporting section says the same.
+> 3. The ready reply says: "end your turn now, start no other work and stay idle."
+> 4. PDR 006 and the changelog cite this card. A test checks the three texts.
+>
+> **Why:** the sentence is a step of the cycle, not a safety limit. Without it, an agent can start a new task after the request, as claude-review-bot did at 05:06. The ready deadline then passes, the cycle fails, and you must enable the session again.
+>
+> **Fast or complete:** fast. **Limits:** it does not help when the request arrives during a command that already waits (the 21:47 case). Cost: one small pull request with its reviews.
+>
+> **Other options:**
+> - Keep the text as it is now. It keeps your #487 direction exactly. An agent can still start new work after a request and let the cycle fail.
+
+Note:
+
+> do the complete/correct fix.
+
+<a id="ready-timeout-enable-487"></a>
+
+## READY-TIMEOUT-ENABLE-487
+
+<!-- koinon-decision READY-TIMEOUT-ENABLE-487 revision 3 approved 1793491044950 -->
+
+**Approved**, revision 3, 2026-10-31 23:57:24 UTC.
+
+- Title: Keep the Enable when a cycle times out before Koinon enters any command in the pane
+- Where: internal/core/context_cycle_controller.go (waiting_ready deadline), PDR 006 Decision 2; with CYCLE-NO-NEW-WORK-487 and #584
+
+Context:
+
+> - This card changes your PDR 006 Decision 2 of 2026-10-12 for one case. Today: "A failed or uncertain cycle, or a change of pane or participant, ends the Enable; the maintainer enables again."
+> - Your note on CYCLE-NO-NEW-WORK-487 (2026-10-31): "do the complete/correct fix." That card named a case that the text does not fix (DECISIONS.md#CYCLE-NO-NEW-WORK-487).
+> - **Correction:** that card said that the request arrived "while a merge call was already waiting". That is wrong. Koinon admitted the cycle and put its request in the inbox at 21:47:12 UTC. The agent was in a turn and did not see the request. It started `gh pr merge` at 21:47:15, the call returned at 22:58:42, and the agent read the request at 22:58:46 (agent transcript and daemon store, read 2026-10-31; codex-koinon found the error).
+> - A cycle waits 15 minutes for the ready report and lives at most 30 minutes (`cycleReadyWait`, `cycleLifetime`, `internal/core/context_cycle.go`; checked 2026-10-31). So no request again inside the cycle reaches a session that waits for 71 minutes.
+> - The cycle failed with `waiting_ready_timeout.unread`, and the failure turned the Enable off. Koinon had entered nothing in the pane, and the context was unchanged (daemon store, read 2026-10-31).
+> - Koinon knows when a session reads its inbox, for every family. For a cycle that failed unread, the reason already records whether the request was read (`cycleRequestRead`, `internal/core/context_cycle_controller.go`; checked 2026-10-31).
+> - A new Enable has no effect in the same epoch today (#584, with codex's agreed criteria).
+
+Recommendation:
+
+> ## Recommendation: a cycle that times out before any pane input keeps the Enable once per epoch, and the next cycle starts after the session reads its inbox again
+>
+> **What:** in the same pull request as CYCLE-NO-NEW-WORK-487:
+> 1. When a cycle ends at its ready deadline (`waiting_ready_timeout`), and Koinon entered no command in the pane at any stage of that cycle, the Enable stays on. This happens once in each context epoch. A second such timeout in the same epoch ends the Enable, as Decision 2 says today. When you turn the Enable on again yourself, the session gets this one automatic retry again (#584).
+> 2. Koinon starts the next cycle only after the session reads its own inbox after that timeout. This read shows that the agent can see a new request. Then the next fresh reading at or above the threshold starts the cycle. Koinon does not start a cycle while the session has not read its inbox.
+> 3. Every other end of a cycle (another failure, a cancel, a disable, a change of pane or participant) keeps today's rule. Only one cycle is active for a session at a time.
+> 4. PDR 006 Decision 2, PROTOCOL.md and the changelog say this. Tests: an unread and a read timeout keep the Enable; no new cycle before the inbox read; one new cycle after it; a second timeout in the epoch ends the Enable; your new Enable gives one more retry; a failure after pane input still ends it.
+>
+> **Why:** in this case Koinon reset nothing, so no Enable carry-over is in question. Turning the Enable off only stops the managed cycles until you notice it.
+>
+> **Fast or complete:** complete for both cases of CYCLE-NO-NEW-WORK-487. **Limits:** a session that waits for a long time gets its next cycle only after the wait ends and it reads its inbox. Cost: one pull request with its reviews.
+>
+> **Corrections from the peer:** codex-koinon found the wrong timing above, asked that the next cycle start only on evidence, not on an assumed turn end, and asked that the reset of the retry by your new Enable be on this card. This revision does all three.
+>
+> **Other options:**
+> - Keep Decision 2 as it is. After #584, a new Enable works, but you must notice each failure and enable the session again.
+
+<a id="restore-steps-487"></a>
+
+## RESTORE-STEPS-487
+
+<!-- koinon-decision RESTORE-STEPS-487 revision 3 approved 1793501718423 -->
+
+**Approved**, revision 3, 2026-11-01 02:55:18 UTC.
+
+- Title: Put back four procedure steps that #487 removed as limit text
+- Where: internal/core/context_cycle.go, internal/core/cycle_pickup.go, internal/core/team_skills.go, agents/skills (handoff, pair), core.RemovedLimitPhrases
+
+Context:
+
+> - This card changes part of your direction of 2026-10-25 on #487: "remove all limit text. remove all of the caveats, controls, etc. the agents have their own built in safeties, they do not need you adding more complications."
+> - You asked on 2026-10-31: "what else did you change in prior versions that would cause this kind of failure?" The failure was CYCLE-NO-NEW-WORK-487: I had removed a step of the cycle as limit text (DECISIONS.md#CYCLE-NO-NEW-WORK-487).
+> - An audit of #487 commits cd0db4e and 0cf3979 (released in v0.5.0) found 16 removed procedure steps. I checked the four below in the diffs myself. In the separate choice, I checked the peer-review, refusal-review, check and handoff texts; the sprint and peer-tmux texts come from the audit only. None is on develop today (checked 2026-11-01).
+> - 1: the cycle wake notice said "Managed context-cycle request ID: answer it before other work." Now it ends "Managed context-cycle request ID." (cd0db4e, `context_cycle.go`). An agent can do other work first and miss the 15-minute ready deadline.
+> - 2: the handoff skill said "When the output is `STOP`, stop and tell the maintainer; do not write a handoff into a path Git can commit." Now it says only to report the failed check (0cf3979). An agent can write the handoff into a tracked path, and the cycle refuses it.
+> - 3: the pair skill said "When the increment is committed, tested and has no accepted blocker, hand over" and "Do not swap during unfinished fixes/checks." Both conditions are gone (0cf3979). Drivers can swap in the middle of a fix.
+> - 4: the koinon-pickup and team skill entries said that the catalog digest from library_read must equal the cycle's digest, and "if it differs, or the tool is unavailable, stop and report that." (cd0db4e). After a clear with no MCP tools, the agent can do the pickup without the procedure and miss its report.
+> - The #487 tests block "before other work" and "stop and report" (`core.RemovedLimitPhrases`).
+
+Recommendation:
+
+> ## Recommendation: put back steps 1 to 4 in one pull request
+>
+> **What:** one pull request in Koinon, after PR #585:
+> 1. The wake notice ends again: "Managed context-cycle request ID: answer it before other work." The guide quotes it.
+> 2. The handoff skill: on `not ready`, stop, tell the maintainer which check failed, and write no handoff.
+> 3. The pair skill: hand over when the increment is committed, tested and has no accepted blocker; do not swap during an unfinished fix or check.
+> 4. The koinon-pickup and team skill entries: check that the catalog digest matches; if it differs or the tool is unavailable, stop and report that.
+> 5. `core.RemovedLimitPhrases` no longer lists the restored phrases. The CHANGELOG cites this card. Tests check each text.
+>
+> **Why:** each one is a step of a procedure, not a safety limit. Without it, the procedure can fail as the cycle did.
+>
+> **Fast or complete:** complete for the four steps. **Limits:** it does not decide the lower-impact items below. Cost: one pull request with its reviews.
+>
+> **Corrections from the peer:** codex-koinon corrected the order of the labels below.
+>
+> **Other options:**
+> - Keep the text as it is. It keeps your #487 direction. Each of these procedures can fail as the cycle did.
+>
+> **A separate choice, which you can add to any option:** put back five lower-impact steps too, from the same audit: peer-review and refusal-review "A failed or mismatched read-back is not approval" and "Never approve with an accepted blocker open"; check "A failed required check stops publication"; handoff "Do not commit, stage or push anything for a handoff"; sprint "start dependent chunks only after their dependencies merge"; peer-tmux "Do not press Enter again by rule" and "Do not substitute killing or restarting the process". Cost: the same pull request, a little larger. It does not cover the seven items that the audit marked as possible. I recommend it. Without your approval, these stay as they are.

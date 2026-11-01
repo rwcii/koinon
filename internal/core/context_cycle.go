@@ -639,7 +639,7 @@ func cycleRequestBody(id string, revision int64, family, agent string, deadline 
 		ready, reset, idle = "run koinon cycle-ready --as deepseek:$DSH_SESSION_ID", "starts a new harness session for the pickup once this session is idle", "session"
 	}
 	return "overwatch: managed context cycle " + id + " revision " + strconv.FormatInt(revision, 10) +
-		" requests your handoff. Report ready by " + by + ". Pause your work at the next safe stopping point. " + subagents + " Write your handoff " +
+		" requests your handoff. Report ready by " + by + ". Pause your work at the next safe stopping point and start no new work. " + subagents + " Write your handoff " +
 		"with your canonical handoff procedure into _handoff/" + agent + "/ of the main checkout (outside a Git checkout, of the directory " +
 		"where this session started), or into the directory that the Handoff path fact of " + handoffFacts + " names, then " + ready + " with this cycle ID, " +
 		"its revision and the handoff file name. Then end your turn and stay idle: overwatch " + reset + ", and asks again " +
@@ -660,15 +660,15 @@ func (s *Store) cycleNoticeSuffix(ctx context.Context, b wakeBatch) (string, err
 	if err != nil {
 		return "", err
 	}
-	return " Managed context-cycle request " + id + ".", nil
+	return " Managed context-cycle request " + id + ": answer it before other work.", nil
 }
 
 // cycleReadyNext is the instruction of a successful ready report (#431).
-const cycleReadyNext = "Paused and ready: end your turn now and stay idle. Overwatch clears your context at " +
+const cycleReadyNext = "Paused and ready: end your turn now, start no other work and stay idle. Overwatch clears your context at " +
 	"your idle prompt and then enters koinon-pickup."
 
 // deepSeekReadyNext is cycleReadyNext for DeepSeek, whose reset is a new session (#514).
-const deepSeekReadyNext = "Paused and ready: end your turn now and stay idle. Overwatch starts a new harness " +
+const deepSeekReadyNext = "Paused and ready: end your turn now, start no other work and stay idle. Overwatch starts a new harness " +
 	"session once this session is idle and enters /koinon-pickup there."
 
 // cycleRepeatable reports whether a ready cycle whose stage deadline passed asks its
@@ -788,8 +788,12 @@ func (s *Store) admitContextCycle(ctx context.Context, k Key) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	awaiting, err := awaitingRead(ctx, s.db, k, enables[k].Revision, evidence.Epoch)
+	if err != nil {
+		return false, err
+	}
 	if eligible, _ := SelectContextTrigger(ContextTriggerInput{Active: true, Enabled: true, Policy: policy, CycleAvailable: true,
-		OverwatchConflict: conflict, Evidence: evidence, Now: now, LatchedEpoch: latched}); !eligible {
+		OverwatchConflict: conflict, Evidence: evidence, Now: now, LatchedEpoch: latched, AwaitingRead: awaiting}); !eligible {
 		return false, nil
 	}
 	// The adapter's checks of the host, pane and pickup entry run before the write.
@@ -817,8 +821,11 @@ func (s *Store) admitContextCycle(ctx context.Context, k Key) (bool, error) {
 	// The policy may have changed since the read above (the session's own threshold, #391):
 	// the selection and the cycle's recorded snapshot both use the policy in force now.
 	policy = s.sessionContextPolicy(k.Family, enable)
+	if awaiting, err = awaitingRead(ctx, tx, k, enable.Revision, evidence.Epoch); err != nil {
+		return false, err
+	}
 	eligible, _ := SelectContextTrigger(ContextTriggerInput{Active: session.State == "active", Enabled: enable.Enabled, Policy: policy,
-		CycleAvailable: true, OverwatchConflict: conflict, Evidence: evidence, Now: now, LatchedEpoch: latched})
+		CycleAvailable: true, OverwatchConflict: conflict, Evidence: evidence, Now: now, LatchedEpoch: latched, AwaitingRead: awaiting})
 	if !eligible {
 		return false, nil
 	}
@@ -1133,15 +1140,29 @@ func compactionKeepsEnable(c cycleRow, reason string) bool {
 // endCycleTx ends c inside tx and releases its credit. A cycle that ends after an input
 // whose effect is not proven is uncertain. complete carries the Enable to the successor
 // through carry. Any other end turns the session's Enable off, except for a compaction that
-// ended before its input or under another epoch (#509).
+// ended before its input or under another epoch (#509), and a ready timeout
+// (waiting_ready_timeout) before any input, once in each epoch
+// (DECISIONS.md#READY-TIMEOUT-ENABLE-487).
 func (s *Store) endCycleTx(ctx context.Context, tx *writeTx, c *cycleRow, outcome, reason string, carry func() error) error {
 	now := s.now().UnixMilli()
 	if outcome != cycleComplete && cycleUnproven(ctx, tx, *c) {
 		outcome = cycleUncertain
 	}
 	keep := compactionKeepsEnable(*c, reason)
+	keepTimeout, err := readyTimeoutKeepsEnable(ctx, tx, *c, outcome, reason)
+	if err != nil {
+		return err
+	}
 	if err := cycleEvent(ctx, tx, c, now, outcome, outcome, reason); err != nil {
 		return err
+	}
+	if keepTimeout {
+		// The terminal event is the last cycle stage; this mark follows it beyond the bound.
+		c.Events++
+		if _, err := tx.ExecContext(ctx, `INSERT INTO context_cycle_events(cycle_id,ordinal,at,stage,result,reason) VALUES (?,?,?,?,?,?)`,
+			c.ID, c.Events, now, cycleEnableKept, cycleEnableKept, reason); err != nil {
+			return err
+		}
 	}
 	c.Revision++
 	c.State, c.Reason, c.Outcome, c.UpdatedAt, c.FinishedAt, c.Credit = outcome, reason, outcome, now, now, 0
@@ -1159,6 +1180,11 @@ func (s *Store) endCycleTx(ctx context.Context, tx *writeTx, c *cycleRow, outcom
 		// The crossing is armed again once the end commits, in every transaction that ends it.
 		k := Key{c.Family, c.SessionID}
 		tx.onCommit(func() { s.rearm(k) })
+	case keepTimeout:
+		// The crossing stays selected until the session reads its inbox (noteCycleInboxRead).
+		if err := keepEnableTx(ctx, tx, *c); err != nil {
+			return err
+		}
 	default:
 		if _, err := tx.ExecContext(ctx, `UPDATE context_enables SET enabled=0,revision=revision+1,updated_at=?
 			WHERE family=? AND session_id=? AND enabled=1`, now, c.Family, c.SessionID); err != nil {

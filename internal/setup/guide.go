@@ -89,7 +89,7 @@ peer name; an unknown name is flagged. Text in a known key format is refused. Th
 gives the verdict in the dashboard or a maintainer client.
 Card form (#562): bring the maintainer only what needs the maintainer, one card for each
 decision, and wait for its verdict. Give one recommendation, not a menu of options; other
-options can follow at the end, each with the facts to judge it.
+options can follow at the end, under **Other options:**.
 - Title: the action, in one line.
 - Context: a short list of facts. Each item has one fact, its source (a file and line, a
   record, a pull request or a report) and the date you checked it. When the card changes an
@@ -99,9 +99,17 @@ options can follow at the end, each with the facts to judge it.
   order: **What:** the concrete change, its source and what gets recorded, with numbered steps
   when there are steps; **Why:** the defect or the goal, from the records (recommend the fix for
   the defect, not for its symptom); **Fast or complete:** which one it is, each gap or limit
-  that stays, with its source, and the cost in time, money or CI; then, when they apply, the
-  corrections from a peer who reviewed it, each disagreement that is still open, and each open
-  point with how to handle it.
+  that stays, with its source, and the cost in time, money or CI. Then these labels, in this
+  order; give each one only when it has relevant data (#582):
+  **Corrections from the peer:** each correction from a peer who reviewed it;
+  **Open disagreements:** each position that is still open, with whose it is, or "none" when a
+  peer reviewed it and no disagreement is open;
+  **Other options:** the real alternatives, a list in which each says what it keeps and what it
+  costs;
+  **A separate choice, which you can add to any option:** a choice that is independent of the
+  options, with its cost, what it does not solve, whether you recommend it, and the default
+  when the maintainer does not take it.
+  Then each open point with how to handle it.
 A recommendation that drops or defers a goal that the maintainer set says so in its heading,
 and names it as a limit in Fast or complete. ASD-STE100 applies to the sentences: short active
 sentences, one idea each, and common words. The labels and their order are the form, so a
@@ -127,10 +135,10 @@ your checkout (directory names another checkout of the same repository), once pe
 decision_get, decision_pending and the verdict message show the entry and the path. Before you commit, correct the spelling and typing
 errors in the maintainer's words in each new entry (notes, feedback and quotes), and keep
 their meaning and wording; do the same wherever you put the maintainer's words into the
-repository. Commit DECISIONS.md with the work. Cite a decision
-in a commit, a pull request or a document as DECISIONS.md#REFERENCE (a link's target is the
-reference in lower case), never by verdict ID: a
-verdict ID exists only in this machine's store. A recorded entry is public repository text,
+repository. Commit DECISIONS.md with the work. Name a decision
+by its reference (a link's target in DECISIONS.md is the reference in lower case), never by
+verdict ID: a verdict ID exists only in this machine's store. How a project cites its
+decisions is that project's own rule. A recorded entry is public repository text,
 so write every card as public text (#536).
 
 ## Participants
@@ -218,10 +226,10 @@ while fresh and for the current published name.
   session's Enable, set in the dashboard, with koinon context enable or through context_enable,
   turns these cycles on.
 - The request is in your session's own inbox, also when you hold a participant address. A
-  wake notice whose range holds it ends with "Managed context-cycle request ID." Read that
-  inbox range first.
-- On a request: pause your work at the next safe stopping point. In a Claude session the
-  clear does not stop your background subagents: do not stop them or wait for them; list each
+  wake notice whose range holds it ends with "Managed context-cycle request ID: answer it
+  before other work." Read that inbox range first.
+- On a request: pause your work at the next safe stopping point and start no new work. In a
+  Claude session the clear does not stop your background subagents: do not stop them or wait for them; list each
   one that still runs in the handoff, with its task and where its result goes, and the new
   session gets each result as a message. A Claude subagent that finishes after your ready
   report makes overwatch ask again. Other families: let your running background subagents

@@ -394,6 +394,7 @@ func (s *Store) ReadInboxes(ctx context.Context, caller Key, after int64, partic
 		result.Messages[i].AcknowledgedVia = agentAckVia(result.Messages[i].AcknowledgedVia)
 	}
 	s.markRead(ctx, caller, address, after, participantAfter, result.Messages)
+	s.noteCycleInboxRead(ctx, caller)
 	return result, nil
 }
 

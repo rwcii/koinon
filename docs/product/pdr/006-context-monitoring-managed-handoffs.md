@@ -234,7 +234,19 @@ from the dashboard, a shell or an agent; a session can keep its own threshold.
 
 A session's Enable carries over to the session that follows a managed reset only when the
 cycle proves the new session is in the same pane and participant. A failed or uncertain
-cycle, or a change of pane or participant, ends the Enable; the maintainer enables again.
+cycle, or a change of pane or participant, ends the Enable; the maintainer enables again, and
+the new Enable lets the next fresh reading at the threshold start a cycle in the same epoch
+(#584). One failure keeps the Enable: a cycle that times out while it waits for the ready
+report, before Koinon entered any input in the pane. This happens once in each context epoch;
+a second such timeout in the epoch ends the Enable, and a new Enable gives one more retry. The
+next cycle starts only after the session reads its own inbox after the timeout.
+
+**Provenance (ready timeout):** approved on the decision board, Maintainer, 2026-10-31
+([DECISIONS.md#READY-TIMEOUT-ENABLE-487](../../../DECISIONS.md#ready-timeout-enable-487)),
+after the note "do the complete/correct fix." on
+[DECISIONS.md#CYCLE-NO-NEW-WORK-487](../../../DECISIONS.md#cycle-no-new-work-487). Intent:
+Koinon reset nothing in that case, so the Enable stays on, and the managed cycles do not stop
+until the maintainer notices.
 
 **Provenance:** Maintainer, 2026-10-12: "gate A approved, and enable carries over as you
 recommend, gate b 145 approved.  the rest come after" (#196 comment 6116403721), answering
@@ -266,10 +278,12 @@ At the threshold, Koinon asks the session to start its handoff through `overwatc
 reserved system identity like `maintainer`, with its own sender and never maintainer origin.
 No native session registers, aliases or holds that name. The request identifies its cycle
 and the maintainer's Enable; its system origin comes from stored metadata that only the daemon
-sets.
+sets. A wake notice whose range holds the request ends with "Managed context-cycle request ID:
+answer it before other work."
+([DECISIONS.md#RESTORE-STEPS-487](../../../DECISIONS.md#restore-steps-487)).
 The agent
-pauses its work at an appropriate stopping point, writes its handoff, replies that it is
-paused and ready, and stays idle; Koinon takes the ready reply from the session that it asked. After the reply, Koinon enters the family's commands in the
+pauses its work at an appropriate stopping point, starts no new work, writes its handoff,
+replies that it is paused and ready, and stays idle; Koinon takes the ready reply from the session that it asked. After the reply, Koinon enters the family's commands in the
 agent's own pane, proven as in the #156 rename (the pane process is an ancestor of the
 agent's host with no other agent between them): `/clear` then `/koinon-pickup`, or `/clear`
 then `$koinon-pickup` for Codex (Decision 4), with no appended task text (PDR 002, Decision 4);
@@ -496,8 +510,12 @@ requirement". Intent recorded there: `brew upgrade koinon` alone is the complete
 second step is a defect. Writing at the daemon's start is how this change meets it; the
 mechanism is proposed, not a maintainer decision. Before #487 the skill's body also required
 its catalog digest to equal the cycle's and said to stop and report otherwise; #487
-(provenance under Decision 3) removed that from the skill text. The cycle's byte check of the
-skill file, its menu check and its stop before reset stay as what the daemon checks.
+(provenance under Decision 3) removed that from the skill text, and the skill says it again,
+approved on the decision board, Maintainer, 2026-11-01
+([DECISIONS.md#RESTORE-STEPS-487](../../../DECISIONS.md#restore-steps-487)). Intent: after a
+clear without the tools, the agent stops and reports instead of a pickup without the procedure.
+The cycle's byte check of the skill file, its menu check and its stop before reset stay as what
+the daemon checks.
 
 ### Alternatives Considered
 
@@ -614,3 +632,6 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-29 | Decision 1: Koinon's Claude status line runs at least every 30 seconds, so an idle Claude session gets its cycle; Claude Code 2.1.97 or later (#566), approved on the decision board (CLAUDE-IDLE-566) |
 | 2026-10-29 | Decision 1: in `handoff_cycle` an older reading of an idle Codex, OpenCode or DeepSeek session counts when its reader shows that it is current (#569), approved on the decision board (PULLED-IDLE-569) |
 | 2026-10-29 | Decision 1: Koinon's Grok status line runs at least every 30 seconds, so an idle Grok session gets its cycle after Grok starts again (#568), approved on the decision board (GROK-IDLE-568) |
+| 2026-10-31 | Decision 3: the request and the ready reply say again to start no new work, which #487 had removed, approved on the decision board (CYCLE-NO-NEW-WORK-487) |
+| 2026-10-31 | Decision 2: a ready timeout before any pane input keeps the Enable once in each epoch, and the next cycle waits for the session's inbox read, approved on the decision board (READY-TIMEOUT-ENABLE-487); a new Enable clears the selected crossing (#584) |
+| 2026-11-01 | Decisions 3 and 4: the wake notice asks to answer the request before other work, and the `koinon-pickup` entry checks the catalog digest and stops and reports, which #487 had removed, approved on the decision board (RESTORE-STEPS-487) |

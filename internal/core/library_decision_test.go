@@ -186,7 +186,7 @@ func TestLibrarySchemaTwentyOnePreservesPublishedSchemaTwentyState(t *testing.T)
 	m := MemoryCaller{Family: "codex", Repository: "/synthetic/migration/.git", Consumer: "synthetic-migration", Name: "synthetic-migration"}
 	note(t, s, m, MemoryRecordRequest{Type: "finding", Body: "synthetic retained schema19 note"})
 	before := rowsOf(t, s.db)
-	if _, err := s.db.Exec(undoSchemaThirtySix + undoSchemaThirtyFour + undoSchemaThirtyThree + undoSchemaThirtyTwo + undoSchemaThirtyOne + undoSchemaThirty + undoSchemaTwentyNine + undoSchemaTwentyEight + undoSchemaTwentySeven + undoSchemaTwentySix + undoSchemaTwentyFive + undoSchemaTwentyFour + undoSchemaTwentyThree + undoSchemaTwentyTwo + undoSchemaTwentyOne + `PRAGMA user_version=20`); err != nil {
+	if _, err := s.db.Exec(undoSchemaThirtySeven + undoSchemaThirtySix + undoSchemaThirtyFour + undoSchemaThirtyThree + undoSchemaThirtyTwo + undoSchemaThirtyOne + undoSchemaThirty + undoSchemaTwentyNine + undoSchemaTwentyEight + undoSchemaTwentySeven + undoSchemaTwentySix + undoSchemaTwentyFive + undoSchemaTwentyFour + undoSchemaTwentyThree + undoSchemaTwentyTwo + undoSchemaTwentyOne + `PRAGMA user_version=20`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 20); err != nil {

@@ -79,7 +79,8 @@ fi
   whatever rule matches. `git ls-files` confirms that Git tracks nothing there; an ignore rule
   does not untrack a file that was committed earlier.
 
-When the output is `not ready`, tell the maintainer which check failed, with the output.
+When the output is `not ready`, stop: tell the maintainer which check failed, with the output,
+and write no handoff.
 
 ## 3. Take the timestamp from the shell
 

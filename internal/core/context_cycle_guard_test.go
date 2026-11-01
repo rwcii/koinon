@@ -721,7 +721,7 @@ func TestContextCycleRequestAsksToPauseAndStayIdle(t *testing.T) {
 		t.Fatalf("requests: %q", requests)
 	}
 	for _, want := range []string{"managed context cycle " + v.ID + " revision 1 requests your handoff",
-		"Pause your work at the next safe stopping point. The clear does not stop your background subagents",
+		"Pause your work at the next safe stopping point and start no new work. The clear does not stop your background subagents",
 		"do not stop them or wait for them", "list each one that still runs, with its task and where its result goes",
 		"the new session gets each result as a message", "call context_cycle_ready",
 		"Report ready by " + time.UnixMilli(v.StageDeadline).UTC().Format("2006-01-02 15:04:05 UTC") + ".",
@@ -748,8 +748,11 @@ func TestContextCycleRequestAsksToPauseAndStayIdle(t *testing.T) {
 	if strings.Contains(requests[0], "Finish") {
 		t.Fatalf("request still offers to finish the step: %s", requests[0])
 	}
-	if !strings.Contains(cycleReadyNext, "end your turn now and stay idle") {
-		t.Fatalf("ready next: %s", cycleReadyNext)
+	// The request and the ready reply say to start no new work (CYCLE-NO-NEW-WORK-487).
+	for _, next := range []string{cycleReadyNext, deepSeekReadyNext} {
+		if !strings.Contains(next, "end your turn now, start no other work and stay idle") {
+			t.Fatalf("ready next: %s", next)
+		}
 	}
 }
 
@@ -1063,7 +1066,7 @@ func TestCycleRequestWakeNamesTheCycle(t *testing.T) {
 		}
 	}
 	wake()
-	if want := " Managed context-cycle request " + v.ID + "."; len(sent) != 1 || !strings.HasSuffix(sent[0], want) {
+	if want := " Managed context-cycle request " + v.ID + ": answer it before other work."; len(sent) != 1 || !strings.HasSuffix(sent[0], want) {
 		t.Fatalf("notice during the cycle: %q", sent)
 	}
 	f.clock = time.UnixMilli(v.StageDeadline)

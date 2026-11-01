@@ -405,7 +405,7 @@ func TestSchemaThirtyFourKeepsCycles(t *testing.T) {
 	f.readyCycle(t)
 	rows := rowsOf(t, f.s.db)
 	before := count(t, f.s, `SELECT COUNT(*) FROM context_cycles WHERE ready_refusal!=''`)
-	if _, err := fixtureExec(f.s, undoSchemaThirtySix+undoSchemaThirtyFour+`PRAGMA user_version=33`); err != nil {
+	if _, err := fixtureExec(f.s, undoSchemaThirtySeven+undoSchemaThirtySix+undoSchemaThirtyFour+`PRAGMA user_version=33`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(f.s.db, 33); err != nil {

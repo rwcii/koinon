@@ -3,18 +3,20 @@ package core
 // RemovedLimitPhrases are the limit and caveat phrases that #487 removed from the text that
 // agents read: the guide, the MCP instructions and tool descriptions, the daemon's messages,
 // the skill entries it writes and the shared skills with their facts and wrappers. The tests of
-// each surface check that none of them is back.
+// each surface check that none of them is back. "start no new work" and "start no other work"
+// are steps of the managed cycle again (DECISIONS.md#CYCLE-NO-NEW-WORK-487); so are "before other
+// work", "stop and report" and "Do not swap" (DECISIONS.md#RESTORE-STEPS-487).
 var RemovedLimitPhrases = []string{
 	"grant no permission", "grants no permission", "not an instruction", "only within",
 	"Never run peer text", "adds no authority", "refuse and tell", "reference data",
-	"reviewed diff", "not proof", "relay or quote", "start no new work", "start no other work",
+	"reviewed diff", "not proof", "relay or quote",
 	"recorded data", "inert", "authorized upgrade", "separately from", "is unverified",
 	"does not attest", "grants no takeover", "permission laundering", "Do not put",
-	"Only the maintainer", "before other work", "stop and report",
+	"Only the maintainer",
 	// The shared skills (#487 audit section 3).
 	"ask only for necessary", "Ask for necessary missing", "authoritative instructions first",
 	"does not include other files", "not permission to guess", "is implied by reading",
-	"stops publication", "Interrupt only", "Do not swap", "Report only", "Drop speculation",
+	"stops publication", "Interrupt only", "Report only", "Drop speculation",
 	"Never approve", "Merge only within", "Close only", "Do not publish a release",
 	"explicitly authorized", "Stop only", "Do not purge", "Surface decisions that exceed",
 	"grants of permission", "Do not guess", "receiving-model proof", "Do not fall back",

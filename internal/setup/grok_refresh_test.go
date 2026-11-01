@@ -81,9 +81,9 @@ func TestGrokRefreshInterval(t *testing.T) {
 	}
 }
 
-// legacy writes a record of a setup from before refresh_interval was owned: its original and
+// legacyGrokRecord writes a record of a setup from before refresh_interval was owned: its original and
 // its wrapper hold type and command only, and the file holds that wrapper and extra.
-func legacy(t *testing.T, g grokStatusFile, extra string) string {
+func legacyGrokRecord(t *testing.T, g grokStatusFile, extra string) string {
 	t.Helper()
 	original, _ := json.Marshal(map[string]string{"type": "command", "command": "~/bin/line"})
 	wrapper, _ := json.Marshal(map[string]string{"type": "command", "command": grokWrapper + " --command '~/bin/line'"})
@@ -111,7 +111,7 @@ func TestGrokRefreshLegacyUpgrade(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			g, _ := grokFixture(t)
-			legacy(t, g, c.extra)
+			legacyGrokRecord(t, g, c.extra)
 			result, err := g.setUp()
 			if c.want == 5 {
 				mustOutcome(t, result, err, "unchanged")
@@ -138,7 +138,7 @@ func TestGrokRefreshLegacyUpgrade(t *testing.T) {
 	// Removal right after the upgrade, without a new setup, keeps the file's interval.
 	for _, line := range []string{"refresh_interval = 7\n", "refresh_interval = nan\n", "refresh_interval = 1979-05-27\n"} {
 		g, _ := grokFixture(t)
-		legacy(t, g, line)
+		legacyGrokRecord(t, g, line)
 		result, err := g.remove()
 		mustOutcome(t, result, err, "restored")
 		if data, _ := os.ReadFile(g.settings); string(data) != grokUserTable+line {
@@ -147,7 +147,7 @@ func TestGrokRefreshLegacyUpgrade(t *testing.T) {
 	}
 	// A legacy wrapper that the person edited stays, at setup and at removal.
 	g, _ := grokFixture(t)
-	text := legacy(t, g, "refresh_interval = 7\n")
+	text := legacyGrokRecord(t, g, "refresh_interval = 7\n")
 	edited := strings.Replace(text, "--command '~/bin/line'", "--command 'mine'", 1)
 	os.WriteFile(g.settings, []byte(edited), 0600)
 	for _, step := range []func() (StatusLineResult, error){g.setUp, g.remove} {
@@ -168,7 +168,7 @@ func TestGrokRefreshEditAfterMigration(t *testing.T) {
 		"new installation": func(g grokStatusFile) {
 			os.WriteFile(g.settings, []byte(grokUserTable), 0600)
 		},
-		"legacy record": func(g grokStatusFile) { legacy(t, g, "") },
+		"legacy record": func(g grokStatusFile) { legacyGrokRecord(t, g, "") },
 	} {
 		for _, value := range []string{"10", "nan", "1979-05-27"} {
 			t.Run(name+" "+value, func(t *testing.T) {

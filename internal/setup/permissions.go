@@ -90,7 +90,7 @@ func Permissions(o Options, add bool) (PermissionsResult, error) {
 		}
 		binary := o.Binary
 		if binary == "" {
-			binary, _ = os.Executable()
+			binary, _ = defaultBinary()
 		}
 		err = allowList(&result, statusLine{settings: filepath.Join(dir, "settings.json")}, claudePermissions(binary), func(rule string) []string {
 			if rule == "mcp__koinon__*" {

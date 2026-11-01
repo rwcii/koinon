@@ -5,6 +5,88 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-11-01 — Managed cycles that keep their Enable, and procedure steps put back
+
+This release makes managed context cycles more reliable. A cycle request and its wake notice
+say again to start no new work and to answer the request before other work. A ready timeout
+before Koinon entered any input in the pane keeps the session's Enable once in each context
+epoch, and a new Enable after a failed cycle starts the next cycle in the same epoch. Four
+procedure steps that #487 removed are back in the handoff and pair skills and in the skill
+entries. `koinon setup` records a binary path that a `brew upgrade` keeps. Koinon's decision
+text leaves the citation rule to the project, and the card form gives labels for its last
+parts. The state schema moves from 36 to 37; a v0.8.0 binary refuses the upgraded state.
+
+- Four procedure steps that #487 removed in v0.5.0 are back (DECISIONS.md#RESTORE-STEPS-487).
+  A wake notice whose range holds a managed cycle request ends again with "Managed
+  context-cycle request ID: answer it before other work." The handoff skill says: when the
+  output is `not ready`, stop, tell the maintainer which check failed and write no handoff.
+  The pair skill hands over when the increment is committed, tested and has no accepted
+  blocker, and does not swap during an unfinished fix or check. The koinon-pickup entry checks
+  that the catalog digest from library_read equals the cycle's digest, and stops and reports
+  when it differs or the tool is unavailable; DeepSeek's entry does the same with its
+  commands. The other skill entries stop and report when the tool is unavailable. The upgraded
+  daemon rewrites the installed entries.
+- A managed cycle that times out while it waits for the ready report, before Koinon entered
+  any input in the pane, no longer turns the session's Enable off. This happens once in each
+  context epoch; a second such timeout in the epoch turns it off, as before. The next cycle
+  starts after the session reads its own inbox again, so a session that was busy in a long
+  command gets its cycle when it can see the request; until then `koinon context show` gives
+  `awaiting_inbox_read` (DECISIONS.md#READY-TIMEOUT-ENABLE-487). The daemon's state moves to
+  schema 37, which adds three columns to the Enable records; an earlier binary refuses the
+  upgraded state.
+- A new Enable after a failed cycle starts the next cycle at the next fresh reading at the
+  threshold, also in the same context epoch (#584). Before, the session stayed at
+  `already_selected_for_epoch` until its context was cleared or compacted some other way. An
+  Enable that is already on for the same session and pane changes nothing.
+- The managed cycle request and the guide say again: "Pause your work at the next safe
+  stopping point and start no new work." The ready reply says "end your turn now, start no
+  other work and stay idle." #487 had removed these words in v0.5.0. Without them, an agent
+  could start new work after the request, miss the ready deadline and fail the cycle, which
+  turns its Enable off (DECISIONS.md#CYCLE-NO-NEW-WORK-487).
+- The card form in `koinon guide`, Decisions, gives labels for the parts after **Fast or
+  complete:**, in this order: **Corrections from the peer:**, **Open disagreements:**,
+  **Other options:** (each with what it keeps and what it costs) and **A separate choice,
+  which you can add to any option:** (its cost, what it does not solve, whether the author
+  recommends it, and the default). A card gives each label only when it has relevant data
+  (#582, DECISIONS.md#CARD-LABELS-582).
+- Koinon's decision text no longer tells a project how to cite a decision (#580). The
+  `decision_record` tool description, its instruction (also in `decision_get`,
+  `decision_pending` and the verdict message), the guide's Decisions section and the header of
+  a new `DECISIONS.md` told every project to cite `DECISIONS.md#REFERENCE`, which conflicted
+  with a project whose own rule differs. Now they say to name a decision by its reference and
+  never by its verdict ID, which exists only in this machine's store; the citation rule is the
+  project's own. An existing `DECISIONS.md` does not change.
+- `koinon setup FAMILY` without `--binary` records a binary path that a `brew upgrade` keeps
+  (#577). Before, it recorded the running binary, which for Homebrew is the versioned keg path
+  `<brew>/Cellar/koinon/<version>/bin/koinon`, in the agent's MCP entry, its status line and the
+  Claude permission rules; the cleanup of the next `brew upgrade` deletes that keg, so the
+  status line and the MCP server then failed. Now setup records, in this order: the default
+  installation's binary, `~/.local/share/koinon/go/bin/koinon`, when the running binary is that
+  file, which is the path that `koinon install` configures and `koinon install --plan` checks;
+  else the formula's opt path, `<brew>/opt/koinon/bin/koinon`, for a binary in a Homebrew keg;
+  else the running binary. `--binary` is still used as given. Upgrade: if you ran
+  `koinon setup FAMILY` by hand on a Homebrew installation, `koinon install --plan` and the
+  Homebrew caveats show `koinon setup FAMILY --binary` with the installed binary; run it, or
+  `koinon setup FAMILY`, once. It rewrites an unedited Koinon entry. A status line that you
+  edited stays as it is (`statusline_changed`); change its path yourself. Permission rules for
+  the new path are offered as before, only after a yes at a terminal; rules for an old path stay
+  in the settings file.
+
+Upgrade from v0.8.0 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary, moves its state to schema 37 and rewrites the `koinon-pickup` skill
+and the other skill entries. The restart ends current dashboard logins: log in again with the
+maintainer secret, or run `koinon dashboard` for a one-time link. Homebrew then shows the steps
+that `koinon install --plan` finds; run them, and run `koinon install --plan` again to check.
+A running `koinon mcp` server runs the new release without a session restart. After the
+upgrade, a v0.8.0 binary cannot open the state.
+
+Upgrade notes:
+
+- If you ran `koinon setup FAMILY` by hand on a Homebrew installation, run the
+  `koinon setup FAMILY --binary` command that `koinon install --plan` shows, once (#577).
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+
 ## 2026-10-30 — Handoff cycles and compaction for idle sessions
 
 This release lets an idle session above its context threshold get its handoff cycle, or its

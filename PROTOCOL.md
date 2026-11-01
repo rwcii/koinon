@@ -274,8 +274,9 @@ than the daemon's clock is `observation_future`. Otherwise it names one reason:
 `session_inactive`, `mode_observe`, `not_enabled`,
 `context_cycle_unavailable`, `context_unknown`, `context_counts_unavailable`,
 `context_counts_invalid`, `epoch_unverified`, `observation_future`, `source_stale`,
-`confirmation_stale`, `below_threshold` or `already_selected_for_epoch`. A new epoch or a
-fall below the threshold clears the selected epoch. `overwatch_name_conflict` applies to the
+`confirmation_stale`, `below_threshold`, `awaiting_inbox_read` or
+`already_selected_for_epoch`. A new epoch, a fall below the threshold or a new Enable clears
+the selected epoch. `overwatch_name_conflict` applies to the
 handoff cycle only. Selection writes nothing; the Sessions
 page shows its result and the source and confirmation ages. After a restart the observations
 are unknown, so no session is eligible until fresh native reports arrive.
@@ -291,10 +292,10 @@ the cycle row, its first event `requested admitted`, an audit record and the typ
 the session's own inbox. The request's sender is the reserved system identity `overwatch`
 (`sender_family` and `sender_id` `overwatch`, `sender_name` `overwatch`), with `system_kind`
 `context_cycle_request`, `cycle_id` and `cycle_enable_revision`; its fixed body names the
-cycle and its revision and asks the session to pause at the next safe stopping point, write its
+cycle and its revision and asks the session to pause at the next safe stopping point, start no new work, write its
 handoff, report it with `context_cycle_ready`, then end its turn and stay idle (#431). A wake
 whose range holds the request of an unfinished cycle ends its notice with ` Managed
-context-cycle request ID.`, after any decision verdict suffix; a finished cycle's request adds
+context-cycle request ID: answer it before other work.`, after any decision verdict suffix; a finished cycle's request adds
 nothing (#445). No session, alias or participant can take the name `overwatch`, it has no
 inbox, and no tool or command can send as it.
 Inbox reads return `system_kind`, `cycle_id` and `cycle_enable_revision` with the message. A
@@ -348,7 +349,7 @@ caller, epoch, host, pane, socket or another session.
   and no event. The newest refusal's code and revision are also kept in the cycle's own
   fixed-width slot, which is written in place even when ordinary storage is full
   (docs/CONTEXT-CYCLE-STORAGE.md). A successful report also
-  returns `next`, the instruction to end the turn and stay idle, because the clear waits for the
+  returns `next`, the instruction to end the turn, start no other work and stay idle, because the clear waits for the
   idle prompt.
 - `POST /v1/cycles/pickup` (`context_cycle_pickup`) takes `cycle_id`, `revision`, the same file
   name, `outcome` `resumed` or `paused` and a `report` of 1 to 1,024 UTF-8 bytes. A
@@ -450,7 +451,20 @@ requester or successor, deleting it and the maintainer's holder choice for its a
 the cycle in their own transaction. A cycle that ends after an input whose effect is not
 proven (an intent, or `clear_received` without a proven reset) is `uncertain`, with the
 reason of whatever ended it. Failed, cancelled and uncertain cycles end the session's Enable; a
-later cycle needs a new Enable and a new handoff. Admission funds every remaining transition:
+later cycle needs a new Enable and a new handoff. One exception
+(DECISIONS.md#READY-TIMEOUT-ENABLE-487): a cycle that fails at its ready deadline
+(`waiting_ready_timeout`), with no input event at any stage, keeps the Enable once for each
+epoch and Enable revision; the lifetime deadline (`cycle_timeout`) keeps the rule above. The
+session's Enable record holds the retry (schema 37: `kept_epoch`, `kept_revision`,
+`kept_read`), and the cycle's history gets an `enable_kept` event. Its crossing stays
+selected: the trigger reason is `awaiting_inbox_read` until the session itself reads its inbox
+after the timeout, which sets `kept_read`; an empty read counts, under any epoch, and a read
+before the timeout or by another session does not. The next fresh reading at or above the
+threshold then admits a cycle. A second such timeout in the same epoch and Enable revision ends
+the Enable. The record survives a restart and the retention of finished cycles, which is
+unchanged. A new Enable (off to on) has a new revision, so it gives one more retry, and clears
+the selected crossing (#584); an Enable that is already on for the same session, host and pane
+changes nothing. Admission funds every remaining transition:
 a credit of 4,411 pages covers 14 stages of 280 pages and a terminal outcome of 491. Each
 stage, and each audit record it writes, is a control write that debits 280 pages; the terminal
 outcome and these controls release the rest. The page debt includes every unfinished cycle's
@@ -962,6 +976,10 @@ The socket is an absolute clean path without control characters, at most 4,096 b
 pane matches `%` followed by 1–9 digits. The optional `executable` (#418) is the absolute tmux
 that the session's own terminal runs, with the same path rules as the socket. Invalid values
 return `invalid_request`.
+
+Schema 37 adds `kept_epoch` (text), `kept_revision` and `kept_read` (0 or 1) to
+`context_enables`, all with defaults, for the ready-timeout retry
+(DECISIONS.md#READY-TIMEOUT-ENABLE-487). A schema 36 binary refuses the upgraded store.
 
 Schema 36 rebuilds `decision_items` and `decision_verdicts` (#537), because SQLite cannot widen
 a CHECK in place: `kind` adds `task`, `state` adds `returned`, and `verdict` adds `feedback`,
