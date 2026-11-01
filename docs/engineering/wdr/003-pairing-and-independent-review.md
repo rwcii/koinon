@@ -131,15 +131,19 @@ suggest delegating a driver and an observer role." (memory copy only; original n
 
 ### Decision
 
-The pair currently trades the driver role at a committed increment whose checks pass, not by
-elapsed time. The driver commits, sends `wheel to you at <hash>` with the check results, and
+The pair currently trades the driver role at a committed increment whose checks pass and that
+has no accepted blocker, not by elapsed time, and does not swap during an unfinished fix or
+check. The driver commits, sends `wheel to you at <hash>` with the check results, and
 the new driver verifies the hash and a clean checkout before it edits. The pair agrees the
 first driver and the next increment before the first edit.
 
 **Provenance:** Shipped in PR #177 (merge commit 0d0caed); no maintainer decision found for the
 hand-off point. The maintainer's 2026-10-06 words above ask the pair to "trade off from time to
 time"; no source was found for the `pair` skill's sentence "Do not swap while fixes or checks
-are unfinished" as a ban on an earlier, agreed swap.
+are unfinished" as a ban on an earlier, agreed swap. #487 removed the no-blocker condition and
+that sentence from the skill; both are back, approved on the decision board, Maintainer,
+2026-11-01 ([DECISIONS.md#RESTORE-STEPS-487](../../../DECISIONS.md#restore-steps-487)). Intent:
+each is a step of the procedure, so that drivers do not swap in the middle of a fix.
 
 ### Alternatives Considered
 
@@ -278,3 +282,4 @@ rest shipped in the shared skills, and #487 removed their limits.
 | ---------- | ---------------- |
 | 2026-10-12 | Initial creation |
 | 2026-10-25 | #487: Decisions 3, 4 and 5 state the review and worktree steps without their limits |
+| 2026-11-01 | Decision 2: no swap with an accepted blocker or during an unfinished fix or check, approved on the decision board (RESTORE-STEPS-487) |

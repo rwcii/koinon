@@ -106,7 +106,9 @@ directory that holds `.git`, not to a `_handoff/` inside a linked worktree. The 
 main checkout from the Git common directory, so a relative path in a worktree cannot name the
 wrong place. `.gitignore` lists `_handoff/`; when a branch lacks that rule, the skill adds it to
 the local `info/exclude`, creates the directories with mode 0700 and checks with `git
-check-ignore` and `git ls-files` that Git ignores and tracks nothing there. The skill does not
+check-ignore` and `git ls-files` that Git ignores and tracks nothing there. When a check
+fails, the agent stops, tells the maintainer which check failed and writes no handoff
+([DECISIONS.md#RESTORE-STEPS-487](../../../DECISIONS.md#restore-steps-487)). The skill does not
 stage, commit or push a handoff. Native session IDs and tmux values recorded in a handoff
 stay only in that ignored file.
 
@@ -257,3 +259,4 @@ A handoff lists the subagents that still run, as the maintainer stated on 2026-1
 | 2026-10-25 | Decision 3: a progress note beside the snapshots (#478) |
 | 2026-10-25 | #487: Decision 2 drops the fallback ban; Decision 3 states the unusable-note fallback as the `pickup` skill does |
 | 2026-10-27 | Decision 4: a handoff lists the subagents that still run (#533) |
+| 2026-11-01 | Decision 1: a failed directory check stops the handoff, which #487 had removed, approved on the decision board (RESTORE-STEPS-487) |

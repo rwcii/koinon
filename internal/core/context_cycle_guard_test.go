@@ -1066,7 +1066,7 @@ func TestCycleRequestWakeNamesTheCycle(t *testing.T) {
 		}
 	}
 	wake()
-	if want := " Managed context-cycle request " + v.ID + "."; len(sent) != 1 || !strings.HasSuffix(sent[0], want) {
+	if want := " Managed context-cycle request " + v.ID + ": answer it before other work."; len(sent) != 1 || !strings.HasSuffix(sent[0], want) {
 		t.Fatalf("notice during the cycle: %q", sent)
 	}
 	f.clock = time.UnixMilli(v.StageDeadline)

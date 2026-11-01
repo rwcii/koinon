@@ -52,6 +52,7 @@ func TestTeamSkills(t *testing.T) {
 			"---\nname: " + skill.Name + "\ndescription: " + strconv.Quote(item.Description) + "\n---\n",
 			"library_read tool for item skill." + name + " and follow the returned procedure",
 			"from " + item.Facts.Filename + " as its Repository facts section says",
+			"If the\ntool is unavailable, stop and report that.\n", // DECISIONS.md#RESTORE-STEPS-487
 		} {
 			if !strings.Contains(content, want) {
 				t.Fatalf("%s lacks %q:\n%s", skill.Name, want, content)

@@ -17,9 +17,9 @@ its own scratch location. At a frozen checkpoint the observer sends one batch of
 findings, each with its failure and its evidence. The driver triages each finding as
 accepted or dropped, with a reason, and takes a material disagreement to the maintainer.
 Verify the accepted fixes and the behavior they affect; unchanged content keeps its review.
-When the increment is committed and tested, hand over the exact hash and the evidence, or
-finish. The new driver verifies that hash and the checkout state,
-then continues. Use the project's extra gates and checkpoint location when the facts declare
+When the increment is committed, tested and has no accepted blocker, hand over the exact hash
+and the evidence, or finish. Do not swap during an unfinished fix or check. The new driver
+verifies that hash and the checkout state, then continues. Use the project's extra gates and checkpoint location when the facts declare
 them.
 
 ## Repository facts

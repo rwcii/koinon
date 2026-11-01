@@ -278,7 +278,9 @@ At the threshold, Koinon asks the session to start its handoff through `overwatc
 reserved system identity like `maintainer`, with its own sender and never maintainer origin.
 No native session registers, aliases or holds that name. The request identifies its cycle
 and the maintainer's Enable; its system origin comes from stored metadata that only the daemon
-sets.
+sets. A wake notice whose range holds the request ends with "Managed context-cycle request ID:
+answer it before other work."
+([DECISIONS.md#RESTORE-STEPS-487](../../../DECISIONS.md#restore-steps-487)).
 The agent
 pauses its work at an appropriate stopping point, starts no new work, writes its handoff,
 replies that it is paused and ready, and stays idle; Koinon takes the ready reply from the session that it asked. After the reply, Koinon enters the family's commands in the
@@ -508,8 +510,12 @@ requirement". Intent recorded there: `brew upgrade koinon` alone is the complete
 second step is a defect. Writing at the daemon's start is how this change meets it; the
 mechanism is proposed, not a maintainer decision. Before #487 the skill's body also required
 its catalog digest to equal the cycle's and said to stop and report otherwise; #487
-(provenance under Decision 3) removed that from the skill text. The cycle's byte check of the
-skill file, its menu check and its stop before reset stay as what the daemon checks.
+(provenance under Decision 3) removed that from the skill text, and the skill says it again,
+approved on the decision board, Maintainer, 2026-11-01
+([DECISIONS.md#RESTORE-STEPS-487](../../../DECISIONS.md#restore-steps-487)). Intent: after a
+clear without the tools, the agent stops and reports instead of a pickup without the procedure.
+The cycle's byte check of the skill file, its menu check and its stop before reset stay as what
+the daemon checks.
 
 ### Alternatives Considered
 
@@ -628,3 +634,4 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-29 | Decision 1: Koinon's Grok status line runs at least every 30 seconds, so an idle Grok session gets its cycle after Grok starts again (#568), approved on the decision board (GROK-IDLE-568) |
 | 2026-10-31 | Decision 3: the request and the ready reply say again to start no new work, which #487 had removed, approved on the decision board (CYCLE-NO-NEW-WORK-487) |
 | 2026-10-31 | Decision 2: a ready timeout before any pane input keeps the Enable once in each epoch, and the next cycle waits for the session's inbox read, approved on the decision board (READY-TIMEOUT-ENABLE-487); a new Enable clears the selected crossing (#584) |
+| 2026-11-01 | Decisions 3 and 4: the wake notice asks to answer the request before other work, and the `koinon-pickup` entry checks the catalog digest and stops and reports, which #487 had removed, approved on the decision board (RESTORE-STEPS-487) |

@@ -295,7 +295,7 @@ the session's own inbox. The request's sender is the reserved system identity `o
 cycle and its revision and asks the session to pause at the next safe stopping point, start no new work, write its
 handoff, report it with `context_cycle_ready`, then end its turn and stay idle (#431). A wake
 whose range holds the request of an unfinished cycle ends its notice with ` Managed
-context-cycle request ID.`, after any decision verdict suffix; a finished cycle's request adds
+context-cycle request ID: answer it before other work.`, after any decision verdict suffix; a finished cycle's request adds
 nothing (#445). No session, alias or participant can take the name `overwatch`, it has no
 inbox, and no tool or command can send as it.
 Inbox reads return `system_kind`, `cycle_id` and `cycle_enable_revision` with the message. A

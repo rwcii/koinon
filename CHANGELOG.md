@@ -5,6 +5,16 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Four procedure steps that #487 removed in v0.5.0 are back (DECISIONS.md#RESTORE-STEPS-487).
+  A wake notice whose range holds a managed cycle request ends again with "Managed
+  context-cycle request ID: answer it before other work." The handoff skill says: when the
+  output is `not ready`, stop, tell the maintainer which check failed and write no handoff.
+  The pair skill hands over when the increment is committed, tested and has no accepted
+  blocker, and does not swap during an unfinished fix or check. The koinon-pickup entry checks
+  that the catalog digest from library_read equals the cycle's digest, and stops and reports
+  when it differs or the tool is unavailable; DeepSeek's entry does the same with its
+  commands. The other skill entries stop and report when the tool is unavailable. The upgraded
+  daemon rewrites the installed entries.
 - A managed cycle that times out while it waits for the ready report, before Koinon entered
   any input in the pane, no longer turns the session's Enable off. This happens once in each
   context epoch; a second such timeout in the epoch turns it off, as before. The next cycle
