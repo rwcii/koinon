@@ -241,3 +241,59 @@ func TestRetentionBoundHoldsForOldKeptCycles(t *testing.T) {
 		t.Fatalf("the live kept cycle went: %q %v", id, err)
 	}
 }
+
+// When live kept cycles alone pass the bound, the oldest goes too, and its session loses the
+// Enable, as a failed cycle does; the newest keep theirs (#585 review).
+func TestRetentionBoundHoldsForManyKeptSessions(t *testing.T) {
+	ctx := context.Background()
+	f := newCycleFixture(t)
+	f.observe(t, f.k, 900, "synthetic-epoch-1")
+	f.clock = f.clock.Add(cycleReadyWait)
+	f.step(t)
+	v := f.status(t, f.k)
+	newest, err := scanCycle(f.s.db.QueryRow(`SELECT `+cycleColumns+` FROM context_cycles WHERE cycle_id=?`, v.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := f.s.begin(ctx, control)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	for i := range maxTerminalCycles {
+		c := newest
+		c.ID, c.SessionID = newCycleID(), fmt.Sprintf("synthetic-other-%d", i)
+		c.Peer = c.SessionID
+		c.CreatedAt, c.FinishedAt, c.Events = newest.CreatedAt-int64(i)-1, newest.FinishedAt-int64(i)-1, 3
+		if _, err := tx.ExecContext(ctx, `INSERT INTO context_enables(family,session_id,enabled,revision,session_revision,address,host_pid,host_start,tmux_socket,tmux_pane,updated_at,threshold)
+			SELECT family,?,enabled,revision,session_revision,address,host_pid,host_start,tmux_socket,tmux_pane,updated_at,threshold
+			FROM context_enables WHERE family=? AND session_id=?`, c.SessionID, f.k.Family, f.k.ID); err != nil {
+			t.Fatal(err)
+		}
+		if err := insertCycle(ctx, tx, c); err != nil {
+			t.Fatal(err)
+		}
+		for j, stage := range []string{cycleWaitingReady, cycleFailed, cycleEnableKept} {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO context_cycle_events(cycle_id,ordinal,at,stage,result,reason) VALUES (?,?,?,?,?,?)`,
+				c.ID, j+1, c.FinishedAt, stage, stage, "waiting_ready_timeout.unread"); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.s.trimCycles(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(t, f.s, `SELECT COUNT(*) FROM context_cycles WHERE finished_at>0`); n != maxTerminalCycles {
+		t.Fatalf("finished cycles: %d, bound %d", n, maxTerminalCycles)
+	}
+	oldest := fmt.Sprintf("synthetic-other-%d", maxTerminalCycles-1)
+	if n := count(t, f.s, `SELECT COUNT(*) FROM context_enables WHERE enabled=1 AND session_id='`+oldest+`'`); n != 0 {
+		t.Fatal("the session whose kept cycle went kept its Enable")
+	}
+	if n := count(t, f.s, `SELECT COUNT(*) FROM context_enables WHERE enabled=1`); n != maxTerminalCycles {
+		t.Fatalf("Enables on: %d", n)
+	}
+}
