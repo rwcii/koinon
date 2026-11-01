@@ -332,7 +332,7 @@ func TestSchemaThirtyThreeAddsWithdrawals(t *testing.T) {
 	}
 	a := join(t, s, "codex", "synthetic-a", namedRepo(t, "koinon"))
 	mustCreate(t, s, Key{"codex", a.ID}, "M-1", decisionFields("Kept", "fyi"))
-	if _, err := fixtureExec(s, undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+`PRAGMA user_version=32`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaThirtySeven+undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+`PRAGMA user_version=32`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 32); err != nil {

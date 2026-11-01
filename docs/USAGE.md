@@ -557,7 +557,7 @@ procedure, so a project's own `pickup` skill neither blocks the cycle nor is cha
 ([INSTALL.md](INSTALL.md#install), step 7). For Codex, agy and OpenCode, the new thread, conversation or session after the
 reset takes the address and reports the pickup. An enabled session
 whose context reaches its threshold gets a request from `overwatch`, Koinon's reserved system
-requester, in its inbox. The request asks the session to pause at a safe stopping point, write
+requester, in its inbox. The request asks the session to pause at a safe stopping point, start no new work, write
 its handoff and report it with `context_cycle_ready`, then end its turn and stay idle. The
 daemon clears the session's context in its tmux pane only at its idle prompt, enters its
 pickup, and the new context reports with `context_cycle_pickup`. When the session does not

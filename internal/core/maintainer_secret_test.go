@@ -465,7 +465,7 @@ func TestSchemaTwentyNineKeepsState(t *testing.T) {
 	}
 	join(t, s, "codex", "synthetic-a", "")
 	rows := rowsOf(t, s.db)
-	if _, err := fixtureExec(s, undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+`PRAGMA user_version=28`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaThirtySeven+undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+`PRAGMA user_version=28`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 28); err != nil {

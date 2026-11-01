@@ -797,3 +797,83 @@ Recommendation:
 Note:
 
 > add them as standard options, but they don't all need to be present in ALL cards if there is no relevant data.
+
+<a id="cycle-no-new-work-487"></a>
+
+## CYCLE-NO-NEW-WORK-487
+
+<!-- koinon-decision CYCLE-NO-NEW-WORK-487 revision 1 approved 1793490775910 -->
+
+**Approved**, revision 1, 2026-10-31 23:52:55 UTC.
+
+- Title: Put "start no new work" back into the managed cycle request, the guide and the ready reply
+- Where: internal/core/context_cycle.go (cycle request, cycleReadyNext), koinon guide (Managed cycle reporting), PDR 006
+
+Context:
+
+> - This card changes part of your direction of 2026-10-25 on #487: "remove all limit text. remove all of the caveats, controls, etc. the agents have their own built in safeties, they do not need you adding more complications."
+> - In PR #490 for #487 (commit cd0db4e, released in v0.5.0), I removed "and start no new work" from the cycle request and the guide, and changed the ready reply from "start no other work" to "stay idle" (`git show cd0db4e`, checked 2026-10-31).
+> - The request now says only: "Pause your work at the next safe stopping point." (`internal/core/context_cycle.go`, develop 0c3e0a9; checked 2026-10-31).
+> - On 2026-10-31 at 05:06 UTC, claude-review-bot read a cycle request and wrote: "I'll post the summary and do the verified merge first, then write the handoff." The merge call waited until 05:23:54, the 15-minute ready deadline passed, and the cycle failed (`waiting_ready_timeout.read`). The failure turned its Enable off (agent transcript and daemon store, read 2026-10-31).
+> - The failure at 21:47 UTC had another cause: the request arrived while a merge call was already waiting, so the agent did not read it in time. This change does not help that case.
+
+Recommendation:
+
+> ## Recommendation: put "start no new work" back as a step of the cycle
+>
+> **What:** one pull request in Koinon:
+> 1. The cycle request says again: "Pause your work at the next safe stopping point and start no new work."
+> 2. The guide's Managed cycle reporting section says the same.
+> 3. The ready reply says: "end your turn now, start no other work and stay idle."
+> 4. PDR 006 and the changelog cite this card. A test checks the three texts.
+>
+> **Why:** the sentence is a step of the cycle, not a safety limit. Without it, an agent can start a new task after the request, as claude-review-bot did at 05:06. The ready deadline then passes, the cycle fails, and you must enable the session again.
+>
+> **Fast or complete:** fast. **Limits:** it does not help when the request arrives during a command that already waits (the 21:47 case). Cost: one small pull request with its reviews.
+>
+> **Other options:**
+> - Keep the text as it is now. It keeps your #487 direction exactly. An agent can still start new work after a request and let the cycle fail.
+
+Note:
+
+> do the complete/correct fix.
+
+<a id="ready-timeout-enable-487"></a>
+
+## READY-TIMEOUT-ENABLE-487
+
+<!-- koinon-decision READY-TIMEOUT-ENABLE-487 revision 3 approved 1793491044950 -->
+
+**Approved**, revision 3, 2026-10-31 23:57:24 UTC.
+
+- Title: Keep the Enable when a cycle times out before Koinon enters any command in the pane
+- Where: internal/core/context_cycle_controller.go (waiting_ready deadline), PDR 006 Decision 2; with CYCLE-NO-NEW-WORK-487 and #584
+
+Context:
+
+> - This card changes your PDR 006 Decision 2 of 2026-10-12 for one case. Today: "A failed or uncertain cycle, or a change of pane or participant, ends the Enable; the maintainer enables again."
+> - Your note on CYCLE-NO-NEW-WORK-487 (2026-10-31): "do the complete/correct fix." That card named a case that the text does not fix (DECISIONS.md#CYCLE-NO-NEW-WORK-487).
+> - **Correction:** that card said that the request arrived "while a merge call was already waiting". That is wrong. Koinon admitted the cycle and put its request in the inbox at 21:47:12 UTC. The agent was in a turn and did not see the request. It started `gh pr merge` at 21:47:15, the call returned at 22:58:42, and the agent read the request at 22:58:46 (agent transcript and daemon store, read 2026-10-31; codex-koinon found the error).
+> - A cycle waits 15 minutes for the ready report and lives at most 30 minutes (`cycleReadyWait`, `cycleLifetime`, `internal/core/context_cycle.go`; checked 2026-10-31). So no request again inside the cycle reaches a session that waits for 71 minutes.
+> - The cycle failed with `waiting_ready_timeout.unread`, and the failure turned the Enable off. Koinon had entered nothing in the pane, and the context was unchanged (daemon store, read 2026-10-31).
+> - Koinon knows when a session reads its inbox, for every family. For a cycle that failed unread, the reason already records whether the request was read (`cycleRequestRead`, `internal/core/context_cycle_controller.go`; checked 2026-10-31).
+> - A new Enable has no effect in the same epoch today (#584, with codex's agreed criteria).
+
+Recommendation:
+
+> ## Recommendation: a cycle that times out before any pane input keeps the Enable once per epoch, and the next cycle starts after the session reads its inbox again
+>
+> **What:** in the same pull request as CYCLE-NO-NEW-WORK-487:
+> 1. When a cycle ends at its ready deadline (`waiting_ready_timeout`), and Koinon entered no command in the pane at any stage of that cycle, the Enable stays on. This happens once in each context epoch. A second such timeout in the same epoch ends the Enable, as Decision 2 says today. When you turn the Enable on again yourself, the session gets this one automatic retry again (#584).
+> 2. Koinon starts the next cycle only after the session reads its own inbox after that timeout. This read shows that the agent can see a new request. Then the next fresh reading at or above the threshold starts the cycle. Koinon does not start a cycle while the session has not read its inbox.
+> 3. Every other end of a cycle (another failure, a cancel, a disable, a change of pane or participant) keeps today's rule. Only one cycle is active for a session at a time.
+> 4. PDR 006 Decision 2, PROTOCOL.md and the changelog say this. Tests: an unread and a read timeout keep the Enable; no new cycle before the inbox read; one new cycle after it; a second timeout in the epoch ends the Enable; your new Enable gives one more retry; a failure after pane input still ends it.
+>
+> **Why:** in this case Koinon reset nothing, so no Enable carry-over is in question. Turning the Enable off only stops the managed cycles until you notice it.
+>
+> **Fast or complete:** complete for both cases of CYCLE-NO-NEW-WORK-487. **Limits:** a session that waits for a long time gets its next cycle only after the wait ends and it reads its inbox. Cost: one pull request with its reviews.
+>
+> **Corrections from the peer:** codex-koinon found the wrong timing above, asked that the next cycle start only on evidence, not on an assumed turn end, and asked that the reset of the retry by your new Enable be on this card. This revision does all three.
+>
+> **Other options:**
+> - Keep Decision 2 as it is. After #584, a new Enable works, but you must notice each failure and enable the session again.

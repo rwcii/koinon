@@ -367,7 +367,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 36
+const schemaVersion = 37
 
 // workItemsV16Columns are the work item columns before schema 17, which its rebuild copies.
 const workItemsV16Columns = `store,work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,created_at,created_consumer,
@@ -934,6 +934,16 @@ func migrate(db *sql.DB, version, target int) error {
 		// Version 36: task items, items returned to their author, and the feedback,
 		// completed and acknowledged verdicts (#537).
 		if _, err := tx.Exec(decisionBoardTablesV36); err != nil {
+			return err
+		}
+	}
+	if version < 37 && target >= 37 {
+		// Version 37: the ready-timeout retry of a session's Enable (DECISIONS.md#READY-TIMEOUT-ENABLE-487):
+		// the epoch and Enable revision whose retry a ready timeout used, and whether the session
+		// has read its inbox since.
+		if _, err := tx.Exec(`ALTER TABLE context_enables ADD COLUMN kept_epoch TEXT NOT NULL DEFAULT '';
+			ALTER TABLE context_enables ADD COLUMN kept_revision INTEGER NOT NULL DEFAULT 0;
+			ALTER TABLE context_enables ADD COLUMN kept_read INTEGER NOT NULL DEFAULT 0 CHECK (kept_read IN (0,1));`); err != nil {
 			return err
 		}
 	}

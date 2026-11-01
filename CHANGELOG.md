@@ -5,6 +5,23 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A managed cycle that times out while it waits for the ready report, before Koinon entered
+  any input in the pane, no longer turns the session's Enable off. This happens once in each
+  context epoch; a second such timeout in the epoch turns it off, as before. The next cycle
+  starts after the session reads its own inbox again, so a session that was busy in a long
+  command gets its cycle when it can see the request; until then `koinon context show` gives
+  `awaiting_inbox_read` (DECISIONS.md#READY-TIMEOUT-ENABLE-487). The daemon's state moves to
+  schema 37, which adds three columns to the Enable records; an earlier binary refuses the
+  upgraded state.
+- A new Enable after a failed cycle starts the next cycle at the next fresh reading at the
+  threshold, also in the same context epoch (#584). Before, the session stayed at
+  `already_selected_for_epoch` until its context was cleared or compacted some other way. An
+  Enable that is already on for the same session and pane changes nothing.
+- The managed cycle request and the guide say again: "Pause your work at the next safe
+  stopping point and start no new work." The ready reply says "end your turn now, start no
+  other work and stay idle." #487 had removed these words in v0.5.0. Without them, an agent
+  could start new work after the request, miss the ready deadline and fail the cycle, which
+  turns its Enable off (DECISIONS.md#CYCLE-NO-NEW-WORK-487).
 - The card form in `koinon guide`, Decisions, gives labels for the parts after **Fast or
   complete:**, in this order: **Corrections from the peer:**, **Open disagreements:**,
   **Other options:** (each with what it keeps and what it costs) and **A separate choice,

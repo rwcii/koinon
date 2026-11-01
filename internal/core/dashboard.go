@@ -376,8 +376,9 @@ func (s *Store) contextRowOf(session Session, enable ContextEnable, now int64) c
 	probe := contextCycleProbe(s, context.Background(), k)
 	available := probe.Reason == ""
 	conflict, _ := overwatchNameHeld(context.Background(), s.db)
+	awaiting, _ := awaitingRead(context.Background(), s.db, k, enable.Revision, evidence.Epoch)
 	eligible, reason := SelectContextTrigger(ContextTriggerInput{Active: session.State == "active", Enabled: enable.Enabled, Policy: policy,
-		CycleAvailable: available, OverwatchConflict: conflict, Evidence: evidence, Now: now, LatchedEpoch: latched})
+		CycleAvailable: available, OverwatchConflict: conflict, Evidence: evidence, Now: now, LatchedEpoch: latched, AwaitingRead: awaiting})
 	row := contextRow{Enable: enable, Mode: policy.Mode, Threshold: policy.Threshold, Available: available, Unavailable: probe.Reason,
 		UnavailableStep: probe.Step, Pickup: probe.Entry, Eligible: eligible, Reason: reason, SourceAge: -1, ConfirmAge: -1}
 	if evidence.Found {
