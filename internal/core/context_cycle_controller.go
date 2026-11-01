@@ -1264,8 +1264,12 @@ func (s *Store) trimCycles(ctx context.Context) error {
 	}
 	defer tx.Rollback()
 	cutoff := s.now().Add(-terminalCycleRetention).UnixMilli()
+	// A ready timeout that kept the Enable still in force holds the session's read gate and
+	// its retry for the epoch, so it stays (DECISIONS.md#READY-TIMEOUT-ENABLE-487).
 	selected := `SELECT cycle_id FROM context_cycles WHERE finished_at>0 AND (finished_at<? OR cycle_id IN
-		(SELECT cycle_id FROM context_cycles WHERE finished_at>0 ORDER BY finished_at DESC, cycle_id LIMIT -1 OFFSET ?))`
+		(SELECT cycle_id FROM context_cycles WHERE finished_at>0 ORDER BY finished_at DESC, cycle_id LIMIT -1 OFFSET ?))
+		AND cycle_id NOT IN (SELECT c.cycle_id FROM context_cycles c JOIN context_cycle_events e ON e.cycle_id=c.cycle_id AND e.stage='` + cycleEnableKept + `'
+			JOIN context_enables n ON n.family=c.family AND n.session_id=c.session_id AND n.enabled=1 AND n.revision=c.enable_revision)`
 	if _, err := tx.ExecContext(ctx, `DELETE FROM context_cycle_events WHERE cycle_id IN (`+selected+`)`, cutoff, maxTerminalCycles); err != nil {
 		return tx.fail(err)
 	}

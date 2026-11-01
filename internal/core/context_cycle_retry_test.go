@@ -122,3 +122,74 @@ func TestATimeoutAfterInputEndsTheEnable(t *testing.T) {
 		t.Fatal("a timeout after an input kept the Enable")
 	}
 }
+
+// The session's own read after the timeout counts also after a restart, before the daemon has
+// a new context report (#585 review).
+func TestAReadAfterARestartCountsBeforeTheFirstReport(t *testing.T) {
+	ctx := context.Background()
+	f := newCycleFixture(t)
+	f.observe(t, f.k, 900, "synthetic-epoch-1")
+	first := f.status(t, f.k)
+	f.clock = f.clock.Add(cycleReadyWait)
+	f.step(t)
+	f.s.db.Close()
+	reopened, err := openStore(f.root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { reopened.db.Close() })
+	reopened.now = f.s.now
+	f.s = reopened
+	if _, err := f.s.ReadInbox(ctx, f.k, 1<<40, 0); err != nil {
+		t.Fatal(err)
+	}
+	f.observe(t, f.k, 900, "synthetic-epoch-1")
+	if v := f.status(t, f.k); v.ID == first.ID || v.State != cycleWaitingReady {
+		t.Fatalf("the read before the first report was lost: %+v", v)
+	}
+}
+
+// The lifetime deadline keeps its rule: it ends the Enable.
+func TestALifetimeTimeoutEndsTheEnable(t *testing.T) {
+	f := newCycleFixture(t)
+	f.observe(t, f.k, 900, "synthetic-epoch-1")
+	f.clock = f.clock.Add(cycleLifetime)
+	f.step(t)
+	if v := f.status(t, f.k); v.State != cycleFailed || v.Reason != "cycle_timeout" {
+		t.Fatalf("lifetime: %+v", v)
+	}
+	if e, _ := f.s.contextEnables(context.Background()); e[f.k].Enabled {
+		t.Fatal("cycle_timeout kept the Enable")
+	}
+}
+
+// The retention of finished cycles keeps a kept cycle while its Enable is in force, so its
+// read gate and the epoch's retry stay; after a new Enable it can go.
+func TestRetentionKeepsALiveKeptTimeout(t *testing.T) {
+	ctx := context.Background()
+	f := newCycleFixture(t)
+	f.observe(t, f.k, 900, "synthetic-epoch-1")
+	first := f.status(t, f.k)
+	f.clock = f.clock.Add(cycleReadyWait)
+	f.step(t)
+	old := f.clock.Add(-terminalCycleRetention).UnixMilli() - 1
+	if _, err := fixtureExec(f.s, `UPDATE context_cycles SET finished_at=? WHERE cycle_id=?`, old, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.s.trimCycles(ctx); err != nil {
+		t.Fatal(err)
+	}
+	e, _ := f.s.contextEnables(ctx)
+	if id, err := keptTimeout(ctx, f.s.db, f.k, e[f.k].Revision, "synthetic-epoch-1"); err != nil || id != first.ID {
+		t.Fatalf("retention removed the kept cycle: %q %v", id, err)
+	}
+	if _, err := f.s.SetContextEnableNow(roomCtx("context-enable"), f.session.Name, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.s.trimCycles(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(t, f.s, `SELECT COUNT(*) FROM context_cycles WHERE cycle_id='`+first.ID+`'`); n != 0 {
+		t.Fatalf("an old kept cycle stayed after its Enable ended: %d", n)
+	}
+}

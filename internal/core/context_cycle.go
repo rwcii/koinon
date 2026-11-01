@@ -1140,8 +1140,9 @@ func compactionKeepsEnable(c cycleRow, reason string) bool {
 // endCycleTx ends c inside tx and releases its credit. A cycle that ends after an input
 // whose effect is not proven is uncertain. complete carries the Enable to the successor
 // through carry. Any other end turns the session's Enable off, except for a compaction that
-// ended before its input or under another epoch (#509), and a ready timeout before any input,
-// once in each epoch (DECISIONS.md#READY-TIMEOUT-ENABLE-487).
+// ended before its input or under another epoch (#509), and a ready timeout
+// (waiting_ready_timeout) before any input, once in each epoch
+// (DECISIONS.md#READY-TIMEOUT-ENABLE-487).
 func (s *Store) endCycleTx(ctx context.Context, tx *writeTx, c *cycleRow, outcome, reason string, carry func() error) error {
 	now := s.now().UnixMilli()
 	if outcome != cycleComplete && cycleUnproven(ctx, tx, *c) {

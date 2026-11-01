@@ -17,13 +17,13 @@ const (
 	cycleInboxRead  = "inbox_read"  // the session's first inbox read after it
 )
 
-// readyTimeoutKeepsEnable reports a cycle that ends failed in waiting_ready at its ready or
-// lifetime deadline, with no input event at any stage, when no earlier cycle of the session
-// kept its Enable under the same epoch and Enable revision. A new Enable has a new revision,
-// so it gives one more retry (#584).
+// readyTimeoutKeepsEnable reports a cycle that ends failed at its ready deadline
+// (waiting_ready_timeout), with no input event at any stage, when no earlier cycle of the
+// session kept its Enable under the same epoch and Enable revision. A new Enable has a new
+// revision, so it gives one more retry (#584). Every other end, the lifetime deadline
+// (cycle_timeout) included, keeps its rule.
 func readyTimeoutKeepsEnable(ctx context.Context, q querier, c cycleRow, outcome, reason string) (bool, error) {
-	if outcome != cycleFailed || c.State != cycleWaitingReady ||
-		!strings.HasPrefix(reason, cycleWaitingReady+"_timeout") && !strings.HasPrefix(reason, "cycle_timeout") {
+	if outcome != cycleFailed || c.State != cycleWaitingReady || !strings.HasPrefix(reason, cycleWaitingReady+"_timeout") {
 		return false, nil
 	}
 	var n int
@@ -38,7 +38,7 @@ func readyTimeoutKeepsEnable(ctx context.Context, q querier, c cycleRow, outcome
 }
 
 // keptTimeout returns the session's newest cycle when it kept the Enable at enableRevision
-// under epoch and the session has not read its inbox since, or "".
+// under epoch ("" for any epoch) and the session has not read its inbox since, or "".
 func keptTimeout(ctx context.Context, q querier, k Key, enableRevision int64, epoch string) (string, error) {
 	var id, at string
 	var revision int64
@@ -47,7 +47,7 @@ func keptTimeout(ctx context.Context, q querier, k Key, enableRevision int64, ep
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
-	if err != nil || revision != enableRevision || at != epoch {
+	if err != nil || revision != enableRevision || epoch != "" && at != epoch {
 		return "", err
 	}
 	var kept, read int
@@ -69,8 +69,9 @@ func (s *Store) noteCycleInboxRead(ctx context.Context, caller Key) {
 	if err != nil || !enable.Enabled {
 		return
 	}
-	epoch := s.contextEvidence(caller).Epoch
-	if id, err := keptTimeout(ctx, s.db, caller, enable.Revision, epoch); err != nil || id == "" {
+	// The read counts under any epoch: after a restart the daemon has no reading yet, and a
+	// read for an epoch that has passed changes nothing.
+	if id, err := keptTimeout(ctx, s.db, caller, enable.Revision, ""); err != nil || id == "" {
 		return
 	}
 	tx, err := s.begin(noAudit(ctx), control)
@@ -78,7 +79,7 @@ func (s *Store) noteCycleInboxRead(ctx context.Context, caller Key) {
 		return
 	}
 	defer tx.Rollback()
-	id, err := keptTimeout(ctx, tx, caller, enable.Revision, epoch)
+	id, err := keptTimeout(ctx, tx, caller, enable.Revision, "")
 	if err != nil || id == "" {
 		return
 	}
