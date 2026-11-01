@@ -490,8 +490,11 @@ input. The report and the pickup input compete under the cycle's revision, and o
 wins. A report at an earlier stage is refused with a code that names the stage (#588).
 
 **Provenance (report at reset_verified):** Requested in #588 (issue body, Expected: accept the
-report, or name the expected stage); a request record. Maintainer, 2026-11-01, in a Claude Code
-terminal session: "continue with the open issues, start with 588.  589 needs discussion first".
+report, or name the expected stage). Maintainer, 2026-11-01, in a Claude Code terminal session:
+"continue with the open issues, start with 588.  589 needs discussion first". Approved on the
+decision board, 2026-11-01
+([DECISIONS.md#PICKUP-RESET-588](../../../DECISIONS.md#pickup-reset-588)): accept the report at
+`reset_verified`, and name the stage in the refusal at an earlier stage.
 
 **Provenance:** Reporting: Requested in #196 (issue body, step 4); a request record. Reset
 verification is open in #196 ("To decide in the plan"). Separate verification and restart
@@ -644,4 +647,4 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-31 | Decision 3: the request and the ready reply say again to start no new work, which #487 had removed, approved on the decision board (CYCLE-NO-NEW-WORK-487) |
 | 2026-10-31 | Decision 2: a ready timeout before any pane input keeps the Enable once in each epoch, and the next cycle waits for the session's inbox read, approved on the decision board (READY-TIMEOUT-ENABLE-487); a new Enable clears the selected crossing (#584) |
 | 2026-11-01 | Decisions 3 and 4: the wake notice asks to answer the request before other work, and the `koinon-pickup` entry checks the catalog digest and stops and reports, which #487 had removed, approved on the decision board (RESTORE-STEPS-487) |
-| 2026-11-01 | Decision 4: a pickup report is accepted at `reset_verified`, before Koinon enters the pickup (#588) |
+| 2026-11-01 | Decision 4: a pickup report is accepted at `reset_verified`, before Koinon enters the pickup (DECISIONS.md#PICKUP-RESET-588) |

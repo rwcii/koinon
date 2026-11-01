@@ -6,7 +6,7 @@ into a dated release section when promoted to `main`.
 ## Unreleased
 
 - A managed cycle accepts the pickup report at `reset_verified`, before Koinon enters the
-  pickup (#588). Before, a session that restored its handoff on its own after the verified
+  pickup (#588, DECISIONS.md#PICKUP-RESET-588). Before, a session that restored its handoff on its own after the verified
   reset got `cycle_changed`, Koinon waited for an idle pane to enter the pickup, and the cycle
   could fail at its stage deadline, which turns the Enable off. Now the report completes the
   cycle with the same checks as at `waiting_pickup`, and Koinon enters no pickup input after
