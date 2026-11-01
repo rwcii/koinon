@@ -5,6 +5,17 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-11-01 — Managed cycles that keep their Enable, and procedure steps put back
+
+This release makes managed context cycles more reliable. A cycle request and its wake notice
+say again to start no new work and to answer the request before other work. A ready timeout
+before Koinon entered any input in the pane keeps the session's Enable once in each context
+epoch, and a new Enable after a failed cycle starts the next cycle in the same epoch. Four
+procedure steps that #487 removed are back in the handoff and pair skills and in the skill
+entries. `koinon setup` records a binary path that a `brew upgrade` keeps. Koinon's decision
+text leaves the citation rule to the project, and the card form gives labels for its last
+parts. The state schema moves from 36 to 37; a v0.8.0 binary refuses the upgraded state.
+
 - Four procedure steps that #487 removed in v0.5.0 are back (DECISIONS.md#RESTORE-STEPS-487).
   A wake notice whose range holds a managed cycle request ends again with "Managed
   context-cycle request ID: answer it before other work." The handoff skill says: when the
@@ -60,6 +71,21 @@ into a dated release section when promoted to `main`.
   edited stays as it is (`statusline_changed`); change its path yourself. Permission rules for
   the new path are offered as before, only after a yes at a terminal; rules for an old path stay
   in the settings file.
+
+Upgrade from v0.8.0 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary, moves its state to schema 37 and rewrites the `koinon-pickup` skill
+and the other skill entries. The restart ends current dashboard logins: log in again with the
+maintainer secret, or run `koinon dashboard` for a one-time link. Homebrew then shows the steps
+that `koinon install --plan` finds; run them, and run `koinon install --plan` again to check.
+A running `koinon mcp` server runs the new release without a session restart. After the
+upgrade, a v0.8.0 binary cannot open the state.
+
+Upgrade notes:
+
+- If you ran `koinon setup FAMILY` by hand on a Homebrew installation, run the
+  `koinon setup FAMILY --binary` command that `koinon install --plan` shows, once (#577).
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
 
 ## 2026-10-30 — Handoff cycles and compaction for idle sessions
 
