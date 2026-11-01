@@ -1255,7 +1255,8 @@ func (s *Store) paneHeldByCycle(ctx context.Context, target Key) (bool, error) {
 }
 
 // trimCycles removes finished cycles past the retention and beyond the newest
-// maxTerminalCycles, with their events and refused ready reports. Unfinished cycles and their credits stay.
+// maxTerminalCycles, with their events and refused ready reports. Unfinished cycles and their
+// credits stay, and so does each session's live kept ready timeout.
 func (s *Store) trimCycles(ctx context.Context) error {
 	ctx = noAudit(ctx)
 	tx, err := s.begin(ctx, control)
@@ -1264,19 +1265,27 @@ func (s *Store) trimCycles(ctx context.Context) error {
 	}
 	defer tx.Rollback()
 	cutoff := s.now().Add(-terminalCycleRetention).UnixMilli()
-	// A ready timeout that kept the Enable still in force holds the session's read gate and
-	// its retry for the epoch, so it stays (DECISIONS.md#READY-TIMEOUT-ENABLE-487).
-	selected := `SELECT cycle_id FROM context_cycles WHERE finished_at>0 AND (finished_at<? OR cycle_id IN
-		(SELECT cycle_id FROM context_cycles WHERE finished_at>0 ORDER BY finished_at DESC, cycle_id LIMIT -1 OFFSET ?))
-		AND cycle_id NOT IN (SELECT c.cycle_id FROM context_cycles c JOIN context_cycle_events e ON e.cycle_id=c.cycle_id AND e.stage='` + cycleEnableKept + `'
-			JOIN context_enables n ON n.family=c.family AND n.session_id=c.session_id AND n.enabled=1 AND n.revision=c.enable_revision)`
-	if _, err := tx.ExecContext(ctx, `DELETE FROM context_cycle_events WHERE cycle_id IN (`+selected+`)`, cutoff, maxTerminalCycles); err != nil {
+	// A session's newest finished cycle that kept the Enable still in force holds its read
+	// gate and its retry for the epoch, so it stays, and it counts in the bound
+	// (DECISIONS.md#READY-TIMEOUT-ENABLE-487). An older one holds nothing that is still read.
+	live := `SELECT c.cycle_id FROM context_cycles c JOIN context_enables n ON n.family=c.family AND n.session_id=c.session_id
+		AND n.enabled=1 AND n.revision=c.enable_revision
+		WHERE c.finished_at>0 AND c.finished_at=(SELECT MAX(finished_at) FROM context_cycles WHERE family=c.family AND session_id=c.session_id)
+		AND EXISTS (SELECT 1 FROM context_cycle_events e WHERE e.cycle_id=c.cycle_id AND e.stage='` + cycleEnableKept + `')`
+	var kept int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM (`+live+`)`).Scan(&kept); err != nil {
 		return tx.fail(err)
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM context_cycle_refusals WHERE cycle_id IN (`+selected+`)`, cutoff, maxTerminalCycles); err != nil {
+	selected := `SELECT cycle_id FROM context_cycles WHERE finished_at>0 AND cycle_id NOT IN (` + live + `) AND (finished_at<? OR cycle_id IN
+		(SELECT cycle_id FROM context_cycles WHERE finished_at>0 AND cycle_id NOT IN (` + live + `) ORDER BY finished_at DESC, cycle_id LIMIT -1 OFFSET ?))`
+	offset := max(maxTerminalCycles-kept, 0)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM context_cycle_events WHERE cycle_id IN (`+selected+`)`, cutoff, offset); err != nil {
 		return tx.fail(err)
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM context_cycles WHERE cycle_id IN (`+selected+`)`, cutoff, maxTerminalCycles); err != nil {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM context_cycle_refusals WHERE cycle_id IN (`+selected+`)`, cutoff, offset); err != nil {
+		return tx.fail(err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM context_cycles WHERE cycle_id IN (`+selected+`)`, cutoff, offset); err != nil {
 		return tx.fail(err)
 	}
 	return tx.Commit()

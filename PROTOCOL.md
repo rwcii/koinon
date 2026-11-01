@@ -460,8 +460,9 @@ reason is `awaiting_inbox_read` until the session itself reads its inbox after t
 which records an `inbox_read` event on that cycle; an empty read counts, and a read before the
 timeout or by another session does not. The next fresh reading at or above the threshold then
 admits a cycle. A second such timeout in the same epoch and Enable revision ends the Enable.
-Both events are stored, so a restart keeps them, and the retention of finished cycles keeps a
-kept cycle while the Enable that it kept is in force. A new Enable (off to on) has a new revision,
+Both events are stored, so a restart keeps them. The retention of finished cycles keeps a
+session's newest finished cycle when it kept the Enable that is still in force, and counts it
+in the bound of 1,024. A new Enable (off to on) has a new revision,
 so it gives one more retry, and clears the selected crossing (#584); an Enable that is already
 on for the same session, host and pane changes nothing. Admission funds every remaining transition:
 a credit of 4,411 pages covers 14 stages of 280 pages and a terminal outcome of 491. Each

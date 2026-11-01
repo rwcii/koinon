@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -191,5 +192,52 @@ func TestRetentionKeepsALiveKeptTimeout(t *testing.T) {
 	}
 	if n := count(t, f.s, `SELECT COUNT(*) FROM context_cycles WHERE cycle_id='`+first.ID+`'`); n != 0 {
 		t.Fatalf("an old kept cycle stayed after its Enable ended: %d", n)
+	}
+}
+
+// Kept cycles of earlier epochs hold nothing that is still read: the bound of finished cycles
+// holds (#585 review).
+func TestRetentionBoundHoldsForOldKeptCycles(t *testing.T) {
+	ctx := context.Background()
+	f := newCycleFixture(t)
+	f.observe(t, f.k, 900, "synthetic-epoch-1")
+	f.clock = f.clock.Add(cycleReadyWait)
+	f.step(t)
+	v := f.status(t, f.k)
+	newest, err := scanCycle(f.s.db.QueryRow(`SELECT `+cycleColumns+` FROM context_cycles WHERE cycle_id=?`, v.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := f.s.begin(ctx, control)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	for i := range maxTerminalCycles + 1 {
+		c := newest
+		c.ID, c.Epoch = newCycleID(), fmt.Sprintf("synthetic-earlier-epoch-%d", i)
+		c.CreatedAt, c.FinishedAt, c.Events = newest.CreatedAt-int64(i)-1, newest.FinishedAt-int64(i)-1, 3
+		if err := insertCycle(ctx, tx, c); err != nil {
+			t.Fatal(err)
+		}
+		for j, stage := range []string{cycleWaitingReady, cycleFailed, cycleEnableKept} {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO context_cycle_events(cycle_id,ordinal,at,stage,result,reason) VALUES (?,?,?,?,?,?)`,
+				c.ID, j+1, c.FinishedAt, stage, stage, "waiting_ready_timeout.unread"); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.s.trimCycles(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(t, f.s, `SELECT COUNT(*) FROM context_cycles WHERE finished_at>0`); n != maxTerminalCycles {
+		t.Fatalf("finished cycles: %d, bound %d", n, maxTerminalCycles)
+	}
+	e, _ := f.s.contextEnables(ctx)
+	if id, err := keptTimeout(ctx, f.s.db, f.k, e[f.k].Revision, "synthetic-epoch-1"); err != nil || id != v.ID {
+		t.Fatalf("the live kept cycle went: %q %v", id, err)
 	}
 }
