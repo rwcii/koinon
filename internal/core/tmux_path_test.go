@@ -253,7 +253,7 @@ func TestSchemaTwentyEightKeepsSessions(t *testing.T) {
 		return text
 	}
 	before, rows := hosts(s), rowsOf(t, s.db)
-	if _, err := fixtureExec(s, undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+`PRAGMA user_version=27`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaThirtySeven+undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+`PRAGMA user_version=27`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 27); err != nil {

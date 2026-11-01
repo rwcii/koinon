@@ -10,7 +10,9 @@ into a dated release section when promoted to `main`.
   context epoch; a second such timeout in the epoch turns it off, as before. The next cycle
   starts after the session reads its own inbox again, so a session that was busy in a long
   command gets its cycle when it can see the request; until then `koinon context show` gives
-  `awaiting_inbox_read` (DECISIONS.md#READY-TIMEOUT-ENABLE-487).
+  `awaiting_inbox_read` (DECISIONS.md#READY-TIMEOUT-ENABLE-487). The daemon's state moves to
+  schema 37, which adds three columns to the Enable records; an earlier binary refuses the
+  upgraded state.
 - A new Enable after a failed cycle starts the next cycle at the next fresh reading at the
   threshold, also in the same context epoch (#584). Before, the session stayed at
   `already_selected_for_epoch` until its context was cleared or compacted some other way. An

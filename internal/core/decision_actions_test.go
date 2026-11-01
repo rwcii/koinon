@@ -252,7 +252,7 @@ func TestSchemaThirtySixAddsTasks(t *testing.T) {
 	mustCreate(t, s, key, "V-NOTE", decisionFields("Plain notice", "fyi"))
 	mustCreate(t, s, key, "V-DEC", decisionFields("Decide", "decision"))
 	mustCreate(t, s, key, "V-GONE", decisionFields("Moved away", "decision"))
-	if _, err := fixtureExec(s, undoSchemaThirtySix+`PRAGMA user_version=35`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaThirtySeven+undoSchemaThirtySix+`PRAGMA user_version=35`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 35); err != nil {

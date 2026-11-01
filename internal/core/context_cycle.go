@@ -788,12 +788,12 @@ func (s *Store) admitContextCycle(ctx context.Context, k Key) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	awaiting, err := keptTimeout(ctx, s.db, k, enables[k].Revision, evidence.Epoch)
+	awaiting, err := awaitingRead(ctx, s.db, k, enables[k].Revision, evidence.Epoch)
 	if err != nil {
 		return false, err
 	}
 	if eligible, _ := SelectContextTrigger(ContextTriggerInput{Active: true, Enabled: true, Policy: policy, CycleAvailable: true,
-		OverwatchConflict: conflict, Evidence: evidence, Now: now, LatchedEpoch: latched, AwaitingRead: awaiting != ""}); !eligible {
+		OverwatchConflict: conflict, Evidence: evidence, Now: now, LatchedEpoch: latched, AwaitingRead: awaiting}); !eligible {
 		return false, nil
 	}
 	// The adapter's checks of the host, pane and pickup entry run before the write.
@@ -821,11 +821,11 @@ func (s *Store) admitContextCycle(ctx context.Context, k Key) (bool, error) {
 	// The policy may have changed since the read above (the session's own threshold, #391):
 	// the selection and the cycle's recorded snapshot both use the policy in force now.
 	policy = s.sessionContextPolicy(k.Family, enable)
-	if awaiting, err = keptTimeout(ctx, tx, k, enable.Revision, evidence.Epoch); err != nil {
+	if awaiting, err = awaitingRead(ctx, tx, k, enable.Revision, evidence.Epoch); err != nil {
 		return false, err
 	}
 	eligible, _ := SelectContextTrigger(ContextTriggerInput{Active: session.State == "active", Enabled: enable.Enabled, Policy: policy,
-		CycleAvailable: true, OverwatchConflict: conflict, Evidence: evidence, Now: now, LatchedEpoch: latched, AwaitingRead: awaiting != ""})
+		CycleAvailable: true, OverwatchConflict: conflict, Evidence: evidence, Now: now, LatchedEpoch: latched, AwaitingRead: awaiting})
 	if !eligible {
 		return false, nil
 	}
@@ -1182,6 +1182,9 @@ func (s *Store) endCycleTx(ctx context.Context, tx *writeTx, c *cycleRow, outcom
 		tx.onCommit(func() { s.rearm(k) })
 	case keepTimeout:
 		// The crossing stays selected until the session reads its inbox (noteCycleInboxRead).
+		if err := keepEnableTx(ctx, tx, *c); err != nil {
+			return err
+		}
 	default:
 		if _, err := tx.ExecContext(ctx, `UPDATE context_enables SET enabled=0,revision=revision+1,updated_at=?
 			WHERE family=? AND session_id=? AND enabled=1`, now, c.Family, c.SessionID); err != nil {

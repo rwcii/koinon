@@ -433,7 +433,7 @@ func TestSchemaThirtyTwoStartsCounters(t *testing.T) {
 	if _, err := s.Send(context.Background(), Key{"codex", a.ID}, "maintainer", "a synthetic report"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixtureExec(s, undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+`PRAGMA user_version=31`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaThirtySeven+undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+`PRAGMA user_version=31`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 31); err != nil {

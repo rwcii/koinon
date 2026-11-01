@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 )
@@ -164,9 +163,10 @@ func TestALifetimeTimeoutEndsTheEnable(t *testing.T) {
 	}
 }
 
-// The retention of finished cycles keeps a kept cycle while its Enable is in force, so its
-// read gate and the epoch's retry stay; after a new Enable it can go.
-func TestRetentionKeepsALiveKeptTimeout(t *testing.T) {
+// The retry and the read gate are in the Enable record, so retention may trim the kept
+// cycle's history: the gate holds, and the next timeout in the epoch still ends the Enable
+// (#585 review).
+func TestRetentionLeavesTheRetryAndTheReadGate(t *testing.T) {
 	ctx := context.Background()
 	f := newCycleFixture(t)
 	f.observe(t, f.k, 900, "synthetic-epoch-1")
@@ -180,120 +180,27 @@ func TestRetentionKeepsALiveKeptTimeout(t *testing.T) {
 	if err := f.s.trimCycles(ctx); err != nil {
 		t.Fatal(err)
 	}
+	if n := count(t, f.s, `SELECT COUNT(*) FROM context_cycles`); n != 0 {
+		t.Fatalf("retention kept %d cycles", n)
+	}
 	e, _ := f.s.contextEnables(ctx)
-	if id, err := keptTimeout(ctx, f.s.db, f.k, e[f.k].Revision, "synthetic-epoch-1"); err != nil || id != first.ID {
-		t.Fatalf("retention removed the kept cycle: %q %v", id, err)
+	if !e[f.k].Enabled {
+		t.Fatal("retention ended the Enable")
 	}
-	if _, err := f.s.SetContextEnableNow(roomCtx("context-enable"), f.session.Name, false); err != nil {
+	if awaiting, err := awaitingRead(ctx, f.s.db, f.k, e[f.k].Revision, "synthetic-epoch-1"); err != nil || !awaiting {
+		t.Fatalf("retention lost the read gate: %v %v", awaiting, err)
+	}
+	f.observe(t, f.k, 900, "synthetic-epoch-1")
+	if n := count(t, f.s, `SELECT COUNT(*) FROM context_cycles`); n != 0 {
+		t.Fatal("a cycle started before the inbox read")
+	}
+	if _, err := f.s.ReadInbox(ctx, f.k, 1<<40, 0); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.s.trimCycles(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if n := count(t, f.s, `SELECT COUNT(*) FROM context_cycles WHERE cycle_id='`+first.ID+`'`); n != 0 {
-		t.Fatalf("an old kept cycle stayed after its Enable ended: %d", n)
-	}
-}
-
-// Kept cycles of earlier epochs hold nothing that is still read: the bound of finished cycles
-// holds (#585 review).
-func TestRetentionBoundHoldsForOldKeptCycles(t *testing.T) {
-	ctx := context.Background()
-	f := newCycleFixture(t)
 	f.observe(t, f.k, 900, "synthetic-epoch-1")
 	f.clock = f.clock.Add(cycleReadyWait)
 	f.step(t)
-	v := f.status(t, f.k)
-	newest, err := scanCycle(f.s.db.QueryRow(`SELECT `+cycleColumns+` FROM context_cycles WHERE cycle_id=?`, v.ID))
-	if err != nil {
-		t.Fatal(err)
-	}
-	tx, err := f.s.begin(ctx, control)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	for i := range maxTerminalCycles + 1 {
-		c := newest
-		c.ID, c.Epoch = newCycleID(), fmt.Sprintf("synthetic-earlier-epoch-%d", i)
-		c.CreatedAt, c.FinishedAt, c.Events = newest.CreatedAt-int64(i)-1, newest.FinishedAt-int64(i)-1, 3
-		if err := insertCycle(ctx, tx, c); err != nil {
-			t.Fatal(err)
-		}
-		for j, stage := range []string{cycleWaitingReady, cycleFailed, cycleEnableKept} {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO context_cycle_events(cycle_id,ordinal,at,stage,result,reason) VALUES (?,?,?,?,?,?)`,
-				c.ID, j+1, c.FinishedAt, stage, stage, "waiting_ready_timeout.unread"); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.s.trimCycles(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if n := count(t, f.s, `SELECT COUNT(*) FROM context_cycles WHERE finished_at>0`); n != maxTerminalCycles {
-		t.Fatalf("finished cycles: %d, bound %d", n, maxTerminalCycles)
-	}
-	e, _ := f.s.contextEnables(ctx)
-	if id, err := keptTimeout(ctx, f.s.db, f.k, e[f.k].Revision, "synthetic-epoch-1"); err != nil || id != v.ID {
-		t.Fatalf("the live kept cycle went: %q %v", id, err)
-	}
-}
-
-// When live kept cycles alone pass the bound, the oldest goes too, and its session loses the
-// Enable, as a failed cycle does; the newest keep theirs (#585 review).
-func TestRetentionBoundHoldsForManyKeptSessions(t *testing.T) {
-	ctx := context.Background()
-	f := newCycleFixture(t)
-	f.observe(t, f.k, 900, "synthetic-epoch-1")
-	f.clock = f.clock.Add(cycleReadyWait)
-	f.step(t)
-	v := f.status(t, f.k)
-	newest, err := scanCycle(f.s.db.QueryRow(`SELECT `+cycleColumns+` FROM context_cycles WHERE cycle_id=?`, v.ID))
-	if err != nil {
-		t.Fatal(err)
-	}
-	tx, err := f.s.begin(ctx, control)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer tx.Rollback()
-	for i := range maxTerminalCycles {
-		c := newest
-		c.ID, c.SessionID = newCycleID(), fmt.Sprintf("synthetic-other-%d", i)
-		c.Peer = c.SessionID
-		c.CreatedAt, c.FinishedAt, c.Events = newest.CreatedAt-int64(i)-1, newest.FinishedAt-int64(i)-1, 3
-		if _, err := tx.ExecContext(ctx, `INSERT INTO context_enables(family,session_id,enabled,revision,session_revision,address,host_pid,host_start,tmux_socket,tmux_pane,updated_at,threshold)
-			SELECT family,?,enabled,revision,session_revision,address,host_pid,host_start,tmux_socket,tmux_pane,updated_at,threshold
-			FROM context_enables WHERE family=? AND session_id=?`, c.SessionID, f.k.Family, f.k.ID); err != nil {
-			t.Fatal(err)
-		}
-		if err := insertCycle(ctx, tx, c); err != nil {
-			t.Fatal(err)
-		}
-		for j, stage := range []string{cycleWaitingReady, cycleFailed, cycleEnableKept} {
-			if _, err := tx.ExecContext(ctx, `INSERT INTO context_cycle_events(cycle_id,ordinal,at,stage,result,reason) VALUES (?,?,?,?,?,?)`,
-				c.ID, j+1, c.FinishedAt, stage, stage, "waiting_ready_timeout.unread"); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	if err := f.s.trimCycles(ctx); err != nil {
-		t.Fatal(err)
-	}
-	if n := count(t, f.s, `SELECT COUNT(*) FROM context_cycles WHERE finished_at>0`); n != maxTerminalCycles {
-		t.Fatalf("finished cycles: %d, bound %d", n, maxTerminalCycles)
-	}
-	oldest := fmt.Sprintf("synthetic-other-%d", maxTerminalCycles-1)
-	if n := count(t, f.s, `SELECT COUNT(*) FROM context_enables WHERE enabled=1 AND session_id='`+oldest+`'`); n != 0 {
-		t.Fatal("the session whose kept cycle went kept its Enable")
-	}
-	if n := count(t, f.s, `SELECT COUNT(*) FROM context_enables WHERE enabled=1`); n != maxTerminalCycles {
-		t.Fatalf("Enables on: %d", n)
+	if e, _ := f.s.contextEnables(ctx); e[f.k].Enabled {
+		t.Fatal("retention gave the epoch a second retry")
 	}
 }

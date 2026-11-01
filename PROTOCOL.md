@@ -454,18 +454,17 @@ reason of whatever ended it. Failed, cancelled and uncertain cycles end the sess
 later cycle needs a new Enable and a new handoff. One exception
 (DECISIONS.md#READY-TIMEOUT-ENABLE-487): a cycle that fails at its ready deadline
 (`waiting_ready_timeout`), with no input event at any stage, keeps the Enable once for each
-epoch and Enable revision, and records an `enable_kept` event; the lifetime deadline
-(`cycle_timeout`) keeps the rule above. Its crossing stays selected: the trigger
-reason is `awaiting_inbox_read` until the session itself reads its inbox after the timeout,
-which records an `inbox_read` event on that cycle; an empty read counts, and a read before the
-timeout or by another session does not. The next fresh reading at or above the threshold then
-admits a cycle. A second such timeout in the same epoch and Enable revision ends the Enable.
-Both events are stored, so a restart keeps them. The retention of finished cycles keeps a
-session's newest finished cycle when it kept the Enable that is still in force: it stays past
-the 30 days and ranks first in the bound of 1,024. When such cycles alone pass the bound, the
-oldest go too, and each of their sessions loses its Enable, as a failed cycle does. A new Enable (off to on) has a new revision,
-so it gives one more retry, and clears the selected crossing (#584); an Enable that is already
-on for the same session, host and pane changes nothing. Admission funds every remaining transition:
+epoch and Enable revision; the lifetime deadline (`cycle_timeout`) keeps the rule above. The
+session's Enable record holds the retry (schema 37: `kept_epoch`, `kept_revision`,
+`kept_read`), and the cycle's history gets an `enable_kept` event. Its crossing stays
+selected: the trigger reason is `awaiting_inbox_read` until the session itself reads its inbox
+after the timeout, which sets `kept_read`; an empty read counts, under any epoch, and a read
+before the timeout or by another session does not. The next fresh reading at or above the
+threshold then admits a cycle. A second such timeout in the same epoch and Enable revision ends
+the Enable. The record survives a restart and the retention of finished cycles, which is
+unchanged. A new Enable (off to on) has a new revision, so it gives one more retry, and clears
+the selected crossing (#584); an Enable that is already on for the same session, host and pane
+changes nothing. Admission funds every remaining transition:
 a credit of 4,411 pages covers 14 stages of 280 pages and a terminal outcome of 491. Each
 stage, and each audit record it writes, is a control write that debits 280 pages; the terminal
 outcome and these controls release the rest. The page debt includes every unfinished cycle's
@@ -977,6 +976,10 @@ The socket is an absolute clean path without control characters, at most 4,096 b
 pane matches `%` followed by 1–9 digits. The optional `executable` (#418) is the absolute tmux
 that the session's own terminal runs, with the same path rules as the socket. Invalid values
 return `invalid_request`.
+
+Schema 37 adds `kept_epoch` (text), `kept_revision` and `kept_read` (0 or 1) to
+`context_enables`, all with defaults, for the ready-timeout retry
+(DECISIONS.md#READY-TIMEOUT-ENABLE-487). A schema 36 binary refuses the upgraded store.
 
 Schema 36 rebuilds `decision_items` and `decision_verdicts` (#537), because SQLite cannot widen
 a CHECK in place: `kind` adds `task`, `state` adds `returned`, and `verdict` adds `feedback`,
