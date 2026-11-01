@@ -605,8 +605,9 @@ func TestContextCycleDeadlinesAndIntentRecovery(t *testing.T) {
 	if v := f.status(t, f.k); v.State != cycleFailed || v.Reason != "waiting_ready_timeout.unread" {
 		t.Fatalf("ready timeout: %+v", v)
 	}
-	if e, _ := f.s.contextEnables(context.Background()); e[f.k].Enabled {
-		t.Fatal("a failed cycle kept the Enable")
+	// A first ready timeout before any input keeps the Enable (DECISIONS.md#READY-TIMEOUT-ENABLE-487).
+	if e, _ := f.s.contextEnables(context.Background()); !e[f.k].Enabled {
+		t.Fatal("a first ready timeout ended the Enable")
 	}
 	// A recorded pickup intent after a restart: no pickup is entered again.
 	g := newCycleFixture(t)

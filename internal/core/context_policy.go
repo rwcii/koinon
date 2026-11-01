@@ -292,12 +292,33 @@ func (s *Store) SetContextEnable(ctx context.Context, peer string, sessionRevisi
 		setAuditTarget(ctx, "context enable "+peer+" off unchanged")
 		return current, tx.Commit()
 	}
+	if enabled && current.Enabled {
+		// An Enable that is on for the same session, host and pane changes nothing: it gives
+		// no new retry and arms no crossing (#584, DECISIONS.md#READY-TIMEOUT-ENABLE-487).
+		var pin struct {
+			revision, hostPID, hostStart int64
+			address, socket, pane        string
+		}
+		if err := tx.QueryRowContext(ctx, `SELECT session_revision,address,host_pid,host_start,tmux_socket,tmux_pane FROM context_enables
+			WHERE family=? AND session_id=?`, k.Family, k.ID).Scan(&pin.revision, &pin.address, &pin.hostPID, &pin.hostStart, &pin.socket, &pin.pane); err != nil {
+			return current, err
+		}
+		if pin.revision == revision && pin.address == address && pin.hostPID == hostPID && pin.hostStart == hostStart &&
+			pin.socket == socket && pin.pane == pane {
+			setAuditTarget(ctx, "context enable "+peer+" on unchanged")
+			return current, tx.Commit()
+		}
+	}
 	next := ContextEnable{Enabled: enabled, Revision: current.Revision + 1, UpdatedAt: now, Threshold: current.Threshold}
 	if !enabled {
 		// Disable fences the session's cycle at once, also one that is already waiting.
 		if err := s.fenceCyclesTx(ctx, tx, "disabled", `family=? AND session_id=?`, k.Family, k.ID); err != nil {
 			return current, tx.fail(err)
 		}
+	} else if !current.Enabled {
+		// A new Enable arms the crossing again, so a session above its threshold in the epoch
+		// of a failed cycle gets its next cycle at its next fresh reading (#584).
+		tx.onCommit(func() { s.rearm(k) })
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO context_enables(family,session_id,enabled,revision,session_revision,address,host_pid,host_start,tmux_socket,tmux_pane,updated_at)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(family,session_id) DO UPDATE SET enabled=excluded.enabled,revision=excluded.revision,
@@ -468,6 +489,9 @@ type ContextTriggerInput struct {
 	Evidence          ContextEvidence
 	Now               int64  // ms
 	LatchedEpoch      string // the epoch whose crossing was already selected, or ""
+	// AwaitingRead reports a ready timeout that kept the Enable in this epoch, with no inbox
+	// read by the session since (DECISIONS.md#READY-TIMEOUT-ENABLE-487).
+	AwaitingRead bool
 }
 
 // SelectContextTrigger returns whether a session's context has reached its threshold for
@@ -501,6 +525,8 @@ func SelectContextTrigger(in ContextTriggerInput) (bool, string) {
 		return false, "confirmation_stale"
 	case *e.UsedTokens*100 < in.Policy.Threshold**e.LimitTokens:
 		return false, "below_threshold"
+	case in.AwaitingRead:
+		return false, "awaiting_inbox_read"
 	case in.LatchedEpoch == e.Epoch:
 		return false, "already_selected_for_epoch"
 	}

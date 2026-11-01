@@ -228,8 +228,8 @@ while fresh and for the current published name.
 - The request is in your session's own inbox, also when you hold a participant address. A
   wake notice whose range holds it ends with "Managed context-cycle request ID." Read that
   inbox range first.
-- On a request: pause your work at the next safe stopping point. In a Claude session the
-  clear does not stop your background subagents: do not stop them or wait for them; list each
+- On a request: pause your work at the next safe stopping point and start no new work. In a
+  Claude session the clear does not stop your background subagents: do not stop them or wait for them; list each
   one that still runs in the handoff, with its task and where its result goes, and the new
   session gets each result as a message. A Claude subagent that finishes after your ready
   report makes overwatch ask again. Other families: let your running background subagents
