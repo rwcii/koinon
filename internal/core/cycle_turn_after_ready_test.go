@@ -401,3 +401,31 @@ func TestRecordTurnSinceChangedDuringRead(t *testing.T) {
 		t.Fatalf("always changing: %v after %d records", err, reads)
 	}
 }
+
+// A clear refused for input that has not started, or for a record that could not be read back
+// to the ready report, returns the cycle to ready with nothing entered (#593). While Inspect
+// still sees it, the cycle waits and asks for no new handoff, also at the stage's deadline,
+// which ends the cycle as for any pane that never became ready.
+func TestContextCycleWaitsForQueuedInput(t *testing.T) {
+	for _, refusal := range []error{errInputQueued, errHistoryUnread} {
+		f := newCycleFixture(t)
+		first, _ := f.readyCycle(t)
+		f.adapter.clearErr = refusal
+		f.step(t)
+		back := f.status(t, f.k)
+		if back.State != cycleReady || back.Reason != refusal.Error() || back.Revision != first.Revision+2 || f.adapter.count("clear") != 1 {
+			t.Fatalf("%v: refused clear: %+v", refusal, back)
+		}
+		f.adapter.clearErr = nil
+		f.adapter.pane = PaneState{Seen: refusal.Error()}
+		f.step(t)
+		if v := f.status(t, f.k); v.State != cycleReady || len(f.overwatchRequests(t)) != 1 || f.adapter.count("clear") != 1 {
+			t.Fatalf("%v: waits: %+v", refusal, v)
+		}
+		f.clock = f.clock.Add(cycleReadyWait + time.Second)
+		f.step(t)
+		if v := f.status(t, f.k); v.State != cycleFailed || v.Reason != "ready_timeout."+refusal.Error() || len(f.overwatchRequests(t)) != 1 {
+			t.Fatalf("%v: deadline: %+v", refusal, v)
+		}
+	}
+}

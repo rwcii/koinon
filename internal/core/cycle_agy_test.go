@@ -527,3 +527,174 @@ func TestAgyDialogChoiceKeepsItsMeaning(t *testing.T) {
 		t.Fatalf("keys: %q", got)
 	}
 }
+
+// agyTranscript writes the synthetic transcript of the agy terminal's conversation, one step
+// per kind: user (a USER_INPUT step), model, system, checkpoint, ready:N (a context_cycle_ready
+// call for the cycle at revision N), ready:N+view (that call and another in one step), other:N
+// (a context_cycle_ready call for another cycle) and odd (a kind that agy 1.4.12 does not
+// write). The shapes are agy 1.4.12's; no text is real.
+func (a *agyTerminal) transcript(t *testing.T, kinds ...string) {
+	t.Helper()
+	call := func(cycle string, revision string) string {
+		arguments, _ := json.Marshal(`{"artifact":"synthetic.md","cycle_id":"` + cycle + `","revision":` + revision + `}`)
+		return `{"name":"call_mcp_tool","args":{"Arguments":` + string(arguments) + `,"ServerName":"\"koinon\"","ToolName":"\"context_cycle_ready\""}}`
+	}
+	var lines []string
+	for i, kind := range kinds {
+		head := `{"step_index":` + strconv.Itoa(i) + `,"created_at":"2026-11-03T12:00:00Z","status":"DONE",`
+		switch {
+		case kind == "user":
+			lines = append(lines, head+`"type":"USER_INPUT","source":"USER_EXPLICIT","content":"synthetic"}`)
+		case kind == "model":
+			lines = append(lines, head+`"type":"GENERIC","source":"MODEL","content":"synthetic"}`)
+		case kind == "system":
+			lines = append(lines, head+`"type":"SYSTEM_MESSAGE","source":"SYSTEM","content":"synthetic"}`)
+		case kind == "checkpoint":
+			lines = append(lines, head+`"type":"CHECKPOINT","source":"SYSTEM","content":"synthetic"}`)
+		case kind == "odd":
+			lines = append(lines, head+`"type":"SYNTHETIC_NEW","source":"USER_IMPLICIT","content":"synthetic"}`)
+		case strings.HasPrefix(kind, "other:"):
+			lines = append(lines, head+`"type":"PLANNER_RESPONSE","source":"MODEL","tool_calls":[`+call("another", strings.TrimPrefix(kind, "other:"))+`]}`)
+		case strings.HasSuffix(kind, "+view"):
+			view := `{"name":"view_file","args":{"Path":"\"/synthetic\""}}`
+			revision := strings.TrimSuffix(strings.TrimPrefix(kind, "ready:"), "+view")
+			lines = append(lines, head+`"type":"PLANNER_RESPONSE","source":"MODEL","tool_calls":[`+view+`,`+call("synthetic", revision)+`]}`)
+		case strings.HasPrefix(kind, "ready:"):
+			lines = append(lines, head+`"type":"PLANNER_RESPONSE","source":"MODEL","tool_calls":[`+call("synthetic", strings.TrimPrefix(kind, "ready:"))+`]}`)
+		default:
+			t.Fatalf("kind %q", kind)
+		}
+	}
+	path := agyTranscriptPath(a.home, "conv-a")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// readyTarget is the terminal's target with a current ready report at revision 3.
+func (a *agyTerminal) readyTarget() CycleTarget {
+	target := a.target()
+	target.ReadyAt, target.ReadyRevision = 1793708854545, 3
+	return target
+}
+
+// A user input after the first context_cycle_ready call of the current report is a turn after
+// it (#593). An earlier report's call, another cycle's call, a repeated or refused call, a step
+// with several calls, same-second times and the model's and agy's own steps do not move or end
+// that place; a transcript that cannot place the report, or a step after it of another kind,
+// is unread.
+func TestAgyTurnSince(t *testing.T) {
+	cases := []struct {
+		name  string
+		kinds []string
+		turn  bool
+		err   bool
+	}{
+		{"quiet", []string{"user", "model", "ready:3", "model", "model"}, false, false},
+		{"input after the report", []string{"user", "ready:3", "model", "user", "model"}, true, false},
+		{"earlier report and its input", []string{"user", "ready:1", "user", "model", "ready:3", "model"}, false, false},
+		{"input after an earlier report only", []string{"ready:1", "model", "ready:3", "model"}, false, false},
+		{"repeated call after an input", []string{"ready:3", "model", "user", "model", "ready:3", "model"}, true, false},
+		{"another cycle's call", []string{"other:3", "user", "model"}, false, true},
+		{"several calls in one step", []string{"user", "ready:3+view", "model", "user"}, true, false},
+		{"own steps after the report", []string{"ready:3", "model", "system", "checkpoint", "model"}, false, false},
+		{"unknown kind after the report", []string{"ready:3", "odd"}, false, true},
+		{"unknown kind before the report", []string{"odd", "ready:3", "model"}, false, false},
+		{"no report", []string{"user", "model"}, false, true},
+		{"no transcript", nil, false, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			a := newAgyTerminal(t)
+			if c.kinds != nil {
+				a.transcript(t, c.kinds...)
+			}
+			turn, err := agyTurnSince(a.readyTarget())
+			if turn != c.turn || (err != nil) != c.err || err != nil && !errors.Is(err, errHistoryUnread) {
+				t.Fatalf("%v %v", turn, err)
+			}
+		})
+	}
+	// Steps out of order, a gap, a partial last line and a file over the bound are unread.
+	a := newAgyTerminal(t)
+	a.transcript(t, "ready:3", "model")
+	path := agyTranscriptPath(a.home, "conv-a")
+	data, _ := os.ReadFile(path)
+	for name, broken := range map[string]string{
+		"gap":     strings.Replace(string(data), `"step_index":1`, `"step_index":2`, 1),
+		"order":   strings.Replace(string(data), `"step_index":0`, `"step_index":1`, 1),
+		"partial": strings.TrimSuffix(string(data), "\n") + "\n" + `{"step_index":2,"type":"USER_IN`,
+		"no line": strings.TrimSuffix(string(data), "\n"),
+	} {
+		os.WriteFile(path, []byte(broken), 0o600)
+		if turn, err := agyTurnSince(a.readyTarget()); turn || !errors.Is(err, errHistoryUnread) {
+			t.Fatalf("%s: %v %v", name, turn, err)
+		}
+	}
+	os.WriteFile(path, append(data, make([]byte, recordTailMax)...), 0o600)
+	if _, err := agyTurnSince(a.readyTarget()); !errors.Is(err, errHistoryUnread) {
+		t.Fatalf("bound: %v", err)
+	}
+	// Without a ready report there is nothing to compare.
+	if turn, err := agyTurnSince(a.target()); turn || err != nil {
+		t.Fatalf("no report: %v %v", turn, err)
+	}
+}
+
+// Inspect reports a user input after the ready report, and an unread transcript, instead of an
+// idle pane; Clear reads the transcript again after the Enter's fence, right before the key, and
+// a user input since Inspect erases the typed /clear and refuses it unsent (#593).
+func TestAgyTurnAfterReady(t *testing.T) {
+	ctx := context.Background()
+	a := newAgyTerminal(t)
+	a.transcript(t, "user", "ready:3", "model")
+	if pane, err := (agyCycle{}).Inspect(ctx, a.readyTarget(), a.fence); err != nil || !pane.Idle {
+		t.Fatalf("quiet: %+v %v", pane, err)
+	}
+	a.transcript(t, "user", "ready:3", "model", "user")
+	if pane, err := (agyCycle{}).Inspect(ctx, a.readyTarget(), a.fence); err != nil || pane.Idle || pane.Seen != turnAfterReady {
+		t.Fatalf("turn: %+v %v", pane, err)
+	}
+	os.Remove(agyTranscriptPath(a.home, "conv-a"))
+	if pane, err := (agyCycle{}).Inspect(ctx, a.readyTarget(), a.fence); err != nil || pane.Idle || pane.Seen != historyUnread {
+		t.Fatalf("unread: %+v %v", pane, err)
+	}
+	if len(a.sent()) != 0 {
+		t.Fatalf("keys: %q", a.sent())
+	}
+	// The input comes after the typed command, before its Enter.
+	for _, kinds := range [][]string{{"user", "ready:3", "model", "user"}, {"ready:3", "odd"}} {
+		a = newAgyTerminal(t)
+		a.said = []string{"an earlier prompt"}
+		a.transcript(t, "user", "ready:3", "model")
+		fence := func(ctx context.Context) error {
+			if err := a.fence(ctx); err != nil {
+				return err
+			}
+			if a.fences == 2 {
+				a.transcript(t, kinds...)
+			}
+			return nil
+		}
+		want := map[bool]error{true: errTurnAfterReady, false: errHistoryUnread}[kinds[0] == "user"]
+		if received, err := (agyCycle{}).Clear(ctx, a.readyTarget(), fence); received || !errors.Is(err, want) || a.clears != 0 || a.input != "" {
+			t.Fatalf("%v: %v %v %q %q", kinds, received, err, a.sent(), a.input)
+		}
+		if got := a.sent(); !slices.Equal(got, []string{"-l /clear", "C-u"}) {
+			t.Fatalf("%v keys: %q", kinds, got)
+		}
+		if code, unsent := unsentRefusal(want); !unsent || code != want.Error() {
+			t.Fatalf("unsent: %q %v", code, unsent)
+		}
+	}
+	// A quiet transcript lets the clear through.
+	a = newAgyTerminal(t)
+	a.said = []string{"an earlier prompt"}
+	a.transcript(t, "user", "ready:3", "model")
+	if received, err := (agyCycle{}).Clear(ctx, a.readyTarget(), a.fence); !received || err != nil || a.clears != 1 {
+		t.Fatalf("quiet clear: %v %v %q", received, err, a.sent())
+	}
+}

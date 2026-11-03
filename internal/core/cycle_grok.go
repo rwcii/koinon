@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -206,6 +207,125 @@ func (a grokApproval) option(n string) bool {
 	return false
 }
 
+// grokQueueHeader is the header of the queue of prompts that Grok accepted during a running
+// turn: "▾ Queued 1", above its numbered rows (native evidence, Grok Build 1.0.50).
+var grokQueueHeader = regexp.MustCompile(`^[▾▸] Queued [1-9][0-9]*$`)
+
+// grokQueueRows bounds the rows read above the composer for the queue's header.
+const grokQueueRows = 32
+
+// grokQueued reports the queue of a prompt that Grok accepted and has not started (#593): its
+// header in the block right above the composer's box and its slash-command menu, or the
+// footer's "Enter:send now", which Grok shows while the queue holds a prompt. Such a prompt is
+// in no session file until its turn starts (native evidence, Grok Build 1.0.50, two runs). A
+// transcript line is never in that block: the block ends at the first transcript mark (❯ or ◆)
+// above it that is not a menu row.
+func grokQueued(c codexScreen) bool {
+	lines := grokLines(c)
+	composer := -1
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.HasPrefix(strings.TrimSpace(lines[i]), "│ ❯") {
+			composer = i
+			break
+		}
+	}
+	if composer < 1 || !strings.HasPrefix(strings.TrimSpace(lines[composer-1]), "╭") {
+		return false
+	}
+	for _, line := range lines[composer:] {
+		if strings.Contains(line, "Enter:send now") {
+			return true
+		}
+	}
+	for i := composer - 2; i >= 0 && i >= composer-1-grokQueueRows; i-- {
+		line := strings.TrimSpace(lines[i])
+		switch {
+		case grokQueueHeader.MatchString(line):
+			return true
+		case grokRule(line) || strings.HasPrefix(line, "/") || strings.HasPrefix(line, "❯ /"):
+			// the slash-command menu: its rules and rows
+		case strings.HasPrefix(line, "❯") || strings.HasPrefix(line, "◆"):
+			return false
+		}
+	}
+	return false
+}
+
+// grokEventsPath is the event log of the pinned session: Grok keeps each session under its home,
+// in a directory named by the session's working directory, escaped, and the session ID (native
+// evidence, Grok Build 1.0.50). The host's PWD names the working directory. The directory is
+// found by its unescaped name, so no escaping rule is assumed; exactly one must hold the session.
+func grokEventsPath(t CycleTarget) (string, error) {
+	_, grok, err := grokHome(t)
+	if err != nil {
+		return "", err
+	}
+	cwd, err := t.tools.processEnvironment(int(t.HostPID), "PWD")
+	if err != nil || !filepath.IsAbs(cwd) || !nativeEpoch.MatchString(t.Epoch) {
+		return "", errHistoryUnread
+	}
+	sessions := filepath.Join(grok, "sessions")
+	entries, err := os.ReadDir(sessions)
+	if err != nil {
+		return "", errHistoryUnread
+	}
+	var found []string
+	for _, entry := range entries {
+		if name, err := url.PathUnescape(entry.Name()); err != nil || !entry.IsDir() || filepath.Clean(name) != filepath.Clean(cwd) {
+			continue
+		}
+		path := filepath.Join(sessions, entry.Name(), t.Epoch, "events.jsonl")
+		if _, err := os.Lstat(path); err == nil {
+			found = append(found, path)
+		}
+	}
+	if len(found) != 1 {
+		return "", errHistoryUnread
+	}
+	return found[0], nil
+}
+
+// grokTurnRecord reads one event (#593): its time, whether it has one, whether it starts a turn,
+// and whether it could be read. Grok writes turn_started with a time in milliseconds when a
+// prompt or a queued prompt starts its turn; its own context, such as a system reminder, starts
+// none (native evidence, Grok Build 1.0.50).
+func grokTurnRecord(line []byte) (when int64, timed, starts, ok bool) {
+	var event struct {
+		Type string `json:"type"`
+		TS   string `json:"ts"`
+	}
+	if json.Unmarshal(line, &event) != nil || event.Type == "" {
+		return 0, false, false, false
+	}
+	at, err := time.Parse(time.RFC3339Nano, event.TS)
+	if err != nil {
+		return 0, false, false, false
+	}
+	return at.UnixMilli(), true, event.Type == "turn_started", true
+}
+
+// grokQuiet refuses an effect when the session started a turn after its ready report, when it
+// holds a queued prompt, or when its event log could not rule a turn out (#593).
+func grokQuiet(t CycleTarget, c codexScreen) error {
+	if grokQueued(c) {
+		return errInputQueued
+	}
+	if t.ReadyAt <= 0 {
+		return nil
+	}
+	path, err := grokEventsPath(t)
+	if err != nil {
+		return errHistoryUnread
+	}
+	switch turn, err := recordTurnSince(path, t.ReadyAt, grokTurnRecord); {
+	case err != nil:
+		return errHistoryUnread
+	case turn:
+		return errTurnAfterReady
+	}
+	return nil
+}
+
 // grokNotReady is the fixed code of what keeps a screen from the cycle's next input, or "".
 // After the reset, the screen must show the successor's /new notice.
 func grokNotReady(t CycleTarget, c codexScreen) string {
@@ -221,6 +341,8 @@ func grokNotReady(t CycleTarget, c codexScreen) string {
 		return "menu_open"
 	case !grokIdle(grokText(c)):
 		return "turn_running"
+	case grokQueued(c):
+		return inputQueued
 	case t.SuccessorEpoch != "" && grokSession(c) != t.SuccessorEpoch:
 		return "successor_not_cleared"
 	}
@@ -478,7 +600,17 @@ func (grokCycle) Inspect(ctx context.Context, t CycleTarget, fence CycleFence) (
 	if err != nil {
 		return PaneState{}, err
 	}
-	switch seen := grokNotReady(t, screen); seen {
+	seen := grokNotReady(t, screen)
+	if seen == "" && t.SuccessorEpoch == "" {
+		// A turn after the ready report is not in the handoff (#593).
+		switch err := grokQuiet(t, screen); {
+		case errors.Is(err, errTurnAfterReady):
+			seen = turnAfterReady
+		case err != nil:
+			seen = err.Error()
+		}
+	}
+	switch seen {
 	case "native_dialog":
 		return PaneState{Prompt: seen}, nil
 	case "":
@@ -526,10 +658,11 @@ func (g grokCycle) erase(ctx context.Context, t CycleTarget, fence CycleFence, t
 // command types a slash command while a fresh read shows the pane ready, and submits it with
 // one Enter while the composer holds exactly it and its menu selects its one row (match accepts
 // that row). done compares the screen read before the Enter with later reads, so only a fresh
-// effect is a receipt. Typed text that is not submitted is erased again; a draft that someone
-// started is never touched.
+// effect is a receipt. final, when set, runs on that read, after the Enter's proof and fence,
+// right before the key; its refusal is returned. Typed text that is not submitted is erased
+// again; a draft that someone started is never touched.
 func (g grokCycle) command(ctx context.Context, t CycleTarget, fence CycleFence, text string, match func(grokRow) bool,
-	done func(before, after codexScreen) bool) (bool, error) {
+	done func(before, after codexScreen) bool, final func(codexScreen) error) (bool, error) {
 	ready := func(s codexScreen) bool { return grokNotReady(t, s) == "" }
 	if err := g.keyIf(ctx, t, fence, ready, errAgyNotReady, "-l", text); err != nil {
 		return false, err
@@ -543,12 +676,26 @@ func (g grokCycle) command(ctx context.Context, t CycleTarget, fence CycleFence,
 		return false, errAgyTyped
 	}
 	var before codexScreen
+	var refused error
 	check := func(s codexScreen) bool {
 		before = s
-		return typed(s)
+		if !typed(s) {
+			return false
+		}
+		if final != nil {
+			refused = final(s)
+		}
+		return refused == nil
 	}
 	if err := g.keyIf(ctx, t, fence, check, errAgyTyped, "Enter"); err != nil {
-		g.erase(ctx, t, fence, text)
+		erased := g.erase(ctx, t, fence, text)
+		if refused != nil {
+			// A refusal that says nothing was entered holds only after the erase (#592).
+			if erased != nil {
+				return false, erased
+			}
+			return false, refused
+		}
 		return false, err
 	}
 	if !awaitGrok(ctx, t, func(s codexScreen) bool { return done(before, s) }) {
@@ -558,14 +705,15 @@ func (g grokCycle) command(ctx context.Context, t CycleTarget, fence CycleFence,
 }
 
 // Clear enters /new and reads back the notice of a session other than the epoch and other than
-// any that the screen named before the Enter (N5); that is its receipt. The new session is
-// proven separately, by NewEpoch.
+// any that the screen named before the Enter (N5); that is its receipt. After the Enter's fence,
+// right before the key, a queued prompt or a turn after the ready report refuses it, and the
+// typed command is erased (#593). The new session is proven separately, by NewEpoch.
 func (g grokCycle) Clear(ctx context.Context, t CycleTarget, fence CycleFence) (bool, error) {
 	newRow := func(row grokRow) bool { return row.description == "Start a new session" }
 	return g.command(ctx, t, fence, "/new", newRow, func(before, after codexScreen) bool {
 		session := grokSession(after)
 		return grokEmpty(after) && session != "" && session != t.Epoch && session != grokSession(before)
-	})
+	}, func(s codexScreen) error { return grokQuiet(t, s) })
 }
 
 // NewEpoch returns the session that the host's status line reported after the clear intent,
@@ -595,7 +743,7 @@ func (g grokCycle) Pickup(ctx context.Context, t CycleTarget, fence CycleFence) 
 		composer, _, found := grokComposer(grokText(after))
 		return found && composer == "" && len(grokMenu(after)) == 0 &&
 			grokPrompts(after, grokPickupCommand) > grokPrompts(before, grokPickupCommand)
-	})
+	}, nil)
 }
 
 // Answerable is false: every Grok dialog waits for the native session or the maintainer.

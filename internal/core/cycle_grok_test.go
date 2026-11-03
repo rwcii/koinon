@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -103,7 +104,8 @@ type grokTerminal struct {
 	pickupRow string // the menu row that /koinon-pickup shows
 	session   string // the latest /new notice, "" before one
 	news      int
-	noNew     bool // /new does not take effect
+	noNew     bool     // /new does not take effect
+	queued    []string // prompts that Grok accepted during a running turn (#593)
 	home, dir string
 	state     string
 	pid       int64
@@ -180,6 +182,13 @@ func (g *grokTerminal) screen() string {
 	if g.running {
 		lines = append(lines, "   ⠙ Thinking… 1.1s")
 	}
+	if len(g.queued) > 0 {
+		lines = append(lines, "", "   ▾ Queued "+strconv.Itoa(len(g.queued)))
+		for i, prompt := range g.queued {
+			lines = append(lines, "     #"+strconv.Itoa(i+1)+" "+prompt)
+		}
+		lines = append(lines, "")
+	}
 	switch {
 	case g.input == "/new":
 		lines = append(lines, rule+"5─", "    ❯ /new                   Start a new session", "      /context-window        Set the context window", rule)
@@ -188,6 +197,8 @@ func (g *grokTerminal) screen() string {
 	}
 	lines = append(lines, "  ╭"+strings.Repeat("─", 58)+"╮", "  │ ❯ "+g.input, "  ╰"+strings.Repeat("─", 58)+"╯", "")
 	switch {
+	case len(g.queued) > 0 && g.running:
+		lines = append(lines, "  Enter:send now  │  Shift+Tab:mode  │  Ctrl+c:cancel  │  Ctrl+;:queue  │  Ctrl+x:shortcuts")
 	case g.running:
 		lines = append(lines, "  Shift+Tab:mode  │  Ctrl+c:cancel  │  Ctrl+x:shortcuts")
 	case g.input != "":
@@ -621,5 +632,183 @@ func TestGrokDialogChoice(t *testing.T) {
 	}
 	if (grokCycle{}).Answerable("anything") {
 		t.Fatal("answerable")
+	}
+}
+
+// grokReadyAt is the synthetic ready report's time.
+var grokReadyAt = time.Date(2026, 11, 3, 12, 31, 0, 0, time.UTC).UnixMilli()
+
+// events writes the pinned session's event log under the host's PWD, one event per entry: a type
+// and its time in milliseconds after grokReadyAt (negative before it), or a raw line. The shapes
+// are Grok Build 1.0.50's; no text is real.
+func (g *grokTerminal) events(t *testing.T, entries ...any) {
+	t.Helper()
+	g.env["PWD"] = g.dir
+	var lines []string
+	for i := 0; i < len(entries); i++ {
+		if raw, ok := entries[i].(string); ok && strings.HasPrefix(raw, "{") {
+			lines = append(lines, raw)
+			continue
+		}
+		at := time.UnixMilli(grokReadyAt + int64(entries[i+1].(int))).UTC().Format("2006-01-02T15:04:05.000Z")
+		lines = append(lines, `{"type":"`+entries[i].(string)+`","ts":"`+at+`","session_id":"grok-a","schema_version":1}`)
+		i++
+	}
+	path := filepath.Join(g.home, ".grok", "sessions", url.PathEscape(g.dir), "grok-a", "events.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func (g *grokTerminal) readyTarget() CycleTarget {
+	target := g.target()
+	target.ReadyAt, target.ReadyRevision = grokReadyAt, 3
+	return target
+}
+
+// A turn_started event after the ready report is a turn after it (#593); the report's own turn,
+// started before it, its completion and the loop and turn ends after it are not. An earlier
+// report's events do not count, and the boundary is exact to the millisecond. An event after the
+// report without a valid time, a partial last line, a missing log and an unknown working
+// directory are unread.
+func TestGrokTurnSince(t *testing.T) {
+	ctx := context.Background()
+	quiet := []any{"turn_started", -60000, "mcp_tool_call_completed", -50000, "turn_ended", -45000,
+		"turn_started", -9000, "mcp_tool_call_started", -100, "mcp_tool_call_completed", 0, "loop_started", 20, "turn_ended", 900}
+	cases := []struct {
+		name    string
+		entries []any
+		want    error
+	}{
+		{"own report only", quiet, nil},
+		{"a later turn", append(slices.Clone(quiet), "turn_started", 5000, "loop_started", 5010), errTurnAfterReady},
+		{"a turn at the report's millisecond", append(slices.Clone(quiet), "turn_started", 0), nil},
+		{"a turn one millisecond later", append(slices.Clone(quiet), "turn_started", 1), errTurnAfterReady},
+		{"a turn before the report's completion", []any{"turn_started", -9000, "turn_ended", -8000, "turn_started", -10, "mcp_tool_call_completed", 0}, nil},
+		{"no time after the report", append(slices.Clone(quiet), `{"type":"turn_ended"}`), errHistoryUnread},
+		{"not an event", append(slices.Clone(quiet), `{"type":`), errHistoryUnread},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			g := newGrokTerminal(t)
+			g.events(t, c.entries...)
+			screen, _ := readAgy(ctx, g.target())
+			if err := grokQuiet(g.readyTarget(), screen); !errors.Is(err, c.want) || c.want == nil && err != nil {
+				t.Fatalf("%v", err)
+			}
+		})
+	}
+	g := newGrokTerminal(t)
+	screen, _ := readAgy(ctx, g.target())
+	if err := grokQuiet(g.readyTarget(), screen); !errors.Is(err, errHistoryUnread) {
+		t.Fatalf("no log: %v", err)
+	}
+	g.events(t, quiet...)
+	path := filepath.Join(g.home, ".grok", "sessions", url.PathEscape(g.dir), "grok-a", "events.jsonl")
+	data, _ := os.ReadFile(path)
+	os.WriteFile(path, append(data, `{"type":"turn_sta`...), 0o600)
+	if err := grokQuiet(g.readyTarget(), screen); !errors.Is(err, errHistoryUnread) {
+		t.Fatalf("partial: %v", err)
+	}
+	os.WriteFile(path, data, 0o600)
+	g.env["PWD"] = "relative"
+	if err := grokQuiet(g.readyTarget(), screen); !errors.Is(err, errHistoryUnread) {
+		t.Fatalf("working directory: %v", err)
+	}
+	// Another escaping of the same directory is found by its unescaped name; two are ambiguous.
+	g.env["PWD"] = g.dir
+	other := filepath.Join(g.home, ".grok", "sessions", strings.ReplaceAll(url.PathEscape(g.dir), "%2F", "%2f"), "grok-a")
+	os.MkdirAll(other, 0o700)
+	os.WriteFile(filepath.Join(other, "events.jsonl"), data, 0o600)
+	if err := grokQuiet(g.readyTarget(), screen); !errors.Is(err, errHistoryUnread) {
+		t.Fatalf("two directories: %v", err)
+	}
+	os.Remove(path)
+	if err := grokQuiet(g.readyTarget(), screen); err != nil {
+		t.Fatalf("other escaping: %v", err)
+	}
+	os.RemoveAll(other)
+	os.WriteFile(path, data, 0o600)
+	g.env["PWD"] = g.dir
+	if err := grokQuiet(g.readyTarget(), screen); err != nil {
+		t.Fatalf("quiet: %v", err)
+	}
+	if err := grokQuiet(g.target(), screen); err != nil {
+		t.Fatalf("no report: %v", err)
+	}
+}
+
+// A prompt that Grok queued during a running turn is in no file until its turn starts (#593):
+// the pane's queue block keeps the cycle waiting, with no key and no new handoff, and once the
+// queued turn starts its event is a turn after the ready report. The queue's header in the
+// transcript is not the queue.
+func TestGrokQueuedInput(t *testing.T) {
+	ctx := context.Background()
+	g := newGrokTerminal(t)
+	g.events(t, "turn_started", -9000, "mcp_tool_call_completed", 0, "turn_ended", 900)
+	g.running, g.queued = true, []string{"a queued prompt"}
+	if pane, err := (grokCycle{}).Inspect(ctx, g.readyTarget(), g.fence); err != nil || pane.Seen != "turn_running" {
+		t.Fatalf("running: %+v %v", pane, err)
+	}
+	// Between the turn's end and the queued turn's start the footer is gone, the block is not.
+	g.running = false
+	if pane, err := (grokCycle{}).Inspect(ctx, g.readyTarget(), g.fence); err != nil || pane.Seen != inputQueued {
+		t.Fatalf("queued: %+v %v", pane, err)
+	}
+	if cycleRepeatable(inputQueued) || cycleRepeatable(historyUnread) {
+		t.Fatal("a queued prompt or unread history asks for a new handoff")
+	}
+	if received, err := (grokCycle{}).Clear(ctx, g.readyTarget(), g.fence); received || !errors.Is(err, errAgyNotReady) || len(g.sent()) != 0 {
+		t.Fatalf("clear while queued: %v %v %q", received, err, g.sent())
+	}
+	g.queued = nil
+	g.events(t, "turn_started", -9000, "mcp_tool_call_completed", 0, "turn_ended", 900, "turn_started", 1012)
+	if pane, err := (grokCycle{}).Inspect(ctx, g.readyTarget(), g.fence); err != nil || pane.Seen != turnAfterReady {
+		t.Fatalf("queued turn started: %+v %v", pane, err)
+	}
+	// The header as transcript text is not the queue.
+	g = newGrokTerminal(t)
+	g.events(t, "turn_started", -9000, "mcp_tool_call_completed", 0, "turn_ended", 900)
+	g.said = []string{"▾ Queued 1"}
+	if pane, err := (grokCycle{}).Inspect(ctx, g.readyTarget(), g.fence); err != nil || !pane.Idle {
+		t.Fatalf("transcript header: %+v %v", pane, err)
+	}
+	// A queue or a turn that comes after the typed /new, before its Enter, refuses it unsent and
+	// erases the command.
+	for _, late := range []string{"queue", "turn"} {
+		g = newGrokTerminal(t)
+		g.said = []string{"an earlier prompt"}
+		g.events(t, "turn_started", -9000, "mcp_tool_call_completed", 0, "turn_ended", 900)
+		fence := func(ctx context.Context) error {
+			if err := g.fence(ctx); err != nil {
+				return err
+			}
+			if g.fences == 2 && late == "queue" {
+				g.mu.Lock()
+				g.queued = []string{"a queued prompt"}
+				g.mu.Unlock()
+			}
+			if g.fences == 2 && late == "turn" {
+				g.events(t, "turn_started", -9000, "mcp_tool_call_completed", 0, "turn_ended", 900, "turn_started", 3000)
+			}
+			return nil
+		}
+		want := map[string]error{"queue": errInputQueued, "turn": errTurnAfterReady}[late]
+		if received, err := (grokCycle{}).Clear(ctx, g.readyTarget(), fence); received || !errors.Is(err, want) || g.news != 0 || g.input != "" {
+			t.Fatalf("%s: %v %v %q", late, received, err, g.sent())
+		}
+		if got := g.sent(); !slices.Equal(got, []string{"-l /new", "C-u"}) {
+			t.Fatalf("%s keys: %q", late, got)
+		}
+	}
+	// A quiet log lets the clear through.
+	g = newGrokTerminal(t)
+	g.said = []string{"an earlier prompt"}
+	g.events(t, "turn_started", -9000, "mcp_tool_call_completed", 0, "turn_ended", 900)
+	if received, err := (grokCycle{}).Clear(ctx, g.readyTarget(), g.fence); !received || err != nil || g.news != 1 {
+		t.Fatalf("quiet clear: %v %v %q", received, err, g.sent())
 	}
 }

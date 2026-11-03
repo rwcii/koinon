@@ -5,6 +5,15 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A managed cycle no longer clears an agy, Grok, OpenCode or DeepSeek session that had a
+  conversation turn after its ready report: it asks for a new handoff, as for Claude and Codex
+  (#593, board card TURN-AFTER-READY-592). Koinon reads the session's own record back to the
+  report, before the clear and again right before its input: the agy transcript's steps, the
+  Grok event log, the OpenCode session's messages and the DeepSeek history, never their text. A
+  Grok prompt that waits in Grok's queue during a running turn keeps the clear from running
+  (`input_queued`), and a record that cannot be read back to the report does too
+  (`history_unread`); neither asks for a new handoff. An OpenCode select that a turn refuses
+  keeps the created session, and the next reset selects that session once.
 - A handoff quotes the maintainer's directions and keeps the agent's own proposals apart
   (board card HANDOFF-WORDS). The handoff skill's template has a Maintainer direction section,
   each direction still in force in the maintainer's words with its date, where it was given and
