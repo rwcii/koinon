@@ -54,8 +54,9 @@ fi
 
 Read the progress note first when it exists (step 6 of the `handoff` skill). Then read the
 newest handoff, or in a managed cycle the handoff that the cycle names (step 4), for what the
-note does not cover, such as identity and claims. When the note is absent, unreadable or larger
-than 4 KiB, read the whole handoff and say so in the report.
+note does not cover, such as identity and claims, and always its Maintainer direction and My
+proposals not yet raised sections: the note does not replace them. When the note is absent,
+unreadable or larger than 4 KiB, read the whole handoff and say so in the report.
 
 Handoff file names start with a UTC timestamp, so the last name in sort order is the newest.
 The handoffs are the timestamped files: `progress.md` is the note, and a directory with only the
@@ -144,6 +145,13 @@ Report briefly:
 - Each subagent that the handoff lists as running: its result, or that it has not arrived
   (WDR 005, Decision 4).
 - Blockers and decisions that need the maintainer.
+- The maintainer's directions that the handoff quotes, with their dates, and your own proposals
+  not yet raised, as yours.
+
+In the saved handoff, Maintainer direction holds the maintainer's words and My proposals not
+yet raised holds the previous session's own ideas: report each proposal as yours, not as a
+question or a rule from the maintainer. The maintainer's current instructions are a direct
+source as always.
 
 Then start the next action. When the live state changed the next action materially or left it
 ambiguous, ask the maintainer, with a recommendation. When the maintainer asked for orientation,

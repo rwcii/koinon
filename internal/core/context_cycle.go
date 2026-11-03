@@ -641,7 +641,8 @@ func cycleRequestBody(id string, revision int64, family, agent string, deadline 
 		ready, reset, idle = "run koinon cycle-ready --as deepseek:$DSH_SESSION_ID", "starts a new harness session for the pickup once this session is idle", "session"
 	}
 	return "overwatch: managed context cycle " + id + " revision " + strconv.FormatInt(revision, 10) +
-		" requests your handoff. Report ready by " + by + ". Pause your work at the next safe stopping point and start no new work. " + subagents + " Write your handoff " +
+		" requests your handoff. Report ready by " + by + ". Pause your work at the next safe stopping point and start no new work. " +
+		"This pause is for this cycle only; the handoff does not record it as a rule for the next session. " + subagents + " Write your handoff " +
 		"with your canonical handoff procedure into _handoff/" + agent + "/ of the main checkout (outside a Git checkout, of the directory " +
 		"where this session started), or into the directory that the Handoff path fact of " + handoffFacts + " names, then " + ready + " with this cycle ID, " +
 		"its revision and the handoff file name. Then end your turn and stay idle: overwatch " + reset + ", and asks again " +

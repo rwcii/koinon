@@ -283,24 +283,26 @@ are unknown, so no session is eligible until fresh native reports arrive.
 
 ### Managed context cycles
 
-Chunk 02 adds the durable cycle. A context observation that makes an enabled session
-eligible admits a cycle when the family has a registered cycle adapter, the session still has
-the host and tmux pane that its Enable pinned, it has no unfinished cycle (nor has its host),
-and fewer than 16 cycles are unfinished. Chunk 03 registers the Claude Code adapter, chunk
-04 the Codex adapter, #512 the agy adapter, #513 the OpenCode adapter and #514 the DeepSeek adapter; the other families have none, so their Enable is refused. Admission is one ordinary transaction:
-the cycle row, its first event `requested admitted`, an audit record and the typed request in
-the session's own inbox. The request's sender is the reserved system identity `overwatch`
+Chunk 02 adds the durable cycle. A context observation that makes an enabled session eligible
+admits a cycle when the family has a registered cycle adapter, the session still has the host
+and tmux pane that its Enable pinned, it has no unfinished cycle (nor has its host), and fewer
+than 16 cycles are unfinished. Chunk 03 registers the Claude Code adapter, chunk 04 the Codex
+adapter, #512 the agy adapter, #513 the OpenCode adapter and #514 the DeepSeek adapter; the
+other families have none, so their Enable is refused. Admission is one ordinary transaction: the
+cycle row, its first event `requested admitted`, an audit record and the typed request in the
+session's own inbox. The request's sender is the reserved system identity `overwatch`
 (`sender_family` and `sender_id` `overwatch`, `sender_name` `overwatch`), with `system_kind`
-`context_cycle_request`, `cycle_id` and `cycle_enable_revision`; its fixed body names the
-cycle and its revision and asks the session to pause at the next safe stopping point, start no new work, write its
-handoff, report it with `context_cycle_ready`, then end its turn and stay idle (#431). A wake
-whose range holds the request of an unfinished cycle ends its notice with ` Managed
-context-cycle request ID: answer it before other work.`, after any decision verdict suffix; a finished cycle's request adds
-nothing (#445). No session, alias or participant can take the name `overwatch`, it has no
-inbox, and no tool or command can send as it.
-Inbox reads return `system_kind`, `cycle_id` and `cycle_enable_revision` with the message. A
-name record called `overwatch` retained from before schema 23 is kept unchanged; while one
-exists no cycle is admitted, and the session's trigger reason is `overwatch_name_conflict`.
+`context_cycle_request`, `cycle_id` and `cycle_enable_revision`; its fixed body names the cycle
+and its revision and asks the session to pause at the next safe stopping point, start no new
+work (for this cycle only; the handoff does not record the pause as a rule for the next
+session), write its handoff, report it with `context_cycle_ready`, then end its turn and stay
+idle (#431). A wake whose range holds the request of an unfinished cycle ends its notice with `
+Managed context-cycle request ID: answer it before other work.`, after any decision verdict
+suffix; a finished cycle's request adds nothing (#445). No session, alias or participant can
+take the name `overwatch`, it has no inbox, and no tool or command can send as it. Inbox reads
+return `system_kind`, `cycle_id` and `cycle_enable_revision` with the message. A name record
+called `overwatch` retained from before schema 23 is kept unchanged; while one exists no cycle
+is admitted, and the session's trigger reason is `overwatch_name_conflict`.
 
 Schema 23 adds `context_cycles` (state, compared revision, the pinned session, host, pane,
 participant, Enable revision and pre-reset epoch, the policy snapshot, deadlines, artifact

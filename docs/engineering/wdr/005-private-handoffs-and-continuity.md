@@ -3,7 +3,7 @@ wdr: "005"
 title: "Private Handoffs and Continuity"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-27"
+updated: "2026-11-03"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -31,12 +31,13 @@ tags:
 Agents that develop Koinon end sessions, reset context and resume later. The `handoff` skill
 writes a snapshot of one agent's work, and the `pickup` skill resumes from it. This record
 describes where handoffs live, why they stay out of Git, whose handoff a pickup reads, and the
-short progress note that each agent keeps beside its snapshots, and the subagents that a handoff
-lists.
+short progress note that each agent keeps beside its snapshots, the subagents that a handoff
+lists, and how a handoff carries the maintainer's words apart from the agent's own proposals.
 
 The location decision quotes the maintainer. Pickup's default of the caller's own handoff
 shipped without recorded maintainer words, so the record is a draft. The progress note was
-requested by the maintainer, and the maintainer stated the subagent rule.
+requested by the maintainer, and the maintainer stated the subagent rule and approved the
+maintainer-direction sections on the decision board.
 
 ---
 
@@ -47,8 +48,9 @@ requested by the maintainer, and the maintainer stated the subagent rule.
 3. Decision 2: Pickup reads the caller's own handoff
 4. Decision 3: A progress note beside the snapshots
 5. Decision 4: A handoff lists the subagents that still run
-6. Conclusion
-7. Document History
+6. Decision 5: A handoff quotes the maintainer's directions and keeps the agent's proposals apart
+7. Conclusion
+8. Document History
 
 ---
 
@@ -174,9 +176,11 @@ Each agent currently keeps one short progress note, `progress.md`, in its own ha
 beside its timestamped snapshots, in the resolved Handoff path. The note has fixed fields
 (task, pull request and head, completed stages, decisions, open issues, next action), holds at
 most 4 KiB, and is the only file there that is updated in place: the agent updates it after a
-completed stage, and `handoff` starts a snapshot from it and updates it in the same step.
-`pickup` reads the note first, verifies its volatile claims once, and takes from the newest
-snapshot what the note does not cover, such as identity and claims. When the note is absent,
+completed stage, and `handoff` starts a snapshot from it when it is newer than the last
+snapshot, else from that snapshot, saying that the note was not used, and updates it in the same
+step. `pickup` reads the note first, verifies its volatile claims once, and takes from the
+newest snapshot what the note does not cover, such as identity and claims, and always the
+snapshot's maintainer directions and unraised proposals (Decision 5). When the note is absent,
 unreadable or larger than 4 KiB, pickup reads the whole handoff and says so. The timestamped
 files are the snapshots, and a managed cycle restores the snapshot that it names and reconciles
 a newer or different note against the live state.
@@ -239,6 +243,52 @@ next session can use their results.
 
 ---
 
+## 6. Decision 5: A handoff quotes the maintainer's directions and keeps the agent's proposals apart
+
+### Decision
+
+A handoff has a Maintainer direction section: each direction that is still in force, in the
+maintainer's own words, with its date, where it was given and the question or proposal it
+answered. A My proposals not yet raised section holds the agent's own drafts, open points and
+ideas that the maintainer has not seen, written as the agent's, not as the maintainer's
+questions or rules. The progress note names its decisions with their sources and leaves the
+quotes to the snapshot. `pickup` reads both sections also when the note is usable and reports
+the proposals as the agent's own; the maintainer's current instructions stay a direct source.
+The managed cycle request says that its pause is for that cycle only, and the handoff does not
+record it as a rule for the next session.
+
+**Provenance:** Maintainer, 2026-11-03, session transcript: "we're getting much less accurate
+summaries that are causing drift in work after a pickup is completed. in one example, the
+handoff and pickup cycle ended up adding refusal content that was not part of the context prior
+to the handoff cycle." The example, from an adopting project's session on 2026-11-03: its
+handoff gave the maintainer's approved recap in the agent's own words, listed three open points
+from the agent's own unreviewed draft as questions for the maintainer, and wrote a wider rule
+than the maintainer's words, next to the cycle's pause; after the pickup the agent raised one of
+those points again, and the maintainer said "this is not what we discussed and agreed on". The
+handoff skill had never asked for the maintainer's words, and its step 4 started from the
+progress note without checking that the note was newer; in the example the note was a day
+older. Maintainer, 2026-11-03, decision board item HANDOFF-WORDS (revision 1), "approved", no
+note, after "agreed" in the terminal. The question: "Handoffs carry the maintainer's words and
+keep the agent's own proposals apart". The card recommended the two template sections, the
+note only when newer than the last snapshot, pickup reporting the proposals as the agent's own,
+one sentence in the cycle request about its pause, and this record, the guide and the tests to
+match. The intent: the next session reads the maintainer's decisions as given, and the agent's
+ideas as its own.
+
+### Alternatives Considered
+
+| Alternative | Description | Why Rejected |
+| ----------- | ----------- | ------------ |
+| A summary in the agent's words | The template before this decision | A summary can narrow a decision, and the next session reads it as fact |
+| Quotes in the progress note | Carry the maintainer's words in the 4 KiB note | The note is short and updated in place; the snapshot holds the quotes |
+
+### Rationale
+
+1. A quote with its date and question lets the next session check whether it still applies.
+2. Proposals that are marked as the agent's own do not come back as the maintainer's questions.
+
+---
+
 ## Conclusion
 
 Koinon's development agents currently keep handoffs in the main checkout's Git-ignored
@@ -247,7 +297,9 @@ maintainer asked on 2026-09-24. Pickup reads the caller's own handoff, or anothe
 maintainer names; that default shipped with the first shared skills and has no recorded
 maintainer decision.
 Each agent also keeps a short progress note beside its snapshots, which pickup reads first.
-A handoff lists the subagents that still run, as the maintainer stated on 2026-10-27.
+A handoff lists the subagents that still run, as the maintainer stated on 2026-10-27, and
+quotes the maintainer's directions apart from the agent's own proposals, as the maintainer
+approved on 2026-11-03.
 
 ---
 
@@ -260,3 +312,4 @@ A handoff lists the subagents that still run, as the maintainer stated on 2026-1
 | 2026-10-25 | #487: Decision 2 drops the fallback ban; Decision 3 states the unusable-note fallback as the `pickup` skill does |
 | 2026-10-27 | Decision 4: a handoff lists the subagents that still run (#533) |
 | 2026-11-01 | Decision 1: a failed directory check stops the handoff, which #487 had removed, approved on the decision board (RESTORE-STEPS-487) |
+| 2026-11-03 | Decision 5: a handoff quotes the maintainer's directions and keeps the agent's proposals apart; Decision 3: the note seeds a handoff only when newer than the last snapshot, approved on the decision board (HANDOFF-WORDS) |

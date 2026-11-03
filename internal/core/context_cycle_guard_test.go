@@ -721,7 +721,7 @@ func TestContextCycleRequestAsksToPauseAndStayIdle(t *testing.T) {
 		t.Fatalf("requests: %q", requests)
 	}
 	for _, want := range []string{"managed context cycle " + v.ID + " revision 1 requests your handoff",
-		"Pause your work at the next safe stopping point and start no new work. The clear does not stop your background subagents",
+		"Pause your work at the next safe stopping point and start no new work. This pause is for this cycle only; the handoff does not record it as a rule for the next session. The clear does not stop your background subagents",
 		"do not stop them or wait for them", "list each one that still runs, with its task and where its result goes",
 		"the new session gets each result as a message", "call context_cycle_ready",
 		"Report ready by " + time.UnixMilli(v.StageDeadline).UTC().Format("2006-01-02 15:04:05 UTC") + ".",
