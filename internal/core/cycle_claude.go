@@ -441,10 +441,27 @@ var errRecordWindow = errors.New("session record does not reach the ready report
 // turn says (#592). The last complete record whose time is at or before at marks the report;
 // each record after it counts by its type, also one without a time. A read from the start of
 // the file needs no such mark. The window doubles up to recordTailMax until it holds the mark.
-// A file that cannot be read or changes size during the read, a record that cannot be read
-// after the mark, a partial last record, and a window without the mark are errors, so a turn
-// is never missed.
+// A file that cannot be read or that keeps changing size during the read, a record that cannot
+// be read after the mark, a partial last record, and a window without the mark are errors, so a
+// turn is never missed. A file whose size changed during a read with no turn is read again, up
+// to recordReads times.
 func recordTurnSince(path string, at int64, turn func([]byte) (int64, bool, bool, bool)) (bool, error) {
+	for range recordReads - 1 {
+		if found, err := recordTurnRead(path, at, turn); !errors.Is(err, errRecordChanged) {
+			return found, err
+		}
+	}
+	return recordTurnRead(path, at, turn)
+}
+
+// recordReads bounds the reads of a session record that changes during them.
+const recordReads = 3
+
+// errRecordChanged is a session record whose size changed during a read that found no turn.
+var errRecordChanged = errors.New("session record changed during the read")
+
+// recordTurnRead is one read of recordTurnSince.
+func recordTurnRead(path string, at int64, turn func([]byte) (int64, bool, bool, bool)) (bool, error) {
 	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return false, err
@@ -498,8 +515,10 @@ func recordTurnSince(path string, at int64, turn func([]byte) (int64, bool, bool
 				return true, nil
 			}
 		}
-		if current, err := f.Stat(); err != nil || current.Size() < size {
-			return false, errors.New("session record changed during the read")
+		if current, err := f.Stat(); err != nil {
+			return false, err
+		} else if current.Size() != size {
+			return false, errRecordChanged
 		}
 		return false, nil
 	}
@@ -778,8 +797,9 @@ func await(ctx context.Context, t CycleTarget, ok func(claudeScreen) bool) bool 
 
 // command types a slash command, closes its menu, checks the input line holds exactly the
 // command, and submits it with one Enter. check runs on the screen with the menu open, and
-// final, when set, with the last read before the Enter; either one failing refuses with
-// refused. Typed text that is not submitted, also after a failed fence, is erased again.
+// final, when set, after the Enter's proof and fence, right before the key; either one failing
+// refuses with refused. Typed text that is not submitted, also after a failed fence, is erased
+// again.
 func (a claudeCycle) command(ctx context.Context, t CycleTarget, fence CycleFence, text string, check func(claudeScreen) bool, final func() bool, refused error) (bool, error) {
 	if err := a.key(ctx, t, fence, "-l", text); err != nil {
 		return false, err
@@ -803,10 +823,18 @@ func (a claudeCycle) command(ctx context.Context, t CycleTarget, fence CycleFenc
 	if !await(ctx, t, func(s claudeScreen) bool { return s.input == text && menuFirst(s, text) == "" }) {
 		return abandon(errClaudeEscape)
 	}
-	if final != nil && !final() {
-		return abandon(refused)
+	quiet := true
+	enter := func(s claudeScreen) bool {
+		if s.input != text || menuFirst(s, text) != "" {
+			return false
+		}
+		quiet = final == nil || final()
+		return quiet
 	}
-	if err := a.key(ctx, t, fence, "Enter"); err != nil {
+	if err := a.keyIf(ctx, t, fence, enter, errClaudeEscape, "Enter"); err != nil {
+		if !quiet {
+			err = refused
+		}
 		return abandon(err)
 	}
 	if !await(ctx, t, func(s claudeScreen) bool { return s.found && s.input == "" }) {
@@ -815,9 +843,9 @@ func (a claudeCycle) command(ctx context.Context, t CycleTarget, fence CycleFenc
 	return true, nil
 }
 
-// Clear enters /clear. It reads the transcript again with the menu open and as the last read
-// before its Enter: a turn after the ready report since Inspect erases the command and refuses
-// (#592).
+// Clear enters /clear. It reads the transcript again with the menu open and after the Enter's
+// fence, right before the key: a turn after the ready report since Inspect erases the command
+// and refuses (#592).
 func (a claudeCycle) Clear(ctx context.Context, t CycleTarget, fence CycleFence) (bool, error) {
 	quiet := func() bool { return claudeQuiet(t) }
 	return a.command(ctx, t, fence, "/clear", func(claudeScreen) bool { return quiet() }, quiet, errTurnAfterReady)

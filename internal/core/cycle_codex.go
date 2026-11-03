@@ -211,19 +211,35 @@ func codexTurnEndedIn(f *os.File) (int64, bool) {
 // codexTurnAfterReady reports whether the thread's rollout, read now, holds a turn that started
 // after the ready report.
 func codexTurnAfterReady(t CycleTarget) bool {
+	turn, err := codexTurnSince(t)
+	return err == nil && turn
+}
+
+// codexQuiet reports whether the thread's rollout, read now, shows no turn since the ready
+// report; a rollout that cannot be read is not quiet (#592).
+func codexQuiet(t CycleTarget) bool {
+	turn, err := codexTurnSince(t)
+	return err == nil && !turn
+}
+
+// codexTurnSince reads the thread's rollout for a turn that started after the ready report; with
+// no ready report there is none.
+func codexTurnSince(t CycleTarget) (bool, error) {
 	if t.ReadyAt == 0 {
-		return false
+		return false, nil
 	}
 	codex, _, err := codexHome(t)
 	if err != nil {
-		return false
+		return false, err
 	}
 	path, err := codexRolloutPath(codex, t.SessionID)
-	if err != nil || path == "" {
-		return false
+	if err != nil {
+		return false, err
 	}
-	turn, err := recordTurnSince(path, t.ReadyAt, codexTurnRecord)
-	return err == nil && turn
+	if path == "" {
+		return false, errors.New("rollout not found")
+	}
+	return recordTurnSince(path, t.ReadyAt, codexTurnRecord)
 }
 
 // codexTurnRecord reads one rollout record (#592): its time, whether it has one, whether it is
@@ -737,7 +753,7 @@ func (a codexCycle) erase(ctx context.Context, t CycleTarget, fence CycleFence, 
 // submits it with one Enter while the composer holds exactly it; the command popup runs its
 // first entry, the typed command. done reads back its effect. Typed text that is not
 // submitted is erased again; a draft that someone started is left as it is.
-func (a codexCycle) command(ctx context.Context, t CycleTarget, fence CycleFence, text string, ready, done func(codexScreen) bool) (bool, error) {
+func (a codexCycle) command(ctx context.Context, t CycleTarget, fence CycleFence, text string, ready, done func(codexScreen) bool, final func() bool) (bool, error) {
 	if err := a.keyIf(ctx, t, fence, ready, errCodexNotReady, "-l", text); err != nil {
 		return false, err
 	}
@@ -745,8 +761,24 @@ func (a codexCycle) command(ctx context.Context, t CycleTarget, fence CycleFence
 		a.erase(ctx, t, fence, text)
 		return false, errCodexTyped
 	}
-	if err := a.keyIf(ctx, t, fence, func(s codexScreen) bool { return codexText(s) == text }, errCodexTyped, "Enter"); err != nil {
-		a.erase(ctx, t, fence, text)
+	// final, when set, runs after the Enter's proof and fence, right before the key.
+	quiet := true
+	enter := func(s codexScreen) bool {
+		if codexText(s) != text {
+			return false
+		}
+		quiet = final == nil || final()
+		return quiet
+	}
+	if err := a.keyIf(ctx, t, fence, enter, errCodexTyped, "Enter"); err != nil {
+		erased := a.erase(ctx, t, fence, text)
+		// A turn found at the Enter holds as a refusal only after the erase (#592).
+		if !quiet {
+			if erased != nil {
+				return false, erased
+			}
+			return false, errTurnAfterReady
+		}
 		return false, err
 	}
 	if !awaitCodex(ctx, t, done) {
@@ -760,7 +792,7 @@ func (a codexCycle) command(ctx context.Context, t CycleTarget, fence CycleFence
 // clear received and the reset unproven.
 func (a codexCycle) Clear(ctx context.Context, t CycleTarget, fence CycleFence) (bool, error) {
 	ready := func(s codexScreen) bool { return codexReady(t, s) }
-	if ok, err := a.command(ctx, t, fence, "/clear", ready, codexCleared); !ok {
+	if ok, err := a.command(ctx, t, fence, "/clear", ready, codexCleared, func() bool { return codexQuiet(t) }); !ok {
 		// The first check runs before any key: a turn after the ready report entered nothing
 		// (#592).
 		if errors.Is(err, errCodexNotReady) && codexTurnAfterReady(t) {
@@ -771,7 +803,7 @@ func (a codexCycle) Clear(ctx context.Context, t CycleTarget, fence CycleFence) 
 	a.command(ctx, t, fence, "/status", codexClearedReady, func(s codexScreen) bool {
 		thread, _ := codexStatusThread(s)
 		return thread != ""
-	})
+	}, nil)
 	return true, nil
 }
 

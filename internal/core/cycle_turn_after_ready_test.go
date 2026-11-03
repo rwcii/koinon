@@ -322,3 +322,82 @@ func TestContextCycleAsksAgainAfterATurn(t *testing.T) {
 		t.Fatalf("asked again after the refused clear: %+v", v)
 	}
 }
+
+// A turn that lands at the Enter's fence, after every earlier check, refuses the clear with
+// nothing entered: the check runs after the fence, right before the key (Codex and Claude).
+func TestTurnAtTheClearsEnterFence(t *testing.T) {
+	term := newCodexTerminal(t)
+	target := term.target(t)
+	ready := time.Now().Add(-time.Minute).Truncate(time.Millisecond)
+	target.ReadyAt = ready.UnixMilli()
+	reported := []string{codexEvent("task_started", "ready-turn", ready.Add(-time.Minute)), codexEvent("task_complete", "ready-turn", ready.Add(time.Second))}
+	codexRolloutLines(t, term, "thread-a", reported...)
+	term.atFence = func() {
+		if term.fences == 1 { // /clear is typed; the next key is its Enter.
+			codexRolloutLines(t, term, "thread-a", append(reported, codexEvent("task_started", "new-turn", ready.Add(5*time.Second)),
+				codexEvent("task_complete", "new-turn", ready.Add(8*time.Second)))...)
+		}
+	}
+	ok, err := (codexCycle{}).Clear(context.Background(), target, term.fence)
+	if ok || !errors.Is(err, errTurnAfterReady) || slices.Contains(term.sent(), "Enter") || term.threads != 1 || term.input != "" {
+		t.Fatalf("Codex: ok=%v err=%v keys=%q threads=%d input=%q", ok, err, term.sent(), term.threads, term.input)
+	}
+
+	claude := newClaudeTerminal(t)
+	claude.epoch = "316b9458-6b5a-47c3-b863-af1745fb54a4"
+	claude.write()
+	ct := claude.target(t)
+	ct.ReadyAt = ready.UnixMilli()
+	claudeTranscript(t, claude.home, claude.epoch, readyTranscript(ready)...)
+	calls := 0
+	fence := func(ctx context.Context) error {
+		calls++
+		if calls == 3 { // /clear and Escape passed; this is the Enter's fence.
+			claudeTranscript(t, claude.home, claude.epoch, append(readyTranscript(ready), claudeLine("user", ready.Add(6*time.Second), "synthetic"))...)
+		}
+		return claude.fence(ctx)
+	}
+	ok, err = (claudeCycle{}).Clear(context.Background(), ct, fence)
+	if ok || !errors.Is(err, errTurnAfterReady) || slices.Contains(claude.keys, "Enter") || claude.cleared != 0 || claude.input != "" {
+		t.Fatalf("Claude: ok=%v err=%v keys=%q clears=%d input=%q fences=%d", ok, err, claude.keys, claude.cleared, claude.input, calls)
+	}
+}
+
+// A record appended during a read that found no turn is read again, and its turn counts; a
+// record that changes on every read is an error.
+func TestRecordTurnSinceChangedDuringRead(t *testing.T) {
+	ready := time.Now().Add(-time.Minute).Truncate(time.Millisecond)
+	path := filepath.Join(t.TempDir(), "transcript.jsonl")
+	os.WriteFile(path, []byte(claudeLine("assistant", ready.Add(-time.Second), nil)+"\n"), 0o600)
+	appendLine := func(line string) {
+		f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o600)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+		if _, err := f.WriteString(line + "\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	appended := false
+	got, err := recordTurnSince(path, ready.UnixMilli(), func(line []byte) (int64, bool, bool, bool) {
+		if !appended {
+			appended = true
+			appendLine(claudeLine("user", ready.Add(time.Second), "synthetic"))
+		}
+		return claudeTurnRecord(line)
+	})
+	if !got || err != nil {
+		t.Fatalf("appended turn: %v %v", got, err)
+	}
+	os.WriteFile(path, []byte(claudeLine("assistant", ready.Add(-time.Second), nil)+"\n"), 0o600)
+	reads := 0
+	_, err = recordTurnSince(path, ready.UnixMilli(), func(line []byte) (int64, bool, bool, bool) {
+		reads++
+		appendLine(claudeLine("assistant", ready.Add(time.Second), nil))
+		return claudeTurnRecord(line)
+	})
+	if !errors.Is(err, errRecordChanged) || reads < recordReads {
+		t.Fatalf("always changing: %v after %d records", err, reads)
+	}
+}
