@@ -257,6 +257,17 @@ the proposals as the agent's own; the maintainer's current instructions stay a d
 The managed cycle request says that its pause is for that cycle only, and the handoff does not
 record it as a rule for the next session.
 
+A decision waits for the maintainer only when a decision item on the board holds it (#600). The
+handoff and the progress note name each such item by its reference, with the state and revision
+read when they are written; a draft that the maintainer has not seen is a proposal not yet
+raised, and a point raised in a conversation without an item keeps that source. `pickup` reads
+the board after it reconnects (`decision_list` waiting and `decision_pending`, to the last page,
+and `decision_get` for each named item) and reports as waiting only the active items of the work
+it resumes. A claim with no item, or with an item that is no longer active, is reported as a
+difference; a board that cannot be read leaves the claim unverified, with the error. The
+maintainer's direct instructions, quoted directions and approvals given in a conversation or a
+native prompt keep their own sources: the rule adds no item before an agent acts on them.
+
 **Provenance:** Maintainer, 2026-11-03, session transcript: "we're getting much less accurate
 summaries that are causing drift in work after a pickup is completed. in one example, the
 handoff and pickup cycle ended up adding refusal content that was not part of the context prior
@@ -275,17 +286,32 @@ one sentence in the cycle request about its pause, and this record, the guide an
 match. The intent: the next session reads the maintainer's decisions as given, and the agent's
 ideas as its own.
 
+The board check: a peer session of an adopting project reported on 2026-11-03 that its handoff
+wrote "Recommendation pending the maintainer's answer" for a proposal that was only in a tracker
+row, with no decision item, and that pickup reported the line to the maintainer as "Waiting on
+you" while the board was empty. The maintainer, 2026-11-03, relayed by that session (issue
+#600): "your handoffs are flawed if you are adding shit like this in, and then you don't
+validate on pickup. report this issue to claude-koinon". The template's "Blockers and open
+decisions" line asked for no item, and `pickup` checked Git, pull request and issue claims but
+no board claims. The fix was settled with the reviewing peer, without a board item: a waiting
+decision is a board fact, written with its reference and read again at pickup. The intent: the
+maintainer is told that a decision waits only when the board holds it.
+
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
 | A summary in the agent's words | The template before this decision | A summary can narrow a decision, and the next session reads it as fact |
 | Quotes in the progress note | Carry the maintainer's words in the 4 KiB note | The note is short and updated in place; the snapshot holds the quotes |
+| Trust the handoff's wait claims | Report the handoff's open decisions as written (before #600) | The board can change after the handoff, and a claim without an item tells the maintainer of a decision that does not exist |
+| A card for every open point | Create a board item for each point in a handoff | It adds requests for the maintainer that nobody made; a proposal stays the agent's until the agent brings it |
 
 ### Rationale
 
 1. A quote with its date and question lets the next session check whether it still applies.
 2. Proposals that are marked as the agent's own do not come back as the maintainer's questions.
+3. The board is the one source for a decision that waits for the maintainer, so pickup reads it
+   instead of the handoff's copy.
 
 ---
 
@@ -299,7 +325,8 @@ maintainer decision.
 Each agent also keeps a short progress note beside its snapshots, which pickup reads first.
 A handoff lists the subagents that still run, as the maintainer stated on 2026-10-27, and
 quotes the maintainer's directions apart from the agent's own proposals, as the maintainer
-approved on 2026-11-03.
+approved on 2026-11-03. A decision that waits for the maintainer is named by its board item, and
+pickup reads the board again (#600).
 
 ---
 
@@ -313,3 +340,4 @@ approved on 2026-11-03.
 | 2026-10-27 | Decision 4: a handoff lists the subagents that still run (#533) |
 | 2026-11-01 | Decision 1: a failed directory check stops the handoff, which #487 had removed, approved on the decision board (RESTORE-STEPS-487) |
 | 2026-11-03 | Decision 5: a handoff quotes the maintainer's directions and keeps the agent's proposals apart; Decision 3: the note seeds a handoff only when newer than the last snapshot, approved on the decision board (HANDOFF-WORDS) |
+| 2026-11-03 | Decision 5: a decision waits for the maintainer only when a board item holds it; pickup reads the board and reports other claims as differences (#600) |

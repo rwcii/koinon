@@ -87,6 +87,9 @@ gh issue list --state open
 When the handoff names a sprint, read its plan under `docs/sprints/` and list the open issues on
 its milestone, if it has one: `gh issue list --milestone "<sprint>" --state open`.
 
+Claims that a decision waits for the maintainer are checked against the decision board at the
+end of step 4, when the daemon knows this session.
+
 ## 4. Reconnect to the daemon
 
 Read the installed `koinon guide --agent <family>` and follow it for the maintainer's task. In a
@@ -134,6 +137,32 @@ and cursors from before participant ownership keep their old owners, and other h
 stay theirs until they expire or are released. Report identity changes, succession or refusal,
 and pending leases; private values stay in the ignored handoff.
 
+Then check the decision board, with the installed guide's decision tools or its command path
+(WDR 005, Decision 5):
+
+1. Read `decision_list` with the filter `waiting`, and `decision_pending`, each page by page to
+   its end. `waiting` lists the active decision items and tasks; `decision_pending` lists the
+   verdicts delivered to you that you have not acknowledged, not undecided items.
+2. Read each decision item that the note or the handoff names with `decision_get`, also one
+   that is not in the waiting list.
+3. Compare each claim that a decision waits for the maintainer with that read:
+   - an active item that the claim names still waits: report its reference, revision and what
+     waits on it;
+   - an item in another state (approved and in progress, returned with feedback, archived,
+     withdrawn, or reopened at a newer revision) is a difference: report its state, revision and
+     verdict, not a wait;
+   - a claim that names no item, or an item that does not exist, is a difference too: report
+     it as drift, not as a wait. A point that the handoff says was raised in a conversation
+     keeps that source.
+4. A verdict from `decision_pending` that you did not handle yet: handle it from its current
+   item as the guide's Decisions section says, then acknowledge it. A superseded verdict is not
+   handled again.
+
+The report lists the waiting items of the work that you resume; the cards of other
+repositories are not part of it. A read that is refused, an unavailable daemon or tool, an older runtime without
+these tools and a page you could not finish leave the claim unverified: report it with the
+error, not as none and not as a wait, and continue the other steps.
+
 ## 5. Orient, then continue
 
 Report briefly:
@@ -144,7 +173,9 @@ Report briefly:
 - Open work that the handoff does not name.
 - Each subagent that the handoff lists as running: its result, or that it has not arrived
   (WDR 005, Decision 4).
-- Blockers and decisions that need the maintainer.
+- Blockers.
+- Decisions waiting for the maintainer, only from the board read of step 4, with each reference
+  and revision; each claim that the read did not confirm, as drift or as unverified.
 - The maintainer's directions that the handoff quotes, with their dates, and your own proposals
   not yet raised, as yours.
 

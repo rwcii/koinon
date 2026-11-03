@@ -118,7 +118,8 @@ from the last one.
 ## 5. Verify, then write
 
 Check each volatile fact with a command before you write it: branch, tip commit, clean or dirty
-state, pull request and issue states, CI state. Write:
+state, pull request and issue states, CI state, and the state of each decision item that the
+handoff names, with `decision_get` or the installed guide's command path. Write:
 
 ```markdown
 # Handoff — <agent-id> — <timestamp> [<label>]
@@ -141,7 +142,9 @@ state, pull request and issue states, CI state. Write:
 
 ## Resume here
 - Next action: <the single first step>
-- Blockers and open decisions: <with the context to act>
+- Blockers: <with the context to act>
+- Decisions waiting for the maintainer: <each decision item's reference, its state and revision as
+  read now, and what waits on it; none when no item holds one>
 - Anything mid-operation: <uncommitted edits, running jobs>
 - Running subagents: <each one's task, ID, state and where its result goes>
 
@@ -188,6 +191,16 @@ that the maintainer has not seen: write them as yours, not as questions from the
 as rules. The pause of a managed cycle is for that cycle; it is not a direction for the next
 session.
 
+A decision waits for the maintainer only when a decision item on the board holds it. Name that
+item by its reference, with the state and revision that you read when you write the handoff;
+a verdict that you did not handle yet is named with it. A draft that the maintainer has not
+seen goes under My proposals not yet raised, never as waiting or pending. A point that you
+raised in a conversation without an item keeps where and when you raised it, and is not a
+decision waiting for the maintainer. When the board cannot be read, write the claim as
+unverified, with the error. The maintainer's direct instructions, the quoted directions and the
+approvals that the maintainer gives in a conversation or a native prompt keep their own sources;
+this rule adds no item before you act on them (WDR 005, Decision 5).
+
 Use commit hashes, branch names, issue and pull request numbers, and repository-relative
 paths. Leave out a section that has no content. The file stays on this machine: name a key or
 credential by where it is kept, and summarize peer messages in your own words.
@@ -205,13 +218,14 @@ The note is `$dir/progress.md`, in the resolved Handoff path, at most 4 KiB, wit
 - PR and head: <number and commit, or none>
 - Completed: <stages and checks that are done>
 - Decisions: <confirmed choices and their sources; maintainer directions are quoted in the snapshot>
+- Waiting for the maintainer: <decision item references and states as read, or none>
 - Open issues: <missing evidence or blockers>
 - Next action: <one concrete step>
 ```
 
 Update this short note after a completed stage, recording the current result and next action.
 Write verified values, with the same privacy rules as a snapshot, and replace the whole note
-each time. A managed cycle reports the timestamped snapshot.
+each time. Its Waiting line follows the rule of step 5 for decisions that wait for the maintainer. A managed cycle reports the timestamped snapshot.
 
 ## Repository facts
 

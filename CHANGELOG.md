@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A handoff says that a decision waits for the maintainer only with the decision item that holds
+  it, with its reference and state, and `pickup` reads the decision board again before it
+  reports: a claim without a live item is reported as a difference, and a board that cannot be
+  read as unverified, never as a wait (#600). A draft that the maintainer has not seen stays
+  under the agent's own proposals.
 - A managed cycle no longer clears an agy, Grok, OpenCode or DeepSeek session that had a
   conversation turn after its ready report: it asks for a new handoff, as for Claude and Codex
   (#593, board card TURN-AFTER-READY-592). Koinon reads the session's own record back to the
