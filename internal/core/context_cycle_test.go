@@ -20,8 +20,10 @@ type fakeAdapter struct {
 	pane    PaneState
 	inspect error
 	// inMode puts the pane in copy mode: Inspect calls the fence before it would send a key.
-	inMode   bool
-	clear    bool
+	inMode bool
+	clear  bool
+	// clearErr is the clear's refusal after its fence, such as errTurnAfterReady (#592).
+	clearErr error
 	epoch    string
 	pickup   bool
 	answered bool
@@ -66,6 +68,9 @@ func (f *fakeAdapter) Clear(ctx context.Context, _ CycleTarget, fence CycleFence
 		return false, err
 	}
 	f.record("clear")
+	if f.clearErr != nil {
+		return false, f.clearErr
+	}
 	return f.clear, nil
 }
 func (f *fakeAdapter) NewEpoch(context.Context, CycleTarget) (string, error) {

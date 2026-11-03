@@ -108,7 +108,8 @@ type claudeTerminal struct {
 	pid     int64
 	start   int64
 	args    []string
-	footer  []string // lines below the input box, such as the agent panel
+	footer  []string         // lines below the input box, such as the agent panel
+	onKey   func(key string) // runs after each key, with the terminal locked
 }
 
 func newClaudeTerminal(t *testing.T) *claudeTerminal {
@@ -208,6 +209,9 @@ func (c *claudeTerminal) tmux(_ context.Context, socket string, args ...string) 
 		key := strings.Join(args[3:], " ")
 		c.keys = append(c.keys, key)
 		c.at = append(c.at, time.Now())
+		if c.onKey != nil {
+			defer c.onKey(key)
+		}
 		switch {
 		case key == "-X cancel":
 			c.mode = false
@@ -632,6 +636,7 @@ func TestClaudeInspectSubagentAfterReady(t *testing.T) {
 	tg := term.target(t)
 	ready := time.Now().Add(-time.Minute)
 	tg.ReadyAt = ready.UnixMilli()
+	claudeTranscript(t, term.home, term.epoch, readyTranscript(ready)...)
 	if state, err := (claudeCycle{}).Inspect(ctx, tg, term.fence); err != nil || !state.Idle {
 		t.Fatalf("no subagents: %+v %v", state, err)
 	}
@@ -696,6 +701,7 @@ func TestClaudeInspectBackgroundSubagent(t *testing.T) {
 	tg := term.target(t)
 	ready := time.Now().Add(-time.Minute)
 	tg.ReadyAt = ready.UnixMilli()
+	claudeTranscript(t, term.home, term.epoch, readyTranscript(ready)...)
 	dir := filepath.Join(term.home, ".claude", "projects", "-synthetic-repo", term.epoch, "subagents")
 	agent := func(name, meta string, at time.Time) {
 		t.Helper()

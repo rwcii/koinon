@@ -238,7 +238,8 @@ while fresh and for the current published name.
   Claude session the clear does not stop your background subagents: do not stop them or wait for them; list each
   one that still runs in the handoff, with its task and where its result goes, and the new
   session gets each result as a message. A Claude subagent that finishes after your ready
-  report makes overwatch ask again. Other families: let your running background subagents
+  report makes overwatch ask again, and so does a new turn after it, such as a message from
+  the maintainer: answer it, then write a new handoff for the new request. Other families: let your running background subagents
   finish, or stop them, so that the handoff holds their results. The request names its ready
   deadline as a UTC time: stop any such subagent that will not finish with enough time left to
   update the handoff and report ready by then. Write

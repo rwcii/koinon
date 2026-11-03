@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -310,8 +311,198 @@ func (claudeCycle) Inspect(ctx context.Context, t CycleTarget, fence CycleFence)
 		case since:
 			return PaneState{Seen: subagentAfterReady}, nil
 		}
+		// A conversation turn after the ready report, such as the maintainer's message and
+		// its answer, is not in the handoff (#592).
+		switch turn, err := claudeTurnSince(root, record.SessionID, t.ReadyAt); {
+		case err != nil:
+			return PaneState{Seen: transcriptUnread}, nil
+		case turn:
+			return PaneState{Seen: turnAfterReady}, nil
+		}
 	}
 	return pane, nil
+}
+
+// turnAfterReady is the Seen code of a session that had a conversation turn after its ready
+// report: a prompt, a delivered message or a task notification, whose exchange the handoff
+// does not hold (#592).
+const turnAfterReady = "turn_after_ready"
+
+// transcriptUnread is the Seen code of a session whose conversation record could not be read
+// back to its ready report: a turn after the report cannot be ruled out, so the pane is not
+// ready for the clear (#592).
+const transcriptUnread = "transcript_unread"
+
+// errTurnAfterReady refuses the clear before its Enter: the session had a conversation turn
+// after its ready report, and nothing of the clear stays in the input line (#592).
+var errTurnAfterReady = errors.New(turnAfterReady)
+
+// claudeQuiet reports whether the session has had no conversation turn since its ready
+// report, read from its transcript now; an unread transcript is not quiet (#592).
+func claudeQuiet(t CycleTarget) bool {
+	if t.ReadyAt == 0 {
+		return true
+	}
+	root, err := claudeConfigRoot(t)
+	if err != nil {
+		return false
+	}
+	record, err := readClaudeRecord(t)
+	if err != nil {
+		return false
+	}
+	turn, err := claudeTurnSince(root, record.SessionID, t.ReadyAt)
+	return err == nil && !turn
+}
+
+// claudeTurnSince reports whether the session's transcript, projects/PROJECT/SESSION.jsonl in
+// the configuration root, holds a user record after at (Unix milliseconds) that is not only
+// tool results: a prompt, a delivered message or a task notification (#592). The session's
+// own reply and the ready report's tool result do not count. No transcript, or more than one,
+// is an error.
+func claudeTurnSince(root, session string, at int64) (bool, error) {
+	if !claudeTranscriptID.MatchString(session) {
+		return false, errors.New("session ID unknown")
+	}
+	projects, err := boundedEntries(filepath.Join(root, "projects"))
+	if err != nil {
+		return false, err
+	}
+	path := ""
+	for _, project := range projects {
+		if !project.IsDir() {
+			continue
+		}
+		candidate := filepath.Join(root, "projects", project.Name(), session+".jsonl")
+		if _, err := os.Lstat(candidate); errors.Is(err, fs.ErrNotExist) {
+			continue
+		} else if err != nil {
+			return false, err
+		}
+		if path != "" {
+			return false, errors.New("transcript ambiguous")
+		}
+		path = candidate
+	}
+	if path == "" {
+		return false, errors.New("transcript not found")
+	}
+	return recordTurnSince(path, at, claudeTurnRecord)
+}
+
+// claudeTurnRecord reads one transcript record (#592): its time, whether it has one, whether
+// it starts a turn, and whether it could be read. A user record starts a turn unless its
+// content is a proven array of tool results only, such as the ready report's own result; a
+// string, mixed blocks, or missing or unknown content count. Only the type, the time and the
+// block types are read, never the text.
+func claudeTurnRecord(line []byte) (when int64, timed, starts, ok bool) {
+	var r struct {
+		Type      string `json:"type"`
+		Timestamp string `json:"timestamp"`
+		Message   *struct {
+			Content json.RawMessage `json:"content"`
+		} `json:"message"`
+	}
+	if json.Unmarshal(line, &r) != nil {
+		return 0, false, false, false
+	}
+	if at, err := time.Parse(time.RFC3339Nano, r.Timestamp); err == nil {
+		when, timed = at.UnixMilli(), true
+	}
+	if r.Type != "user" {
+		return when, timed, false, true
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+	}
+	if r.Message == nil || json.Unmarshal(r.Message.Content, &blocks) != nil || len(blocks) == 0 {
+		return when, timed, true, true
+	}
+	for _, b := range blocks {
+		if b.Type != "tool_result" {
+			return when, timed, true, true
+		}
+	}
+	return when, timed, false, true
+}
+
+// The window of a session record that recordTurnSince reads: it starts at the end and doubles
+// until it holds a complete record at or before the ready report.
+const (
+	recordTailMin = 1 << 20
+	recordTailMax = 16 << 20
+)
+
+// errRecordWindow is a session record whose end does not reach back to the ready report.
+var errRecordWindow = errors.New("session record does not reach the ready report")
+
+// recordTurnSince reads the end of a session record file (JSON lines, appended in order) and
+// reports whether a record after the ready report at (Unix milliseconds) starts a turn, as
+// turn says (#592). The last complete record whose time is at or before at marks the report;
+// each record after it counts by its type, also one without a time. A read from the start of
+// the file needs no such mark. The window doubles up to recordTailMax until it holds the mark.
+// A file that cannot be read or changes size during the read, a record that cannot be read
+// after the mark, a partial last record, and a window without the mark are errors, so a turn
+// is never missed.
+func recordTurnSince(path string, at int64, turn func([]byte) (int64, bool, bool, bool)) (bool, error) {
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return false, err
+	}
+	if !info.Mode().IsRegular() {
+		return false, errors.New("session record is not a regular file")
+	}
+	size := info.Size()
+	for window := int64(recordTailMin); ; window *= 2 {
+		offset := max(0, size-window)
+		data := make([]byte, size-offset)
+		if n, err := f.ReadAt(data, offset); n != len(data) {
+			if err == nil {
+				err = io.ErrUnexpectedEOF
+			}
+			return false, err
+		}
+		lines := bytes.Split(data, []byte("\n"))
+		if offset > 0 {
+			lines = lines[1:] // a partial first record
+		}
+		if last := lines[len(lines)-1]; len(bytes.TrimSpace(last)) > 0 {
+			return false, errors.New("the last session record is partial")
+		}
+		mark := -1
+		for i, line := range lines {
+			if when, timed, _, ok := turn(line); ok && timed && when <= at {
+				mark = i
+			}
+		}
+		if mark < 0 && offset > 0 {
+			if window >= recordTailMax {
+				return false, errRecordWindow
+			}
+			continue
+		}
+		for _, line := range lines[mark+1:] {
+			if len(bytes.TrimSpace(line)) == 0 {
+				continue
+			}
+			_, _, starts, ok := turn(line)
+			if !ok {
+				return false, errors.New("a session record after the ready report cannot be read")
+			}
+			if starts {
+				return true, nil
+			}
+		}
+		if current, err := f.Stat(); err != nil || current.Size() < size {
+			return false, errors.New("session record changed during the read")
+		}
+		return false, nil
+	}
 }
 
 // subagentAfterReady is the Seen code of a session whose background subagent finished after
@@ -586,14 +777,18 @@ func await(ctx context.Context, t CycleTarget, ok func(claudeScreen) bool) bool 
 }
 
 // command types a slash command, closes its menu, checks the input line holds exactly the
-// command, and submits it with one Enter. check runs on the screen with the menu open. Typed
-// text that is not submitted, also after a failed fence, is erased again.
-func (a claudeCycle) command(ctx context.Context, t CycleTarget, fence CycleFence, text string, check func(claudeScreen) bool, refused error) (bool, error) {
+// command, and submits it with one Enter. check runs on the screen with the menu open, and
+// final, when set, with the last read before the Enter; either one failing refuses with
+// refused. Typed text that is not submitted, also after a failed fence, is erased again.
+func (a claudeCycle) command(ctx context.Context, t CycleTarget, fence CycleFence, text string, check func(claudeScreen) bool, final func() bool, refused error) (bool, error) {
 	if err := a.key(ctx, t, fence, "-l", text); err != nil {
 		return false, err
 	}
 	abandon := func(err error) (bool, error) {
-		a.erase(ctx, t, fence, text)
+		// A refusal that says nothing was entered holds only after the erase (#592).
+		if erased := a.erase(ctx, t, fence, text); erased != nil && errors.Is(err, errTurnAfterReady) {
+			return false, erased
+		}
 		return false, err
 	}
 	if !await(ctx, t, func(s claudeScreen) bool { return s.input == text }) {
@@ -608,6 +803,9 @@ func (a claudeCycle) command(ctx context.Context, t CycleTarget, fence CycleFenc
 	if !await(ctx, t, func(s claudeScreen) bool { return s.input == text && menuFirst(s, text) == "" }) {
 		return abandon(errClaudeEscape)
 	}
+	if final != nil && !final() {
+		return abandon(refused)
+	}
 	if err := a.key(ctx, t, fence, "Enter"); err != nil {
 		return abandon(err)
 	}
@@ -617,8 +815,12 @@ func (a claudeCycle) command(ctx context.Context, t CycleTarget, fence CycleFenc
 	return true, nil
 }
 
+// Clear enters /clear. It reads the transcript again with the menu open and as the last read
+// before its Enter: a turn after the ready report since Inspect erases the command and refuses
+// (#592).
 func (a claudeCycle) Clear(ctx context.Context, t CycleTarget, fence CycleFence) (bool, error) {
-	return a.command(ctx, t, fence, "/clear", nil, nil)
+	quiet := func() bool { return claudeQuiet(t) }
+	return a.command(ctx, t, fence, "/clear", func(claudeScreen) bool { return quiet() }, quiet, errTurnAfterReady)
 }
 
 // claudePickupCommand is the command that runs the koinon-pickup skill.
@@ -653,7 +855,7 @@ func describes(menu string, want PickupEntry) bool {
 func (a claudeCycle) Pickup(ctx context.Context, t CycleTarget, fence CycleFence) (bool, error) {
 	return a.command(ctx, t, fence, claudePickupCommand, func(s claudeScreen) bool {
 		return describes(menuFirst(s, claudePickupCommand), t.Pickup)
-	}, errClaudeMenuEntry)
+	}, nil, errClaudeMenuEntry)
 }
 
 // Answerable is false: every Claude Code dialog during the cycle waits for the native session

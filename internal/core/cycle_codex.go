@@ -208,6 +208,45 @@ func codexTurnEndedIn(f *os.File) (int64, bool) {
 	return info.Size(), state == "ended"
 }
 
+// codexTurnAfterReady reports whether the thread's rollout, read now, holds a turn that started
+// after the ready report.
+func codexTurnAfterReady(t CycleTarget) bool {
+	if t.ReadyAt == 0 {
+		return false
+	}
+	codex, _, err := codexHome(t)
+	if err != nil {
+		return false
+	}
+	path, err := codexRolloutPath(codex, t.SessionID)
+	if err != nil || path == "" {
+		return false
+	}
+	turn, err := recordTurnSince(path, t.ReadyAt, codexTurnRecord)
+	return err == nil && turn
+}
+
+// codexTurnRecord reads one rollout record (#592): its time, whether it has one, whether it is
+// the task_started event of a turn, and whether it could be read. A message that the
+// maintainer or Koinon types starts a turn, which Codex records as task_started (rollouts of
+// Codex on this machine, 2026-11-03).
+func codexTurnRecord(line []byte) (when int64, timed, starts, ok bool) {
+	var record struct {
+		Timestamp string `json:"timestamp"`
+		Type      string `json:"type"`
+		Payload   struct {
+			Type string `json:"type"`
+		} `json:"payload"`
+	}
+	if json.Unmarshal(line, &record) != nil {
+		return 0, false, false, false
+	}
+	if at, err := time.Parse(time.RFC3339Nano, record.Timestamp); err == nil {
+		when, timed = at.UnixMilli(), true
+	}
+	return when, timed, record.Type == "event_msg" && record.Payload.Type == "task_started", true
+}
+
 // Probe decides whether the session's cycle can run. The pickup entry is $koinon-pickup: the
 // koinon-pickup skill in the host's ~/.agents/skills must be the binary's skill byte for byte,
 // and no configuration entry may turn it off (codexPickupEntry). Other skills, a project's own
@@ -600,6 +639,15 @@ func codexNotReady(t CycleTarget, screen codexScreen) string {
 		if !codexTurnEnded(path) {
 			return "turn_not_ended"
 		}
+		// A turn that started after the ready report is not in the handoff (#592).
+		if t.ReadyAt > 0 {
+			switch turn, err := recordTurnSince(path, t.ReadyAt, codexTurnRecord); {
+			case err != nil:
+				return transcriptUnread
+			case turn:
+				return turnAfterReady
+			}
+		}
 		return ""
 	}
 	thread, untouched := codexStatusThread(screen)
@@ -713,6 +761,11 @@ func (a codexCycle) command(ctx context.Context, t CycleTarget, fence CycleFence
 func (a codexCycle) Clear(ctx context.Context, t CycleTarget, fence CycleFence) (bool, error) {
 	ready := func(s codexScreen) bool { return codexReady(t, s) }
 	if ok, err := a.command(ctx, t, fence, "/clear", ready, codexCleared); !ok {
+		// The first check runs before any key: a turn after the ready report entered nothing
+		// (#592).
+		if errors.Is(err, errCodexNotReady) && codexTurnAfterReady(t) {
+			return false, errTurnAfterReady
+		}
 		return false, err
 	}
 	a.command(ctx, t, fence, "/status", codexClearedReady, func(s codexScreen) bool {
