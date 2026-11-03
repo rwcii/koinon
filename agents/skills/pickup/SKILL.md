@@ -152,8 +152,9 @@ Then check the decision board, with the installed guide's decision tools or its 
      withdrawn, or reopened at a newer revision) is a difference: report its state, revision and
      verdict, not a wait;
    - a claim that names no item, or an item that does not exist, is a difference too: report
-     it as drift, not as a wait. A point that the handoff says was raised in a conversation
-     keeps that source.
+     it as drift, not as a wait. Its point is the previous session's own proposal, reported as
+     yours and not as a question that waits for the maintainer; a point that the handoff says
+     was raised in a conversation keeps that source.
 4. A verdict from `decision_pending` that you did not handle yet: handle it from its current
    item as the guide's Decisions section says, then acknowledge it. A superseded verdict is not
    handled again.
