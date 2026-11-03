@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -21,6 +23,8 @@ type exportServer struct {
 	calls    int
 	versions func(call int) string
 	onLast   func()
+	// page, when set, answers each request in place of the two fixed pages.
+	page func(request map[string]any) map[string]any
 }
 
 func newExportServer(t *testing.T) *exportServer {
@@ -30,8 +34,12 @@ func newExportServer(t *testing.T) *exportServer {
 		json.NewDecoder(r.Body).Decode(&request)
 		e.calls++
 		page := map[string]any{"version": e.versions(e.calls)}
-		switch request["phase"] {
-		case "":
+		switch {
+		case e.page != nil:
+			for k, v := range e.page(request) {
+				page[k] = v
+			}
+		case request["phase"] == "":
 			page["records"] = []any{map[string]any{"record": "koinon.decision.v1", "reference": "D-1"}}
 			page["more"], page["next"] = true, map[string]any{"phase": "live"}
 		default:
@@ -159,5 +167,92 @@ func TestDecisionExportRefusals(t *testing.T) {
 	}
 	if got, err := runExport(t, e, filepath.Join(t.TempDir(), "missing", "board.jsonl")); err == nil || got["code"] != "invalid_request" {
 		t.Fatalf("missing directory: %v", got)
+	}
+}
+
+// partPages answers a record in parts of size bytes, at the offsets that the requests name,
+// then a page with one whole record; skip moves the offset of every part after the first, and
+// digest, when set, names each part's digest.
+func partPages(record []byte, size, skip int, digest func(start int) string) func(map[string]any) map[string]any {
+	sum := sha256.Sum256(record)
+	if digest == nil {
+		digest = func(int) string { return hex.EncodeToString(sum[:]) }
+	}
+	return func(request map[string]any) map[string]any {
+		if request["phase"] == "live" {
+			return map[string]any{"records": []any{map[string]any{"record": "koinon.decision.v1", "reference": "D-2"}}, "more": false}
+		}
+		offset, _ := request["offset"].(float64)
+		start := int(offset)
+		end := min(start+size, len(record))
+		part := map[string]any{"offset": start + skip*min(start, 1), "data": record[start:end], "digest": digest(start),
+			"final": end == len(record)}
+		next := map[string]any{"phase": "deep", "offset": end}
+		if end == len(record) {
+			next = map[string]any{"phase": "live"}
+		}
+		return map[string]any{"records": []any{}, "part": part, "more": true, "next": next}
+	}
+}
+
+// A record in parts is written whole, as one line; a part at the wrong offset fails the
+// export with no file.
+func TestDecisionExportParts(t *testing.T) {
+	e := newExportServer(t)
+	record := []byte(`{"record":"koinon.decision.v1","reference":"D-1","context":"` + strings.Repeat("é<", 40) + `"}`)
+	e.page = partPages(record, 7, 0, nil)
+	path := filepath.Join(t.TempDir(), "board.jsonl")
+	got, err := runExport(t, e, path)
+	if err != nil || got["records"] != float64(2) {
+		t.Fatalf("export: %v %v", got, err)
+	}
+	data, _ := os.ReadFile(path)
+	if want := string(record) + "\n" + `{"record":"koinon.decision.v1","reference":"D-2"}` + "\n"; string(data) != want {
+		t.Fatalf("lines:\n%s", data)
+	}
+	e.page = partPages(record, 7, 1, nil)
+	other := filepath.Join(t.TempDir(), "board.jsonl")
+	if _, err := runExport(t, e, other); err == nil || !strings.Contains(err.Error(), "out of order") {
+		t.Fatalf("gap: %v", err)
+	}
+	if _, err := os.Stat(other); !os.IsNotExist(err) {
+		t.Fatalf("file after a failed export: %v", err)
+	}
+	// A record whose parts stop before the final one.
+	parts := partPages(record, 7, 0, nil)
+	e.page = func(request map[string]any) map[string]any {
+		page := parts(request)
+		if request["phase"] != "live" {
+			page["next"] = map[string]any{"phase": "live"}
+		}
+		return page
+	}
+	if _, err := runExport(t, e, other); err == nil || !strings.Contains(err.Error(), "before its last part") {
+		t.Fatalf("unfinished record: %v", err)
+	}
+	// A record that changes between parts, at one board version, starts the export again.
+	e.calls = 0
+	attempts := 0
+	e.page = partPages(record, 7, 0, func(start int) string {
+		if start == 0 {
+			attempts++
+		}
+		if attempts == 1 && start > 0 {
+			return "changed"
+		}
+		sum := sha256.Sum256(record)
+		return hex.EncodeToString(sum[:])
+	})
+	if got, err := runExport(t, e, other); err != nil || got["records"] != float64(2) || attempts != 2 {
+		t.Fatalf("changed record: %v %v attempts %d", got, err, attempts)
+	}
+	data, _ = os.ReadFile(other)
+	if !strings.HasPrefix(string(data), string(record)+"\n") {
+		t.Fatalf("lines after a restart:\n%s", data)
+	}
+	// Parts whose bytes do not match the digest that they name.
+	e.page = partPages(record, 7, 0, func(int) string { return "synthetic-digest" })
+	if _, err := runExport(t, e, filepath.Join(t.TempDir(), "board.jsonl")); err == nil || !strings.Contains(err.Error(), "does not match its digest") {
+		t.Fatalf("wrong digest: %v", err)
 	}
 }

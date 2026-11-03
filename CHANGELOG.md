@@ -19,7 +19,7 @@ into a dated release section when promoted to `main`.
 - `koinon decision export PATH` writes every decision item, with its verdicts, snapshots and
   notes, live and deep-archived, as JSON lines to a new private file outside a Git work tree,
   so a person or CI can read a copy of the board without the daemon (#589). The new route is
-  `POST /v1/decisions/export`.
+  `POST /v1/decisions/export`; a record larger than a page arrives in parts.
 - The refusal-review skill checks the question, options, quoted answer and reason of a
   maintainer decision in the document that states the rule, not in a `DECISIONS.md` entry, and
   a board reference alone is not a source (#589).

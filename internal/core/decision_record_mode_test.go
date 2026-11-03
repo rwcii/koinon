@@ -1,10 +1,17 @@
 package core
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -137,13 +144,23 @@ func exportAll(t *testing.T, s *Store, caller Key, limit int) ([]map[string]any,
 	t.Helper()
 	var records []map[string]any
 	var versions []string
+	var part []byte
 	at := DecisionExportAt{}
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 1000; i++ {
 		page, err := s.DecisionExport(context.Background(), caller, at, limit)
 		if err != nil {
 			t.Fatal(err)
 		}
 		versions = append(versions, page.Version)
+		if page.Part != nil {
+			if page.Part.Offset != int64(len(part)) || len(page.Records) > 0 {
+				t.Fatalf("part at %d after %d bytes", page.Part.Offset, len(part))
+			}
+			part = append(part, page.Part.Data...)
+			if page.Part.Final {
+				page.Records, part = []json.RawMessage{part}, nil
+			}
+		}
 		for _, raw := range page.Records {
 			var r map[string]any
 			if err := json.Unmarshal(raw, &r); err != nil {
@@ -177,8 +194,18 @@ func TestDecisionExport(t *testing.T) {
 	if _, err := s.DecisionVerdict(verdictCtx(), "D-3", 1, "approved", "Synthetic note."); err != nil {
 		t.Fatal(err)
 	}
-	for _, limit := range []int{1, 0} {
+	whole, _ := exportAll(t, s, f.peerKey, 0)
+	for _, c := range []struct {
+		limit int
+		bytes int64
+	}{{1, decisionExportBytes}, {0, decisionExportBytes}, {0, 100}, {2, 1000}} {
+		limit := c.limit
+		decisionExportBytes, c.bytes = c.bytes, decisionExportBytes
 		records, versions := exportAll(t, s, f.peerKey, limit)
+		decisionExportBytes = c.bytes
+		if !reflect.DeepEqual(records, whole) {
+			t.Fatalf("limit %d, page bytes %d: records differ from one page", limit, c.bytes)
+		}
 		var refs []string
 		for _, r := range records {
 			if r["record"] != decisionRecordMarker {
@@ -226,10 +253,123 @@ func TestDecisionExport(t *testing.T) {
 	if _, err := s.DecisionExport(ctx, f.peerKey, DecisionExportAt{}, 0); refusalCode(err) != "decision_unavailable" {
 		t.Fatalf("mismatched locator: %v", err)
 	}
+	if _, err := fixtureExec(s, `UPDATE decision_deep_archive SET length=length-1`); err != nil {
+		t.Fatal(err)
+	}
+	for _, at := range []DecisionExportAt{{Phase: exportLive, AfterID: 1 << 40, Offset: 1}, {Phase: exportDeep, Offset: 1 << 30},
+		{Phase: exportDeep, AfterReference: "D-1", Offset: 1}, {Phase: exportLive, Offset: -1}} {
+		if _, err := s.DecisionExport(ctx, f.peerKey, at, 0); refusalCode(err) != "invalid_request" {
+			t.Errorf("cursor %+v: %v", at, err)
+		}
+	}
 	if _, err := s.DecisionExport(ctx, f.peerKey, DecisionExportAt{Phase: "other"}, 0); err == nil {
 		t.Fatal("unknown phase")
 	}
 	if _, err := s.DecisionExport(ctx, Key{"claude", "synthetic-unknown"}, DecisionExportAt{}, 0); err == nil {
 		t.Fatal("unregistered caller")
+	}
+}
+
+// A record larger than the client's transport limit arrives in parts through the export route
+// and Call: 85 verdict snapshots of a 16 KiB context make one item of more than 8 MiB, and its
+// parts put it together byte for byte.
+func TestDecisionExportLargeRecordCrossesTransport(t *testing.T) {
+	f := newVerdictFixture(t)
+	s, ctx := f.s, context.Background()
+	created := mustCreate(t, s, f.peerKey, "L-1", DecisionFields{Title: ptr("Large history"), Kind: ptr("decision"),
+		Context: ptr(strings.Repeat("<", decisionContextLimit)), Recipients: &[]string{f.peer.Name}})
+	revision := created.Revision
+	var last DecisionVerdict
+	for i := 0; i < 85; i++ {
+		last = mustVerdict(t, s, "L-1", revision, "approved")
+		if i < 84 {
+			item, err := s.DecisionEdit(ctx, f.peerKey, "L-1", revision, DecisionFields{Title: ptr("Large history")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			revision = item.Revision
+		}
+	}
+	mustCreate(t, s, f.peerKey, "L-2", DecisionFields{Title: ptr("Small"), Kind: ptr("decision"), Recipients: &[]string{f.peer.Name}})
+	// An acknowledgement between parts changes the record at one board version; the next part
+	// names another digest.
+	first, err := s.DecisionExport(ctx, f.peerKey, DecisionExportAt{Phase: exportLive}, 0)
+	if err != nil || first.Part == nil || first.Part.Final || len(first.Part.Digest) != 64 {
+		t.Fatalf("first part: %+v %v", first.Part, err)
+	}
+	if acked, err := s.DecisionAck(ctx, f.peerKey, []int64{last.ID}); err != nil || len(acked) != 1 {
+		t.Fatalf("ack: %v %v", acked, err)
+	}
+	second, err := s.DecisionExport(ctx, f.peerKey, *first.Next, 0)
+	if err != nil || second.Version != first.Version || second.Part == nil || second.Part.Digest == first.Part.Digest {
+		t.Fatalf("part after an ack: %v %q %q", err, first.Version, second.Version)
+	}
+	mux := http.NewServeMux()
+	(&Daemon{store: s}).decisionRoutes(mux)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	address := strings.TrimPrefix(server.URL, "http://")
+	var lines [][]byte
+	var part []byte
+	parts := 0
+	at := DecisionExportAt{}
+	for i := 0; ; i++ {
+		if i == 100 {
+			t.Fatal("the export did not end")
+		}
+		data, err := Call(ctx, address, "synthetic-secret", "/v1/decisions/export", map[string]any{"caller": f.peerKey,
+			"phase": at.Phase, "after_reference": at.AfterReference, "after_id": at.AfterID, "offset": at.Offset})
+		if err != nil {
+			t.Fatalf("page %d: %v", i, err)
+		}
+		var reply struct {
+			Result DecisionExportPage `json:"result"`
+		}
+		if err := json.Unmarshal(data, &reply); err != nil {
+			t.Fatal(err)
+		}
+		page := reply.Result
+		if p := page.Part; p != nil {
+			if p.Offset != int64(len(part)) || len(page.Records) > 0 || p.Digest != second.Part.Digest {
+				t.Fatalf("part at %d after %d bytes", p.Offset, len(part))
+			}
+			part = append(part, p.Data...)
+			parts++
+			if p.Final {
+				lines, part = append(lines, part), nil
+			}
+		}
+		for _, record := range page.Records {
+			lines = append(lines, record)
+		}
+		if !page.More {
+			break
+		}
+		at = *page.Next
+	}
+	if parts < 3 || len(lines) != 2 || !strings.Contains(string(lines[1]), `"reference":"L-2"`) {
+		t.Fatalf("%d parts, %d records", parts, len(lines))
+	}
+	// The whole record, read without the page bound.
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	var id int64
+	if err := tx.QueryRowContext(ctx, `SELECT id FROM decision_items WHERE reference='L-1'`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	record, err := readDecisionRecord(ctx, tx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(want)
+	if len(want) <= maxResponse || !bytes.Equal(lines[0], want) || hex.EncodeToString(sum[:]) != second.Part.Digest {
+		t.Fatalf("record of %d bytes, assembled %d bytes", len(want), len(lines[0]))
 	}
 }

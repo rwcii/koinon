@@ -3,7 +3,9 @@ package core
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 )
@@ -14,13 +16,16 @@ import (
 // the records after a cursor: the deep-archived items by reference, then the live items by ID.
 // Each page reads in one transaction with the board's change version, which every move and
 // restore changes in its own transaction, so a client whose pages all name one version has
-// every item exactly once.
+// every item exactly once. A record larger than a page goes alone in its pages as parts, byte
+// ranges of the record, so no reply exceeds the client's transport limit. An acknowledgement
+// changes a record without changing the version, so each part names the SHA-256 of the whole
+// record that it was cut from, and a client joins only the parts of one digest.
 
-// decisionExportItems and decisionExportBytes bound one page of records.
-const (
-	decisionExportItems = 100
-	decisionExportBytes = 4 << 20
-)
+// decisionExportItems bounds the records of one page. decisionExportBytes bounds their bytes
+// and one part of a larger record; tests lower it to read small records in parts.
+const decisionExportItems = 100
+
+var decisionExportBytes int64 = 4 << 20
 
 // Export phases: the deep-archived items, then the live items.
 const (
@@ -29,19 +34,32 @@ const (
 )
 
 // DecisionExportPage is one page of an export. Version is the board's change version that the
-// page read; Next is the cursor of the next page when More is set.
+// page read; Next is the cursor of the next page when More is set. A page with Part holds no
+// records.
 type DecisionExportPage struct {
-	Version string            `json:"version"`
-	Records []json.RawMessage `json:"records"`
-	More    bool              `json:"more"`
-	Next    *DecisionExportAt `json:"next,omitempty"`
+	Version string              `json:"version"`
+	Records []json.RawMessage   `json:"records"`
+	Part    *DecisionExportPart `json:"part,omitempty"`
+	More    bool                `json:"more"`
+	Next    *DecisionExportAt   `json:"next,omitempty"`
 }
 
-// DecisionExportAt is an export cursor: the phase, and the last reference or item ID read in it.
+// DecisionExportPart is a byte range of one record larger than a page: the record's bytes from
+// Offset, the SHA-256 of the whole record in hex, and Final on its last range.
+type DecisionExportPart struct {
+	Offset int64  `json:"offset"`
+	Data   []byte `json:"data"`
+	Digest string `json:"digest"`
+	Final  bool   `json:"final"`
+}
+
+// DecisionExportAt is an export cursor: the phase, the last reference or item ID read in it, and
+// the bytes of the next record already read as parts.
 type DecisionExportAt struct {
 	Phase          string `json:"phase"`
 	AfterReference string `json:"after_reference,omitempty"`
 	AfterID        int64  `json:"after_id,omitempty"`
+	Offset         int64  `json:"offset,omitempty"`
 }
 
 // DecisionExport reads one page of the export at the cursor; an empty phase starts it.
@@ -49,8 +67,8 @@ func (s *Store) DecisionExport(ctx context.Context, caller Key, at DecisionExpor
 	if at.Phase == "" {
 		at = DecisionExportAt{Phase: exportDeep}
 	}
-	if at.Phase != exportDeep && at.Phase != exportLive || at.AfterID < 0 || limit < 0 {
-		return DecisionExportPage{}, decisionInvalid("cursor", "phase must be deep or live, and after_id and limit must not be negative")
+	if at.Phase != exportDeep && at.Phase != exportLive || at.AfterID < 0 || at.Offset < 0 || limit < 0 {
+		return DecisionExportPage{}, decisionInvalid("cursor", "phase must be deep or live, and after_id, offset and limit must not be negative")
 	}
 	if limit == 0 || limit > decisionExportItems {
 		limit = decisionExportItems
@@ -68,8 +86,30 @@ func (s *Store) DecisionExport(ctx context.Context, caller Key, at DecisionExpor
 		return DecisionExportPage{}, err
 	}
 	used := 0
+	var partErr error
+	// add puts a record in the page, or one part of a record larger than a page in a page of
+	// its own, and reports whether the page has room for another.
 	add := func(record []byte, next DecisionExportAt) bool {
-		if len(page.Records) == limit || len(page.Records) > 0 && used+len(record)+1 > decisionExportBytes {
+		if len(page.Records) == 0 && (at.Offset > 0 || int64(len(record)) > decisionExportBytes) {
+			if at.Offset >= int64(len(record)) {
+				partErr = decisionInvalid("offset", "the offset is not inside the next record")
+				return false
+			}
+			end := min(at.Offset+decisionExportBytes, int64(len(record)))
+			digest := sha256.Sum256(record)
+			page.Part = &DecisionExportPart{Offset: at.Offset, Data: record[at.Offset:end], Digest: hex.EncodeToString(digest[:]),
+				Final: end == int64(len(record))}
+			page.More = true
+			if page.Part.Final {
+				page.Next = &next
+			} else {
+				rest := at
+				rest.Offset = end
+				page.Next = &rest
+			}
+			return false
+		}
+		if len(page.Records) == limit || len(page.Records) > 0 && int64(used+len(record)+1) > decisionExportBytes {
 			page.More = true
 			return false
 		}
@@ -116,8 +156,11 @@ func (s *Store) DecisionExport(ctx context.Context, caller Key, at DecisionExpor
 				return DecisionExportPage{}, workError("decision_unavailable", "the deep-archive line of "+l.reference+" does not match its locator")
 			}
 			if !add(record, DecisionExportAt{Phase: exportDeep, AfterReference: l.reference}) {
-				return page, nil
+				return page, partErr
 			}
+		}
+		if at.Offset > 0 {
+			return DecisionExportPage{}, decisionInvalid("offset", "the offset has no next record")
 		}
 		// The deep archive is read; the live items follow.
 		page.More, page.Next = true, &DecisionExportAt{Phase: exportLive}
@@ -153,8 +196,11 @@ func (s *Store) DecisionExport(ctx context.Context, caller Key, at DecisionExpor
 			return DecisionExportPage{}, err
 		}
 		if !add(data, DecisionExportAt{Phase: exportLive, AfterID: id}) {
-			return page, nil
+			return page, partErr
 		}
+	}
+	if at.Offset > 0 {
+		return DecisionExportPage{}, decisionInvalid("offset", "the offset has no next record")
 	}
 	page.Next = nil
 	return page, nil

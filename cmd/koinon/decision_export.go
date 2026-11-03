@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,12 +18,14 @@ import (
 // versions.
 const decisionExportAttempts = 4
 
-// errExportChanged ends an export attempt whose pages read different board versions.
+// errExportChanged ends an export attempt whose pages read different board versions, or whose
+// parts of one record name different digests.
 var errExportChanged = errors.New("the board changed during the export")
 
 // decisionExport writes every decision item, live and deep-archived, as JSON lines to a new
 // private file at path, outside a Git work tree (#589). The pages must all read one board
-// version, so the file has each item once; a change between pages starts the export again.
+// version, and the parts of a record its one digest, so the file has each item once and whole;
+// a change between pages starts the export again.
 // The file appears only when it is complete, and an existing file is never replaced.
 func decisionExport(ctx context.Context, out io.Writer, address, secret string, caller any, path string) error {
 	if path == "" {
@@ -80,10 +84,13 @@ func exportAttempt(ctx context.Context, address, secret string, caller any, dir,
 		return 0, "", err
 	}
 	records, version := 0, ""
+	// partial counts the bytes written of a record that arrives in parts, digest is the
+	// record's SHA-256 that its first part named, and sum hashes the bytes written.
+	partial, digest, sum := int64(0), "", sha256.New()
 	at := core.DecisionExportAt{}
 	for {
 		data, err := core.Call(ctx, address, secret, "/v1/decisions/export", map[string]any{"caller": caller,
-			"phase": at.Phase, "after_reference": at.AfterReference, "after_id": at.AfterID})
+			"phase": at.Phase, "after_reference": at.AfterReference, "after_id": at.AfterID, "offset": at.Offset})
 		if err != nil {
 			return 0, "", err
 		}
@@ -99,6 +106,36 @@ func exportAttempt(ctx context.Context, address, secret string, caller any, dir,
 		}
 		if page.Version != version {
 			return 0, "", errExportChanged
+		}
+		if part := page.Part; part != nil {
+			if part.Offset != partial || len(page.Records) > 0 || len(part.Data) == 0 {
+				return 0, "", errors.New("the daemon sent an export part out of order")
+			}
+			if partial == 0 {
+				digest = part.Digest
+				sum.Reset()
+			}
+			// An acknowledgement between parts changes the record but not the version.
+			if part.Digest != digest {
+				return 0, "", errExportChanged
+			}
+			if _, err := f.Write(part.Data); err != nil {
+				return 0, "", err
+			}
+			sum.Write(part.Data)
+			partial += int64(len(part.Data))
+			if part.Final {
+				if hex.EncodeToString(sum.Sum(nil)) != digest {
+					return 0, "", errors.New("an exported record does not match its digest")
+				}
+				if _, err := f.Write([]byte{'\n'}); err != nil {
+					return 0, "", err
+				}
+				records++
+				partial = 0
+			}
+		} else if partial > 0 {
+			return 0, "", errors.New("the daemon ended an export record before its last part")
 		}
 		for _, record := range page.Records {
 			if _, err := f.Write(append(append([]byte{}, record...), '\n')); err != nil {

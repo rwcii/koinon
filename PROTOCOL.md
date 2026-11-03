@@ -2074,18 +2074,26 @@ with `reference_in_use`.
   that is not deep-archived is `not_found`.
 
 - `POST /v1/decisions/export` (#589) takes `caller`, a cursor (`phase` `deep` or `live`, empty
-  at the start, with `after_reference` in `deep` and `after_id` in `live`) and `limit` (default
-  and maximum 100). One read transaction gives `version`, the board's change version, and
-  `records`: the deep-archived items' lines by reference, read at their locators and checked
-  as restore checks them (else `decision_unavailable`), then the live items by ID in the same
-  line format (`record` `koinon.decision.v1`, `id`, `reference`, `revision`, `item`,
-  `recipients`, `verdicts` with their snapshots and notes, `deliveries`, `withdrawals`). A
-  page stops at the limit or before the record that would take it past 4 MiB, and always holds
-  one; `more` and `next` give the following cursor, and the end of the deep archive gives
-  `next` `{"phase": "live"}`. A move and a restore each change `version` in their own
-  transaction, so pages with one version hold each item once. `koinon decision export PATH`
-  (or `--path PATH`) pages from the start and writes each record as a line of a new private
-  file (mode 0600) in PATH's directory, then links it to PATH, which fails when PATH exists
+  at the start, with `after_reference` in `deep` and `after_id` in `live`, and `offset`) and
+  `limit` (default and maximum 100). One read transaction gives `version`, the board's change
+  version, and `records`: the deep-archived items' lines by reference, read at their locators
+  and checked as restore checks them (else `decision_unavailable`), then the live items by ID in
+  the same line format (`record` `koinon.decision.v1`, `id`, `reference`, `revision`, `item`,
+  `recipients`, `verdicts` with their snapshots and notes, `deliveries`, `withdrawals`). A page
+  stops at the limit or before the record that would take it past 4 MiB; `more` and `next` give
+  the following cursor, and the end of the deep archive gives `next` `{"phase": "live"}`. A
+  record larger than 4 MiB has pages of its own, each with no records and a `part`: `offset`, at
+  most 4 MiB of the record's bytes from it as base64 `data`, `digest`, the SHA-256 of the whole
+  record in hex, and `final` on the last part. The cursor's `offset` counts the bytes of the
+  next record already read: a part's `next` is the same position with the larger offset, and the
+  final part's `next` follows the record. An offset with no next record, or not inside it, is
+  `invalid_request`. A move and a restore each change `version` in their own transaction, so
+  pages with one version hold each item once. An acknowledgement changes a record without
+  changing `version`, so the digest tells the parts of one record. `koinon decision export PATH`
+  (or `--path PATH`) pages from the start and writes each record as a line of a new private file
+  (mode 0600) in PATH's directory, with a record's parts joined in offset order (a part out of
+  order, a record without its final part, or bytes that do not match the digest fail the export,
+  and a changed digest starts it again), then links it to PATH, which fails when PATH exists
   (`export_exists`); a directory in a Git work tree, also through a symbolic link, is
   `export_in_worktree`. Pages that read different versions start the export again, up to four
   attempts. The result gives `path`, `records` and `version`.
