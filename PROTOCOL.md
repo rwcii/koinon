@@ -765,7 +765,11 @@ the running turn ends (two live runs). While that queue shows, the pane is not r
 (`input_queued`): the cycle waits and asks for no new handoff, and the queued turn, once
 started, asks again. While a turn runs the pane is `turn_running`, also with a queue: the queued
 turn starts after it and asks again then, and a ready stage that times out on a running turn asks
-again, as for any family. A queue that shows when the clear would type `/new` refuses it with
+again, as for any family. This is an exception to the #593 criterion "while the pane shows
+`▾ Queued N`, no new request" (decision GROK-RUNNING-QUEUE-593, approved by the maintainer on
+2026-11-03): `input_queued` does not ask again, so during a long turn it would fail the cycle at
+the ready stage's 2-minute deadline and end the Enable, and the clear never runs while a turn
+runs. A queue that shows when the clear would type `/new` refuses it with
 nothing typed; the clear reads the queue and the log again after the Enter's proof and fence,
 right before the key, and a queue or a turn found then erases the typed `/new`. Both return the
 cycle to `ready`.
