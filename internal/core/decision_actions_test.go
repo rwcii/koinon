@@ -75,7 +75,7 @@ func TestDecisionEachKindAndAction(t *testing.T) {
 		}
 		var body string
 		if err := s.db.QueryRow(`SELECT body FROM messages WHERE recipient_id=? AND decision_verdict=?`, participantKey(f.address), v.ID).Scan(&body); err != nil ||
-			!strings.HasPrefix(body, verdictNoticeBody(c.reference, c.verdict, v.ID)) || strings.Contains(body, "Entry:") != c.recorded {
+			!strings.HasPrefix(body, verdictNoticeBody(c.reference, c.verdict, v.ID)) || strings.Contains(body, "Verdict and card text:") != c.recorded {
 			t.Errorf("%s notice: %q %v", c.reference, body, err)
 		}
 		item, err := s.DecisionGet(ctx, f.peerKey, c.reference)

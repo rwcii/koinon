@@ -15,6 +15,9 @@ runtime supplies one: read its checkpoint before writing, report progress and re
 Commit under the declared policy, with no automated attribution. Bring the branch current with
 its work target, keeping published history. Run the check skill and its required gates. Follow
 the project's PR limit, and coordinate the publication turn through the installed runtime.
+Record each board verdict that the change carries out with decision_record, which applies the
+Decision record fact: none (the default) puts the changed rule, with the maintainer's words, into
+the document that holds it; short and full also append to DECISIONS.md.
 Publish one complete increment; a follow-up goes on its own branch. Freeze the exact head and get
 the peer-review verdict and the other review gates that the project declares. For fixes, carry
 forward unchanged review and verify the accepted findings and the behavior they affect; collect
@@ -56,6 +59,11 @@ the file. The parser reads the file as plain text, up to 64 KiB.
     },
     {
       "heading": "Extra checks",
+      "required": false,
+      "default": "none"
+    },
+    {
+      "heading": "Decision record",
       "required": false,
       "default": "none"
     }

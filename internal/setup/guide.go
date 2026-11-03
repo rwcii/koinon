@@ -129,17 +129,23 @@ named recipient as an inbox message and a wake that name its verdict ID: read it
 decision_get, handle it, then decision_ack. decision_pending lists unacknowledged verdicts,
 also after the message aged out; a superseded one means the item was reopened. Editing a
 decided item reopens it for a new verdict.
-Record each verdict that you handle in the repository, except an fyi acknowledgement: decision_record with the reference
-appends its entry, with the card text that the maintainer saw, to DECISIONS.md at the root of
-your checkout (directory names another checkout of the same repository), once per verdict;
-decision_get, decision_pending and the verdict message show the entry and the path. Before you commit, correct the spelling and typing
-errors in the maintainer's words in each new entry (notes, feedback and quotes), and keep
-their meaning and wording; do the same wherever you put the maintainer's words into the
-repository. Commit DECISIONS.md with the work. Name a decision
-by its reference (a link's target in DECISIONS.md is the reference in lower case), never by
-verdict ID: a verdict ID exists only in this machine's store. How a project cites its
-decisions is that project's own rule. A recorded entry is public repository text,
-so write every card as public text (#536).
+Record each verdict that you handle, except an fyi acknowledgement: call decision_record with
+the reference in your checkout (directory names another checkout of the same repository). It
+applies the Decision record fact of the checkout's .koinon/skills/ship.md, whose first word is
+none (the default), short or full (#589). With none it writes nothing: put the changed rule
+into the document that holds it, in the pull request that does the work, with the question,
+the chosen option, the reason and the maintainer's words with their date. With short it
+appends the verdict, the title, the recommendation's heading and the maintainer's note to
+DECISIONS.md at the checkout root, once per verdict; with full, also the card text that the
+maintainer saw. Commit the file with the work. decision_get, decision_pending and the verdict
+message show the full entry. Correct the spelling and typing errors in the maintainer's words
+wherever you put them into the repository (notes, feedback and quotes), and keep their meaning
+and wording. Name a decision by its reference (a link's target in DECISIONS.md is the
+reference in lower case), never by verdict ID: a verdict ID exists only in this machine's
+store. How a project cites its decisions is that project's own rule. Recorded text is public
+repository text, so write every card as public text (#536). koinon decision export PATH writes
+every item, live and deep-archived, as JSON lines to a new private file outside a Git work
+tree, which a person or CI can read without the daemon.
 
 ## Participants
 A participant is a family, repository and optional maintainer-assigned role. Start an additional
@@ -473,6 +479,7 @@ DeepSeek uses the command path until its MCP support is verified, with this sess
   koinon decision restore --as deepseek:$DSH_SESSION_ID --reference REF
   koinon decision withdraw --as deepseek:$DSH_SESSION_ID --reference REF --if-revision REVISION --reason 'reason' --key KEY --deadline UNIX_SECONDS
   koinon decision record --as deepseek:$DSH_SESSION_ID --reference REF
+  koinon decision export --as deepseek:$DSH_SESSION_ID PATH
   koinon peer-status --as deepseek:$DSH_SESSION_ID NAME
   koinon send --as deepseek:$DSH_SESSION_ID NAME 'message'
   koinon inbox --as deepseek:$DSH_SESSION_ID

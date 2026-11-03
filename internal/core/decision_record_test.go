@@ -53,7 +53,7 @@ func TestRecordDecisionAppendsOnce(t *testing.T) {
 	first := recordVerdict(1, 1, "declined", 1_800_000_000_000, "First.")
 	dismissed := recordVerdict(2, 2, "dismissed", 1_800_000_001_000, "")
 	second := recordVerdict(3, 3, "approved", 1_800_000_002_000, repoRecordMarker("R-1", recordVerdict(4, 4, "approved", 1_800_000_003_000, "")))
-	got, err := RecordDecision(root, "R-1", "", []DecisionVerdict{first, dismissed})
+	got, err := RecordDecision(root, RecordFull, "R-1", "", []DecisionVerdict{first, dismissed})
 	if err != nil || len(got.Appended) != 1 || got.Appended[0] != 1 || len(got.Skipped) != 1 || got.Path != filepath.Join(root, DecisionRecordFile) {
 		t.Fatalf("first record: %+v %v", got, err)
 	}
@@ -61,13 +61,13 @@ func TestRecordDecisionAppendsOnce(t *testing.T) {
 	if !bytes.HasPrefix(before, []byte(decisionRecordHeader)) || bytes.Count(before, []byte(repoRecordAnchor("R-1"))) != 1 {
 		t.Fatalf("header or anchor:\n%s", before)
 	}
-	got, err = RecordDecision(root, "R-1", "", []DecisionVerdict{first, dismissed, second})
+	got, err = RecordDecision(root, RecordFull, "R-1", "", []DecisionVerdict{first, dismissed, second})
 	if err != nil || len(got.Present) != 1 || len(got.Appended) != 1 {
 		t.Fatalf("second record: %+v %v", got, err)
 	}
 	// The file now holds the fourth verdict's marker inside the third's quoted context; a later
 	// record of the fourth verdict still appends it.
-	got, err = RecordDecision(root, "R-1", "", []DecisionVerdict{first, second, recordVerdict(4, 4, "approved", 1_800_000_003_000, "Fourth.")})
+	got, err = RecordDecision(root, RecordFull, "R-1", "", []DecisionVerdict{first, second, recordVerdict(4, 4, "approved", 1_800_000_003_000, "Fourth.")})
 	if err != nil || len(got.Present) != 2 || len(got.Appended) != 1 || got.Appended[0] != 4 {
 		t.Fatalf("spoofed marker: %+v %v", got, err)
 	}
@@ -75,7 +75,7 @@ func TestRecordDecisionAppendsOnce(t *testing.T) {
 	if !bytes.HasPrefix(after, before) || bytes.Count(after, []byte(repoRecordAnchor("R-1"))) != 1 {
 		t.Fatalf("existing bytes or anchor changed:\n%s", after)
 	}
-	again, err := RecordDecision(root, "R-1", "", []DecisionVerdict{first, second})
+	again, err := RecordDecision(root, RecordFull, "R-1", "", []DecisionVerdict{first, second})
 	if err != nil || len(again.Appended) != 0 || len(again.Present) != 2 {
 		t.Fatalf("repeat: %+v %v", again, err)
 	}
@@ -84,29 +84,34 @@ func TestRecordDecisionAppendsOnce(t *testing.T) {
 	}
 }
 
-// A DECISIONS.md that is not a Koinon record is refused and left as it is; an empty one gets
-// the header; a record without a final newline gets one before the entry.
+// A DECISIONS.md in another format keeps its text, and the entries follow it without a
+// header, once (#589); an empty one gets the header; a record without a final newline gets one
+// before the entry.
 func TestRecordDecisionForeignFile(t *testing.T) {
 	v := []DecisionVerdict{recordVerdict(1, 1, "approved", 1_800_000_000_000, "C.")}
 	root := t.TempDir()
 	path := filepath.Join(root, DecisionRecordFile)
-	foreign := []byte("# Decisions\n\nThis project's own decision log.\n")
+	foreign := []byte("# Decisions\n\nThis project's own decision log, without a final newline.")
 	os.WriteFile(path, foreign, 0o644)
-	if _, err := RecordDecision(root, "R-2", "", v); err != ErrDecisionRecordForeign {
-		t.Fatalf("foreign file: %v", err)
+	for _, mode := range []string{RecordShort, RecordFull} {
+		if _, err := RecordDecision(root, mode, "R-2", "", v); err != nil {
+			t.Fatalf("%s: foreign file: %v", mode, err)
+		}
 	}
-	if data, _ := os.ReadFile(path); !bytes.Equal(data, foreign) {
-		t.Fatalf("foreign file changed:\n%s", data)
+	data, _ := os.ReadFile(path)
+	if !bytes.HasPrefix(data, append(foreign, '\n')) || bytes.Contains(data, []byte(decisionRecordHeader)) ||
+		bytes.Count(data, []byte(repoRecordMarker("R-2", v[0]))) != 1 {
+		t.Fatalf("foreign file:\n%s", data)
 	}
 	os.WriteFile(path, nil, 0o644)
-	if _, err := RecordDecision(root, "R-2", "", v); err != nil {
+	if _, err := RecordDecision(root, RecordFull, "R-2", "", v); err != nil {
 		t.Fatal(err)
 	}
 	if data, _ := os.ReadFile(path); !bytes.HasPrefix(data, []byte(decisionRecordHeader)) {
 		t.Fatalf("empty file:\n%s", data)
 	}
 	os.WriteFile(path, []byte(decisionRecordHeader+"\nHand-written text"), 0o644)
-	if _, err := RecordDecision(root, "R-3", "", v); err != nil {
+	if _, err := RecordDecision(root, RecordFull, "R-3", "", v); err != nil {
 		t.Fatal(err)
 	}
 	if data, _ := os.ReadFile(path); !bytes.Contains(data, []byte("\nHand-written text\n\n"+repoRecordAnchor("R-3")+"\n")) {
@@ -123,7 +128,7 @@ func TestRecordDecisionRefusesUnsafeFiles(t *testing.T) {
 	if err := os.Symlink(target, filepath.Join(root, DecisionRecordFile)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := RecordDecision(root, "R-1", "", v); err != ErrDecisionRecord {
+	if _, err := RecordDecision(root, RecordFull, "R-1", "", v); err != ErrDecisionRecord {
 		t.Fatalf("symlink: %v", err)
 	}
 	if data, _ := os.ReadFile(target); string(data) != "outside\n" {
@@ -131,17 +136,17 @@ func TestRecordDecisionRefusesUnsafeFiles(t *testing.T) {
 	}
 	dir := t.TempDir()
 	os.Mkdir(filepath.Join(dir, DecisionRecordFile), 0o755)
-	if _, err := RecordDecision(dir, "R-1", "", v); err == nil {
+	if _, err := RecordDecision(dir, RecordFull, "R-1", "", v); err == nil {
 		t.Fatal("a directory was accepted")
 	}
 	empty := t.TempDir()
-	if got, err := RecordDecision(empty, "R-1", "", []DecisionVerdict{recordVerdict(1, 1, "dismissed", 1, "")}); err != nil || len(got.Skipped) != 1 {
+	if got, err := RecordDecision(empty, RecordFull, "R-1", "", []DecisionVerdict{recordVerdict(1, 1, "dismissed", 1, "")}); err != nil || len(got.Skipped) != 1 {
 		t.Fatalf("dismissal only: %+v %v", got, err)
 	}
 	if _, err := os.Lstat(filepath.Join(empty, DecisionRecordFile)); !os.IsNotExist(err) {
 		t.Fatalf("a record with nothing to append created the file: %v", err)
 	}
-	if _, err := RecordDecision(t.TempDir(), "bad reference", "", v); err == nil {
+	if _, err := RecordDecision(t.TempDir(), RecordFull, "bad reference", "", v); err == nil {
 		t.Fatal("an invalid reference was accepted")
 	}
 }
@@ -155,7 +160,7 @@ func TestRecordDecisionConcurrent(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, err := RecordDecision(root, "R-1", "", verdicts); err != nil {
+			if _, err := RecordDecision(root, RecordFull, "R-1", "", verdicts); err != nil {
 				t.Error(err)
 			}
 		}()
@@ -192,19 +197,20 @@ func TestDecisionReadsAskForTheRecord(t *testing.T) {
 		item.Record.Entry != DecisionRecordEntry("REC-1", "synthetic repo", *item.Verdict) {
 		t.Fatalf("decided item: %+v %v", item.Record, err)
 	}
-	// The pending delivery and the verdict message give the entry and the path too.
+	// The pending delivery and the verdict message give the entry too, and ask for
+	// decision_record, which applies the repository's mode (#589).
 	entry := DecisionRecordEntry("REC-1", "synthetic repo", *item.Verdict)
 	page, err := s.DecisionPending(ctx, f.peerKey, 0, 0)
-	if err != nil || page.Record == nil || page.Record.Entry != "" || !strings.Contains(page.Record.Instruction, "DECISIONS.md") ||
+	if err != nil || page.Record == nil || page.Record.Entry != "" || !strings.Contains(page.Record.Instruction, "decision_record") ||
 		len(page.Deliveries) != 1 || page.Deliveries[0].Entry != entry || !strings.Contains(entry, repoRecordMarker("REC-1", *item.Verdict)) {
 		t.Fatalf("pending: %+v %v", page, err)
 	}
 	var message string
 	if err := s.db.QueryRow(`SELECT body FROM messages WHERE decision_verdict=?`, v.ID).Scan(&message); err != nil ||
-		message != verdictMessageBody("REC-1", "approved", v.ID, entry) || !strings.HasSuffix(message, "Path: DECISIONS.md\n\nEntry:\n"+entry) {
+		message != verdictMessageBody("REC-1", "approved", v.ID, entry) || !strings.HasSuffix(message, "Verdict and card text:\n"+entry) {
 		t.Fatalf("message: %q %v", message, err)
 	}
-	if body := verdictNoticeBody("REC-1", "approved", v.ID); !strings.Contains(body, "decision_record") || !strings.Contains(body, "DECISIONS.md") {
+	if body := verdictNoticeBody("REC-1", "approved", v.ID); !strings.Contains(body, "decision_record") || !strings.Contains(body, "Decision record fact") {
 		t.Fatalf("notice: %s", body)
 	}
 	mustCreate(t, s, f.peerKey, "REC-2", DecisionFields{Title: ptr("Note it"), Kind: ptr("fyi"), Recipients: &[]string{f.peer.Name}})
@@ -302,7 +308,8 @@ func TestDecisionEntryBounds(t *testing.T) {
 // repository text; how a project cites a decision is that project's own rule (#580). A record
 // that Koinon wrote with the earlier header is still a Koinon record.
 func TestDecisionRecordTextLeavesCitationToTheProject(t *testing.T) {
-	for name, text := range map[string]string{"header": decisionRecordHeader, "commit": decisionRecordCommit, "instruction": decisionRecordInstruction} {
+	for name, text := range map[string]string{"header": decisionRecordHeader, "commit": decisionRecordCommit, "instruction": decisionRecordInstruction,
+		"none": decisionRecordNone} {
 		if strings.Contains(text, "DECISIONS.md#") || strings.Contains(strings.ToLower(text), "cite") {
 			t.Fatalf("%s tells the project how to cite: %s", name, text)
 		}
@@ -310,7 +317,7 @@ func TestDecisionRecordTextLeavesCitationToTheProject(t *testing.T) {
 	if !strings.Contains(decisionRecordCommit, "by its reference") || !strings.Contains(decisionRecordCommit, "verdict ID exists only in this machine's store") {
 		t.Fatalf("commit instruction: %s", decisionRecordCommit)
 	}
-	if !strings.HasPrefix(decisionRecordHeader, decisionRecordTitle) || !strings.Contains(decisionRecordHeader, "named by its reference") {
+	if !strings.Contains(decisionRecordHeader, "named by its reference") {
 		t.Fatalf("header: %s", decisionRecordHeader)
 	}
 	root := t.TempDir()
@@ -325,14 +332,14 @@ func TestDecisionRecordTextLeavesCitationToTheProject(t *testing.T) {
 		t.Fatal(err)
 	}
 	verdicts := []DecisionVerdict{recordVerdict(1, 1, "approved", 1_800_000_000_000, "")}
-	if got, err := RecordDecision(root, "R-1", "", verdicts); err != nil || len(got.Appended) != 1 {
+	if got, err := RecordDecision(root, RecordFull, "R-1", "", verdicts); err != nil || len(got.Appended) != 1 {
 		t.Fatalf("earlier header: %+v %v", got, err)
 	}
 	data, _ := os.ReadFile(path)
 	if !strings.HasPrefix(string(data), earlier) || strings.Count(string(data), "# Decisions") != 1 {
 		t.Fatalf("earlier record changed:\n%s", data)
 	}
-	if got, err := RecordDecision(root, "R-1", "", verdicts); err != nil || len(got.Appended) != 0 || len(got.Present) != 1 {
+	if got, err := RecordDecision(root, RecordFull, "R-1", "", verdicts); err != nil || len(got.Appended) != 0 || len(got.Present) != 1 {
 		t.Fatalf("repeated record: %+v %v", got, err)
 	}
 	if again, _ := os.ReadFile(path); !bytes.Equal(again, data) {

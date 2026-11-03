@@ -1990,9 +1990,10 @@ with `reason` `unknown_name`, `maintainer` or `recipient_inactive`. The message 
 `maintainer` with `system_kind` `decision_verdict`, the typed `decision_verdict` ID and a
 body that holds the reference, the ID and, for a recorded verdict, its entry (see Repository
 record); it holds no other card text. The body starts with `Decision REF has a verdict (ID).`
-and the instruction to read it with `decision_get`, record it with `decision_record` and commit
-`DECISIONS.md`; for `feedback`, with `Item REF has the maintainer's feedback (ID) and is
-returned to its author.` and the instruction to record it and then edit or withdraw the item;
+and the instruction to read it with `decision_get` and then call `decision_record`, which
+applies the repository's Decision record fact (#589); for `feedback`, with `Item REF has the
+maintainer's feedback (ID) and is returned to its author.` and the instruction to call
+`decision_record` and then edit or withdraw the item;
 for `acknowledged`, with `Fyi item REF was acknowledged (ID).` and the note that nothing is
 recorded. A wake whose range
 holds such messages ends its notice with ` Decision verdicts ID, ID.`: at most 8 IDs in
@@ -2072,14 +2073,42 @@ with `reference_in_use`.
   `invalid_request`, and a changed revision is `stale_revision`. Restore of any other item
   that is not deep-archived is `not_found`.
 
-**Repository record (#536).** A decided item read (`decision_get`, the lookup) with a current
-verdict that is not an fyi acknowledgement or dismissal carries `record`: `path`
-(`DECISIONS.md`), `instruction` and `entry`, the current verdict's entry as `decision_record`
-writes it. A pending page with a delivery that is not an fyi acknowledgement or dismissal
+- `POST /v1/decisions/export` (#589) takes `caller`, a cursor (`phase` `deep` or `live`, empty
+  at the start, with `after_reference` in `deep` and `after_id` in `live`, and `offset`,
+  `version` and `digest` inside a record) and `limit` (default and maximum 100). One read
+  transaction gives `version`, the board's change version, and `records`: the deep-archived
+  items' lines by reference, read at their locators and checked as restore checks them (else
+  `decision_unavailable`), then the live items by ID in the same line format (`record`
+  `koinon.decision.v1`, `id`, `reference`, `revision`, `item`, `recipients`, `verdicts` with
+  their snapshots and notes, `deliveries`, `withdrawals`). A page stops at the limit or before
+  the record that would take it past 4 MiB; `more` and `next` give the following cursor, and the
+  end of the deep archive gives `next` `{"phase": "live"}`. A record larger than 4 MiB has pages
+  of its own, each with no records and a `part`: `offset`, at most 4 MiB of the record's bytes
+  from it as base64 `data`, `digest`, the SHA-256 of the whole record in hex, and `final` on the
+  last part. The cursor's `offset` counts the bytes of the next record already read: a part's
+  `next` is the same position with the larger offset, the page's `version` and the part's
+  `digest`, and the final part's `next` follows the record. A cursor with an offset and without
+  its version and digest, or whose offset has no next record or is not inside it, is
+  `invalid_request`; one whose version or record digest changed since is `export_changed`. A
+  move and a restore each change `version` in their own transaction, so pages with one version
+  hold each item once. An acknowledgement changes a record without changing `version`, so the
+  digest tells the parts of one record. `koinon decision export PATH` (or `--path PATH`) pages
+  from the start and writes each record as a line of a new private file (mode 0600) in PATH's
+  directory, with a record's parts joined in offset order (a part out of order, a record without
+  its final part, an end inside a record, or bytes that do not match the digest fail the export,
+  and a changed digest or `export_changed` starts it again), then links it to PATH, which fails
+  when PATH exists (`export_exists`); a directory in a Git work tree, also through a symbolic
+  link, is `export_in_worktree`. Pages that read different versions start the export again, up
+  to four attempts. The result gives `path`, `records` and `version`.
+
+**Repository record (#536, #589).** A decided item read (`decision_get`, the lookup) with a
+current verdict that is not an fyi acknowledgement or dismissal carries `record`: `path`
+(`DECISIONS.md`, the file of the short and full modes), `instruction`, which asks to call
+`decision_record`, and `entry`, the current verdict's full entry. A pending page with a delivery that is not an fyi acknowledgement or dismissal
 carries `record` with `path` and `instruction`, and each such delivery carries `entry`; a page
 stops before the delivery that would take the serialized reply past 512 KiB and always holds
 one, which the largest entry fits. The verdict message of such a verdict holds the notice, then
-`Path: DECISIONS.md` and `Entry:` with the entry. An entry that would take the message past 64
+`Verdict and card text:` with the full entry. An entry that would take the message past 64
 KiB, which only stored hidden commands can cause, is left out, and the message says that
 `decision_get` and `decision_pending` give it. An item read carries
 `author_repository`, the repository of the participant that the item stored for its author at
@@ -2087,23 +2116,33 @@ create; a plain peer's item has none. A snapshot stores the item's `where` since
 older snapshot has none.
 
 `decision_record` (`reference`, optional `directory`) and `koinon decision record --reference
-REF [--directory DIR]` read the item and its history through these routes and append to
-`DECISIONS.md` at the root of the checkout of the MCP working directory or of `directory`,
-which must share its Git common directory (else `repo_unresolved`). The item's
-`author_repository` must be that Git common directory: another is
-`decision_other_repository`, none is `decision_repository_unknown`. The file starts with the
-Koinon header when it is created; a file that does not start with it is
-`decision_record_foreign`, and a symbolic link, a non-regular file or a file over 64 MiB is
-`decision_record_invalid`. Nothing is written on a refusal. Under an exclusive lock on the
+REF [--directory DIR]` record in the checkout of the MCP working directory or of `directory`,
+which must share its Git common directory (else `repo_unresolved`). They first read the
+checkout's record mode: the first word, without trailing `,.;:`, of the `Decision record` fact
+in its `.koinon/skills/ship.md`, parsed with the ship skill's facts schema. An absent file or
+fact is `none`; another word or an invalid facts file is `decision_record_mode_invalid`. Then
+they read the item and its history through these routes. The item's `author_repository` must
+be that Git common directory: another is `decision_other_repository`, none is
+`decision_repository_unknown`. Mode `none` opens no file: the result gives `mode`, an empty
+`appended` and an `instruction` that puts the changed rule, with the question, the chosen
+option, the reason and the maintainer's words, into the document that holds it. Modes `short`
+and `full` append to `DECISIONS.md` at the checkout root. The file starts with the Koinon
+header when it is created; a file in another format keeps its text, and the entries follow it.
+A symbolic link, a non-regular file or a file over 64 MiB is `decision_record_invalid`.
+Nothing is written on a refusal. Under an exclusive lock on the
 file, each verdict that is not an fyi acknowledgement or dismissal and whose marker line is
 absent is appended, in
 verdict order: the reference's anchor (`<a id="ref"></a>`, the reference in lower case, as GitHub writes its
 anchors) before its first entry, then a
 `## REF` heading, the marker `<!-- koinon-decision REF revision N VERDICT MS -->`, the verdict,
 revision and UTC time, the title and where, and the context, recommendation and note (labeled
-`Feedback` for a feedback verdict) as block quotes, with the commands as an indented code block. The result gives `path`, `reference` and
-the verdict IDs `appended`, `present` and `skipped`, and an `instruction` when it appended. An
-item with no recordable verdict creates no file.
+`Feedback` for a feedback verdict) as block quotes, with the commands as an indented code block. A
+short entry has the heading, marker, verdict line and title, then `- Recommendation:` with the
+recommendation's first line (without `## Recommendation:`) when it has one, and the note or
+feedback as a block quote; the shared marker keeps a mode change from adding a verdict twice.
+The result gives `mode`, `path`, `reference` and the verdict IDs `appended`, `present` and
+`skipped`, and an `instruction` when it appended. An item with no recordable verdict creates no
+file.
 
 ### MCP server
 

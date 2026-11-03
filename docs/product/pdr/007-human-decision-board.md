@@ -273,9 +273,11 @@ itself through an interface every family can use. The records are stored data th
 query in bounded pages through Koinon; agents get decision status from those queries, not
 by reading or parsing the dashboard HTML. A reopen does not cancel an unacknowledged delivery.
 A read of a decided item, the pending list and the verdict notice also tell the agent to record
-the verdict, other than an `fyi` acknowledgement, in its repository's `DECISIONS.md` with
-`decision_record`, and the item read gives
-the entry and the path (#536). Repository text names a decision by its reference, never by its
+the verdict, other than an `fyi` acknowledgement, with `decision_record`, which applies the
+repository's record mode: none (the default), short or full (#536, #589; WDR 001, Decision 7).
+The item read gives the full entry. `koinon decision export PATH` writes every item, live and
+deep-archived, as JSON lines to a new private file outside a Git work tree, which a person or
+CI can read without the daemon (#589). Repository text names a decision by its reference, never by its
 verdict ID, which exists only in this machine's store. How a project cites its decisions is
 that project's own rule; Koinon's own repository follows WDR 001, Decision 7 (#580).
 
@@ -342,3 +344,4 @@ blocks, which the maintainer copies into a terminal, hold printable ASCII only. 
 | 2026-10-29 | Decision 1: the card form in the guide's Decisions section (#562; [DECISIONS.md#CARD-FORM-562](../../../DECISIONS.md#card-form-562)) |
 | 2026-10-31 | Decision 1: the card form's labels after Fast or complete (#582; [DECISIONS.md#CARD-LABELS-582](../../../DECISIONS.md#card-labels-582)) |
 | 2026-10-31 | Decision 4: the product text names a decision by its reference and leaves the citation rule to the project (#580) |
+| 2026-11-03 | Decision 4: `decision_record` applies the repository's record mode, and the board has an export (#589, RECORD-MODE-589; WDR 001, Decision 7) |
