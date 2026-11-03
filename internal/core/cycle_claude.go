@@ -446,12 +446,23 @@ var errRecordWindow = errors.New("session record does not reach the ready report
 // turn is never missed. A file whose size changed during a read with no turn is read again, up
 // to recordReads times.
 func recordTurnSince(path string, at int64, turn func([]byte) (int64, bool, bool, bool)) (bool, error) {
+	return recordTurnReads(path, at, turn, false)
+}
+
+// recordOrderedTurnSince is recordTurnSince for a record whose times never go back: a time in
+// the window that is earlier than the one before it is an error, so a later record's earlier
+// time never hides a turn before it (#593).
+func recordOrderedTurnSince(path string, at int64, turn func([]byte) (int64, bool, bool, bool)) (bool, error) {
+	return recordTurnReads(path, at, turn, true)
+}
+
+func recordTurnReads(path string, at int64, turn func([]byte) (int64, bool, bool, bool), ordered bool) (bool, error) {
 	for range recordReads - 1 {
-		if found, err := recordTurnRead(path, at, turn); !errors.Is(err, errRecordChanged) {
+		if found, err := recordTurnRead(path, at, turn, ordered); !errors.Is(err, errRecordChanged) {
 			return found, err
 		}
 	}
-	return recordTurnRead(path, at, turn)
+	return recordTurnRead(path, at, turn, ordered)
 }
 
 // recordReads bounds the reads of a session record that changes during them.
@@ -461,7 +472,7 @@ const recordReads = 3
 var errRecordChanged = errors.New("session record changed during the read")
 
 // recordTurnRead is one read of recordTurnSince.
-func recordTurnRead(path string, at int64, turn func([]byte) (int64, bool, bool, bool)) (bool, error) {
+func recordTurnRead(path string, at int64, turn func([]byte) (int64, bool, bool, bool), ordered bool) (bool, error) {
 	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return false, err
@@ -491,9 +502,16 @@ func recordTurnRead(path string, at int64, turn func([]byte) (int64, bool, bool,
 		if last := lines[len(lines)-1]; len(bytes.TrimSpace(last)) > 0 {
 			return false, errors.New("the last session record is partial")
 		}
-		mark := -1
+		mark, last := -1, int64(-1)
 		for i, line := range lines {
-			if when, timed, _, ok := turn(line); ok && timed && when <= at {
+			when, timed, _, ok := turn(line)
+			if ordered && ok && timed {
+				if when < last {
+					return false, errors.New("a session record's time goes back")
+				}
+				last = when
+			}
+			if ok && timed && when <= at {
 				mark = i
 			}
 		}

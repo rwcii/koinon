@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -134,6 +135,7 @@ type fakeOpenCode struct {
 	home, dir     string
 	pid, start    int64
 	createRefused bool
+	pages         int // the message pages read with a limit (#593)
 }
 
 func newFakeOpenCode(t *testing.T) *fakeOpenCode {
@@ -223,6 +225,23 @@ func (f *fakeOpenCode) serve(w http.ResponseWriter, r *http.Request) {
 		messages := f.messages[id]
 		if messages == nil {
 			messages = []any{}
+		}
+		if limit, err := strconv.Atoi(r.URL.Query().Get("limit")); err == nil {
+			// The newest limit messages before the cursor, oldest first; the cursor names the page
+			// before them, and the oldest page has none (opencode 1.18.35).
+			end := len(messages)
+			if before := r.URL.Query().Get("before"); before != "" {
+				if end, err = strconv.Atoi(strings.TrimPrefix(before, "cursor-")); err != nil || !strings.HasPrefix(before, "cursor-") || end > len(messages) {
+					w.WriteHeader(http.StatusBadRequest)
+					return
+				}
+			}
+			start := max(0, end-limit)
+			if start > 0 {
+				w.Header().Set("X-Next-Cursor", "cursor-"+strconv.Itoa(start))
+			}
+			f.pages++
+			messages = messages[start:end]
 		}
 		reply(messages)
 	case r.Method == "POST" && rest == "command":
@@ -651,5 +670,195 @@ func TestOpenCodePickupModel(t *testing.T) {
 	other.pickupAt++
 	if _, err := a.PickupModel(ctx, other); err == nil {
 		t.Fatal("a pickup with another ID proved the model")
+	}
+}
+
+// ocReadyAt is the synthetic ready report's time.
+const ocReadyAt = int64(1793708854545)
+
+// history gives the requester n messages, alternating user and assistant, one second apart and
+// ending at last (milliseconds after ocReadyAt, negative before it); roles overrides a message's
+// role by index. The shapes are opencode 1.18.35's; no text is real.
+func (f *fakeOpenCode) history(n int, last int64, roles map[int]string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.messages[ocRequester] = nil
+	for i := range n {
+		role := map[bool]string{true: "user", false: "assistant"}[i%2 == 0]
+		if r, ok := roles[i]; ok {
+			role = r
+		}
+		created := ocReadyAt + last - int64(n-1-i)*1000
+		f.messages[ocRequester] = append(f.messages[ocRequester], map[string]any{"info": map[string]any{"id": "msg_" + strconv.Itoa(i),
+			"role": role, "time": map[string]any{"created": created}}, "parts": []any{}})
+	}
+}
+
+func (f *fakeOpenCode) readyTarget(state string) CycleTarget {
+	t := f.target(state)
+	t.ReadyAt, t.ReadyRevision = ocReadyAt, 3
+	return t
+}
+
+// A user message created after the ready report is a turn after it (#593): the read goes back a
+// page at a time to a message at or before the report, or to the oldest page, which has no
+// cursor also when it is full. An assistant message after the report is not a turn. A message
+// without a valid time or role, a page out of order, a failed or refused page and a read past
+// its bound are unread.
+func TestOpenCodeTurnSince(t *testing.T) {
+	ctx := context.Background()
+	cases := []struct {
+		name  string
+		n     int
+		last  int64
+		roles map[int]string
+		turn  bool
+		pages int // with the read of the newest page again
+	}{
+		{"quiet", 9, 3000, map[int]string{6: "assistant", 8: "assistant"}, false, 2},
+		{"user after the report", 9, 3000, nil, true, 1},
+		{"user at the report's millisecond", 9, 0, nil, false, 2},
+		{"turn on the newest page of many", 160, 140000, map[int]string{158: "assistant", 159: "assistant"}, true, 1},
+		{"report three pages back", 160, 100000, func() map[int]string {
+			roles := map[int]string{}
+			for i := 59; i < 160; i++ {
+				roles[i] = "assistant"
+			}
+			return roles
+		}(), false, 4},
+		{"whole log after the report, full oldest page", 100, 200000, func() map[int]string {
+			roles := map[int]string{}
+			for i := range 100 {
+				roles[i] = "assistant"
+			}
+			return roles
+		}(), false, 3},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := newFakeOpenCode(t)
+			f.history(c.n, c.last, c.roles)
+			turn, err := openCodeTurnSince(ctx, f.readyTarget(cycleReady))
+			if turn != c.turn || err != nil || !c.turn && f.pages != c.pages {
+				t.Fatalf("%v %v pages %d", turn, err, f.pages)
+			}
+		})
+	}
+	appended := func(info map[string]any) func(*fakeOpenCode) {
+		return func(f *fakeOpenCode) {
+			f.set(func(f *fakeOpenCode) {
+				f.messages[ocRequester] = append(f.messages[ocRequester], map[string]any{"info": info})
+			})
+		}
+	}
+	unread := map[string]func(*fakeOpenCode){
+		"no time":      appended(map[string]any{"role": "assistant"}),
+		"no role":      appended(map[string]any{"time": map[string]any{"created": ocReadyAt + 9000}}),
+		"out of order": appended(map[string]any{"role": "assistant", "time": map[string]any{"created": ocReadyAt + 10}}),
+		"server":       func(f *fakeOpenCode) { f.set(func(f *fakeOpenCode) { f.titles[ocRequester] = "" }) },
+		"bound": func(f *fakeOpenCode) {
+			n := openCodeHistoryPage*openCodeHistoryPages + 1
+			roles := map[int]string{}
+			for i := range n {
+				roles[i] = "assistant"
+			}
+			f.history(n, int64(n)*1000, roles)
+		},
+	}
+	for name, change := range unread {
+		f := newFakeOpenCode(t)
+		f.history(9, 3000, map[int]string{6: "assistant", 8: "assistant"})
+		change(f)
+		if turn, err := openCodeTurnSince(ctx, f.readyTarget(cycleReady)); turn || !errors.Is(err, errHistoryUnread) {
+			t.Fatalf("%s: %v %v", name, turn, err)
+		}
+	}
+	// Without a ready report nothing is read.
+	f := newFakeOpenCode(t)
+	if turn, err := openCodeTurnSince(ctx, f.target(cycleReady)); turn || err != nil || f.pages != 0 {
+		t.Fatalf("no report: %v %v", turn, err)
+	}
+}
+
+// Inspect reports a turn after the ready report and unread messages; Create and Select read the
+// messages again after their fence, right before the request, and a turn since refuses each
+// unsent (#593). A kept created session is used again only while it is empty.
+func TestOpenCodeTurnAfterReady(t *testing.T) {
+	ctx := context.Background()
+	a := openCodeCycle{}
+	quiet := map[int]string{6: "assistant", 8: "assistant"}
+	f := newFakeOpenCode(t)
+	f.history(9, 3000, quiet)
+	if pane, err := a.Inspect(ctx, f.readyTarget(cycleReady), f.fence); err != nil || !pane.Idle {
+		t.Fatalf("quiet: %+v %v", pane, err)
+	}
+	f.history(9, 3000, nil)
+	if pane, err := a.Inspect(ctx, f.readyTarget(cycleReady), f.fence); err != nil || pane.Seen != turnAfterReady {
+		t.Fatalf("turn: %+v %v", pane, err)
+	}
+	f.history(9, 3000, quiet)
+	f.set(func(f *fakeOpenCode) {
+		f.messages[ocRequester] = append(f.messages[ocRequester], map[string]any{"info": map[string]any{}})
+	})
+	if pane, err := a.Inspect(ctx, f.readyTarget(cycleReady), f.fence); err != nil || pane.Seen != historyUnread {
+		t.Fatalf("unread: %+v %v", pane, err)
+	}
+	// A message that arrives at the fence.
+	f = newFakeOpenCode(t)
+	f.history(9, 3000, quiet)
+	late := func(ctx context.Context) error {
+		f.history(9, 3000, nil)
+		return f.fence(ctx)
+	}
+	if id, err := a.Create(ctx, f.readyTarget(cycleClearIntent), late); id != "" || !errors.Is(err, errTurnAfterReady) || f.created != 0 {
+		t.Fatalf("create: %q %v %d", id, err, f.created)
+	}
+	f.history(9, 3000, quiet)
+	f.titles[ocSuccessor] = openCodeTitle("synthetic-cycle")
+	if ok, err := a.Select(ctx, f.readyTarget(cycleClearReceived), late); ok || !errors.Is(err, errTurnAfterReady) || len(f.selects) != 0 {
+		t.Fatalf("select: %v %v %v", ok, err, f.selects)
+	}
+	if code, unsent := unsentRefusal(errTurnAfterReady); !unsent || code != turnAfterReady {
+		t.Fatal(code)
+	}
+	// The kept session: used again while empty; one that is not refuses the create, and no
+	// other is created.
+	f = newFakeOpenCode(t)
+	f.history(9, 3000, quiet)
+	f.titles[ocSuccessor] = openCodeTitle("synthetic-cycle")
+	target := f.readyTarget(cycleClearIntent)
+	target.keptSuccessor = ocSuccessor
+	if id, err := a.Create(ctx, target, f.fence); id != ocSuccessor || err != nil || f.created != 0 {
+		t.Fatalf("kept: %q %v %d", id, err, f.created)
+	}
+	f.messages[ocSuccessor] = []any{map[string]any{"info": map[string]any{"role": "user"}}}
+	if id, err := a.Create(ctx, target, f.fence); id != "" || !errors.Is(err, errSuccessorNotEmpty) || f.created != 0 {
+		t.Fatalf("kept, not empty: %q %v %d", id, err, f.created)
+	}
+	// A user message that comes while the older pages are read is found by the read of the
+	// newest page again: the create is refused unsent (review of #599).
+	f = newFakeOpenCode(t)
+	roles := map[int]string{}
+	for i := range 160 {
+		roles[i] = "assistant"
+	}
+	f.history(160, 100000, roles)
+	var once sync.Once
+	wrapped := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("before") != "" {
+			once.Do(func() {
+				f.set(func(f *fakeOpenCode) {
+					f.messages[ocRequester] = append(f.messages[ocRequester], map[string]any{"info": map[string]any{"id": "msg_synthetic_late",
+						"role": "user", "time": map[string]any{"created": ocReadyAt + 200000}}})
+				})
+			})
+		}
+		f.serve(w, r)
+	}))
+	defer wrapped.Close()
+	target = f.readyTarget(cycleClearIntent)
+	target.openCode.Address = strings.TrimPrefix(wrapped.URL, "http://")
+	if id, err := a.Create(ctx, target, f.fence); id != "" || !errors.Is(err, errHistoryUnread) || f.created != 0 {
+		t.Fatalf("user during the paged read: %q %v %d", id, err, f.created)
 	}
 }

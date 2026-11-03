@@ -308,12 +308,18 @@ the pickup (#533). Koinon reads only the file times of the session's subagent tr
 compared with the ready report itself, and whether each one's meta file says it finished; a
 dialog resolved after it does not move that time. A transcript directory that cannot be read
 in full keeps the session from the clear.
-A Claude or Codex session that had a conversation turn after its ready reply, such as the
-maintainer's message and its answer, is asked again the same way, without a clear: the
-handoff does not hold that exchange (#592). Koinon reads the record types and times in the
-session's transcript or rollout back to the ready reply, never its text, before the clear and
-again right before the clear's Enter. A transcript or rollout that cannot be read back to the
-ready reply keeps the session from the clear. The other families follow (#593).
+A session that had a conversation turn after its ready reply, such as the maintainer's message
+and its answer, is asked again the same way, without a clear: the handoff does not hold that
+exchange (#592 for Claude and Codex, #593 for agy, Grok, OpenCode and DeepSeek). Koinon reads
+the record types and times in the session's own record back to the ready reply, never its text,
+before the clear and again right before the clear's input: the Claude transcript, the Codex
+rollout, the agy transcript, the Grok event log, the OpenCode session's messages and the
+DeepSeek history. A record that cannot be read back to the ready reply keeps the session from
+the clear. A Grok prompt queued during a running turn is in no file until its turn starts, so
+while the pane shows the queue the session is kept from the clear too. An unread record and a
+queued prompt on an idle pane ask for no new handoff: the cycle waits. A queue during a running
+turn is a running turn: a ready stage that times out on it asks again, as for any family
+(GROK-RUNNING-QUEUE-593).
 The handoff that the ready reply names is in the session's own handoff directory of the main
 checkout: the directory that the Handoff path fact of the repository's
 `.koinon/skills/handoff.md` names, else `_handoff/<agent>/`, where the agent is the family with
@@ -409,8 +415,21 @@ rollout; a user prompt or a delivered message after the report means the handoff
 date, and the controller does not clear and asks for a new handoff, as for a subagent that
 finished after the report (#456), within the usual request limit and deadlines; a transcript
 that cannot be read means no clear; agy, OpenCode, DeepSeek and Grok follow in an issue
-(#593). The second read right before the clear's Enter is from the pair's review. The
-intent: a clear never drops a conversation that came after the handoff.
+(#593). The second read right before the clear's Enter is from the pair's review. #593 applies
+the same decision to those four families; its native reads, Grok's queue and the waits without a
+new request for an unread record or a queued prompt are from the pair's review. The intent: a
+clear never drops a conversation that came after the handoff.
+
+A Grok queue during a running turn: the #593 criteria said that while the pane shows the queue,
+the cycle sends no new request. The pair's review found that a queue during a running turn
+cannot wait that way: `input_queued` does not ask again, so at the ready stage's 2-minute
+deadline it would fail the cycle and end the Enable during a long turn. The card recommended
+that the pane stays `turn_running` also with a queue, so the cycle asks again at the deadline,
+and the queued turn asks again when it starts; the alternatives were `input_queued` as written,
+and a wait without a deadline failure in the shared cycle deadline logic. The maintainer
+approved it on the decision board on 2026-11-03, with no note (GROK-RUNNING-QUEUE-593). The
+intent: a long turn with a queued prompt does not end the Enable, and the clear never runs while
+a turn runs.
 
 Background subagents through the clear: the maintainer, 2026-10-27, after a Claude session
 planned to stop its running review subagents before its cycle: "context handover won't
@@ -671,3 +690,5 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-11-01 | Decisions 3 and 4: the wake notice asks to answer the request before other work, and the `koinon-pickup` entry checks the catalog digest and stops and reports, which #487 had removed, approved on the decision board (RESTORE-STEPS-487) |
 | 2026-11-01 | Decision 4: a pickup report is accepted at `reset_verified`, before Koinon enters the pickup (DECISIONS.md#PICKUP-RESET-588) |
 | 2026-11-03 | Decision 3: a Claude or Codex conversation turn after the ready reply makes the cycle ask again (#592), approved on the decision board (TURN-AFTER-READY-592) |
+| 2026-11-03 | Decision 3: an agy, Grok, OpenCode or DeepSeek conversation turn after the ready reply makes the cycle ask again too (#593), under the same board item (TURN-AFTER-READY-592) |
+| 2026-11-03 | Decision 3: a Grok queue during a running turn is a running turn, and a ready timeout on it asks again (#593), approved on the decision board (GROK-RUNNING-QUEUE-593) |

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -19,8 +20,12 @@ type fakeSessionAdapter struct {
 	*fakeAdapter
 	created   string
 	createErr error
-	selected  bool
-	proven    bool
+	// selectErr refuses the next selects before they are sent, such as errTurnAfterReady (#593).
+	selectErr error
+	// kept are the kept successors that the creates were given (#593).
+	kept     []string
+	selected bool
+	proven   bool
 	// send blocks SendPickup until it is closed or the worker's context ends; sending is
 	// closed when the send starts.
 	send, sending chan struct{}
@@ -45,6 +50,13 @@ func (f *fakeSessionAdapter) Create(ctx context.Context, t CycleTarget, fence Cy
 	if err := fence(ctx); err != nil {
 		return "", err
 	}
+	f.mu.Lock()
+	f.kept = append(f.kept, t.keptSuccessor)
+	f.mu.Unlock()
+	if t.keptSuccessor != "" && f.createErr == nil {
+		f.record("reuse " + t.keptSuccessor)
+		return t.keptSuccessor, nil
+	}
 	f.record("create")
 	return f.created, f.createErr
 }
@@ -52,6 +64,13 @@ func (f *fakeSessionAdapter) Create(ctx context.Context, t CycleTarget, fence Cy
 func (f *fakeSessionAdapter) Select(ctx context.Context, t CycleTarget, fence CycleFence) (bool, error) {
 	if err := fence(ctx); err != nil {
 		return false, err
+	}
+	f.mu.Lock()
+	refused := f.selectErr
+	f.mu.Unlock()
+	if refused != nil {
+		f.record("select refused")
+		return false, refused
 	}
 	f.record("select " + t.SuccessorEpoch)
 	return f.selected, nil
@@ -727,5 +746,105 @@ func TestSessionCycleReportDeadline(t *testing.T) {
 	g.s.pickupWrite = func() { g.clock = time.UnixMilli(c.StageDeadline) }
 	if _, err := g.s.ContextCyclePickup(context.Background(), successor, "synthetic-created-1", v.ID, c.Revision, g.name, "resumed", "synthetic"); !errors.Is(err, ErrCycleChanged) {
 		t.Fatalf("a write after the deadline: %v", err)
+	}
+}
+
+// reportAgain answers the cycle's repeated request with a new handoff.
+func (g *sessionFixture) reportAgain(t *testing.T, id string) {
+	t.Helper()
+	c := g.cycle(t, id)
+	if c.State != cycleWaitingReady {
+		t.Fatalf("not asked again: %+v", c)
+	}
+	g.name = g.handoff(t, "claude", "2026-10-27-120500.md", "synthetic, again")
+	if _, err := g.s.ContextCycleReady(context.Background(), g.k, "synthetic-epoch-1", id, c.Revision, g.name); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A select that the adapter refuses before sending it, for a turn after the ready report,
+// returns the cycle to ready and keeps the created session (#593): the next step asks for a new
+// handoff, the next create uses that exact session while it is empty, and its select is sent
+// once. A restart after the return keeps that proof; the refused attempt is never taken for a
+// sent one.
+func TestSessionCycleTurnAtTheSelect(t *testing.T) {
+	for _, restart := range []bool{false, true} {
+		g := newSessionFixture(t)
+		v := g.ready(t)
+		g.session.selectErr = errTurnAfterReady
+		g.step(t) // create
+		g.step(t) // the select's intent; the select is refused unsent
+		c := g.cycle(t, v.ID)
+		if c.State != cycleReady || c.Reason != turnAfterReady || c.SuccessorEpoch != "synthetic-created-1" || g.session.count("select refused") != 1 {
+			t.Fatalf("refused select: %+v %v", c, g.session.calls)
+		}
+		if events := cycleReasons(t, g.s, v.ID); !slices.Equal(events[len(events)-2:], []string{cycleClearReceived + ":" + selectReason, cycleReady + ":" + turnAfterReady}) {
+			t.Fatalf("events: %v", events)
+		}
+		if restart {
+			g.reopen(t)
+		}
+		g.session.set(func(a *fakeSessionAdapter) { a.selectErr, a.pane = nil, PaneState{Seen: turnAfterReady} })
+		g.step(t) // a new handoff is asked for
+		g.reportAgain(t, v.ID)
+		g.session.set(func(a *fakeSessionAdapter) { a.pane = PaneState{Idle: true} })
+		g.step(t) // the kept session is used again
+		if c = g.cycle(t, v.ID); c.State != cycleClearReceived || c.SuccessorEpoch != "synthetic-created-1" || g.session.count("create") != 1 ||
+			g.session.count("reuse synthetic-created-1") != 1 || !slices.Equal(g.session.kept, []string{"", "synthetic-created-1"}) {
+			t.Fatalf("reuse (restart %v): %+v %v %v", restart, c, g.session.calls, g.session.kept)
+		}
+		g.step(t) // its select is sent
+		g.step(t) // the proof
+		if c = g.cycle(t, v.ID); c.State != cycleResetVerified || c.SuccessorEpoch != "synthetic-created-1" || g.session.count("select synthetic-created-1") != 1 {
+			t.Fatalf("after the new select (restart %v): %+v %v", restart, c, g.session.calls)
+		}
+		if len(g.overwatchRequests(t)) != 2 {
+			t.Fatalf("requests: %v", g.overwatchRequests(t))
+		}
+	}
+}
+
+// A select or a create refused because the session's record could not be read back to the
+// ready report waits in ready, asks for no new handoff and sends nothing; once the record reads
+// quiet, the cycle goes on with the kept session (#593). A create refused for a turn returns to
+// ready with no session recorded.
+func TestSessionCycleUnreadHistoryRecovers(t *testing.T) {
+	g := newSessionFixture(t)
+	v := g.ready(t)
+	g.session.selectErr = errHistoryUnread
+	g.step(t)
+	g.step(t)
+	if c := g.cycle(t, v.ID); c.State != cycleReady || c.Reason != historyUnread || c.SuccessorEpoch != "synthetic-created-1" {
+		t.Fatalf("unread at the select: %+v", c)
+	}
+	g.session.set(func(a *fakeSessionAdapter) { a.selectErr, a.pane = nil, PaneState{Seen: historyUnread} })
+	g.step(t)
+	if c := g.cycle(t, v.ID); c.State != cycleReady || len(g.overwatchRequests(t)) != 1 || g.session.count("select") != 1 {
+		t.Fatalf("unread waits: %+v %v", c, g.session.calls)
+	}
+	g.session.set(func(a *fakeSessionAdapter) { a.pane = PaneState{Idle: true} })
+	g.step(t) // reuse
+	g.step(t) // select
+	g.step(t) // proof
+	if c := g.cycle(t, v.ID); c.State != cycleResetVerified || g.session.count("create") != 1 || g.session.count("select synthetic-created-1") != 1 {
+		t.Fatalf("recovered: %+v %v", c, g.session.calls)
+	}
+	// A kept session that was used ends the cycle, as any end of the clear's intent does; no other
+	// session replaces it.
+	g = newSessionFixture(t)
+	g.session.createErr = errSuccessorNotEmpty
+	v = g.ready(t)
+	g.step(t)
+	if c := g.cycle(t, v.ID); c.State != cycleUncertain || c.Reason != errSuccessorNotEmpty.Error() || c.SuccessorEpoch != "" {
+		t.Fatalf("used kept session: %+v", c)
+	}
+	for _, refusal := range []error{errTurnAfterReady, errHistoryUnread} {
+		g = newSessionFixture(t)
+		g.session.createErr = refusal
+		v = g.ready(t)
+		g.step(t)
+		if c := g.cycle(t, v.ID); c.State != cycleReady || c.Reason != refusal.Error() || c.SuccessorEpoch != "" {
+			t.Fatalf("refused create %v: %+v", refusal, c)
+		}
 	}
 }

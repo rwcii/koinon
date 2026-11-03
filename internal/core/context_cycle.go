@@ -424,6 +424,9 @@ type CycleTarget struct {
 	// the cycle is ready, else 0. Work after it, such as a background subagent's, is not in
 	// the handoff. A resolved dialog returns the cycle to ready without changing it.
 	ReadyAt int64
+	// ReadyRevision is the request revision that the current ready report answered, while
+	// ReadyAt is set, else 0. agy binds the report's own tool call to it (#593).
+	ReadyRevision int64
 	// State is the cycle's state; Directory is the session's registered directory.
 	State     string
 	Directory string
@@ -437,6 +440,9 @@ type CycleTarget struct {
 	// recorded, in Unix milliseconds, from pickup_intent on.
 	openCode *LaunchTarget
 	pickupAt int64
+	// keptSuccessor is the session that an earlier create of this cycle made and that no
+	// select showed, before the reset (#593); the next create reuses it while it is empty.
+	keptSuccessor string
 	// DeepSeek (#514): the requester's harness target, which also hosts the created successor,
 	// and the cycle's adapter pin, "" before admission.
 	deepSeek *wakeTarget
@@ -682,7 +688,8 @@ const deepSeekReadyNext = "Paused and ready: end your turn now, start no other w
 func cycleRepeatable(seen string) bool {
 	switch seen {
 	case "", errTmuxUnavailable.Error(), "pane_unproven", "pane_in_mode", "pane_unreadable", "home_unknown", "rollout_unreadable",
-		"harness_unreadable", "harness_changed":
+		"harness_unreadable", "harness_changed", historyUnread, inputQueued:
+		// Unread history and input that has not started are no turn: the cycle waits (#593).
 		return false
 	}
 	return true

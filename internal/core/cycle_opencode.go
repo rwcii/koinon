@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -54,6 +55,9 @@ var (
 	errOpenCodeServer   = errors.New("server_unavailable")
 	errOpenCodeModel    = errors.New("model_unavailable")
 	errOpenCodeAsync    = errors.New("pickup_async")
+	// errSuccessorNotEmpty is a kept created session that is no longer the cycle's empty one
+	// (#593): it is never replaced by another.
+	errSuccessorNotEmpty = errors.New("successor_not_empty")
 )
 
 type openCodeCycle struct{}
@@ -68,19 +72,25 @@ var openCodeSessionID = regexp.MustCompile(`^ses_[0-9A-Za-z]{1,64}$`)
 // openCodeCall sends one request to the launched server and decodes an exact-200 JSON response
 // of at most openCodeResponseBytes into value.
 func openCodeCall(ctx context.Context, target LaunchTarget, method, path string, body, value any, timeout time.Duration) error {
+	_, err := openCodeExchange(ctx, target, method, path, body, value, timeout)
+	return err
+}
+
+// openCodeExchange is openCodeCall that also returns the response's header.
+func openCodeExchange(ctx context.Context, target LaunchTarget, method, path string, body, value any, timeout time.Duration) (http.Header, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	var reader io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
 		if err != nil {
-			return errOpenCodeServer
+			return nil, errOpenCodeServer
 		}
 		reader = bytes.NewReader(data)
 	}
 	request, err := http.NewRequestWithContext(ctx, method, "http://"+target.Address+path, reader)
 	if err != nil {
-		return errOpenCodeServer
+		return nil, errOpenCodeServer
 	}
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
@@ -90,17 +100,17 @@ func openCodeCall(ctx context.Context, target LaunchTarget, method, path string,
 	defer close()
 	response, err := client.Do(request)
 	if err != nil {
-		return errOpenCodeServer
+		return nil, errOpenCodeServer
 	}
 	defer response.Body.Close()
 	if response.StatusCode != http.StatusOK {
-		return errOpenCodeServer
+		return nil, errOpenCodeServer
 	}
 	data, err := io.ReadAll(io.LimitReader(response.Body, openCodeResponseBytes+1))
 	if err != nil || len(data) > openCodeResponseBytes || json.Unmarshal(data, value) != nil {
-		return errOpenCodeServer
+		return nil, errOpenCodeServer
 	}
-	return nil
+	return response.Header, nil
 }
 
 func openCodeRead(ctx context.Context, t CycleTarget, path string, value any) error {
@@ -108,6 +118,86 @@ func openCodeRead(ctx context.Context, t CycleTarget, path string, value any) er
 		return errOpenCodeServer
 	}
 	return openCodeCall(ctx, *t.openCode, http.MethodGet, path, nil, value, openCodeRequestTimeout)
+}
+
+// openCodeHistoryPage and openCodeHistoryPages bound the read of a session's messages back to
+// its ready report (#593).
+const (
+	openCodeHistoryPage  = 50
+	openCodeHistoryPages = 20
+)
+
+// openCodeTurnSince reports whether the requester's session has a user message created after
+// its ready report: a prompt, or a message that Koinon delivered (#593). OpenCode lists a
+// session's newest messages, oldest first, up to limit, and names the page before them in
+// X-Next-Cursor; the oldest page has none, also when it is full (native evidence, opencode
+// 1.18.35). The read goes back, a page at a time, to a message created at or before the report,
+// or to the oldest page, and then reads the newest page again, whose newest message must be the
+// same, so a message that came during the read is not missed. A page that is not in order, a
+// message without a role or a valid time, and a read that exceeds its bound are errors
+// (errHistoryUnread), so a turn is never missed.
+func openCodeTurnSince(ctx context.Context, t CycleTarget) (bool, error) {
+	if t.ReadyAt <= 0 {
+		return false, nil
+	}
+	if t.openCode == nil {
+		return false, errHistoryUnread
+	}
+	newest := func(messages []openCodeMessage) string {
+		if len(messages) == 0 {
+			return ""
+		}
+		return messages[len(messages)-1].Info.ID
+	}
+	before, end := "", ""
+	for page := range openCodeHistoryPages {
+		path := sessionPath(t.SessionID) + "/message?limit=" + strconv.Itoa(openCodeHistoryPage)
+		if before != "" {
+			path += "&before=" + url.QueryEscape(before)
+		}
+		var messages []openCodeMessage
+		header, err := openCodeExchange(ctx, *t.openCode, http.MethodGet, path, nil, &messages, openCodeRequestTimeout)
+		if err != nil || len(messages) > openCodeHistoryPage {
+			return false, errHistoryUnread
+		}
+		if page == 0 {
+			end = newest(messages)
+		}
+		reached := false
+		for i, m := range messages {
+			created := m.Info.Time.Created
+			if !created.ok || m.Info.Role == "" || i > 0 && created.value < messages[i-1].Info.Time.Created.value {
+				return false, errHistoryUnread
+			}
+			switch {
+			case created.value <= t.ReadyAt:
+				reached = true
+			case m.Info.Role == "user":
+				return true, nil
+			}
+		}
+		before = header.Get("X-Next-Cursor")
+		if reached || before == "" {
+			var again []openCodeMessage
+			if err := openCodeRead(ctx, t, sessionPath(t.SessionID)+"/message?limit=1", &again); err != nil || newest(again) != end {
+				return false, errHistoryUnread
+			}
+			return false, nil
+		}
+	}
+	return false, errHistoryUnread
+}
+
+// openCodeQuiet refuses an effect when the requester had a turn after its ready report, or when
+// its messages could not rule one out (#593).
+func openCodeQuiet(ctx context.Context, t CycleTarget) error {
+	switch turn, err := openCodeTurnSince(ctx, t); {
+	case err != nil:
+		return errHistoryUnread
+	case turn:
+		return errTurnAfterReady
+	}
+	return nil
 }
 
 func sessionPath(id string) string { return "/session/" + url.PathEscape(id) }
@@ -523,7 +613,17 @@ func (openCodeCycle) Inspect(ctx context.Context, t CycleTarget, fence CycleFenc
 	if err != nil {
 		return PaneState{}, err
 	}
-	switch seen := openCodeNotReady(ctx, t, v, ok); seen {
+	seen := openCodeNotReady(ctx, t, v, ok)
+	if seen == "" && t.subject() == t.SessionID {
+		// A conversation turn after the ready report is not in the handoff (#593).
+		switch err := openCodeQuiet(ctx, t); {
+		case errors.Is(err, errTurnAfterReady):
+			seen = turnAfterReady
+		case err != nil:
+			seen = historyUnread
+		}
+	}
+	switch seen {
 	case "native_dialog":
 		return PaneState{Prompt: seen}, nil
 	case "":
@@ -539,13 +639,30 @@ func (openCodeCycle) Clear(context.Context, CycleTarget, CycleFence) (bool, erro
 }
 
 // Create creates the successor session with the cycle's title, after a fresh read shows the
-// requester ready, and returns its ID.
+// requester ready, and returns its ID. After the fence, right before the request, the
+// requester's messages are read again: a turn after the ready report refuses it, with nothing
+// created (#593). A session that an earlier create of this cycle made and that no select
+// showed is used again while the server shows it with the cycle's title and no messages; one
+// that no longer is refuses the create (errSuccessorNotEmpty), which creates no other.
 func (a openCodeCycle) Create(ctx context.Context, t CycleTarget, fence CycleFence) (string, error) {
 	if err := a.ready(ctx, t); err != nil {
 		return "", err
 	}
 	if err := fence(ctx); err != nil {
 		return "", err
+	}
+	if err := openCodeQuiet(ctx, t); err != nil {
+		return "", err
+	}
+	if t.keptSuccessor != "" {
+		kept, err := openCodeEmptySession(ctx, t, t.keptSuccessor)
+		switch {
+		case err != nil:
+			return "", err
+		case !kept:
+			return "", errSuccessorNotEmpty
+		}
+		return t.keptSuccessor, nil
 	}
 	var created struct {
 		ID    string `json:"id"`
@@ -561,6 +678,26 @@ func (a openCodeCycle) Create(ctx context.Context, t CycleTarget, fence CycleFen
 	return created.ID, nil
 }
 
+// openCodeEmptySession reports whether the server shows id with the cycle's title and no
+// messages.
+func openCodeEmptySession(ctx context.Context, t CycleTarget, id string) (bool, error) {
+	if !openCodeSessionID.MatchString(id) {
+		return false, nil
+	}
+	var session struct {
+		ID    string `json:"id"`
+		Title string `json:"title"`
+	}
+	var messages []json.RawMessage
+	if err := openCodeRead(ctx, t, sessionPath(id), &session); err != nil {
+		return false, err
+	}
+	if err := openCodeRead(ctx, t, sessionPath(id)+"/message", &messages); err != nil {
+		return false, err
+	}
+	return session.ID == id && session.Title == openCodeTitle(t.CycleID) && len(messages) == 0, nil
+}
+
 // Select shows the created session in the TUI, after a fresh read shows the requester ready.
 // OpenCode accepts it with true but gives no read-back (native evidence N1).
 func (a openCodeCycle) Select(ctx context.Context, t CycleTarget, fence CycleFence) (bool, error) {
@@ -571,6 +708,10 @@ func (a openCodeCycle) Select(ctx context.Context, t CycleTarget, fence CycleFen
 		return false, err
 	}
 	if err := fence(ctx); err != nil {
+		return false, err
+	}
+	// The last read before the request: a turn after the ready report refuses it unsent (#593).
+	if err := openCodeQuiet(ctx, t); err != nil {
 		return false, err
 	}
 	var accepted bool
@@ -588,19 +729,8 @@ func (openCodeCycle) NewEpoch(ctx context.Context, t CycleTarget) (string, error
 	if t.SuccessorEpoch == "" || t.openCode == nil {
 		return "", nil
 	}
-	var session struct {
-		ID    string `json:"id"`
-		Title string `json:"title"`
-	}
-	var messages []json.RawMessage
-	if err := openCodeRead(ctx, t, sessionPath(t.SuccessorEpoch), &session); err != nil {
+	if empty, err := openCodeEmptySession(ctx, t, t.SuccessorEpoch); err != nil || !empty {
 		return "", err
-	}
-	if err := openCodeRead(ctx, t, sessionPath(t.SuccessorEpoch)+"/message", &messages); err != nil {
-		return "", err
-	}
-	if session.ID != t.SuccessorEpoch || session.Title != openCodeTitle(t.CycleID) || len(messages) > 0 {
-		return "", nil
 	}
 	if err := provePane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
 		return "", err

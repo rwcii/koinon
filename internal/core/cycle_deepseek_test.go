@@ -51,6 +51,9 @@ type dshFake struct {
 	pageSize int
 	// afterList runs after each session/list answer: a change between the quiet point's reads.
 	afterList func(*dshFake)
+	// afterPage runs after each history page: a change during the scan back to the ready
+	// report (#593).
+	afterPage func(*dshFake)
 	home      string
 	// block holds every response until it is closed or the request ends.
 	block chan struct{}
@@ -229,6 +232,9 @@ func (f *dshFake) serve(w http.ResponseWriter, r *http.Request) {
 			records = append(records, `{"type":"event","event":`+event+`}`)
 		}
 		value = fmt.Sprintf(`{"records":[%s],"hasMore":%t}`, strings.Join(records, ","), start > 0)
+		if f.afterPage != nil {
+			defer f.afterPage(f)
+		}
 	case "session/modelCatalog":
 		def, _ := json.Marshal(f.def)
 		value = `{"default":` + string(def) + `,"models":[]}`
@@ -733,9 +739,12 @@ func (g *dshFixture) ready(t *testing.T) *CycleView {
 		t.Fatal(err)
 	}
 	os.Chtimes(filepath.Join(dir, g.name), g.clock, g.clock)
+	// The session reports ready from a tool call inside a turn, which ends after the report.
+	g.fake.set(func(f *dshFake) { f.addAt(dshRequester, `"type":"turn/start","data":{}`, g.clock.UnixMilli()-1) })
 	if _, err := g.s.ContextCycleReady(context.Background(), g.k, dshRequester, v.ID, v.Revision, g.name); err != nil {
 		t.Fatal(err)
 	}
+	g.fake.set(func(f *dshFake) { f.addAt(dshRequester, `"type":"turn/end","data":{}`, g.clock.UnixMilli()+1) })
 	return v
 }
 
@@ -1049,9 +1058,11 @@ func TestDeepSeekCycleNoHarnessOnTick(t *testing.T) {
 	os.MkdirAll(dir, 0o700)
 	os.WriteFile(filepath.Join(dir, g.name), []byte("synthetic"), 0o600)
 	os.Chtimes(filepath.Join(dir, g.name), g.clock, g.clock)
+	g.fake.set(func(f *dshFake) { f.addAt(second, `"type":"turn/start","data":{}`, g.clock.UnixMilli()-1) })
 	if _, err := g.s.ContextCycleReady(ctx, k, second, other.ID, other.Revision, g.name); err != nil {
 		t.Fatal(err)
 	}
+	g.fake.set(func(f *dshFake) { f.addAt(second, `"type":"turn/end","data":{}`, g.clock.UnixMilli()+1) })
 	bounded := func(what string) {
 		t.Helper()
 		g.fake.set(func(f *dshFake) { f.block = make(chan struct{}) })
@@ -1095,11 +1106,9 @@ func TestDeepSeekCycleNoHarnessOnTick(t *testing.T) {
 // The quiet point that a step applies was read by an earlier worker: the create and the pickup
 // read it again before they send (#526 review).
 func TestDeepSeekCycleEffectReadsQuiet(t *testing.T) {
+	// The report's own turn still runs; a new turn would be a turn after the report (#593).
 	busy := func(g *dshFixture) {
-		g.fake.set(func(f *dshFake) {
-			f.sessions[dshRequester].running = true
-			f.add(dshRequester, `"type":"turn/start","data":{}`)
-		})
+		g.fake.set(func(f *dshFake) { f.sessions[dshRequester].running = true })
 	}
 	toClearIntent := func(t *testing.T, g *dshFixture, id string) {
 		g.step(t) // the worker reads the quiet point
@@ -1120,10 +1129,7 @@ func TestDeepSeekCycleEffectReadsQuiet(t *testing.T) {
 		if c := g.cycle(t, v.ID); c.State != cycleClearIntent || g.fake.count("session/create") != 0 {
 			t.Fatalf("busy requester: %s, %d creates", c.State, g.fake.count("session/create"))
 		}
-		g.fake.set(func(f *dshFake) {
-			f.sessions[dshRequester].running = false
-			f.add(dshRequester, `"type":"turn/end","data":{}`)
-		})
+		g.fake.set(func(f *dshFake) { f.sessions[dshRequester].running = false })
 		c := g.stepTo(t, v.ID, cycleClearReceived)
 		if c.State != cycleClearReceived || g.fake.count("session/create") != 1 {
 			t.Fatalf("quiet again: %s, %d creates", c.State, g.fake.count("session/create"))
@@ -1160,4 +1166,178 @@ func TestDeepSeekCycleEffectReadsQuiet(t *testing.T) {
 			t.Fatalf("queued input: %s %s, %d prompts", c.State, c.Reason, g.fake.count("session/prompt"))
 		}
 	})
+}
+
+// addAt adds an event at a given time, in Unix milliseconds, or without one for at 0.
+func (f *dshFake) addAt(id, members string, at int64) {
+	s := f.sessions[id]
+	if at == 0 {
+		s.events = append(s.events, fmt.Sprintf(`{%s,"seq":%d}`, members, len(s.events)))
+		return
+	}
+	s.events = append(s.events, fmt.Sprintf(`{%s,"seq":%d,"time":%d}`, members, len(s.events), at))
+}
+
+// dshReadyAt is the synthetic ready report's time, after every event that add writes.
+const dshReadyAt = int64(1793077235000)
+
+// A user/message or turn/start event after the ready report is a turn after it (#593), also a
+// message without a turn, such as one that Koinon delivered; other events after it are not, and
+// nothing at or before it counts. The scan reads back past the newest turn's start to the report
+// or the log's start. An event without a time, a scan past its bound and a log that moved during
+// the scan are unread.
+func TestDeepSeekCycleTurnSince(t *testing.T) {
+	delivered := `"type":"user/message","data":{"content":[{"type":"text","text":"SENTINEL"}],"source":{"kind":"koinon"}}`
+	for _, c := range []struct {
+		name, want string
+		change     func(*dshFake)
+	}{
+		{"quiet", "", func(*dshFake) {}},
+		{"own events after the report", "", func(f *dshFake) {
+			f.addAt(dshRequester, `"type":"step/end","data":{}`, dshReadyAt+5)
+			f.addAt(dshRequester, `"type":"request/header","data":{}`, dshReadyAt+9)
+		}},
+		{"a turn after the report", turnAfterReady, func(f *dshFake) {
+			f.addAt(dshRequester, `"type":"turn/start","data":{}`, dshReadyAt+1000)
+			f.addAt(dshRequester, delivered, dshReadyAt+1001)
+			f.addAt(dshRequester, `"type":"turn/end","data":{}`, dshReadyAt+2000)
+		}},
+		{"a turn that ended at the report's millisecond", historyUnread, func(f *dshFake) {
+			f.addAt(dshRequester, `"type":"turn/start","data":{}`, dshReadyAt-10)
+			f.addAt(dshRequester, `"type":"turn/end","data":{}`, dshReadyAt)
+		}},
+		{"a closed turn with earlier times after a message", historyUnread, func(f *dshFake) {
+			f.addAt(dshRequester, delivered, dshReadyAt+1000)
+			f.addAt(dshRequester, `"type":"turn/start","data":{}`, dshReadyAt-50)
+			f.addAt(dshRequester, `"type":"turn/end","data":{}`, dshReadyAt-25)
+		}},
+		{"a message without a turn", turnAfterReady, func(f *dshFake) { f.addAt(dshRequester, delivered, dshReadyAt+1) }},
+		{"behind the newest turn", turnAfterReady, func(f *dshFake) {
+			f.pageSize = 1
+			f.addAt(dshRequester, delivered, dshReadyAt+1)
+			f.addAt(dshRequester, `"type":"turn/start","data":{}`, dshReadyAt+2)
+			f.addAt(dshRequester, `"type":"turn/end","data":{}`, dshReadyAt+3)
+		}},
+		{"no time", historyUnread, func(f *dshFake) { f.addAt(dshRequester, `"type":"step/end","data":{}`, 0) }},
+		{"a time that goes back", historyUnread, func(f *dshFake) {
+			f.addAt(dshRequester, delivered, dshReadyAt+1000)
+			f.addAt(dshRequester, `"type":"step/end","data":{}`, dshReadyAt-1)
+		}},
+		{"before the report's own turn", "", func(f *dshFake) {
+			f.addAt(dshRequester, `"type":"turn/start","data":{}`, dshReadyAt-50)
+			f.addAt(dshRequester, delivered, dshReadyAt-40)
+			f.addAt(dshRequester, `"type":"step/end","data":{}`, dshReadyAt-5)
+			f.addAt(dshRequester, `"type":"turn/end","data":{}`, dshReadyAt+20)
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			f, target := newDSHFake(t)
+			// The report's own turn: it started before the report and ends after every case's
+			// events; a case may close its own turn before it.
+			f.set(func(f *dshFake) {
+				f.addAt(dshRequester, `"type":"turn/start","data":{}`, dshReadyAt-100)
+				c.change(f)
+				if !strings.Contains(f.sessions[dshRequester].events[len(f.sessions[dshRequester].events)-1], `"type":"turn/end"`) {
+					f.addAt(dshRequester, `"type":"turn/end","data":{}`, dshReadyAt+5000)
+				}
+			})
+			ct := f.target(target, cycleReady)
+			ct.ReadyAt = dshReadyAt
+			state, err := deepSeekCycle{}.Inspect(context.Background(), ct, dshFence)
+			if err != nil || state.Seen != c.want || state.Idle != (c.want == "") {
+				t.Fatalf("%+v %v", state, err)
+			}
+		})
+	}
+	// A scan past its bound, and a log that moved during the scan, read directly: the quiet
+	// point's own scan would see them first.
+	for name, change := range map[string]func(*dshFake){
+		"bound": func(f *dshFake) {
+			f.pageSize = 1
+			for i := range deepSeekCyclePages + 1 {
+				f.addAt(dshRequester, `"type":"step/end","data":{}`, dshReadyAt+int64(i)+1)
+			}
+		},
+		"moved": func(f *dshFake) {
+			f.addAt(dshRequester, `"type":"step/end","data":{}`, dshReadyAt+1)
+			f.afterPage = func(f *dshFake) {
+				f.addAt(dshRequester, `"type":"step/end","data":{}`, dshReadyAt+2)
+				f.afterPage = nil
+			}
+		},
+	} {
+		f, target := newDSHFake(t)
+		f.set(change)
+		c, err := deepSeekCycle{}.client(context.Background(), f.target(target, cycleReady))
+		if err != nil {
+			t.Fatal(err)
+		}
+		turn, err := deepSeekTurnSince(context.Background(), c, dshRequester, dshReadyAt)
+		c.close()
+		if turn || !errors.Is(err, errHistoryUnread) {
+			t.Fatalf("%s: %v %v", name, turn, err)
+		}
+	}
+	// The whole log after the report: read to its start.
+	f, target := newDSHFake(t)
+	ct := f.target(target, cycleReady)
+	ct.ReadyAt = 1793077134000
+	if state, err := (deepSeekCycle{}).Inspect(context.Background(), ct, dshFence); err != nil || state.Seen != turnAfterReady {
+		t.Fatalf("log start: %+v %v", state, err)
+	}
+	// The create reads the log again after its fence: a turn since refuses it unsent.
+	a := deepSeekCycle{}
+	f, target = newDSHFake(t)
+	ct = pinned(t, a, f.target(target, cycleClearIntent))
+	ct.ReadyAt = dshReadyAt
+	fence := func(context.Context) error {
+		f.set(func(f *dshFake) { f.addAt(dshRequester, delivered, dshReadyAt+1) })
+		return nil
+	}
+	if id, err := a.Create(context.Background(), ct, fence); id != "" || !errors.Is(err, errTurnAfterReady) || f.count("session/create") != 0 {
+		t.Fatalf("create: %q %v %d", id, err, f.count("session/create"))
+	}
+}
+
+// The host-less controller (#593): a turn after the ready report that the quiet point's worker
+// sees asks for a new handoff; one at the create's fence returns the cycle to ready with
+// nothing created, and the next step asks again.
+func TestDeepSeekCycleTurnAfterReady(t *testing.T) {
+	g := newDSHFixture(t)
+	v := g.ready(t)
+	g.fake.set(func(f *dshFake) {
+		f.addAt(dshRequester, `"type":"turn/start","data":{}`, g.clock.UnixMilli()+1000)
+		f.addAt(dshRequester, `"type":"turn/end","data":{}`, g.clock.UnixMilli()+2000)
+	})
+	if c := g.stepTo(t, v.ID, cycleWaitingReady); c.State != cycleWaitingReady || c.Reason != "not_idle."+turnAfterReady || g.fake.count("session/create") != 0 {
+		t.Fatalf("asked again: %+v %v", c, cycleReasons(t, g.s, v.ID))
+	}
+	// At the create's fence.
+	g = newDSHFixture(t)
+	v = g.ready(t)
+	row := g.cycle(t, v.ID)
+	if _, err := g.s.advanceCycle(context.Background(), v.ID, row.Revision, cycleReady, cycleClearIntent, "", nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	g.fake.set(func(f *dshFake) {
+		base := f.calls["session/list"]
+		f.afterList = func(f *dshFake) {
+			// The create reads the list for its pinned facts, then twice for the quiet point; the
+			// turn comes after the last of them, before the fence. The hook runs while the fake
+			// holds its lock.
+			if f.calls["session/list"] == base+3 {
+				f.addAt(dshRequester, `"type":"user/message","data":{"source":{"kind":"koinon"}}`, g.clock.UnixMilli()+1000)
+				f.afterList = nil
+			}
+		}
+	})
+	g.step(t)
+	waitIdle(t, g.s, v.ID)
+	g.step(t)
+	if row = g.cycle(t, v.ID); row.State != cycleReady || row.Reason != turnAfterReady || g.fake.count("session/create") != 0 {
+		t.Fatalf("refused create: %+v %v", row, cycleReasons(t, g.s, v.ID))
+	}
+	if c := g.stepTo(t, v.ID, cycleWaitingReady); c.State != cycleWaitingReady || c.Reason != "not_idle."+turnAfterReady {
+		t.Fatalf("asked again after the refused create: %+v", c)
+	}
 }
