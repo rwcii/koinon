@@ -13,6 +13,9 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode/utf8"
+
+	"github.com/rwcii/koinon/internal/library"
 )
 
 // DecisionRecordFile is the repository's record of the maintainer's verdicts: one file at
@@ -36,9 +39,21 @@ reference in lower case.
 // read.
 var ErrDecisionRecord = Refusal{"decision_record_invalid", "DECISIONS.md at the checkout root must be a regular file of at most 64 MiB"}
 
-// ErrDecisionRecordForeign refuses a DECISIONS.md that is not a Koinon record. The agent
-// raises it with the maintainer and changes nothing (#536).
-var ErrDecisionRecordForeign = Refusal{"decision_record_foreign", "DECISIONS.md at the checkout root is not a Koinon decision record; nothing was written. Put a decision item on the board that asks the maintainer how to record decisions in this repository, and change nothing yourself"}
+// The record modes of the Decision record fact in the ship skill's facts (#589): none writes
+// nothing, short writes the verdict without the card text, and full writes the card text that
+// the maintainer saw.
+const (
+	RecordNone  = "none"
+	RecordShort = "short"
+	RecordFull  = "full"
+)
+
+// shipFacts is the repository's facts file of the ship skill, which holds the Decision record
+// fact.
+const shipFacts = ".koinon/skills/ship.md"
+
+// ErrDecisionRecordMode refuses a Decision record fact that cannot be read or is not a mode.
+var ErrDecisionRecordMode = Refusal{"decision_record_mode_invalid", "the Decision record fact in " + shipFacts + " must start with none, short or full, in a valid facts file; nothing was written"}
 
 // ErrDecisionOtherRepository refuses to record an item in a repository other than the one it
 // was created in (#536).
@@ -47,9 +62,6 @@ var ErrDecisionOtherRepository = Refusal{"decision_other_repository", "the decis
 // ErrDecisionRepositoryUnknown refuses to record an item whose author held no repository
 // participant, so its repository is not known (#536).
 var ErrDecisionRepositoryUnknown = Refusal{"decision_repository_unknown", "the decision item has no recorded repository: its author held no repository participant, so the tool cannot tell which repository the decision belongs to. Nothing was written"}
-
-// decisionRecordTitle is the first line of every Koinon decision record.
-const decisionRecordTitle = "# Decisions\n\nThe maintainer's verdicts on the Koinon decision board"
 
 // CheckRecordRepository refuses an item that was created in a repository other than
 // repository, the common Git directory of the checkout that would record it.
@@ -71,9 +83,17 @@ type DecisionRecord struct {
 	Entry       string `json:"entry,omitempty"`
 }
 
-// decisionRecordInstruction asks an agent that reads a verdict to record it in the
-// repository's DECISIONS.md (#536).
-const decisionRecordInstruction = "Record the verdicts in DECISIONS.md with decision_record and this reference. " + decisionRecordCommit
+// decisionRecordInstruction asks an agent that reads a verdict to record it as its
+// repository's Decision record fact says (#536, #589).
+const decisionRecordInstruction = "Call decision_record with this reference in a checkout of the item's repository. It applies the repository's " +
+	"Decision record fact (none, short or full; the default is none) and says what goes into the repository."
+
+// decisionRecordNone is what an agent does with a verdict in a repository whose record mode
+// is none (#589): the rule goes into the document that holds it.
+const decisionRecordNone = "This repository's Decision record fact is none: nothing was written. Put the changed rule into the document that holds it, " +
+	"in the pull request that does the work. Give the question, the chosen option, the reason and the maintainer's words with their date, " +
+	"with spelling and typing errors corrected and the meaning kept, and name the decision by its card reference. A verdict ID exists only in " +
+	"this machine's store and does not go into repository text."
 
 // decisionRecordCommit is what an agent does with the appended entries before it commits them.
 const decisionRecordCommit = "Correct the spelling and typing errors in the maintainer's words in each new entry, and keep their meaning and wording; then commit DECISIONS.md with the work. Name a decision by its reference: a verdict ID exists only in this machine's store and does not go into repository text."
@@ -82,7 +102,8 @@ const decisionRecordCommit = "Correct the spelling and typing errors in the main
 // appended, that it already held, and that are not recorded because they are fyi
 // acknowledgements or dismissals.
 type DecisionRecordResult struct {
-	Path      string  `json:"path"`
+	Mode      string  `json:"mode"`
+	Path      string  `json:"path,omitempty"`
 	Reference string  `json:"reference"`
 	Appended  []int64 `json:"appended"`
 	Present   []int64 `json:"present"`
@@ -153,6 +174,109 @@ func DecisionRecordEntry(reference, where string, v DecisionVerdict) string {
 	return b.String()
 }
 
+// DecisionRecordShortEntry renders one verdict's short entry (#589): the verdict, the title,
+// the recommendation's heading and the maintainer's note or feedback, without the card text. The
+// heading is the card's recommendation, which the verdict approved, declined or answered; the
+// note says what the maintainer chose when it differs.
+func DecisionRecordShortEntry(reference string, v DecisionVerdict) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "\n## %s\n\n%s\n\n", reference, repoRecordMarker(reference, v))
+	fmt.Fprintf(&b, "**%s**, revision %d, %s.\n\n", verdictWord(v.Verdict), v.Revision,
+		time.UnixMilli(v.At).UTC().Format("2006-01-02 15:04:05 UTC"))
+	fmt.Fprintf(&b, "- Title: %s\n", oneLine(v.Snapshot.Title))
+	if heading := recommendationHeading(v.Snapshot.Recommendation); heading != "" {
+		fmt.Fprintf(&b, "- Recommendation: %s\n", heading)
+	}
+	label := "Note"
+	if v.Verdict == "feedback" {
+		label = "Feedback"
+	}
+	if strings.TrimSpace(v.Note) != "" {
+		fmt.Fprintf(&b, "\n%s:\n\n", label)
+		for _, line := range strings.Split(strings.TrimRight(v.Note, "\n"), "\n") {
+			line = strings.TrimRight(line, "\r")
+			if line == "" {
+				b.WriteString(">\n")
+			} else {
+				b.WriteString("> " + line + "\n")
+			}
+		}
+	}
+	return b.String()
+}
+
+// recommendationHeading is the recommendation's first non-empty line, without the card form's
+// "## Recommendation:" prefix, on one line of at most 300 bytes.
+func recommendationHeading(text string) string {
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		line = strings.TrimSpace(strings.TrimPrefix(strings.TrimLeft(line, "# "), "Recommendation:"))
+		line = oneLine(line)
+		if len(line) > 300 {
+			cut := 300
+			for cut > 0 && !utf8.RuneStart(line[cut]) {
+				cut--
+			}
+			line = line[:cut] + "..."
+		}
+		return line
+	}
+	return ""
+}
+
+// DecisionRecordMode reads the Decision record fact of the checkout at root: the first word of
+// the fact in shipFacts, parsed with the catalog's schema for skill.ship. The default none
+// applies when the file or the fact is absent (#589).
+func DecisionRecordMode(root string) (string, error) {
+	catalog, err := library.Embedded("")
+	if err != nil {
+		return "", err
+	}
+	var schema *library.Facts
+	for _, item := range catalog.Items {
+		if item.Kind == "skill" && item.Name == "ship" {
+			schema = item.Facts
+		}
+	}
+	if schema == nil {
+		return "", errors.New("the catalog declares no ship facts")
+	}
+	mode := ""
+	for _, field := range schema.Fields {
+		if field.Heading == "Decision record" && field.Default != nil {
+			mode = *field.Default
+		}
+	}
+	dir, err := library.OpenReadRoot(root)
+	if err != nil {
+		return "", err
+	}
+	defer dir.Close()
+	data, err := dir.ReadRegular(shipFacts, library.MaxItemBytes)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+	case err != nil:
+		return "", ErrDecisionRecordMode
+	default:
+		values, err := library.ParseFactValues(data, "ship", schema)
+		if err != nil {
+			return "", Refusal{ErrDecisionRecordMode.Code, ErrDecisionRecordMode.Message + ": " + err.Error()}
+		}
+		mode = values.Fields["Decision record"]
+	}
+	// The first word names the mode; text after it explains the choice.
+	if words := strings.Fields(mode); len(words) > 0 {
+		switch word := strings.TrimRight(words[0], ",.;:"); word {
+		case RecordNone, RecordShort, RecordFull:
+			return word, nil
+		}
+	}
+	return "", ErrDecisionRecordMode
+}
+
 func verdictWord(verdict string) string {
 	if verdict == "" {
 		return verdict
@@ -164,19 +288,29 @@ func oneLine(text string) string {
 	return strings.Join(strings.Fields(text), " ")
 }
 
-// RecordDecision appends to DECISIONS.md at root the entries of the item's verdicts that the
-// file does not hold yet, in verdict order. An fyi acknowledgement or dismissal holds no
-// decision and is not recorded.
-// It creates the file with its header when it is absent, refuses a symbolic link or a file
-// that is not a regular file, and holds an exclusive lock on the file while it reads and
-// appends, so that concurrent records add each entry once. It writes nothing else and commits
-// nothing.
-func RecordDecision(root, reference, where string, verdicts []DecisionVerdict) (DecisionRecordResult, error) {
+// RecordDecision records the item's verdicts in the checkout at root as mode says (#589). In
+// mode none it opens no file and says where the rule goes. In modes short and full it appends
+// to DECISIONS.md the entries of the verdicts that the file does not hold yet, in verdict
+// order; an fyi acknowledgement or dismissal holds no decision and is not recorded.
+// It creates the file with its header when it is absent, appends after the text of a file in
+// another format, refuses a symbolic link or a file that is not a regular file, and holds an
+// exclusive lock on the file while it reads and appends, so that concurrent records add each
+// entry once. It writes nothing else and commits nothing.
+func RecordDecision(root, mode, reference, where string, verdicts []DecisionVerdict) (DecisionRecordResult, error) {
 	if err := checkReference(reference); err != nil {
 		return DecisionRecordResult{}, err
 	}
+	result := DecisionRecordResult{Mode: mode, Reference: reference, Appended: []int64{}, Present: []int64{}}
+	switch mode {
+	case RecordNone:
+		result.Instruction = decisionRecordNone
+		return result, nil
+	case RecordShort, RecordFull:
+	default:
+		return DecisionRecordResult{}, ErrDecisionRecordMode
+	}
 	path := filepath.Join(root, DecisionRecordFile)
-	result := DecisionRecordResult{Path: path, Reference: reference, Appended: []int64{}, Present: []int64{}}
+	result.Path = path
 	flags := os.O_RDWR | os.O_APPEND | syscall.O_NOFOLLOW | syscall.O_NONBLOCK
 	f, err := os.OpenFile(path, flags, 0)
 	if errors.Is(err, os.ErrNotExist) {
@@ -214,9 +348,6 @@ func RecordDecision(root, reference, where string, verdicts []DecisionVerdict) (
 	if len(existing) > maxDecisionRecord {
 		return DecisionRecordResult{}, ErrDecisionRecord
 	}
-	if len(existing) > 0 && !bytes.HasPrefix(existing, []byte(decisionRecordTitle)) {
-		return DecisionRecordResult{}, ErrDecisionRecordForeign
-	}
 	held := map[string]bool{}
 	for _, line := range strings.Split(string(existing), "\n") {
 		held[strings.TrimRight(line, "\r")] = true
@@ -239,7 +370,11 @@ func RecordDecision(root, reference, where string, verdicts []DecisionVerdict) (
 				add.WriteString("\n" + anchor + "\n")
 				held[anchor] = true
 			}
-			add.WriteString(DecisionRecordEntry(reference, where, v))
+			if mode == RecordShort {
+				add.WriteString(DecisionRecordShortEntry(reference, v))
+			} else {
+				add.WriteString(DecisionRecordEntry(reference, where, v))
+			}
 			held[marker] = true
 			result.Appended = append(result.Appended, v.ID)
 		}

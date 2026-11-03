@@ -388,8 +388,9 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 				pane.Seen = "pane_not_ready"
 			}
 			s.paneSeen.set(c.ID, pane.Seen)
-			// Work after the ready report is not in its handoff: ask for a new one now (#456).
-			if pane.Seen == subagentAfterReady && c.State == cycleReady {
+			// Work after the ready report is not in its handoff: ask for a new one now (#456),
+			// also after a conversation turn (#592).
+			if (pane.Seen == subagentAfterReady || pane.Seen == turnAfterReady) && c.State == cycleReady {
 				switch err := s.repeatCycleRequest(ctx, c.ID, c.Revision, pane.Seen); {
 				case errors.Is(err, errCycleEventLimit):
 					_, err = s.endCycle(ctx, c.ID, c.Revision, cycleFailed, "event_limit")
@@ -672,6 +673,12 @@ func (s *Store) enterInput(ctx context.Context, c cycleRow, intent, received str
 		return err
 	}
 	ok, err := input(s.cycleFence(c))
+	if intent == cycleClearIntent && errors.Is(err, errTurnAfterReady) {
+		// Nothing was entered: the session had a turn after its ready report. The cycle
+		// returns to ready, whose next step asks for a new handoff (#592).
+		_, err := s.advanceCycle(ctx, c.ID, c.Revision, intent, cycleReady, turnAfterReady, nil, nil)
+		return err
+	}
 	if err != nil || !ok {
 		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, inputReason(intent, err))
 		return err

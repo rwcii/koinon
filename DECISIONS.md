@@ -921,3 +921,44 @@ Recommendation:
 > - Keep the text as it is. It keeps your #487 direction. Each of these procedures can fail as the cycle did.
 >
 > **A separate choice, which you can add to any option:** put back five lower-impact steps too, from the same audit: peer-review and refusal-review "A failed or mismatched read-back is not approval" and "Never approve with an accepted blocker open"; check "A failed required check stops publication"; handoff "Do not commit, stage or push anything for a handoff"; sprint "start dependent chunks only after their dependencies merge"; peer-tmux "Do not press Enter again by rule" and "Do not substitute killing or restarting the process". Cost: the same pull request, a little larger. It does not cover the seven items that the audit marked as possible. I recommend it. Without your approval, these stay as they are.
+
+<a id="pickup-reset-588"></a>
+
+## PICKUP-RESET-588
+
+<!-- koinon-decision PICKUP-RESET-588 revision 2 approved 1793550453627 -->
+
+**Approved**, revision 2, 2026-11-01 16:27:33 UTC.
+
+- Title: Accept a pickup report at reset_verified (#588)
+- Where: internal/core/context_cycle.go (ContextCyclePickup, pickupRevision), context_cycle_controller.go, agents/skills/pickup, guide, PROTOCOL.md, PDR 006 Decision 4
+
+Context:
+
+> - Issue #588 (filed 2026-11-01): after a clear, the session claude-dev-c5 (/opt/dev, no Git repository) reported its pickup. Koinon refused with `cycle_changed`. The cycle was at `reset_verified`, revision 5, and stayed there. The stage deadline was 05:35:00Z; the call was at about 05:35Z.
+> - The issue asks for one of two results: accept the report, or give an error that names the stage that Koinon expects.
+> - The code (develop 519654b): `context_cycle_pickup` accepts a report only at `waiting_pickup`. At `reset_verified`, Koinon types `/koinon-pickup` only when the pane is idle.
+> - Result: a session that starts its own pickup after the reset is busy. Koinon does not type the pickup, and the session's report gets `cycle_changed`. The cycle then fails at its stage deadline, which turns the session's Enable off.
+> - We do not know why claude-dev-c5 started its pickup without input. That session is not on this machine's daemon. The issue gives the call time only as "about 05:35Z", so we cannot show that the call was before the deadline.
+> - The pickup skill says to report only for a cycle in `waiting_pickup`. The guide says the same.
+
+Recommendation:
+
+> ## Recommendation: accept the report at reset_verified
+>
+> **What:** one pull request in Koinon:
+> 1. `context_cycle_pickup` accepts a report at `reset_verified` when all these are true: the caller is the cycle's successor (or the pinned requester) in the epoch that the reset verified; the artifact is the cycle's file; the stage and cycle deadlines have not passed; the display, host-less and artifact checks pass, as today. The cycle completes, the Enable carries over as today, and Koinon types nothing more.
+> 2. A dialog that starts at `reset_verified`, such as a tool approval for the report, changes the revision. The report is still accepted after it, as it is today for a dialog that starts at `waiting_pickup`. Retries of a completed report work as today. A report from before the reset, or a different retry, is refused.
+> 3. At `reset_verified`, the early report and the start of Koinon's pickup input race, and one of them wins under the current revision checks. If the report wins, Koinon types no input after it. If Koinon's input starts first, the current path continues: input, receipt, `waiting_pickup`, then the report.
+> 4. A report at an earlier stage gets a refusal that names the current stage and the stage that Koinon expects. It says "reset not verified" only when that is the state.
+> 5. The pickup skill, the guide, PROTOCOL.md and PDR 006 Decision 4 say that a report is accepted at `reset_verified` and at `waiting_pickup`, also for a session without a repository.
+> 6. Tests: the early report, a dialog during it, the race with the pickup input, and deadlines that pass during the checks.
+>
+> **Why:** the session restored its handoff, which is the purpose of the cycle. Now Koinon does not accept that report, so the cycle can fail and turn the Enable off.
+>
+> **Fast or complete:** complete.
+>
+> **Corrections from the peer:** codex-koinon added items 2, 3 and 5 and the facts about the call time. It also corrected the scope: the fix is for a report that comes before the deadline, not a claim that every such cycle fails. In revision 2 it corrected item 3 (the normal input-then-report sequence stays) and the Why.
+>
+> **Other options:**
+> - Keep the refusal and only name the stage in the error. It keeps the current cycle rules. A session that starts its own pickup before the deadline still does not get its report accepted, and its cycle can fail.

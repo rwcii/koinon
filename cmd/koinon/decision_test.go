@@ -65,14 +65,15 @@ func TestDecisionCommandsOfTheDeepSeekGuide(t *testing.T) {
 			lines[strings.Fields(line)[2]] = line
 		}
 	}
-	if len(lines) != 11 {
+	if len(lines) != 12 {
 		t.Fatalf("guide decision commands: %v", lines)
 	}
 	// The item is active, so close and restore reach the daemon and are refused there; the
 	// author then withdraws it (#504).
 	refused := map[string]string{"close": "not_in_progress", "restore": "not_found"}
-	for _, op := range []string{"create", "edit", "get", "list", "history", "pending", "ack", "close", "restore", "record", "withdraw"} {
-		line := strings.NewReplacer("$DSH_SESSION_ID", "synthetic-guide", "REF", "G-1", "KEY", "synthetic-key",
+	export := filepath.Join(t.TempDir(), "board.jsonl")
+	for _, op := range []string{"create", "edit", "get", "list", "history", "pending", "ack", "close", "restore", "record", "withdraw", "export"} {
+		line := strings.NewReplacer("$DSH_SESSION_ID", "synthetic-guide", "REF", "G-1", "KEY", "synthetic-key", "PATH", export,
 			"UNIX_SECONDS", deadline, "REVISION", "2", "'title'", "Synthetic", "'reason'", "done", "VERDICT_ID", "1").Replace(lines[op])
 		if op == "edit" {
 			line = strings.Replace(line, "--if-revision 2", "--if-revision 1", 1)
@@ -150,12 +151,34 @@ func TestDecisionRecordCommandRefusals(t *testing.T) {
 	}
 }
 
-// A refusal of decision record itself reaches the command's JSON report with its code: another
-// repository's item, a foreign record file and a symbolic link (#536).
-func TestDecisionRecordCommandRefusalCodes(t *testing.T) {
+// shipFactsFile writes a valid ship facts file with the Decision record fact into checkout; an
+// empty mode leaves the fact out.
+func shipFactsFile(t *testing.T, checkout, mode string) {
+	t.Helper()
+	text := "# Repository facts — ship\n\n## Version\n1\n## Skill\nship\n## Sources\n- AGENTS.md\n\n## Work target\nsynthetic\n" +
+		"## Commit policy\nsynthetic\n## Required checks\nsynthetic\n## PR and merge policy\nsynthetic\n"
+	if mode != "" {
+		text += "## Decision record\n" + mode + "\n"
+	}
+	if err := os.MkdirAll(filepath.Join(checkout, ".koinon", "skills"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(checkout, ".koinon", "skills", "ship.md"), []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// decision record applies the checkout's Decision record fact, and its refusals reach the
+// command's JSON report with their codes: another repository's item, an invalid mode and a
+// symbolic link (#536, #589). The default none opens no record file; full appends after a
+// file in another format; two worktrees of one repository apply their own facts.
+func TestDecisionRecordCommandModes(t *testing.T) {
 	repo := filepath.Join(t.TempDir(), "repo")
-	if out, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
-		t.Fatalf("%v %s", err, out)
+	for _, args := range [][]string{{"init", "-q", repo}, {"-C", repo, "-c", "user.name=synthetic", "-c", "user.email=synthetic@example.invalid",
+		"commit", "-q", "--allow-empty", "-m", "synthetic"}} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("%v %s", err, out)
+		}
 	}
 	common, err := filepath.EvalSymlinks(filepath.Join(repo, ".git"))
 	if err != nil {
@@ -170,35 +193,78 @@ func TestDecisionRecordCommandRefusalCodes(t *testing.T) {
 		result := any(item)
 		if strings.HasSuffix(r.URL.Path, "/history") {
 			result = map[string]any{"reference": "CLI-1", "more": false, "verdicts": []any{map[string]any{"verdict_id": 1, "revision": 1,
-				"verdict": "approved", "at": 1, "snapshot": map[string]any{"title": "Synthetic", "commands": []string{}}}}}
+				"verdict": "approved", "at": 1, "note": "Synthetic note.", "snapshot": map[string]any{"title": "Synthetic",
+					"context": "Synthetic context.", "recommendation": "## Recommendation: synthetic choice", "commands": []string{}}}}}
 		}
 		json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": result})
 	}))
 	defer server.Close()
-	record := func() map[string]any {
-		err := decisionCommand(context.Background(), []string{"record", "--as", "deepseek:synthetic", "--reference", "CLI-1", "--directory", repo,
-			"--state-dir", state, "--address", strings.TrimPrefix(server.URL, "http://")}, &bytes.Buffer{})
-		if err == nil {
-			t.Fatal("record succeeded")
+	record := func(dir string) (map[string]any, error) {
+		var out bytes.Buffer
+		err := decisionCommand(context.Background(), []string{"record", "--as", "deepseek:synthetic", "--reference", "CLI-1", "--directory", dir,
+			"--state-dir", state, "--address", strings.TrimPrefix(server.URL, "http://")}, &out)
+		if err != nil {
+			return errorReport(err), err
 		}
-		return errorReport(err)
+		var reply map[string]any
+		if err := json.Unmarshal(out.Bytes(), &reply); err != nil {
+			t.Fatal(err)
+		}
+		return reply["result"].(map[string]any), nil
 	}
-	if got := record(); got["code"] != "decision_other_repository" {
+	if got, err := record(repo); err == nil || got["code"] != "decision_other_repository" {
 		t.Errorf("other repository: %v", got)
 	}
 	item["author_repository"] = common
 	file := filepath.Join(repo, "DECISIONS.md")
-	if err := os.WriteFile(file, []byte("# Private project format\n"), 0o644); err != nil {
+	target := filepath.Join(t.TempDir(), "target")
+	if err := os.Symlink(target, file); err != nil {
 		t.Fatal(err)
 	}
-	if got := record(); got["code"] != "decision_record_foreign" {
-		t.Errorf("foreign file: %v", got)
+	// No facts file: none, and the symbolic link is not opened.
+	if got, err := record(repo); err != nil || got["mode"] != "none" || len(got["appended"].([]any)) != 0 ||
+		!strings.Contains(got["instruction"].(string), "the document that holds it") {
+		t.Errorf("default none: %v %v", got, err)
+	}
+	if _, err := os.Lstat(target); !os.IsNotExist(err) {
+		t.Errorf("none wrote through the link: %v", err)
+	}
+	shipFactsFile(t, repo, "")
+	if got, err := record(repo); err != nil || got["mode"] != "none" {
+		t.Errorf("fact absent: %v %v", got, err)
+	}
+	shipFactsFile(t, repo, "full")
+	if got, err := record(repo); err == nil || got["code"] != "decision_record_invalid" {
+		t.Errorf("symbolic link: %v", got)
 	}
 	os.Remove(file)
-	if err := os.Symlink(filepath.Join(t.TempDir(), "target"), file); err != nil {
+	shipFactsFile(t, repo, "sometimes")
+	if got, err := record(repo); err == nil || got["code"] != "decision_record_mode_invalid" {
+		t.Errorf("invalid mode: %v", got)
+	}
+	shipFactsFile(t, repo, "full, with the card text")
+	foreign := "# Private project format\n"
+	if err := os.WriteFile(file, []byte(foreign), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := record(); got["code"] != "decision_record_invalid" {
-		t.Errorf("symbolic link: %v", got)
+	if got, err := record(repo); err != nil || got["mode"] != "full" || len(got["appended"].([]any)) != 1 {
+		t.Errorf("full after a foreign file: %v %v", got, err)
+	}
+	if data, _ := os.ReadFile(file); !strings.HasPrefix(string(data), foreign) || !strings.Contains(string(data), "> Synthetic context.") {
+		t.Errorf("full entry:\n%s", data)
+	}
+	// A second worktree of the same repository applies its own fact.
+	other := filepath.Join(t.TempDir(), "other")
+	if out, err := exec.Command("git", "-C", repo, "worktree", "add", "-q", "--detach", other).CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	shipFactsFile(t, other, "short")
+	if got, err := record(other); err != nil || got["mode"] != "short" || len(got["appended"].([]any)) != 1 {
+		t.Errorf("short in the second worktree: %v %v", got, err)
+	}
+	data, _ := os.ReadFile(filepath.Join(other, "DECISIONS.md"))
+	if !strings.Contains(string(data), "- Recommendation: synthetic choice\n") || !strings.Contains(string(data), "> Synthetic note.\n") ||
+		strings.Contains(string(data), "Synthetic context.") {
+		t.Errorf("short entry:\n%s", data)
 	}
 }

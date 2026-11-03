@@ -97,11 +97,12 @@ explicit command path under normal approvals.
 
 When the installed guide has a Managed cycle reporting section, read all of it. After a
 clear, query your own cycle with the guide's own-cycle status tool or command. For a cycle in
-`waiting_pickup`, restore the handoff file that the cycle names. A progress note that is newer
+`reset_verified` or `waiting_pickup`, restore the handoff file that the cycle names. A progress note that is newer
 than that file, or disagrees with it, is reconciled against the live state, difference by
 difference. Then report your pickup with the guide's pickup tool or command as that section
-says; the report says whether the note was used. A runtime without these tools or commands
-keeps the steps above.
+says; the report says whether the note was used. When the report is refused because of the
+cycle's stage, read the cycle again and report when it is at one of these stages. A runtime
+without these tools or commands keeps the steps above.
 
 When identity or daemon access is unavailable, report it with the error. Pickup follows the
 installed runtime's succession result.

@@ -383,13 +383,15 @@ var errCycleEventLimit = errors.New("cycle event limit")
 
 // Refusals of the own-cycle calls.
 var (
-	ErrCycleNotFound      = Refusal{"cycle_not_found", "this session has no managed cycle with that ID"}
-	ErrCycleChanged       = Refusal{"cycle_changed", "the cycle is not at that revision or stage; read its current state"}
-	ErrCycleEpoch         = Refusal{"cycle_epoch_unverified", "the native client did not supply this session's verified current epoch"}
-	ErrCycleDialogChanged = Refusal{"cycle_dialog_changed", "the pane no longer shows that dialog or option; read the current one"}
-	ErrCycleArtifact      = Refusal{"cycle_artifact_invalid", "the handoff artifact is not a new, bounded, ignored and untracked file in this session's own handoff directory"}
-	ErrCycleDisplay       = Refusal{"cycle_display_unproven", "the pinned pane does not show the successor session; retry the report"}
-	ErrCycleModel         = Refusal{"cycle_model_changed", "the successor's replies came from another model than its pickup asked for; the cycle ended uncertain"}
+	ErrCycleNotFound = Refusal{"cycle_not_found", "this session has no managed cycle with that ID"}
+	ErrCycleChanged  = Refusal{"cycle_changed", "the cycle is not at that revision or stage; read its current state"}
+	// ErrCyclePickupNotReady is the code of pickupNotReady, whose message names the stage.
+	ErrCyclePickupNotReady = Refusal{"cycle_pickup_not_ready", "the cycle does not accept a pickup report at its stage; read the cycle again"}
+	ErrCycleEpoch          = Refusal{"cycle_epoch_unverified", "the native client did not supply this session's verified current epoch"}
+	ErrCycleDialogChanged  = Refusal{"cycle_dialog_changed", "the pane no longer shows that dialog or option; read the current one"}
+	ErrCycleArtifact       = Refusal{"cycle_artifact_invalid", "the handoff artifact is not a new, bounded, ignored and untracked file in this session's own handoff directory"}
+	ErrCycleDisplay        = Refusal{"cycle_display_unproven", "the pinned pane does not show the successor session; retry the report"}
+	ErrCycleModel          = Refusal{"cycle_model_changed", "the successor's replies came from another model than its pickup asked for; the cycle ended uncertain"}
 	// The host-less refusals (#514) can be retried: the cycle stays in its stage.
 	ErrCycleReceiptPending = Refusal{"cycle_receipt_pending", "the cycle has not recorded the pickup's receipt for this session, or this session has not taken the participant since; register again, then retry the report"}
 	ErrCycleHarness        = Refusal{"cycle_harness_unreadable", "the harness could not be read to check the report; retry the report"}
@@ -1485,14 +1487,15 @@ func readyRefusalCode(ctx context.Context, q querier, c cycleRow) (string, error
 }
 
 // pickupRevision reports whether revision is one that the successor can read while the cycle
-// awaits its report: that of its waiting_pickup stage or of a later stage of the prompt wait
-// that began there (#520). Each stage adds one revision and one event, so it is that event's
-// ordinal.
+// accepts its report: that of its reset_verified or waiting_pickup stage, or of a later stage
+// of a prompt wait (#520, #588). Each stage adds one revision and one event, so it is that
+// event's ordinal.
 func pickupRevision(ctx context.Context, q querier, id string, revision int64) (bool, error) {
 	var found int
-	err := q.QueryRowContext(ctx, `SELECT 1 FROM context_cycle_events WHERE cycle_id=? AND ordinal=? AND stage IN (?,?,?) AND ordinal>=
-		(SELECT MIN(ordinal) FROM context_cycle_events WHERE cycle_id=? AND stage=?)`,
-		id, revision, cycleWaitingPickup, cycleWaitingPrompt, cyclePromptIntent, id, cycleWaitingPickup).Scan(&found)
+	err := q.QueryRowContext(ctx, `SELECT 1 FROM context_cycle_events WHERE cycle_id=? AND ordinal=? AND stage IN (?,?,?,?) AND ordinal>=
+		(SELECT MIN(ordinal) FROM context_cycle_events WHERE cycle_id=? AND stage IN (?,?))`,
+		id, revision, cycleResetVerified, cycleWaitingPickup, cycleWaitingPrompt, cyclePromptIntent,
+		id, cycleResetVerified, cycleWaitingPickup).Scan(&found)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
@@ -1504,6 +1507,32 @@ func pickupRevision(ctx context.Context, q querier, id string, revision int64) (
 func awaitingPickup(c cycleRow) bool {
 	return c.State == cycleWaitingPickup ||
 		(c.State == cycleWaitingPrompt || c.State == cyclePromptIntent) && c.PromptFrom == cycleWaitingPickup
+}
+
+// acceptsPickupReport reports whether c accepts the successor's pickup report: while it awaits
+// the report, and from its verified reset on, before Koinon entered the pickup, because the
+// successor can restore the handoff on its own (#588).
+func acceptsPickupReport(c cycleRow) bool {
+	return awaitingPickup(c) || c.State == cycleResetVerified ||
+		(c.State == cycleWaitingPrompt || c.State == cyclePromptIntent) && c.PromptFrom == cycleResetVerified
+}
+
+// pickupNotReady refuses a report to an active cycle that does not accept one at its stage. It
+// names the stage and the stages that accept a report (#588).
+func pickupNotReady(c cycleRow) Refusal {
+	stage, from := c.State, c.State
+	if c.State == cycleWaitingPrompt || c.State == cyclePromptIntent {
+		stage, from = c.State+" (from "+c.PromptFrom+")", c.PromptFrom
+	}
+	why := ""
+	switch from {
+	case cyclePickupIntent:
+		why = "Koinon is entering the pickup; "
+	case cycleRequested, cycleWaitingReady, cycleReady, cycleBootstrapIntent, cycleBootstrapVerified, cycleClearIntent, cycleClearReceived:
+		why = "the reset is not verified yet; "
+	}
+	return Refusal{ErrCyclePickupNotReady.Code, "the cycle is at " + stage + "; " + why +
+		"a pickup report is accepted at reset_verified or waiting_pickup; read the cycle again"}
 }
 
 // ContextCyclePickup records the managed successor's report that it restored the
@@ -1546,8 +1575,11 @@ func (s *Store) ContextCyclePickup(ctx context.Context, caller Key, epoch, id st
 		}
 		return v, err
 	}
-	if !awaitingPickup(c) || !read || c.Artifact != artifact {
+	if !acceptsPickupReport(c) || !read || c.Artifact != artifact {
 		v, _ := c.view(ctx, s.db, role)
+		if !cycleTerminal(c.State) && !acceptsPickupReport(c) {
+			return v, pickupNotReady(c)
+		}
 		return v, ErrCycleChanged
 	}
 	// The successor runs under a new native epoch: a new session, or the requester's
@@ -1586,8 +1618,14 @@ func (s *Store) ContextCyclePickup(ctx context.Context, caller Key, epoch, id st
 	}
 	// The answer to a dialog that approved this report can record the return to
 	// waiting_pickup after the read above (#389): the report applies while the cycle still
-	// awaits it with the same artifact and epochs, at any revision.
-	if !awaitingPickup(current) || current.Artifact != artifact || current.Epoch != c.Epoch || current.SuccessorEpoch != c.SuccessorEpoch ||
+	// accepts it with the same artifact and epochs, at any revision. The controller's pickup
+	// input recorded after the read wins: its intent is not a stage that accepts the report.
+	if !cycleTerminal(current.State) && !acceptsPickupReport(current) {
+		tx.Rollback() // the view reads through the store's one connection
+		v, _ := current.view(ctx, s.db, role)
+		return v, pickupNotReady(current)
+	}
+	if !acceptsPickupReport(current) || current.Artifact != artifact || current.Epoch != c.Epoch || current.SuccessorEpoch != c.SuccessorEpoch ||
 		now >= current.StageDeadline || now >= current.CycleDeadline {
 		return CycleView{}, ErrCycleChanged
 	}

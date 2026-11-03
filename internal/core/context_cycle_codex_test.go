@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -155,8 +156,8 @@ func TestContextCyclePromptInPickupWait(t *testing.T) {
 		t.Fatalf("ended cycle: %+v", got)
 	}
 	// The approved report can also arrive after the wait went on, after a dashboard answer or
-	// the native session's own: the revision it read still names it. A revision of a stage
-	// before the pickup does not.
+	// the native session's own: the revision it read still names it. The revisions of the
+	// pickup input and of the stages before the reset do not (#588).
 	for _, answer := range []string{"dashboard", "pane"} {
 		f, v, name = waiting(t)
 		read := v.Revision - 1 // the waiting_pickup that the successor read
@@ -172,8 +173,10 @@ func TestContextCyclePromptInPickupWait(t *testing.T) {
 		if now := f.status(t, f.k); now.State != cycleWaitingPrompt || now.PromptFrom != cycleWaitingPickup || now.Revision == read {
 			t.Fatalf("%s: returned %+v", answer, now)
 		}
-		if _, err := f.s.ContextCyclePickup(ctx, f.k, "synthetic-epoch-2", v.ID, read-2, name, "resumed", "synthetic"); !errors.Is(err, ErrCycleChanged) {
-			t.Fatalf("%s: a reset_verified revision: %v", answer, err)
+		for _, stale := range []int64{read - 1, read - 3} { // pickup_intent, clear_received
+			if _, err := f.s.ContextCyclePickup(ctx, f.k, "synthetic-epoch-2", v.ID, stale, name, "resumed", "synthetic"); !errors.Is(err, ErrCycleChanged) {
+				t.Fatalf("%s: revision %d: %v", answer, stale, err)
+			}
 		}
 		if done, err := f.s.ContextCyclePickup(ctx, f.k, "synthetic-epoch-2", v.ID, read, name, "resumed", "synthetic"); err != nil || done.State != cycleComplete {
 			t.Fatalf("%s: delayed approved report: %v %+v", answer, err, done)
@@ -190,7 +193,9 @@ func TestContextCyclePromptInPickupWait(t *testing.T) {
 	if v = *f.status(t, f.k); v.State != cycleWaitingPrompt || v.PromptFrom != cycleReady {
 		t.Fatalf("before the clear: %+v", v)
 	}
-	if _, err := f.s.ContextCyclePickup(ctx, f.k, "synthetic-epoch-2", v.ID, v.Revision, name, "resumed", "synthetic"); !errors.Is(err, ErrCycleChanged) {
+	// The refusal names the stage and says that the reset is not verified (#588).
+	if _, err := f.s.ContextCyclePickup(ctx, f.k, "synthetic-epoch-2", v.ID, v.Revision, name, "resumed", "synthetic"); errorCode(err) != ErrCyclePickupNotReady.Code ||
+		!strings.Contains(err.Error(), "the cycle is at waiting_prompt (from ready); the reset is not verified yet;") {
 		t.Fatalf("report before the reset: %v", err)
 	}
 }

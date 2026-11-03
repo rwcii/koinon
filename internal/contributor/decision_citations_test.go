@@ -40,8 +40,9 @@ func recordEntries(record string) map[string]bool {
 // entries as they were.
 var verdictIDExempt = map[string]bool{"DECISIONS.md": true, "CHANGELOG.md": true}
 
-// Tracked documents cite a decision board verdict as DECISIONS.md#REFERENCE, never by its
-// verdict ID, and each cited reference has its entry in DECISIONS.md (#536). The same script
+// Tracked documents name a decision board verdict by its card reference or, for an entry in
+// DECISIONS.md, as DECISIONS.md#REFERENCE, never by its verdict ID, and each
+// DECISIONS.md#REFERENCE has its entry (#536, #589). The same script
 // checks pull request text in CI and commit messages in the commit-msg hook.
 func TestDecisionCitationsResolve(t *testing.T) {
 	out, err := exec.Command("git", "-C", root(t), "ls-files", "*.md").Output()

@@ -352,17 +352,24 @@ caller, epoch, host, pane, socket or another session.
   returns `next`, the instruction to end the turn, start no other work and stay idle, because the clear waits for the
   idle prompt.
 - `POST /v1/cycles/pickup` (`context_cycle_pickup`) takes `cycle_id`, `revision`, the same file
-  name, `outcome` `resumed` or `paused` and a `report` of 1 to 1,024 UTF-8 bytes. A
-  `waiting_pickup` cycle completes when the caller runs under a new epoch (the epoch that the
-  adapter proved) and is the requester itself or a managed successor: an active session of the
-  same family in the same host and pane that holds the cycle's participant address. The
-  `revision` is one that the caller read while the cycle awaited the report: that of its
-  `waiting_pickup` stage or of a later stage of the prompt wait that began there (#520). The
+  name, `outcome` `resumed` or `paused` and a `report` of 1 to 1,024 UTF-8 bytes. A cycle at
+  `reset_verified` or `waiting_pickup` completes when the caller runs under a new epoch (the
+  epoch that the adapter proved) and is the requester itself or a managed successor: an active
+  session of the same family in the same host and pane that holds the cycle's participant
+  address, with or without a repository. At `reset_verified` the session restored the handoff
+  before Koinon entered the pickup (#588). The `revision` is one that the caller read while
+  the cycle accepted the report: that of its `reset_verified` or `waiting_pickup` stage, or of
+  a later stage of a prompt wait that began at either (#520). The
   report is also accepted in that prompt wait (`waiting_prompt` or `prompt_intent` with
-  `prompt_from` `waiting_pickup`), because the call that the prompt approves can be the report
-  itself; an answer changes the revision, and the approved call can arrive after it, so the
-  report keeps the revision that it read. A
-  successor's completion moves the Enable to it. The report is private runtime data; status,
+  `prompt_from` `reset_verified` or `waiting_pickup`), because the call that the prompt approves
+  can be the report itself; an answer changes the revision, and the approved call can arrive
+  after it, so the report keeps the revision that it read. At `reset_verified` the report and
+  Koinon's pickup input compete under the cycle's revision: after the report, Koinon enters no
+  pickup input; after the input's intent, the report is accepted again at `waiting_pickup`. A
+  report to an active cycle at another stage is refused with `cycle_pickup_not_ready` (HTTP 409)
+  and the current cycle in `details`; its `error` names the stage, says "the reset is not
+  verified yet" before `reset_verified` and "Koinon is entering the pickup" at `pickup_intent`.
+  A successor's completion moves the Enable to it. The report is private runtime data; status,
   audit and the dashboard show its size only.
 
 Ready and pickup check in their write transaction that the cycle is before its stage and cycle
@@ -414,7 +421,9 @@ readiness deadline 15 minutes from the repeat (within the cycle's), and `overwat
 typed request with the new revision in the session's inbox; `waiting_ready` does not hold the
 pane, so its wake goes out. The codes are `status_busy` (a turn in progress), `status_waiting`
 (a native wait), `status_unknown`, `input_not_empty` (a draft), `input_line_not_found`,
-`turn_running` and `turn_not_ended` (Codex), or `pane_not_ready`. A repeat refused because the
+`turn_running` and `turn_not_ended` (Codex), `transcript_unread` (#592), or
+`pane_not_ready`. A `ready` stage that sees `subagent_after_ready` (Claude, #456) or
+`turn_after_ready` (Claude and Codex, #592) asks again at once, the same way. A repeat refused because the
 cycle changed, its Enable or pin ended, or the store is full ends the cycle as a timeout; the
 lifetime, the event limit (`event_limit`) and the page credit end repeated requests. A `ready`
 stage whose pane could not be read or proven, and a `bootstrap_verified` or `reset_verified`
@@ -525,7 +534,20 @@ below the input line then shows the subagent's row (`◯`) and no `esc to interr
 subagent's records show it running (its meta file has no `"finished": true`). That is ready
 too: Claude Code 2.1.311 takes `/clear` there at once, and the subagent runs on and gives its
 result to the new conversation as a message (#533). Before the clear, a subagent that finished
-after the ready report asks again (#456); one that still runs does not. Another `busy` (a turn
+after the ready report asks again (#456); one that still runs does not. A conversation turn
+after the ready report asks again too (`turn_after_ready`, #592): a user record in the
+session's transcript (`projects/PROJECT/SESSION.jsonl` in the configuration root) after the
+last record whose time is at or before the report, unless its content is an array of only
+`tool_result` blocks, such as the ready report's own result. A prompt, a delivered message, a
+task notification, mixed blocks and unknown content count. Koinon reads only the record type,
+the time and the block types, never the text, from the transcript's end, in a window that
+doubles from 1 MiB to 16 MiB until it holds such a record; a whole file needs none. A missing
+or ambiguous transcript, a partial last record, a record after the report that does not parse,
+a window without the report, or a file whose size changes during each of three reads that
+find no turn is `transcript_unread`: the pane is not ready and nothing is entered. The clear
+reads the transcript again with the menu open and after the Enter's proof and fence, right
+before the key; a turn found then erases the typed command and returns the cycle to `ready`
+with reason `turn_after_ready`, whose next step asks again. Another `busy` (a turn
 in progress) and `waiting` (a native wait) are not ready; text drawn dim there is a placeholder or a suggestion,
 any other text a draft, and the cycle waits. A pane in copy mode is returned to its prompt
 first. The clear and the pickup type the command, read it back (for `/koinon-pickup`, the
@@ -579,22 +601,25 @@ a path that does not resolve, gives `pickup_entry_unverified`, as does another v
 path; a layer that does not parse gives `pickup_entry_unreadable`. The Sessions page shows
 `pickup through koinon-pickup`.
 
-The adapter is ready for input when the composer (`›`) holds no text, no running turn shows,
-and the current thread is proven idle from its own rollout, read at that moment; each input
-step reads this again right before its first key, and a draft that someone started is left as
-it is: before the
-clear the requester's last turn ended; after it the pane's `/status` card names the cycle's
-successor, which has no rollout and no prompt after the card, or whose last turn ended. The
-clear types `/clear`, reads it back and submits it with one Enter; the cleared screen is the
+The adapter is ready for input when the composer (`›`) holds no text, no running turn shows, and
+the current thread is proven idle from its own rollout, read at that moment; each input step
+reads this again right before its first key, and a draft that someone started is left as it is:
+before the clear the requester's last turn ended and no turn started after the ready report (an
+`event_msg` record of type `task_started` after the last record at or before the report, read as
+for Claude, #592: else `turn_after_ready`, or `transcript_unread` when the rollout cannot be
+read back to the report; the clear reads it again after the Enter's proof and fence, right
+before the key, and a turn then erases `/clear`); after it the pane's `/status` card names the
+cycle's successor, which has no rollout and no prompt after the card, or whose last turn ended.
+The clear types `/clear`, reads it back and submits it with one Enter; the cleared screen is the
 receipt. In the same step it enters `/status` the same way: Codex writes nothing for a new
 thread before its first turn, and the card names it. The reset is proven by that card's
-`Session:` thread, read from the pane and its history without input, below the latest
-banner with nothing of a turn before it. The pickup checks the skill file again, types
-`$koinon-pickup` and submits it only when the open skill menu is complete and lists exactly
-one `koinon-pickup` row, so no other entry of that name can run; then Escape, a 400 ms wait,
-the read-back and one Enter. A dialog (an MCP tool approval or a command approval) is never answered by the
-adapter: the cycle shows it in `waiting_prompt`, and a dashboard option is one digit, entered
-only while the same dialog shows.
+`Session:` thread, read from the pane and its history without input, below the latest banner
+with nothing of a turn before it. The pickup checks the skill file again, types `$koinon-pickup`
+and submits it only when the open skill menu is complete and lists exactly one `koinon-pickup`
+row, so no other entry of that name can run; then Escape, a 400 ms wait, the read-back and one
+Enter. A dialog (an MCP tool approval or a command approval) is never answered by the adapter:
+the cycle shows it in `waiting_prompt`, and a dashboard option is one digit, entered only while
+the same dialog shows.
 
 ### agy cycle adapter
 
@@ -1983,9 +2008,10 @@ with `reason` `unknown_name`, `maintainer` or `recipient_inactive`. The message 
 `maintainer` with `system_kind` `decision_verdict`, the typed `decision_verdict` ID and a
 body that holds the reference, the ID and, for a recorded verdict, its entry (see Repository
 record); it holds no other card text. The body starts with `Decision REF has a verdict (ID).`
-and the instruction to read it with `decision_get`, record it with `decision_record` and commit
-`DECISIONS.md`; for `feedback`, with `Item REF has the maintainer's feedback (ID) and is
-returned to its author.` and the instruction to record it and then edit or withdraw the item;
+and the instruction to read it with `decision_get` and then call `decision_record`, which
+applies the repository's Decision record fact (#589); for `feedback`, with `Item REF has the
+maintainer's feedback (ID) and is returned to its author.` and the instruction to call
+`decision_record` and then edit or withdraw the item;
 for `acknowledged`, with `Fyi item REF was acknowledged (ID).` and the note that nothing is
 recorded. A wake whose range
 holds such messages ends its notice with ` Decision verdicts ID, ID.`: at most 8 IDs in
@@ -2065,14 +2091,42 @@ with `reference_in_use`.
   `invalid_request`, and a changed revision is `stale_revision`. Restore of any other item
   that is not deep-archived is `not_found`.
 
-**Repository record (#536).** A decided item read (`decision_get`, the lookup) with a current
-verdict that is not an fyi acknowledgement or dismissal carries `record`: `path`
-(`DECISIONS.md`), `instruction` and `entry`, the current verdict's entry as `decision_record`
-writes it. A pending page with a delivery that is not an fyi acknowledgement or dismissal
+- `POST /v1/decisions/export` (#589) takes `caller`, a cursor (`phase` `deep` or `live`, empty
+  at the start, with `after_reference` in `deep` and `after_id` in `live`, and `offset`,
+  `version` and `digest` inside a record) and `limit` (default and maximum 100). One read
+  transaction gives `version`, the board's change version, and `records`: the deep-archived
+  items' lines by reference, read at their locators and checked as restore checks them (else
+  `decision_unavailable`), then the live items by ID in the same line format (`record`
+  `koinon.decision.v1`, `id`, `reference`, `revision`, `item`, `recipients`, `verdicts` with
+  their snapshots and notes, `deliveries`, `withdrawals`). A page stops at the limit or before
+  the record that would take it past 4 MiB; `more` and `next` give the following cursor, and the
+  end of the deep archive gives `next` `{"phase": "live"}`. A record larger than 4 MiB has pages
+  of its own, each with no records and a `part`: `offset`, at most 4 MiB of the record's bytes
+  from it as base64 `data`, `digest`, the SHA-256 of the whole record in hex, and `final` on the
+  last part. The cursor's `offset` counts the bytes of the next record already read: a part's
+  `next` is the same position with the larger offset, the page's `version` and the part's
+  `digest`, and the final part's `next` follows the record. A cursor with an offset and without
+  its version and digest, or whose offset has no next record or is not inside it, is
+  `invalid_request`; one whose version or record digest changed since is `export_changed`. A
+  move and a restore each change `version` in their own transaction, so pages with one version
+  hold each item once. An acknowledgement changes a record without changing `version`, so the
+  digest tells the parts of one record. `koinon decision export PATH` (or `--path PATH`) pages
+  from the start and writes each record as a line of a new private file (mode 0600) in PATH's
+  directory, with a record's parts joined in offset order (a part out of order, a record without
+  its final part, an end inside a record, or bytes that do not match the digest fail the export,
+  and a changed digest or `export_changed` starts it again), then links it to PATH, which fails
+  when PATH exists (`export_exists`); a directory in a Git work tree, also through a symbolic
+  link, is `export_in_worktree`. Pages that read different versions start the export again, up
+  to four attempts. The result gives `path`, `records` and `version`.
+
+**Repository record (#536, #589).** A decided item read (`decision_get`, the lookup) with a
+current verdict that is not an fyi acknowledgement or dismissal carries `record`: `path`
+(`DECISIONS.md`, the file of the short and full modes), `instruction`, which asks to call
+`decision_record`, and `entry`, the current verdict's full entry. A pending page with a delivery that is not an fyi acknowledgement or dismissal
 carries `record` with `path` and `instruction`, and each such delivery carries `entry`; a page
 stops before the delivery that would take the serialized reply past 512 KiB and always holds
 one, which the largest entry fits. The verdict message of such a verdict holds the notice, then
-`Path: DECISIONS.md` and `Entry:` with the entry. An entry that would take the message past 64
+`Verdict and card text:` with the full entry. An entry that would take the message past 64
 KiB, which only stored hidden commands can cause, is left out, and the message says that
 `decision_get` and `decision_pending` give it. An item read carries
 `author_repository`, the repository of the participant that the item stored for its author at
@@ -2080,23 +2134,33 @@ create; a plain peer's item has none. A snapshot stores the item's `where` since
 older snapshot has none.
 
 `decision_record` (`reference`, optional `directory`) and `koinon decision record --reference
-REF [--directory DIR]` read the item and its history through these routes and append to
-`DECISIONS.md` at the root of the checkout of the MCP working directory or of `directory`,
-which must share its Git common directory (else `repo_unresolved`). The item's
-`author_repository` must be that Git common directory: another is
-`decision_other_repository`, none is `decision_repository_unknown`. The file starts with the
-Koinon header when it is created; a file that does not start with it is
-`decision_record_foreign`, and a symbolic link, a non-regular file or a file over 64 MiB is
-`decision_record_invalid`. Nothing is written on a refusal. Under an exclusive lock on the
+REF [--directory DIR]` record in the checkout of the MCP working directory or of `directory`,
+which must share its Git common directory (else `repo_unresolved`). They first read the
+checkout's record mode: the first word, without trailing `,.;:`, of the `Decision record` fact
+in its `.koinon/skills/ship.md`, parsed with the ship skill's facts schema. An absent file or
+fact is `none`; another word or an invalid facts file is `decision_record_mode_invalid`. Then
+they read the item and its history through these routes. The item's `author_repository` must
+be that Git common directory: another is `decision_other_repository`, none is
+`decision_repository_unknown`. Mode `none` opens no file: the result gives `mode`, an empty
+`appended` and an `instruction` that puts the changed rule, with the question, the chosen
+option, the reason and the maintainer's words, into the document that holds it. Modes `short`
+and `full` append to `DECISIONS.md` at the checkout root. The file starts with the Koinon
+header when it is created; a file in another format keeps its text, and the entries follow it.
+A symbolic link, a non-regular file or a file over 64 MiB is `decision_record_invalid`.
+Nothing is written on a refusal. Under an exclusive lock on the
 file, each verdict that is not an fyi acknowledgement or dismissal and whose marker line is
 absent is appended, in
 verdict order: the reference's anchor (`<a id="ref"></a>`, the reference in lower case, as GitHub writes its
 anchors) before its first entry, then a
 `## REF` heading, the marker `<!-- koinon-decision REF revision N VERDICT MS -->`, the verdict,
 revision and UTC time, the title and where, and the context, recommendation and note (labeled
-`Feedback` for a feedback verdict) as block quotes, with the commands as an indented code block. The result gives `path`, `reference` and
-the verdict IDs `appended`, `present` and `skipped`, and an `instruction` when it appended. An
-item with no recordable verdict creates no file.
+`Feedback` for a feedback verdict) as block quotes, with the commands as an indented code block. A
+short entry has the heading, marker, verdict line and title, then `- Recommendation:` with the
+recommendation's first line (without `## Recommendation:`) when it has one, and the note or
+feedback as a block quote; the shared marker keeps a mode change from adding a verdict twice.
+The result gives `mode`, `path`, `reference` and the verdict IDs `appended`, `present` and
+`skipped`, and an `instruction` when it appended. An item with no recordable verdict creates no
+file.
 
 ### MCP server
 

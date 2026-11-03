@@ -308,6 +308,12 @@ the pickup (#533). Koinon reads only the file times of the session's subagent tr
 compared with the ready report itself, and whether each one's meta file says it finished; a
 dialog resolved after it does not move that time. A transcript directory that cannot be read
 in full keeps the session from the clear.
+A Claude or Codex session that had a conversation turn after its ready reply, such as the
+maintainer's message and its answer, is asked again the same way, without a clear: the
+handoff does not hold that exchange (#592). Koinon reads the record types and times in the
+session's transcript or rollout back to the ready reply, never its text, before the clear and
+again right before the clear's Enter. A transcript or rollout that cannot be read back to the
+ready reply keeps the session from the clear. The other families follow (#593).
 The handoff that the ready reply names is in the session's own handoff directory of the main
 checkout: the directory that the Handoff path fact of the repository's
 `.koinon/skills/handoff.md` names, else `_handoff/<agent>/`, where the agent is the family with
@@ -389,6 +395,22 @@ handoff.", then "you can reproduce the conditions locally and figure out how to 
 ([#456](https://github.com/rwcii/koinon/issues/456)). The intent: a clear never restores a
 handoff that lacks work done after it. Asking again on a newer subagent transcript is the fix
 that #456 proposes; no maintainer decision on it found.
+
+A turn after the ready reply: the maintainer, 2026-11-03, after Koinon cleared claude-unify
+in cycle 55bec803 seconds after the maintainer's message and the session's answer: "the
+handoff process it wiping out active sessions on this box. see the last session with
+claude-unify", "I was mid conversation when the clear was dropped on the agent", "no handoff"
+([#592](https://github.com/rwcii/koinon/issues/592)). Maintainer, 2026-11-03, decision board
+item TURN-AFTER-READY-592 (revision 1), "approved", no note. The question: "Do not clear a
+session that had a new conversation turn after its ready report; ask for a new handoff
+(#592)". The card recommended: the Claude adapter reads only the type and time of the
+session's transcript entries newer than the ready report, and the Codex adapter the same in its
+rollout; a user prompt or a delivered message after the report means the handoff is out of
+date, and the controller does not clear and asks for a new handoff, as for a subagent that
+finished after the report (#456), within the usual request limit and deadlines; a transcript
+that cannot be read means no clear; agy, OpenCode, DeepSeek and Grok follow in an issue
+(#593). The second read right before the clear's Enter is from the pair's review. The
+intent: a clear never drops a conversation that came after the handoff.
 
 Background subagents through the clear: the maintainer, 2026-10-27, after a Claude session
 planned to stop its running review subagents before its cycle: "context handover won't
@@ -483,6 +505,18 @@ Personal and project `pickup` skills are not read. The per-session `--add-dir` l
 `/add-dir` step before the clear are removed. Claude Code's discovery of the personal skill has
 no separate native record (PDR 008, Decision 3); the pickup step's menu check, which submits
 only when the command menu lists the skill's description first, proves it in each cycle.
+
+The new session can report its pickup from the verified reset on (`reset_verified`), also
+before Koinon entered the pickup and also without a repository; Koinon then enters no pickup
+input. The report and the pickup input compete under the cycle's revision, and one of them
+wins. A report at an earlier stage is refused with a code that names the stage (#588).
+
+**Provenance (report at reset_verified):** Requested in #588 (issue body, Expected: accept the
+report, or name the expected stage). Maintainer, 2026-11-01, in a Claude Code terminal session:
+"continue with the open issues, start with 588.  589 needs discussion first". Approved on the
+decision board, 2026-11-01
+([DECISIONS.md#PICKUP-RESET-588](../../../DECISIONS.md#pickup-reset-588)): accept the report at
+`reset_verified`, and name the stage in the refusal at an earlier stage.
 
 **Provenance:** Reporting: Requested in #196 (issue body, step 4); a request record. Reset
 verification is open in #196 ("To decide in the plan"). Separate verification and restart
@@ -635,3 +669,5 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-31 | Decision 3: the request and the ready reply say again to start no new work, which #487 had removed, approved on the decision board (CYCLE-NO-NEW-WORK-487) |
 | 2026-10-31 | Decision 2: a ready timeout before any pane input keeps the Enable once in each epoch, and the next cycle waits for the session's inbox read, approved on the decision board (READY-TIMEOUT-ENABLE-487); a new Enable clears the selected crossing (#584) |
 | 2026-11-01 | Decisions 3 and 4: the wake notice asks to answer the request before other work, and the `koinon-pickup` entry checks the catalog digest and stops and reports, which #487 had removed, approved on the decision board (RESTORE-STEPS-487) |
+| 2026-11-01 | Decision 4: a pickup report is accepted at `reset_verified`, before Koinon enters the pickup (DECISIONS.md#PICKUP-RESET-588) |
+| 2026-11-03 | Decision 3: a Claude or Codex conversation turn after the ready reply makes the cycle ask again (#592), approved on the decision board (TURN-AFTER-READY-592) |
