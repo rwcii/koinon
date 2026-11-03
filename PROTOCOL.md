@@ -421,7 +421,9 @@ readiness deadline 15 minutes from the repeat (within the cycle's), and `overwat
 typed request with the new revision in the session's inbox; `waiting_ready` does not hold the
 pane, so its wake goes out. The codes are `status_busy` (a turn in progress), `status_waiting`
 (a native wait), `status_unknown`, `input_not_empty` (a draft), `input_line_not_found`,
-`turn_running` and `turn_not_ended` (Codex), or `pane_not_ready`. A repeat refused because the
+`turn_running` and `turn_not_ended` (Codex), `transcript_unread` (#592), or
+`pane_not_ready`. A `ready` stage that sees `subagent_after_ready` (Claude, #456) or
+`turn_after_ready` (Claude and Codex, #592) asks again at once, the same way. A repeat refused because the
 cycle changed, its Enable or pin ended, or the store is full ends the cycle as a timeout; the
 lifetime, the event limit (`event_limit`) and the page credit end repeated requests. A `ready`
 stage whose pane could not be read or proven, and a `bootstrap_verified` or `reset_verified`
@@ -532,7 +534,20 @@ below the input line then shows the subagent's row (`◯`) and no `esc to interr
 subagent's records show it running (its meta file has no `"finished": true`). That is ready
 too: Claude Code 2.1.311 takes `/clear` there at once, and the subagent runs on and gives its
 result to the new conversation as a message (#533). Before the clear, a subagent that finished
-after the ready report asks again (#456); one that still runs does not. Another `busy` (a turn
+after the ready report asks again (#456); one that still runs does not. A conversation turn
+after the ready report asks again too (`turn_after_ready`, #592): a user record in the
+session's transcript (`projects/PROJECT/SESSION.jsonl` in the configuration root) after the
+last record whose time is at or before the report, unless its content is an array of only
+`tool_result` blocks, such as the ready report's own result. A prompt, a delivered message, a
+task notification, mixed blocks and unknown content count. Koinon reads only the record type,
+the time and the block types, never the text, from the transcript's end, in a window that
+doubles from 1 MiB to 16 MiB until it holds such a record; a whole file needs none. A missing
+or ambiguous transcript, a partial last record, a record after the report that does not parse,
+a window without the report, or a file whose size changes during each of three reads that
+find no turn is `transcript_unread`: the pane is not ready and nothing is entered. The clear
+reads the transcript again with the menu open and after the Enter's proof and fence, right
+before the key; a turn found then erases the typed command and returns the cycle to `ready`
+with reason `turn_after_ready`, whose next step asks again. Another `busy` (a turn
 in progress) and `waiting` (a native wait) are not ready; text drawn dim there is a placeholder or a suggestion,
 any other text a draft, and the cycle waits. A pane in copy mode is returned to its prompt
 first. The clear and the pickup type the command, read it back (for `/koinon-pickup`, the
@@ -586,22 +601,25 @@ a path that does not resolve, gives `pickup_entry_unverified`, as does another v
 path; a layer that does not parse gives `pickup_entry_unreadable`. The Sessions page shows
 `pickup through koinon-pickup`.
 
-The adapter is ready for input when the composer (`›`) holds no text, no running turn shows,
-and the current thread is proven idle from its own rollout, read at that moment; each input
-step reads this again right before its first key, and a draft that someone started is left as
-it is: before the
-clear the requester's last turn ended; after it the pane's `/status` card names the cycle's
-successor, which has no rollout and no prompt after the card, or whose last turn ended. The
-clear types `/clear`, reads it back and submits it with one Enter; the cleared screen is the
+The adapter is ready for input when the composer (`›`) holds no text, no running turn shows, and
+the current thread is proven idle from its own rollout, read at that moment; each input step
+reads this again right before its first key, and a draft that someone started is left as it is:
+before the clear the requester's last turn ended and no turn started after the ready report (an
+`event_msg` record of type `task_started` after the last record at or before the report, read as
+for Claude, #592: else `turn_after_ready`, or `transcript_unread` when the rollout cannot be
+read back to the report; the clear reads it again after the Enter's proof and fence, right
+before the key, and a turn then erases `/clear`); after it the pane's `/status` card names the
+cycle's successor, which has no rollout and no prompt after the card, or whose last turn ended.
+The clear types `/clear`, reads it back and submits it with one Enter; the cleared screen is the
 receipt. In the same step it enters `/status` the same way: Codex writes nothing for a new
 thread before its first turn, and the card names it. The reset is proven by that card's
-`Session:` thread, read from the pane and its history without input, below the latest
-banner with nothing of a turn before it. The pickup checks the skill file again, types
-`$koinon-pickup` and submits it only when the open skill menu is complete and lists exactly
-one `koinon-pickup` row, so no other entry of that name can run; then Escape, a 400 ms wait,
-the read-back and one Enter. A dialog (an MCP tool approval or a command approval) is never answered by the
-adapter: the cycle shows it in `waiting_prompt`, and a dashboard option is one digit, entered
-only while the same dialog shows.
+`Session:` thread, read from the pane and its history without input, below the latest banner
+with nothing of a turn before it. The pickup checks the skill file again, types `$koinon-pickup`
+and submits it only when the open skill menu is complete and lists exactly one `koinon-pickup`
+row, so no other entry of that name can run; then Escape, a 400 ms wait, the read-back and one
+Enter. A dialog (an MCP tool approval or a command approval) is never answered by the adapter:
+the cycle shows it in `waiting_prompt`, and a dashboard option is one digit, entered only while
+the same dialog shows.
 
 ### agy cycle adapter
 

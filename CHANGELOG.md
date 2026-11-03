@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A managed cycle no longer clears a Claude or Codex session that had a conversation turn
+  after its ready report, such as the maintainer's message and its answer, which the handoff
+  does not hold (#592, board card TURN-AFTER-READY-592). Koinon reads the session's transcript
+  or rollout back to the ready report, before the clear and again right before its Enter; a
+  turn makes `overwatch` ask again (`turn_after_ready`), and a transcript that cannot be read
+  back to the report keeps the clear from running (`transcript_unread`). The other families
+  follow in #593.
 - Each repository chooses how a board verdict is recorded, with the first word of the
   `Decision record` fact in its `.koinon/skills/ship.md` (#589, RECORD-MODE-589). `none`, the
   default, writes nothing: the pull request that does the work puts the changed rule, with the
