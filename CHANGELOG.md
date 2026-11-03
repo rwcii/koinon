@@ -5,6 +5,16 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-11-03 — Decision record modes, a board export, and clears that wait for a new turn
+
+This release lets each repository choose how a board verdict is recorded, with `none` as the
+default: the pull request that does the work puts the decision, with the maintainer's words,
+into the document that it changes, and nothing is appended to `DECISIONS.md`.
+`koinon decision export PATH` writes a copy of the whole board, live and deep-archived, that a
+person or CI can read without the daemon. A managed cycle no longer clears a Claude or Codex
+session that had a conversation turn after its ready report: it asks for a new handoff. A
+pickup report is accepted at `reset_verified`. The state schema stays at 37.
+
 - A managed cycle no longer clears a Claude or Codex session that had a conversation turn
   after its ready report, such as the maintainer's message and its answer, which the handoff
   does not hold (#592, board card TURN-AFTER-READY-592). Koinon reads the session's transcript
@@ -39,6 +49,21 @@ into a dated release section when promoted to `main`.
   before. A report at another stage of an active cycle is refused with
   `cycle_pickup_not_ready`, whose message names the stage. The pickup skill and the guide say
   the same.
+
+Upgrade from v0.9.0 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and rewrites the `koinon-pickup` skill and the other skill entries;
+the state schema stays at 37. The restart ends current dashboard logins: log in again with the
+maintainer secret, or run `koinon dashboard` for a one-time link. Homebrew then shows the steps
+that `koinon install --plan` finds; run them, and run `koinon install --plan` again to check.
+A running `koinon mcp` server runs the new release without a session restart.
+
+Upgrade notes:
+
+- A repository that wants verdicts appended to `DECISIONS.md` as before sets the first word of
+  the `Decision record` fact in its `.koinon/skills/ship.md` to `full`, or to `short` for the
+  short entry (#589). Without the fact, `decision_record` writes nothing.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
 
 ## 2026-11-01 — Managed cycles that keep their Enable, and procedure steps put back
 
