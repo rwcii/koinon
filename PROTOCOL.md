@@ -958,9 +958,13 @@ Before the reset, a conversation turn after the ready report asks again (`turn_a
 without a turn, such as one that Koinon delivered. The scan reads the requester's history back
 from its newest event, past the newest `turn/start`, to the `turn/start` at or before the report,
 the start of the turn that made it, or to the log's start, in contiguous pages within the same
-budget, and then the projections again, whose `asOfSeq` must not have moved. Going back, each
-event's time must be at or before the newer one's. An event without a valid `time`, a time out
-of order, a gap, a moved end and an exhausted budget are `history_unread`: the cycle waits and asks for no new handoff. Its worker
+budget, and then the projections again, whose `asOfSeq` must not have moved. The session reports
+ready from a tool call inside a turn, so that turn did not end at or before the report: a
+`turn/start` at or before the report whose `turn/end` is also at or before it is not the
+report's turn. Going back, each event's time must be at or before the newer one's. That
+turn, an event without a valid `time`, a time out of order, a gap, a moved end and an
+exhausted budget are `history_unread`: the cycle waits and asks for no new handoff. Only a
+harness clock that goes back across the report's own turn could still hide a turn. Its worker
 publishes the turn like any other read, and the step asks again.
 
 The reset creates the successor: under the recorded `clear_intent` and after the pin, the

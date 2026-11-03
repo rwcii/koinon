@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -722,7 +723,10 @@ func TestGrokTurnSince(t *testing.T) {
 	}
 	// Another escaping of the same directory is found by its unescaped name; two are ambiguous.
 	g.env["PWD"] = g.dir
-	other := filepath.Join(g.home, ".grok", "sessions", strings.ReplaceAll(url.PathEscape(g.dir), "%2F", "%2f"), "grok-a")
+	// The last character escaped too: not a case-only difference, which a macOS file system folds.
+	escaped := url.PathEscape(g.dir)
+	escaped = escaped[:len(escaped)-1] + fmt.Sprintf("%%%02X", escaped[len(escaped)-1])
+	other := filepath.Join(g.home, ".grok", "sessions", escaped, "grok-a")
 	os.MkdirAll(other, 0o700)
 	os.WriteFile(filepath.Join(other, "events.jsonl"), data, 0o600)
 	if err := grokQuiet(g.readyTarget(), screen); !errors.Is(err, errHistoryUnread) {
