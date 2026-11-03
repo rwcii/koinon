@@ -18,8 +18,9 @@ import (
 // versions.
 const decisionExportAttempts = 4
 
-// errExportChanged ends an export attempt whose pages read different board versions, or whose
-// parts of one record name different digests.
+// errExportChanged ends an export attempt whose pages read different board versions, whose
+// parts of one record name different digests, or whose cursor inside a record the daemon
+// refuses as export_changed.
 var errExportChanged = errors.New("the board changed during the export")
 
 // decisionExport writes every decision item, live and deep-archived, as JSON lines to a new
@@ -90,7 +91,11 @@ func exportAttempt(ctx context.Context, address, secret string, caller any, dir,
 	at := core.DecisionExportAt{}
 	for {
 		data, err := core.Call(ctx, address, secret, "/v1/decisions/export", map[string]any{"caller": caller,
-			"phase": at.Phase, "after_reference": at.AfterReference, "after_id": at.AfterID, "offset": at.Offset})
+			"phase": at.Phase, "after_reference": at.AfterReference, "after_id": at.AfterID, "offset": at.Offset,
+			"version": at.Version, "digest": at.Digest})
+		if refusal := (core.RefusedError{}); errors.As(err, &refusal) && refusal.Code == "export_changed" {
+			return 0, "", errExportChanged
+		}
 		if err != nil {
 			return 0, "", err
 		}
@@ -144,6 +149,9 @@ func exportAttempt(ctx context.Context, address, secret string, caller any, dir,
 			records++
 		}
 		if !page.More {
+			if partial > 0 {
+				return 0, "", errors.New("the daemon ended the export before the last part of a record")
+			}
 			break
 		}
 		if page.Next == nil {

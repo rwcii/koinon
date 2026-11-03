@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -256,10 +257,30 @@ func TestDecisionExport(t *testing.T) {
 	if _, err := fixtureExec(s, `UPDATE decision_deep_archive SET length=length-1`); err != nil {
 		t.Fatal(err)
 	}
-	for _, at := range []DecisionExportAt{{Phase: exportLive, AfterID: 1 << 40, Offset: 1}, {Phase: exportDeep, Offset: 1 << 30},
-		{Phase: exportDeep, AfterReference: "D-1", Offset: 1}, {Phase: exportLive, Offset: -1}} {
-		if _, err := s.DecisionExport(ctx, f.peerKey, at, 0); refusalCode(err) != "invalid_request" {
-			t.Errorf("cursor %+v: %v", at, err)
+	// A cursor inside a record: the version and the digest of its part, else refused.
+	saved := decisionExportBytes
+	decisionExportBytes = 100
+	part, err := s.DecisionExport(ctx, f.peerKey, DecisionExportAt{}, 0)
+	decisionExportBytes = saved
+	if err != nil || part.Part == nil || part.Next == nil || part.Next.Version != part.Version || part.Next.Digest != part.Part.Digest {
+		t.Fatalf("part cursor: %+v %v", part.Next, err)
+	}
+	version, digest := part.Version, part.Part.Digest
+	for _, c := range []struct {
+		at   DecisionExportAt
+		code string
+	}{
+		{DecisionExportAt{Phase: exportDeep, Offset: 1}, "invalid_request"},
+		{DecisionExportAt{Phase: exportDeep, Offset: 1, Version: version}, "invalid_request"},
+		{DecisionExportAt{Phase: exportLive, Offset: -1}, "invalid_request"},
+		{DecisionExportAt{Phase: exportDeep, Offset: 1 << 30, Version: version, Digest: digest}, "invalid_request"},
+		{DecisionExportAt{Phase: exportLive, AfterID: 1 << 40, Offset: 1, Version: version, Digest: digest}, "invalid_request"},
+		{DecisionExportAt{Phase: exportDeep, AfterReference: "D-1", Offset: 1, Version: version, Digest: digest}, "invalid_request"},
+		{DecisionExportAt{Phase: exportDeep, Offset: 1, Version: "synthetic-version", Digest: digest}, "export_changed"},
+		{DecisionExportAt{Phase: exportDeep, Offset: 1, Version: version, Digest: strings.Repeat("0", 64)}, "export_changed"},
+	} {
+		if _, err := s.DecisionExport(ctx, f.peerKey, c.at, 0); refusalCode(err) != c.code {
+			t.Errorf("cursor %+v: %v", c.at, err)
 		}
 	}
 	if _, err := s.DecisionExport(ctx, f.peerKey, DecisionExportAt{Phase: "other"}, 0); err == nil {
@@ -292,7 +313,7 @@ func TestDecisionExportLargeRecordCrossesTransport(t *testing.T) {
 	}
 	mustCreate(t, s, f.peerKey, "L-2", DecisionFields{Title: ptr("Small"), Kind: ptr("decision"), Recipients: &[]string{f.peer.Name}})
 	// An acknowledgement between parts changes the record at one board version; the next part
-	// names another digest.
+	// is export_changed.
 	first, err := s.DecisionExport(ctx, f.peerKey, DecisionExportAt{Phase: exportLive}, 0)
 	if err != nil || first.Part == nil || first.Part.Final || len(first.Part.Digest) != 64 {
 		t.Fatalf("first part: %+v %v", first.Part, err)
@@ -300,9 +321,12 @@ func TestDecisionExportLargeRecordCrossesTransport(t *testing.T) {
 	if acked, err := s.DecisionAck(ctx, f.peerKey, []int64{last.ID}); err != nil || len(acked) != 1 {
 		t.Fatalf("ack: %v %v", acked, err)
 	}
-	second, err := s.DecisionExport(ctx, f.peerKey, *first.Next, 0)
+	if _, err := s.DecisionExport(ctx, f.peerKey, *first.Next, 0); refusalCode(err) != "export_changed" {
+		t.Fatalf("part after an ack: %v", err)
+	}
+	second, err := s.DecisionExport(ctx, f.peerKey, DecisionExportAt{Phase: exportLive}, 0)
 	if err != nil || second.Version != first.Version || second.Part == nil || second.Part.Digest == first.Part.Digest {
-		t.Fatalf("part after an ack: %v %q %q", err, first.Version, second.Version)
+		t.Fatalf("first part again: %v %q %q", err, first.Version, second.Version)
 	}
 	mux := http.NewServeMux()
 	(&Daemon{store: s}).decisionRoutes(mux)
@@ -318,7 +342,8 @@ func TestDecisionExportLargeRecordCrossesTransport(t *testing.T) {
 			t.Fatal("the export did not end")
 		}
 		data, err := Call(ctx, address, "synthetic-secret", "/v1/decisions/export", map[string]any{"caller": f.peerKey,
-			"phase": at.Phase, "after_reference": at.AfterReference, "after_id": at.AfterID, "offset": at.Offset})
+			"phase": at.Phase, "after_reference": at.AfterReference, "after_id": at.AfterID, "offset": at.Offset,
+			"version": at.Version, "digest": at.Digest})
 		if err != nil {
 			t.Fatalf("page %d: %v", i, err)
 		}
@@ -371,5 +396,49 @@ func TestDecisionExportLargeRecordCrossesTransport(t *testing.T) {
 	sum := sha256.Sum256(want)
 	if len(want) <= maxResponse || !bytes.Equal(lines[0], want) || hex.EncodeToString(sum[:]) != second.Part.Digest {
 		t.Fatalf("record of %d bytes, assembled %d bytes", len(want), len(lines[0]))
+	}
+}
+
+// A move between the parts of a record changes the version: the next part through the route
+// and Call is export_changed, so the client starts again, and a new export has the moved item
+// once.
+func TestDecisionExportMoveBetweenParts(t *testing.T) {
+	f, v := deepArchiveFixture(t)
+	s, ctx := f.s, context.Background()
+	if _, err := s.DecisionAck(ctx, f.peerKey, []int64{v.ID}); err != nil {
+		t.Fatal(err)
+	}
+	saved := decisionExportBytes
+	decisionExportBytes = 100
+	defer func() { decisionExportBytes = saved }()
+	mux := http.NewServeMux()
+	(&Daemon{store: s}).decisionRoutes(mux)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+	call := func(at DecisionExportAt) (DecisionExportPage, error) {
+		data, err := Call(ctx, strings.TrimPrefix(server.URL, "http://"), "synthetic-secret", "/v1/decisions/export", map[string]any{"caller": f.peerKey,
+			"phase": at.Phase, "after_reference": at.AfterReference, "after_id": at.AfterID, "offset": at.Offset, "version": at.Version, "digest": at.Digest})
+		if err != nil {
+			return DecisionExportPage{}, err
+		}
+		var reply struct {
+			Result DecisionExportPage `json:"result"`
+		}
+		err = json.Unmarshal(data, &reply)
+		return reply.Result, err
+	}
+	first, err := call(DecisionExportAt{Phase: exportLive})
+	if err != nil || first.Part == nil || first.Part.Final {
+		t.Fatalf("first part: %+v %v", first, err)
+	}
+	if err := s.archiveDecisions(ctx); err != nil || count(t, s, `SELECT COUNT(*) FROM decision_deep_archive`) != 1 {
+		t.Fatalf("move: %v", err)
+	}
+	var refused RefusedError
+	if _, err := call(*first.Next); !errors.As(err, &refused) || refused.Code != "export_changed" {
+		t.Fatalf("part after a move: %v", err)
+	}
+	if records, _ := exportAll(t, s, f.peerKey, 0); len(records) != 1 || records[0]["reference"] != "D-1" {
+		t.Fatalf("export after the move: %v", records)
 	}
 }

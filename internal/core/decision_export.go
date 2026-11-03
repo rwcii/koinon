@@ -19,7 +19,9 @@ import (
 // every item exactly once. A record larger than a page goes alone in its pages as parts, byte
 // ranges of the record, so no reply exceeds the client's transport limit. An acknowledgement
 // changes a record without changing the version, so each part names the SHA-256 of the whole
-// record that it was cut from, and a client joins only the parts of one digest.
+// record that it was cut from, and a client joins only the parts of one digest. The cursor of
+// a later part holds the version and the digest, and a board or record that changed since
+// is export_changed, so the client starts again.
 
 // decisionExportItems bounds the records of one page. decisionExportBytes bounds their bytes
 // and one part of a larger record; tests lower it to read small records in parts.
@@ -53,14 +55,21 @@ type DecisionExportPart struct {
 	Final  bool   `json:"final"`
 }
 
-// DecisionExportAt is an export cursor: the phase, the last reference or item ID read in it, and
-// the bytes of the next record already read as parts.
+// DecisionExportAt is an export cursor: the phase, the last reference or item ID read in it,
+// and, inside a record read as parts, the bytes already read, the board version and the
+// record's digest.
 type DecisionExportAt struct {
 	Phase          string `json:"phase"`
 	AfterReference string `json:"after_reference,omitempty"`
 	AfterID        int64  `json:"after_id,omitempty"`
 	Offset         int64  `json:"offset,omitempty"`
+	Version        string `json:"version,omitempty"`
+	Digest         string `json:"digest,omitempty"`
 }
+
+// errExportChanged refuses a cursor inside a record whose board version or record changed
+// since its part was read.
+var errExportChanged = workError("export_changed", "the board changed since the last part; start the export again")
 
 // DecisionExport reads one page of the export at the cursor; an empty phase starts it.
 func (s *Store) DecisionExport(ctx context.Context, caller Key, at DecisionExportAt, limit int) (DecisionExportPage, error) {
@@ -69,6 +78,9 @@ func (s *Store) DecisionExport(ctx context.Context, caller Key, at DecisionExpor
 	}
 	if at.Phase != exportDeep && at.Phase != exportLive || at.AfterID < 0 || at.Offset < 0 || limit < 0 {
 		return DecisionExportPage{}, decisionInvalid("cursor", "phase must be deep or live, and after_id, offset and limit must not be negative")
+	}
+	if at.Offset > 0 && (at.Version == "" || at.Digest == "") {
+		return DecisionExportPage{}, decisionInvalid("cursor", "a cursor with an offset needs its version and digest")
 	}
 	if limit == 0 || limit > decisionExportItems {
 		limit = decisionExportItems
@@ -85,26 +97,33 @@ func (s *Store) DecisionExport(ctx context.Context, caller Key, at DecisionExpor
 	if err := tx.QueryRowContext(ctx, `SELECT version FROM change_versions WHERE topic=?`, changeDecisions).Scan(&page.Version); err != nil {
 		return DecisionExportPage{}, err
 	}
+	if at.Offset > 0 && at.Version != page.Version {
+		return DecisionExportPage{}, errExportChanged
+	}
 	used := 0
 	var partErr error
 	// add puts a record in the page, or one part of a record larger than a page in a page of
 	// its own, and reports whether the page has room for another.
 	add := func(record []byte, next DecisionExportAt) bool {
 		if len(page.Records) == 0 && (at.Offset > 0 || int64(len(record)) > decisionExportBytes) {
+			sum := sha256.Sum256(record)
+			digest := hex.EncodeToString(sum[:])
+			if at.Offset > 0 && digest != at.Digest {
+				partErr = errExportChanged
+				return false
+			}
 			if at.Offset >= int64(len(record)) {
 				partErr = decisionInvalid("offset", "the offset is not inside the next record")
 				return false
 			}
 			end := min(at.Offset+decisionExportBytes, int64(len(record)))
-			digest := sha256.Sum256(record)
-			page.Part = &DecisionExportPart{Offset: at.Offset, Data: record[at.Offset:end], Digest: hex.EncodeToString(digest[:]),
-				Final: end == int64(len(record))}
+			page.Part = &DecisionExportPart{Offset: at.Offset, Data: record[at.Offset:end], Digest: digest, Final: end == int64(len(record))}
 			page.More = true
 			if page.Part.Final {
 				page.Next = &next
 			} else {
 				rest := at
-				rest.Offset = end
+				rest.Offset, rest.Version, rest.Digest = end, page.Version, digest
 				page.Next = &rest
 			}
 			return false

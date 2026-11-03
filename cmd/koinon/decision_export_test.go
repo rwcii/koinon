@@ -23,8 +23,10 @@ type exportServer struct {
 	calls    int
 	versions func(call int) string
 	onLast   func()
-	// page, when set, answers each request in place of the two fixed pages.
-	page func(request map[string]any) map[string]any
+	// page, when set, answers each request in place of the two fixed pages, and refuse, when it
+	// holds, refuses the request with export_changed.
+	page   func(request map[string]any) map[string]any
+	refuse func(request map[string]any) bool
 }
 
 func newExportServer(t *testing.T) *exportServer {
@@ -33,6 +35,11 @@ func newExportServer(t *testing.T) *exportServer {
 		var request map[string]any
 		json.NewDecoder(r.Body).Decode(&request)
 		e.calls++
+		if e.refuse != nil && e.refuse(request) {
+			w.WriteHeader(409)
+			json.NewEncoder(w).Encode(map[string]any{"ok": false, "code": "export_changed", "error": "synthetic"})
+			return
+		}
 		page := map[string]any{"version": e.versions(e.calls)}
 		switch {
 		case e.page != nil:
@@ -187,7 +194,7 @@ func partPages(record []byte, size, skip int, digest func(start int) string) fun
 		end := min(start+size, len(record))
 		part := map[string]any{"offset": start + skip*min(start, 1), "data": record[start:end], "digest": digest(start),
 			"final": end == len(record)}
-		next := map[string]any{"phase": "deep", "offset": end}
+		next := map[string]any{"phase": "deep", "offset": end, "version": "1", "digest": hex.EncodeToString(sum[:])}
 		if end == len(record) {
 			next = map[string]any{"phase": "live"}
 		}
@@ -250,6 +257,46 @@ func TestDecisionExportParts(t *testing.T) {
 	if !strings.HasPrefix(string(data), string(record)+"\n") {
 		t.Fatalf("lines after a restart:\n%s", data)
 	}
+	// A last page that ends inside a record publishes nothing.
+	e.page = func(map[string]any) map[string]any {
+		page := partPages(record, 7, 0, nil)(map[string]any{"phase": "deep"})
+		page["more"] = false
+		return page
+	}
+	unfinished := filepath.Join(t.TempDir(), "board.jsonl")
+	if _, err := runExport(t, e, unfinished); err == nil || !strings.Contains(err.Error(), "before the last part") {
+		t.Fatalf("unfinished end: %v", err)
+	}
+	if _, err := os.Stat(unfinished); !os.IsNotExist(err) {
+		t.Fatalf("file after an unfinished end: %v", err)
+	}
+	// export_changed on a later part starts the export again.
+	// export_changed on a later part starts the export again; the later part's request holds
+	// the version and digest of the part before it.
+	e.calls = 0
+	sum := sha256.Sum256(record)
+	refused := 0
+	e.page = partPages(record, 7, 0, nil)
+	e.refuse = func(request map[string]any) bool {
+		if offset, _ := request["offset"].(float64); offset > 0 {
+			if request["version"] != "1" || request["digest"] != hex.EncodeToString(sum[:]) {
+				t.Errorf("continuation: %v", request)
+			}
+			if refused == 0 {
+				refused++
+				return true
+			}
+		}
+		return false
+	}
+	fresh := filepath.Join(t.TempDir(), "board.jsonl")
+	if got, err := runExport(t, e, fresh); err != nil || got["records"] != float64(2) || refused != 1 {
+		t.Fatalf("export_changed: %v %v", got, err)
+	}
+	if data, _ := os.ReadFile(fresh); !strings.HasPrefix(string(data), string(record)+"\n") {
+		t.Fatalf("lines after export_changed:\n%s", data)
+	}
+	e.refuse = nil
 	// Parts whose bytes do not match the digest that they name.
 	e.page = partPages(record, 7, 0, func(int) string { return "synthetic-digest" })
 	if _, err := runExport(t, e, filepath.Join(t.TempDir(), "board.jsonl")); err == nil || !strings.Contains(err.Error(), "does not match its digest") {
