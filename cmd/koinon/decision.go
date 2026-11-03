@@ -16,12 +16,12 @@ import (
 // decisionCommand is the command path of decision_create, decision_edit, decision_list and
 // decision_get (#206, chunk 01) and decision_history, decision_pending, decision_ack,
 // decision_close and decision_restore (chunk 02), decision_withdraw (#504) and
-// decision_record (#536).
+// decision_record (#536), and the board's export (#589).
 func decisionCommand(ctx context.Context, args []string, out io.Writer) error {
 	ops := map[string]bool{"create": true, "edit": true, "list": true, "get": true, "history": true, "pending": true,
-		"ack": true, "close": true, "withdraw": true, "restore": true, "record": true}
+		"ack": true, "close": true, "withdraw": true, "restore": true, "record": true, "export": true}
 	if len(args) == 0 || !ops[args[0]] {
-		return usageError{"invalid_request", "use koinon decision create, edit, list, get, history, pending, ack, close, withdraw, restore or record"}
+		return usageError{"invalid_request", "use koinon decision create, edit, list, get, history, pending, ack, close, withdraw, restore, record or export"}
 	}
 	op, rest := args[0], args[1:]
 	root, err := platform.DefaultStateDir()
@@ -63,9 +63,11 @@ func decisionCommand(ctx context.Context, args []string, out io.Writer) error {
 		limit = flags.Int("limit", 0, "page size (default and maximum 100)")
 	case "get":
 		text("reference", "item reference")
+	case "export":
+		text("path", "the new file that gets the export, outside a Git work tree (or give it as the argument)")
 	case "record":
 		text("reference", "item reference")
-		text("directory", "a checkout of the repository whose DECISIONS.md gets the entries (default: the current directory)")
+		text("directory", "a checkout of the repository that records the verdicts (default: the current directory)")
 	case "restore":
 		text("reference", "item reference")
 		ints["if-revision"] = flags.Int64("if-revision", 0, "the revision that was read, to reopen a withdrawn item")
@@ -94,6 +96,13 @@ func decisionCommand(ctx context.Context, args []string, out io.Writer) error {
 	}
 	if err := flags.Parse(rest); err != nil {
 		return usageError{"invalid_request", err.Error()}
+	}
+	// The export takes its file as an argument, before or after the flags.
+	if op == "export" && flags.NArg() > 0 && *strs["path"] == "" {
+		*strs["path"] = flags.Arg(0)
+		if err := flags.Parse(flags.Args()[1:]); err != nil {
+			return usageError{"invalid_request", err.Error()}
+		}
 	}
 	if flags.NArg() != 0 {
 		return usageError{"invalid_request", "koinon decision " + op + " takes flags only"}
@@ -167,8 +176,11 @@ func decisionCommand(ctx context.Context, args []string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	if op == "record" {
+	switch op {
+	case "record":
 		return decisionRecord(ctx, out, *address, secret, body)
+	case "export":
+		return decisionExport(ctx, out, *address, secret, body["caller"], *strs["path"])
 	}
 	data, err := core.Call(ctx, *address, secret, "/v1/decisions/"+op, body)
 	if err != nil {
@@ -178,8 +190,8 @@ func decisionCommand(ctx context.Context, args []string, out io.Writer) error {
 	return err
 }
 
-// decisionRecord appends the item's verdicts to DECISIONS.md at the root of the checkout that
-// --directory names, or of the current directory (#536).
+// decisionRecord records the item's verdicts in the checkout that --directory names, or of
+// the current directory, as its Decision record fact says (#536, #589).
 func decisionRecord(ctx context.Context, out io.Writer, address, secret string, body map[string]any) error {
 	reference, _ := body["reference"].(string)
 	directory, _ := body["directory"].(string)
@@ -194,6 +206,10 @@ func decisionRecord(ctx context.Context, out io.Writer, address, secret string, 
 		request["caller"] = body["caller"]
 		return core.Call(ctx, address, secret, path, request)
 	}
+	mode, err := core.DecisionRecordMode(checkout.Directory)
+	if err != nil {
+		return err
+	}
 	item, verdicts, err := core.CollectDecisionRecord(ctx, call, reference)
 	if err != nil {
 		return err
@@ -201,7 +217,7 @@ func decisionRecord(ctx context.Context, out io.Writer, address, secret string, 
 	if err := core.CheckRecordRepository(item, checkout.Repository); err != nil {
 		return err
 	}
-	recorded, err := core.RecordDecision(checkout.Directory, reference, item.Where, verdicts)
+	recorded, err := core.RecordDecision(checkout.Directory, mode, reference, item.Where, verdicts)
 	if err != nil {
 		return err
 	}

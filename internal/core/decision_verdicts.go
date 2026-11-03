@@ -162,20 +162,22 @@ func verdictNoticeBody(reference, verdict string, id int64) string {
 	case "acknowledged":
 		return fmt.Sprintf("Fyi item %s was acknowledged (%d). Read it with decision_get; nothing is recorded in DECISIONS.md.", reference, id)
 	case "feedback":
-		return fmt.Sprintf("Item %s has the maintainer's feedback (%d) and is returned to its author. Read it with decision_get, record it with decision_record, then change the item into a new revision with decision_edit or withdraw it with decision_withdraw.", reference, id)
+		return fmt.Sprintf("Item %s has the maintainer's feedback (%d) and is returned to its author. Read it with decision_get, call decision_record with this reference, then change the item into a new revision with decision_edit or withdraw it with decision_withdraw.", reference, id)
 	}
-	return fmt.Sprintf("Decision %s has a verdict (%d). Read it with decision_get, record it with decision_record and commit DECISIONS.md with the work.", reference, id)
+	return fmt.Sprintf("Decision %s has a verdict (%d). Read it with decision_get, then call decision_record with this reference: it applies "+
+		"this repository's Decision record fact and says what goes into the repository.", reference, id)
 }
 
-// verdictMessageBody is the verdict message: the notice, then the path and the verdict's
-// entry when it has one (#536). An entry that does not fit in a message, which only stored
-// hidden commands can cause, is left out, and the body says where to read it.
+// verdictMessageBody is the verdict message: the notice, then the verdict's entry when it has
+// one (#536). The entry is the card text that the maintainer saw; the repository's record
+// mode decides what of it is recorded (#589). An entry that does not fit in a message, which
+// only stored hidden commands can cause, is left out, and the body says where to read it.
 func verdictMessageBody(reference, verdict string, id int64, entry string) string {
 	notice := verdictNoticeBody(reference, verdict, id)
 	if entry == "" {
 		return notice
 	}
-	body := notice + "\n\nPath: " + DecisionRecordFile + "\n\nEntry:\n" + entry
+	body := notice + "\n\nVerdict and card text:\n" + entry
 	if len(body) > maxBody {
 		return notice + " The entry is larger than a message; decision_get and decision_pending give it."
 	}

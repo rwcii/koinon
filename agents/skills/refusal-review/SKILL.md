@@ -39,7 +39,10 @@ Each listed constraint needs a source that covers its case:
 A recorded maintainer decision states four things: the question it answered, the options that
 were on the table, the answer quoted with its date, and the reason with its scope (what it
 covers and what it does not). A bare quote, or one without its question or reason, cannot show
-its scope, so a later agent may read it as a wider rule.
+its scope, so a later agent may read it as a wider rule. Check these four parts in the document
+that states the rule, such as the ADR, PDR or WDR that the decision changes. A `DECISIONS.md`
+entry is a log of verdicts, short or full, and is not checked for them. A decision board
+reference alone is not a source: a reviewer on another machine cannot read the board.
 
 A routine argument check or a demonstrated capability limit has its source in the code or the
 platform. Text that presents a plan proposal as decided, or a decision wider than its quoted
@@ -48,7 +51,8 @@ case, is a finding.
 ## 3. Record the verdict
 
 Report a finding for each constraint with no source, one wider than its source, and each
-maintainer decision recorded without its question, options, quoted answer or reason. Name the
+maintainer decision stated in a governing document without its question, options, quoted
+answer or reason. Name the
 file and the text, test or condition, its effect, the missing or narrower source, and the fix.
 Send findings in one batch. A follow-up review covers the accepted fixes and the constraints
 they add or change.

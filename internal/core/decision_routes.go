@@ -90,6 +90,25 @@ func (d *Daemon) decisionRoutes(mux *http.ServeMux) {
 		d.store.ToolCall(request.Caller)
 		respond(w, 200, map[string]any{"ok": true, "result": item})
 	})
+	// One page of the board's export (#589).
+	mux.HandleFunc("POST /v1/decisions/export", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Caller Key `json:"caller"`
+			DecisionExportAt
+			Limit int `json:"limit"`
+		}
+		if err := decode(w, r, &request); err != nil {
+			failure(w, err)
+			return
+		}
+		page, err := d.store.DecisionExport(r.Context(), request.Caller, request.DecisionExportAt, request.Limit)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		d.store.ToolCall(request.Caller)
+		respond(w, 200, map[string]any{"ok": true, "result": page})
+	})
 	mux.HandleFunc("POST /v1/decisions/history", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
 			Caller      Key    `json:"caller"`

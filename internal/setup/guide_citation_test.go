@@ -18,7 +18,9 @@ func TestGuideLeavesDecisionCitationToTheProject(t *testing.T) {
 		if strings.Contains(text, "DECISIONS.md#") || strings.Contains(text, "Cite ") || strings.Contains(text, "cite the decision") {
 			t.Fatalf("%s guide tells the project how to cite a decision", family)
 		}
-		for _, want := range []string{"Name a decision\nby its reference", "verdict ID exists only in this machine's store", "How a project cites its\ndecisions is that project's own rule."} {
+		for _, want := range []string{"Name a decision by its reference", "verdict ID exists only in this machine's\nstore", "How a project cites its decisions is that project's own rule.",
+			// The record mode (#589).
+			"none (the default), short or full (#589)", "With none it writes nothing", "koinon decision export PATH"} {
 			if !strings.Contains(text, want) {
 				t.Fatalf("%s guide lacks %q", family, want)
 			}

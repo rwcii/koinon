@@ -5,6 +5,24 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Each repository chooses how a board verdict is recorded, with the first word of the
+  `Decision record` fact in its `.koinon/skills/ship.md` (#589, RECORD-MODE-589). `none`, the
+  default, writes nothing: the pull request that does the work puts the changed rule, with the
+  question, the chosen option, the reason and the maintainer's words, into the document that
+  holds it. `short` appends the verdict, the title, the recommendation's heading and the
+  maintainer's note to `DECISIONS.md`; `full` also the card text, as before. Before, every
+  verdict was appended with its card text, and every change committed `DECISIONS.md`. The
+  verdict message, `decision_get` and `decision_pending` now ask the agent to call
+  `decision_record`, not to commit `DECISIONS.md`. In `short` and `full`, a `DECISIONS.md` in
+  another format keeps its text and the entries follow it; `decision_record_foreign` is gone.
+  Koinon's own repository uses `none`; its existing entries and their citations stay.
+- `koinon decision export PATH` writes every decision item, with its verdicts, snapshots and
+  notes, live and deep-archived, as JSON lines to a new private file outside a Git work tree,
+  so a person or CI can read a copy of the board without the daemon (#589). The new route is
+  `POST /v1/decisions/export`.
+- The refusal-review skill checks the question, options, quoted answer and reason of a
+  maintainer decision in the document that states the rule, not in a `DECISIONS.md` entry, and
+  a board reference alone is not a source (#589).
 - A managed cycle accepts the pickup report at `reset_verified`, before Koinon enters the
   pickup (#588, DECISIONS.md#PICKUP-RESET-588). Before, a session that restored its handoff on its own after the verified
   reset got `cycle_changed`, Koinon waited for an idle pane to enter the pickup, and the cycle
