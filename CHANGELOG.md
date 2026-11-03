@@ -10,9 +10,10 @@ into a dated release section when promoted to `main`.
   (#593, board card TURN-AFTER-READY-592). Koinon reads the session's own record back to the
   report, before the clear and again right before its input: the agy transcript's steps, the
   Grok event log, the OpenCode session's messages and the DeepSeek history, never their text. A
-  Grok prompt that waits in Grok's queue during a running turn keeps the clear from running
-  (`input_queued`), and a record that cannot be read back to the report does too
-  (`history_unread`); neither asks for a new handoff. An OpenCode select that a turn refuses
+  Grok prompt that waits in Grok's queue keeps the clear from running, and a record that cannot
+  be read back to the report does too (`history_unread`). On an idle pane neither asks for a new
+  handoff; a queue during a running turn is a running turn, which asks again at the ready
+  deadline (GROK-RUNNING-QUEUE-593). An OpenCode select that a turn refuses
   keeps the created session, and the next reset selects that session once.
 - A handoff quotes the maintainer's directions and keeps the agent's own proposals apart
   (board card HANDOFF-WORDS). The handoff skill's template has a Maintainer direction section,
