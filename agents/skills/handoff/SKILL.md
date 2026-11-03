@@ -93,11 +93,27 @@ Use UTC so that every agent's files sort in one order. The file is
 
 ## 4. Seed from the progress note and the last handoff of this agent
 
-Start from `$dir/progress.md` when it exists (step 6), then take what the note does not cover
-from the last snapshot. Find both with the `pickup` skill's lookup (step 2 there), which
-selects the timestamped files. Carry forward what is still true and still open, and leave out
-work that is finished or abandoned. The new file is a complete snapshot, not a difference from
-the last one.
+Use the progress note (step 6) only when it is newer than the last snapshot. Run this after the
+block of step 2, which sets `dir`:
+
+```sh
+note="$dir/progress.md"
+last=$(ls "$dir"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]*.md 2>/dev/null | sort | tail -1)
+if [ -f "$note" ] && [ "$(wc -c < "$note")" -le 4096 ] && { [ -z "$last" ] || [ "$note" -nt "$last" ]; }; then
+  echo "seed: note${last:+, then $last}"
+elif [ -n "$last" ]; then
+  echo "seed: $last; note older, absent or unusable"
+else
+  echo "seed: none"
+fi
+```
+
+With `seed: note`, start from the note, then take what it does not cover from the last
+snapshot, always with its Maintainer direction and My proposals not yet raised sections. With
+`seed: SNAPSHOT; note older, absent or unusable`, start from that snapshot and say in the new
+handoff that the note was not used. Carry forward what is still true and still open, and leave
+out work that is finished or abandoned. The new file is a complete snapshot, not a difference
+from the last one.
 
 ## 5. Verify, then write
 
@@ -115,6 +131,13 @@ state, pull request and issue states, CI state. Write:
 
 ## Goal and success criteria
 - <the goal, and the checkable conditions that complete it>
+
+## Maintainer direction
+- "<the maintainer's words>" (<date>, <where: terminal, dashboard or board card REFERENCE>),
+  answering: <the question or proposal it answered>
+
+## My proposals not yet raised
+- <a draft, open point or idea of yours that the maintainer has not seen>
 
 ## Resume here
 - Next action: <the single first step>
@@ -158,6 +181,13 @@ List each subagent or background job that still runs: a context clear does not s
 Code background subagent, and its result arrives in the next conversation, which knows its task
 only from this list (WDR 005, Decision 4).
 
+Maintainer direction holds each direction that is still in force, in the maintainer's own words,
+with its date, where it was given and the question or proposal it answered; a summary in your
+words can narrow it. My proposals not yet raised holds your own drafts, open points and ideas
+that the maintainer has not seen: write them as yours, not as questions from the maintainer or
+as rules. The pause of a managed cycle is for that cycle; it is not a direction for the next
+session.
+
 Use commit hashes, branch names, issue and pull request numbers, and repository-relative
 paths. Leave out a section that has no content. The file stays on this machine: name a key or
 credential by where it is kept, and summarize peer messages in your own words.
@@ -174,7 +204,7 @@ The note is `$dir/progress.md`, in the resolved Handoff path, at most 4 KiB, wit
 - Task: <the current task and its issue>
 - PR and head: <number and commit, or none>
 - Completed: <stages and checks that are done>
-- Decisions: <confirmed choices and their sources>
+- Decisions: <confirmed choices and their sources; maintainer directions are quoted in the snapshot>
 - Open issues: <missing evidence or blockers>
 - Next action: <one concrete step>
 ```

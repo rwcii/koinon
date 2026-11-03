@@ -5,6 +5,18 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A handoff quotes the maintainer's directions and keeps the agent's own proposals apart
+  (board card HANDOFF-WORDS). The handoff skill's template has a Maintainer direction section,
+  each direction still in force in the maintainer's words with its date, where it was given and
+  the question it answered, and a My proposals not yet raised section for the agent's own
+  drafts and open points. A handoff starts from the progress note only when the note is newer
+  than the last snapshot, else from the snapshot, and says that the note was not used. Pickup
+  reads both sections also when the note is usable and reports the proposals as the agent's
+  own. The managed cycle request and the guide say that the pause is for that cycle only and
+  that the handoff does not record it as a rule for the next session. `library_read` serves the
+  new skill text; `library_state` shows a copy whose recorded adoption has the earlier text as
+  `outdated`.
+
 ## 2026-11-03 — Decision record modes, a board export, and clears that wait for a new turn
 
 This release lets each repository choose how a board verdict is recorded, with `none` as the

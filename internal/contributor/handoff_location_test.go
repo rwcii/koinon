@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // skillBlock returns the first sh block after heading in a skill, with <agent-id> replaced.
@@ -75,5 +76,98 @@ func TestHandoffLocationBlocksRun(t *testing.T) {
 	}
 	if exclude, err := os.ReadFile(filepath.Join(repo, ".git", "info", "exclude")); err != nil || !strings.Contains(string(exclude), "/_handoff/") {
 		t.Fatalf("exclude: %q %v", exclude, err)
+	}
+}
+
+// The handoff skill seeds from the progress note only when the note is newer than the last
+// snapshot (HANDOFF-WORDS): a newer note, an older or equally old note, no note, an oversized
+// note and a note with no snapshot, in a directory whose path has spaces.
+func TestHandoffSeedBlock(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash is not installed")
+	}
+	seed := skillBlock(t, "handoff", "## 4. Seed from the progress note and the last handoff of this agent")
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "a dir with spaces", "_handoff", "claude")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	note := filepath.Join(dir, "progress.md")
+	older := filepath.Join(dir, "2026-11-02-010000.md")
+	last := filepath.Join(dir, "2026-11-03-010000-label.md")
+	run := func() string {
+		return strings.TrimSpace(runBlock(t, "dir='"+dir+"'\n"+seed, root))
+	}
+	at := func(path string, when time.Time) {
+		if err := os.Chtimes(path, when, when); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write := func(path, text string) {
+		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	base := time.Now().Add(-time.Hour).Truncate(time.Second)
+	if out := run(); out != "seed: none" {
+		t.Fatalf("empty directory: %s", out)
+	}
+	write(note, "# Progress — claude\n")
+	if out := run(); out != "seed: note" {
+		t.Fatalf("note with no snapshot: %s", out)
+	}
+	write(older, "synthetic")
+	write(last, "synthetic")
+	at(older, base)
+	at(last, base.Add(time.Minute))
+	at(note, base.Add(2*time.Minute))
+	if out := run(); out != "seed: note, then "+last {
+		t.Fatalf("newer note: %s", out)
+	}
+	for name, when := range map[string]time.Time{"older": base, "equal": base.Add(time.Minute)} {
+		at(note, when)
+		if out := run(); out != "seed: "+last+"; note older, absent or unusable" {
+			t.Fatalf("%s note: %s", name, out)
+		}
+	}
+	write(note, strings.Repeat("x", 4097))
+	at(note, base.Add(2*time.Minute))
+	if out := run(); out != "seed: "+last+"; note older, absent or unusable" {
+		t.Fatalf("oversized note: %s", out)
+	}
+	if err := os.Remove(note); err != nil {
+		t.Fatal(err)
+	}
+	if out := run(); out != "seed: "+last+"; note older, absent or unusable" {
+		t.Fatalf("no note: %s", out)
+	}
+}
+
+// The handoff template quotes the maintainer's directions apart from the agent's proposals,
+// pickup reads and reports them that way, and the cycle request and the guide say that the
+// pause is for that cycle only (HANDOFF-WORDS).
+func TestHandoffCarriesMaintainerWords(t *testing.T) {
+	handoff := read(t, filepath.Join("agents", "skills", "handoff", "SKILL.md"))
+	pickup := read(t, filepath.Join("agents", "skills", "pickup", "SKILL.md"))
+	guide := read(t, filepath.Join("internal", "setup", "guide.go"))
+	request := read(t, filepath.Join("internal", "core", "context_cycle.go"))
+	for _, c := range []struct {
+		name, text, want string
+	}{
+		{"handoff", handoff, "## Maintainer direction\n- \"<the maintainer's words>\" (<date>, <where: terminal, dashboard or board card REFERENCE>),\n  answering: <the question or proposal it answered>"},
+		{"handoff", handoff, "## My proposals not yet raised\n- <a draft, open point or idea of yours that the maintainer has not seen>"},
+		{"handoff", handoff, "write them as yours, not as questions from the maintainer or\nas rules"},
+		{"handoff", handoff, "- Decisions: <confirmed choices and their sources; maintainer directions are quoted in the snapshot>"},
+		{"pickup", pickup, "and always its Maintainer direction and My\nproposals not yet raised sections: the note does not replace them."},
+		{"pickup", pickup, "report each proposal as yours, not as a\nquestion or a rule from the maintainer. The maintainer's current instructions are a direct\nsource as always."},
+		{"guide", guide, "The\n  pause is for this cycle only; your handoff does not record it as a rule for the next\n  session."},
+		{"request", request, "This pause is for this cycle only; the handoff does not record it as a rule for the next session."},
+	} {
+		if !strings.Contains(c.text, c.want) {
+			t.Errorf("%s lacks %q", c.name, c.want)
+		}
 	}
 }
