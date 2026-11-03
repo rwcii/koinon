@@ -360,10 +360,12 @@ func deepSeekQuiet(ctx context.Context, c *deepSeekClient, id string) (seen stri
 
 // deepSeekTurnSince reports whether session id had a conversation turn after the ready report
 // at readyAt (Unix milliseconds): a user/message or turn/start event created after it (#593).
-// It reads the log back from its newest event, contiguous pages within the scan's bound, to an
-// event at or before the report or to the log's start, and then the log's end again, which must
-// not have moved. An event without a valid time, a gap, a moved end and an exhausted bound are
-// errors (errHistoryUnread), so a turn is never missed.
+// It reads the log back from its newest event, contiguous pages within the scan's bound, to the
+// turn/start at or before the report, the start of the turn that made it, or to the log's start,
+// and then the log's end again, which must not have moved. Going back, each event's time must be
+// at or before the newer one's, so a later event's earlier time never hides a turn. An event
+// without a valid time, a time out of order, a gap, a moved end and an exhausted bound are errors
+// (errHistoryUnread), so a turn is never missed.
 func deepSeekTurnSince(ctx context.Context, c *deepSeekClient, id string, readyAt int64) (bool, error) {
 	if readyAt <= 0 {
 		return false, nil
@@ -372,18 +374,20 @@ func deepSeekTurnSince(ctx context.Context, c *deepSeekClient, id string, readyA
 	if err != nil || !found {
 		return false, errHistoryUnread
 	}
-	turn, unread := false, false
+	turn, unread, newer := false, false, int64(maxSafeInt)
 	_, err = deepSeekHistory(ctx, c, id, view.AsOfSeq.value, false, func(e deepSeekCycleEvent) bool {
 		switch {
-		case !e.Time.ok:
+		case !e.Time.ok || e.Time.value > newer:
 			unread = true
 			return false
 		case e.Time.value <= readyAt:
-			return false
+			newer = e.Time.value
+			return e.Type != "turn/start"
 		case e.Type == "user/message" || e.Type == "turn/start":
 			turn = true
 			return false
 		}
+		newer = e.Time.value
 		return true
 	})
 	if err != nil || unread {

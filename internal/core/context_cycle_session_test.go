@@ -829,6 +829,15 @@ func TestSessionCycleUnreadHistoryRecovers(t *testing.T) {
 	if c := g.cycle(t, v.ID); c.State != cycleResetVerified || g.session.count("create") != 1 || g.session.count("select synthetic-created-1") != 1 {
 		t.Fatalf("recovered: %+v %v", c, g.session.calls)
 	}
+	// A kept session that was used ends the cycle, as any end of the clear's intent does; no other
+	// session replaces it.
+	g = newSessionFixture(t)
+	g.session.createErr = errSuccessorNotEmpty
+	v = g.ready(t)
+	g.step(t)
+	if c := g.cycle(t, v.ID); c.State != cycleUncertain || c.Reason != errSuccessorNotEmpty.Error() || c.SuccessorEpoch != "" {
+		t.Fatalf("used kept session: %+v", c)
+	}
 	for _, refusal := range []error{errTurnAfterReady, errHistoryUnread} {
 		g = newSessionFixture(t)
 		g.session.createErr = refusal

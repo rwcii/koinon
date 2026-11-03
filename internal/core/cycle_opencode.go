@@ -55,6 +55,9 @@ var (
 	errOpenCodeServer   = errors.New("server_unavailable")
 	errOpenCodeModel    = errors.New("model_unavailable")
 	errOpenCodeAsync    = errors.New("pickup_async")
+	// errSuccessorNotEmpty is a kept created session that is no longer the cycle's empty one
+	// (#593): it is never replaced by another.
+	errSuccessorNotEmpty = errors.New("successor_not_empty")
 )
 
 type openCodeCycle struct{}
@@ -129,8 +132,10 @@ const (
 // session's newest messages, oldest first, up to limit, and names the page before them in
 // X-Next-Cursor; the oldest page has none, also when it is full (native evidence, opencode
 // 1.18.35). The read goes back, a page at a time, to a message created at or before the report,
-// or to the oldest page. A page that is not in order, a message without a role or a valid time,
-// and a read that exceeds its bound are errors (errHistoryUnread), so a turn is never missed.
+// or to the oldest page, and then reads the newest page again, whose newest message must be the
+// same, so a message that came during the read is not missed. A page that is not in order, a
+// message without a role or a valid time, and a read that exceeds its bound are errors
+// (errHistoryUnread), so a turn is never missed.
 func openCodeTurnSince(ctx context.Context, t CycleTarget) (bool, error) {
 	if t.ReadyAt <= 0 {
 		return false, nil
@@ -138,8 +143,14 @@ func openCodeTurnSince(ctx context.Context, t CycleTarget) (bool, error) {
 	if t.openCode == nil {
 		return false, errHistoryUnread
 	}
-	before := ""
-	for range openCodeHistoryPages {
+	newest := func(messages []openCodeMessage) string {
+		if len(messages) == 0 {
+			return ""
+		}
+		return messages[len(messages)-1].Info.ID
+	}
+	before, end := "", ""
+	for page := range openCodeHistoryPages {
 		path := sessionPath(t.SessionID) + "/message?limit=" + strconv.Itoa(openCodeHistoryPage)
 		if before != "" {
 			path += "&before=" + url.QueryEscape(before)
@@ -148,6 +159,9 @@ func openCodeTurnSince(ctx context.Context, t CycleTarget) (bool, error) {
 		header, err := openCodeExchange(ctx, *t.openCode, http.MethodGet, path, nil, &messages, openCodeRequestTimeout)
 		if err != nil || len(messages) > openCodeHistoryPage {
 			return false, errHistoryUnread
+		}
+		if page == 0 {
+			end = newest(messages)
 		}
 		reached := false
 		for i, m := range messages {
@@ -164,6 +178,10 @@ func openCodeTurnSince(ctx context.Context, t CycleTarget) (bool, error) {
 		}
 		before = header.Get("X-Next-Cursor")
 		if reached || before == "" {
+			var again []openCodeMessage
+			if err := openCodeRead(ctx, t, sessionPath(t.SessionID)+"/message?limit=1", &again); err != nil || newest(again) != end {
+				return false, errHistoryUnread
+			}
 			return false, nil
 		}
 	}
@@ -624,7 +642,8 @@ func (openCodeCycle) Clear(context.Context, CycleTarget, CycleFence) (bool, erro
 // requester ready, and returns its ID. After the fence, right before the request, the
 // requester's messages are read again: a turn after the ready report refuses it, with nothing
 // created (#593). A session that an earlier create of this cycle made and that no select
-// showed is used again while the server shows it with the cycle's title and no messages.
+// showed is used again while the server shows it with the cycle's title and no messages; one
+// that no longer is refuses the create (errSuccessorNotEmpty), which creates no other.
 func (a openCodeCycle) Create(ctx context.Context, t CycleTarget, fence CycleFence) (string, error) {
 	if err := a.ready(ctx, t); err != nil {
 		return "", err
@@ -636,11 +655,14 @@ func (a openCodeCycle) Create(ctx context.Context, t CycleTarget, fence CycleFen
 		return "", err
 	}
 	if t.keptSuccessor != "" {
-		if kept, err := openCodeEmptySession(ctx, t, t.keptSuccessor); err != nil {
+		kept, err := openCodeEmptySession(ctx, t, t.keptSuccessor)
+		switch {
+		case err != nil:
 			return "", err
-		} else if kept {
-			return t.keptSuccessor, nil
+		case !kept:
+			return "", errSuccessorNotEmpty
 		}
+		return t.keptSuccessor, nil
 	}
 	var created struct {
 		ID    string `json:"id"`

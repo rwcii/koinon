@@ -1214,6 +1214,16 @@ func TestDeepSeekCycleTurnSince(t *testing.T) {
 			f.addAt(dshRequester, `"type":"turn/end","data":{}`, dshReadyAt+3)
 		}},
 		{"no time", historyUnread, func(f *dshFake) { f.addAt(dshRequester, `"type":"step/end","data":{}`, 0) }},
+		{"a time that goes back", historyUnread, func(f *dshFake) {
+			f.addAt(dshRequester, delivered, dshReadyAt+1000)
+			f.addAt(dshRequester, `"type":"step/end","data":{}`, dshReadyAt-1)
+		}},
+		{"before the report's own turn", "", func(f *dshFake) {
+			f.addAt(dshRequester, `"type":"turn/start","data":{}`, dshReadyAt-50)
+			f.addAt(dshRequester, delivered, dshReadyAt-40)
+			f.addAt(dshRequester, `"type":"step/end","data":{}`, dshReadyAt-5)
+			f.addAt(dshRequester, `"type":"turn/end","data":{}`, dshReadyAt+20)
+		}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			f, target := newDSHFake(t)

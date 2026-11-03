@@ -402,6 +402,31 @@ func TestRecordTurnSinceChangedDuringRead(t *testing.T) {
 	}
 }
 
+// The controller returns a Grok clear refused for a queue before its first key to ready, with no
+// key sent (review of #599).
+func TestGrokQueueAtTheTypingFence(t *testing.T) {
+	f := newCycleFixture(t)
+	view, _ := f.readyCycle(t)
+	g := newGrokTerminal(t)
+	g.said = []string{"an earlier prompt"}
+	g.events(t, "turn_started", -9000, "mcp_tool_call_completed", 0, "turn_ended", 900)
+	err := f.s.enterInput(context.Background(), f.cycle(t, view.ID), cycleClearIntent, cycleClearReceived, pinnedRequester(context.Background()),
+		func(fence CycleFence) (bool, error) {
+			return (grokCycle{}).Clear(context.Background(), g.readyTarget(), func(ctx context.Context) error {
+				if err := fence(ctx); err != nil {
+					return err
+				}
+				g.mu.Lock()
+				g.queued = []string{"a queued prompt"}
+				g.mu.Unlock()
+				return g.fence(ctx)
+			})
+		})
+	if after := f.cycle(t, view.ID); err != nil || after.State != cycleReady || after.Reason != inputQueued || len(g.sent()) != 0 {
+		t.Fatalf("%v %s %s %q", err, after.State, after.Reason, g.sent())
+	}
+}
+
 // A clear refused for input that has not started, or for a record that could not be read back
 // to the ready report, returns the cycle to ready with nothing entered (#593). While Inspect
 // still sees it, the cycle waits and asks for no new handoff, also at the stage's deadline,

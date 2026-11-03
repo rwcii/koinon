@@ -678,6 +678,8 @@ func TestGrokTurnSince(t *testing.T) {
 	ctx := context.Background()
 	quiet := []any{"turn_started", -60000, "mcp_tool_call_completed", -50000, "turn_ended", -45000,
 		"turn_started", -9000, "mcp_tool_call_started", -100, "mcp_tool_call_completed", 0, "loop_started", 20, "turn_ended", 900}
+	// The report's own turn up to its completion, for a turn right at the boundary.
+	reported := []any{"turn_started", -9000, "mcp_tool_call_started", -100, "mcp_tool_call_completed", -1}
 	cases := []struct {
 		name    string
 		entries []any
@@ -685,8 +687,8 @@ func TestGrokTurnSince(t *testing.T) {
 	}{
 		{"own report only", quiet, nil},
 		{"a later turn", append(slices.Clone(quiet), "turn_started", 5000, "loop_started", 5010), errTurnAfterReady},
-		{"a turn at the report's millisecond", append(slices.Clone(quiet), "turn_started", 0), nil},
-		{"a turn one millisecond later", append(slices.Clone(quiet), "turn_started", 1), errTurnAfterReady},
+		{"a turn at the report's millisecond", append(slices.Clone(reported), "turn_started", 0), nil},
+		{"a turn one millisecond later", append(slices.Clone(reported), "turn_started", 1), errTurnAfterReady},
 		{"a turn before the report's completion", []any{"turn_started", -9000, "turn_ended", -8000, "turn_started", -10, "mcp_tool_call_completed", 0}, nil},
 		{"no time after the report", append(slices.Clone(quiet), `{"type":"turn_ended"}`), errHistoryUnread},
 		{"not an event", append(slices.Clone(quiet), `{"type":`), errHistoryUnread},
@@ -761,7 +763,7 @@ func TestGrokQueuedInput(t *testing.T) {
 	if cycleRepeatable(inputQueued) || cycleRepeatable(historyUnread) {
 		t.Fatal("a queued prompt or unread history asks for a new handoff")
 	}
-	if received, err := (grokCycle{}).Clear(ctx, g.readyTarget(), g.fence); received || !errors.Is(err, errAgyNotReady) || len(g.sent()) != 0 {
+	if received, err := (grokCycle{}).Clear(ctx, g.readyTarget(), g.fence); received || !errors.Is(err, errInputQueued) || len(g.sent()) != 0 {
 		t.Fatalf("clear while queued: %v %v %q", received, err, g.sent())
 	}
 	g.queued = nil
@@ -810,5 +812,25 @@ func TestGrokQueuedInput(t *testing.T) {
 	g.events(t, "turn_started", -9000, "mcp_tool_call_completed", 0, "turn_ended", 900)
 	if received, err := (grokCycle{}).Clear(ctx, g.readyTarget(), g.fence); !received || err != nil || g.news != 1 {
 		t.Fatalf("quiet clear: %v %v %q", received, err, g.sent())
+	}
+	// A later event whose time goes back would hide the turn before it: unread (review of #599).
+	g = newGrokTerminal(t)
+	g.said = []string{"an earlier prompt"}
+	g.events(t, "turn_started", -9000, "turn_started", 1000, "turn_ended", -1)
+	if received, err := (grokCycle{}).Clear(ctx, g.readyTarget(), g.fence); received || !errors.Is(err, errHistoryUnread) || g.news != 0 {
+		t.Fatalf("time back: %v %v %q", received, err, g.sent())
+	}
+	// A queue that comes before the first typed key refuses the clear unsent, with no key.
+	g = newGrokTerminal(t)
+	g.said = []string{"an earlier prompt"}
+	g.events(t, "turn_started", -9000, "mcp_tool_call_completed", 0, "turn_ended", 900)
+	early := func(ctx context.Context) error {
+		g.mu.Lock()
+		g.queued = []string{"a queued prompt"}
+		g.mu.Unlock()
+		return g.fence(ctx)
+	}
+	if received, err := (grokCycle{}).Clear(ctx, g.readyTarget(), early); received || !errors.Is(err, errInputQueued) || len(g.sent()) != 0 {
+		t.Fatalf("queue before typing: %v %v %q", received, err, g.sent())
 	}
 }

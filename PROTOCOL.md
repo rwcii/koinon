@@ -756,14 +756,18 @@ a prompt starts its turn. A `turn_started` after the ready report is a turn; the
 turn started before it, and its tool call's completion, `loop_started` and `turn_ended` are not.
 Its own context, such as a system reminder, starts no turn. The log is read as the Claude
 transcript is, from its end back to the last event at or before the report; an event after the
-report without a valid time, a partial last line, a missing log or an unknown working directory
-is `history_unread`. A prompt typed during a running turn waits in Grok's queue, shown as
+report without a valid time, a time earlier than the one before it (the log's times never went
+back in 49 sessions), a partial last line, a missing log or an unknown working directory is
+`history_unread`. A prompt typed during a running turn waits in Grok's queue, shown as
 `▾ Queued N` and its numbered rows right above the input box and the menu, with
 `Enter:send now` in the shortcut bar; no file holds it until its turn starts, about 0.1 s after
 the running turn ends (two live runs). While that queue shows, the pane is not ready
 (`input_queued`): the cycle waits and asks for no new handoff, and the queued turn, once
-started, asks again. The clear reads the queue and the log again after the Enter's proof and
-fence, right before the key; a queue or a turn found then erases the typed `/new` and returns the
+started, asks again. While a turn runs the pane is `turn_running`, also with a queue: the queued
+turn starts after it and asks again then, and a ready stage that times out on a running turn asks
+again, as for any family. A queue that shows when the clear would type `/new` refuses it with
+nothing typed; the clear reads the queue and the log again after the Enter's proof and fence,
+right before the key, and a queue or a turn found then erases the typed `/new`. Both return the
 cycle to `ready`.
 
 The reset is proven by a witness, with the agy contract: the Grok status-line hook sends each
@@ -827,9 +831,11 @@ prompt, or a message that Koinon delivered. `GET /session/{id}/message?limit=50`
 requester's newest messages, oldest first, and names the page before them in `X-Next-Cursor`,
 which `before` takes; the oldest page has no cursor, also when it is full (opencode 1.18.35).
 Koinon reads back a page at a time, at most 20, to a message created at or before the report or
-to the oldest page, and reads only each message's role and `time.created`, never its parts. A
-message without a role or a valid time, a page out of order, a failed page and a read past the
-bound is `history_unread`: the cycle waits and asks for no new handoff.
+to the oldest page, then the newest message again, which must be the same, so a message that
+came during the read is not missed; it reads only each message's ID, role and `time.created`,
+never its parts. A message without a role or a valid time, a page out of order, a failed page, a
+newer message after the read and a read past the bound is `history_unread`: the cycle waits and
+asks for no new handoff.
 
 The clear stage creates the successor (`POST /session` with the title `koinon-cycle-CYCLE`,
 after a fresh read and the fence). Right before the request, after the fence, the requester's
@@ -845,7 +851,8 @@ that cannot be read, refuse it unsent. The cycle then returns to `ready` with th
 keeps the created session. That `ready` event after the intent is the durable proof that the
 intent was not sent, so a later select is sent once again; any other intent may have been sent
 and is never sent again. The next create uses the kept session while the server shows it with
-the cycle's title and no messages; otherwise it creates another. OpenCode accepts the select with `true` but gives no read-back of the session that the
+the cycle's title and no messages; a kept session that no longer is ends the cycle `uncertain`
+(`successor_not_empty`), and no other session replaces it. OpenCode accepts the select with `true` but gives no read-back of the session that the
 TUI shows. The reset is proven by the server and the pane: the recorded session exists with the
 cycle's title and no messages, and the pane shows an empty session view with an empty composer.
 That proves the creation, not the display: another empty session looks the same. The pre-pickup
@@ -949,10 +956,11 @@ than these events.
 Before the reset, a conversation turn after the ready report asks again (`turn_after_ready`,
 #593): a `user/message` or `turn/start` event whose `time` is after the report, also a message
 without a turn, such as one that Koinon delivered. The scan reads the requester's history back
-from its newest event, past the newest `turn/start`, to an event at or before the report or to
-the log's start, in contiguous pages within the same budget, and then the projections again,
-whose `asOfSeq` must not have moved. An event without a valid `time`, a gap, a moved end and an
-exhausted budget are `history_unread`: the cycle waits and asks for no new handoff. Its worker
+from its newest event, past the newest `turn/start`, to the `turn/start` at or before the report,
+the start of the turn that made it, or to the log's start, in contiguous pages within the same
+budget, and then the projections again, whose `asOfSeq` must not have moved. Going back, each
+event's time must be at or before the newer one's. An event without a valid `time`, a time out
+of order, a gap, a moved end and an exhausted budget are `history_unread`: the cycle waits and asks for no new handoff. Its worker
 publishes the turn like any other read, and the step asks again.
 
 The reset creates the successor: under the recorded `clear_intent` and after the pin, the

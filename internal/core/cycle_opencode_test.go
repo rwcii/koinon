@@ -713,11 +713,11 @@ func TestOpenCodeTurnSince(t *testing.T) {
 		last  int64
 		roles map[int]string
 		turn  bool
-		pages int
+		pages int // with the read of the newest page again
 	}{
-		{"quiet", 9, 3000, map[int]string{6: "assistant", 8: "assistant"}, false, 1},
+		{"quiet", 9, 3000, map[int]string{6: "assistant", 8: "assistant"}, false, 2},
 		{"user after the report", 9, 3000, nil, true, 1},
-		{"user at the report's millisecond", 9, 0, nil, false, 1},
+		{"user at the report's millisecond", 9, 0, nil, false, 2},
 		{"turn on the newest page of many", 160, 140000, map[int]string{158: "assistant", 159: "assistant"}, true, 1},
 		{"report three pages back", 160, 100000, func() map[int]string {
 			roles := map[int]string{}
@@ -725,14 +725,14 @@ func TestOpenCodeTurnSince(t *testing.T) {
 				roles[i] = "assistant"
 			}
 			return roles
-		}(), false, 3},
+		}(), false, 4},
 		{"whole log after the report, full oldest page", 100, 200000, func() map[int]string {
 			roles := map[int]string{}
 			for i := range 100 {
 				roles[i] = "assistant"
 			}
 			return roles
-		}(), false, 2},
+		}(), false, 3},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -821,7 +821,8 @@ func TestOpenCodeTurnAfterReady(t *testing.T) {
 	if code, unsent := unsentRefusal(errTurnAfterReady); !unsent || code != turnAfterReady {
 		t.Fatal(code)
 	}
-	// The kept session: used again while empty, else a new one is created.
+	// The kept session: used again while empty; one that is not refuses the create, and no
+	// other is created.
 	f = newFakeOpenCode(t)
 	f.history(9, 3000, quiet)
 	f.titles[ocSuccessor] = openCodeTitle("synthetic-cycle")
@@ -830,8 +831,34 @@ func TestOpenCodeTurnAfterReady(t *testing.T) {
 	if id, err := a.Create(ctx, target, f.fence); id != ocSuccessor || err != nil || f.created != 0 {
 		t.Fatalf("kept: %q %v %d", id, err, f.created)
 	}
-	f.messages[ocSuccessor] = []any{map[string]any{}}
-	if id, err := a.Create(ctx, target, f.fence); id != ocSuccessor || err != nil || f.created != 1 {
+	f.messages[ocSuccessor] = []any{map[string]any{"info": map[string]any{"role": "user"}}}
+	if id, err := a.Create(ctx, target, f.fence); id != "" || !errors.Is(err, errSuccessorNotEmpty) || f.created != 0 {
 		t.Fatalf("kept, not empty: %q %v %d", id, err, f.created)
+	}
+	// A user message that comes while the older pages are read is found by the read of the
+	// newest page again: the create is refused unsent (review of #599).
+	f = newFakeOpenCode(t)
+	roles := map[int]string{}
+	for i := range 160 {
+		roles[i] = "assistant"
+	}
+	f.history(160, 100000, roles)
+	var once sync.Once
+	wrapped := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("before") != "" {
+			once.Do(func() {
+				f.set(func(f *fakeOpenCode) {
+					f.messages[ocRequester] = append(f.messages[ocRequester], map[string]any{"info": map[string]any{"id": "msg_synthetic_late",
+						"role": "user", "time": map[string]any{"created": ocReadyAt + 200000}}})
+				})
+			})
+		}
+		f.serve(w, r)
+	}))
+	defer wrapped.Close()
+	target = f.readyTarget(cycleClearIntent)
+	target.openCode.Address = strings.TrimPrefix(wrapped.URL, "http://")
+	if id, err := a.Create(ctx, target, f.fence); id != "" || !errors.Is(err, errHistoryUnread) || f.created != 0 {
+		t.Fatalf("user during the paged read: %q %v %d", id, err, f.created)
 	}
 }

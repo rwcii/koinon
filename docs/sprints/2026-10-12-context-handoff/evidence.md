@@ -625,7 +625,7 @@ tool-call arguments were read, never message text; the fixtures are synthetic.
 - Grok Build 1.0.50, 49 sessions from the dev container's Grok home: in every session the user
   prompts (`chat_history.jsonl` entries with `prompt_index`), the `turn_started` events of
   `events.jsonl` and the `user_message_chunk` updates of `updates.jsonl` are equal in number, and
-  no `turn_started` comes while a turn is open. `turn_started` has `ts` in milliseconds and a
+  no `turn_started` comes while a turn is open. In every session the `ts` values never go back. `turn_started` has `ts` in milliseconds and a
   `turn_number`; `updates.jsonl` times have whole seconds. A `system_reminder` entry is Grok's own
   context: before the first prompt (14 sessions have nothing else) or among a turn's tool results,
   never an exchange of its own.

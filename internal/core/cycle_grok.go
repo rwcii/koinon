@@ -305,7 +305,8 @@ func grokTurnRecord(line []byte) (when int64, timed, starts, ok bool) {
 }
 
 // grokQuiet refuses an effect when the session started a turn after its ready report, when it
-// holds a queued prompt, or when its event log could not rule a turn out (#593).
+// holds a queued prompt, or when its event log could not rule a turn out (#593). The log's times
+// never went back in 49 sessions (Grok Build 1.0.50), so a time that goes back is unread.
 func grokQuiet(t CycleTarget, c codexScreen) error {
 	if grokQueued(c) {
 		return errInputQueued
@@ -317,7 +318,7 @@ func grokQuiet(t CycleTarget, c codexScreen) error {
 	if err != nil {
 		return errHistoryUnread
 	}
-	switch turn, err := recordTurnSince(path, t.ReadyAt, grokTurnRecord); {
+	switch turn, err := recordOrderedTurnSince(path, t.ReadyAt, grokTurnRecord); {
 	case err != nil:
 		return errHistoryUnread
 	case turn:
@@ -663,8 +664,16 @@ func (g grokCycle) erase(ctx context.Context, t CycleTarget, fence CycleFence, t
 // again; a draft that someone started is never touched.
 func (g grokCycle) command(ctx context.Context, t CycleTarget, fence CycleFence, text string, match func(grokRow) bool,
 	done func(before, after codexScreen) bool, final func(codexScreen) error) (bool, error) {
-	ready := func(s codexScreen) bool { return grokNotReady(t, s) == "" }
+	seen := ""
+	ready := func(s codexScreen) bool {
+		seen = grokNotReady(t, s)
+		return seen == ""
+	}
 	if err := g.keyIf(ctx, t, fence, ready, errAgyNotReady, "-l", text); err != nil {
+		if errors.Is(err, errAgyNotReady) && seen == inputQueued {
+			// Nothing was typed: a queued prompt waits for its turn (#593).
+			return false, errInputQueued
+		}
 		return false, err
 	}
 	typed := func(s codexScreen) bool { return grokMenuReady(s, text, match) }
