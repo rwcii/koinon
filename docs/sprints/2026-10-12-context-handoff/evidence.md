@@ -605,3 +605,42 @@ handoffs were removed.
     `count.txt` are kept with the run's evidence outside Git.
 
 Not yet verified: macOS; an MCP approval dialog inside a cycle.
+
+## Turn after the ready report (#593)
+
+Read-only checks on 2026-11-03 of the records that the four adapters read to find a
+conversation turn after the ready report. Only types, sources, indexes, times and Koinon's own
+tool-call arguments were read, never message text; the fixtures are synthetic.
+
+- agy 1.4.12, 38 local conversations: each
+  `~/.gemini/antigravity-cli/brain/CONVERSATION/.system_generated/logs/transcript.jsonl` has one
+  step per line with `step_index` 0, 1, 2 and so on, without a gap, and `created_at` in whole
+  seconds. Step kinds and sources: `USER_INPUT`/`USER_EXPLICIT` (50, every prompt, also the
+  Koinon wakes typed into the pane), `PLANNER_RESPONSE`/`MODEL` (267), `GENERIC`/`MODEL` (221),
+  `SYSTEM_MESSAGE`/`SYSTEM` (7), `CHECKPOINT`/`SYSTEM` (1). A tool call is a `tool_calls` entry of
+  a `PLANNER_RESPONSE` step; one step held two. A Koinon call is `call_mcp_tool` whose
+  `ServerName`, `ToolName` and `Arguments` are each a JSON string that holds the value's own JSON;
+  `context_cycle_ready`'s arguments are `artifact`, `cycle_id` and `revision`. After each of the
+  3 `context_cycle_ready` calls only `MODEL` steps followed.
+- Grok Build 1.0.50, 49 sessions from the dev container's Grok home: in every session the user
+  prompts (`chat_history.jsonl` entries with `prompt_index`), the `turn_started` events of
+  `events.jsonl` and the `user_message_chunk` updates of `updates.jsonl` are equal in number, and
+  no `turn_started` comes while a turn is open. In every session the `ts` values never go back. `turn_started` has `ts` in milliseconds and a
+  `turn_number`; `updates.jsonl` times have whole seconds. A `system_reminder` entry is Grok's own
+  context: before the first prompt (14 sessions have nothing else) or among a turn's tool results,
+  never an exchange of its own.
+- Grok Build 1.0.50, two live runs in the dev container: a prompt with a 30 s shell command, then
+  a second prompt typed during that turn. The TUI showed `▾ Queued 1` and `#1 PROMPT` right above
+  the input box, and `Enter:send now` in the shortcut bar. A copy of the session directory taken
+  while the prompt was queued held it in no file; nothing under the Grok home, the working
+  directory or `/tmp` held it, and no event or update was written. At the running turn's
+  `turn_ended` (12:31:36.239Z) the queued prompt started the next turn: `turn_started`
+  12:31:36.351Z, `turn_number` 1, and only then its `user_message_chunk`. The second run showed
+  the same. Limitation: a queued prompt is seen only in the pane until its turn starts.
+- opencode 1.18.35, a local `opencode serve`: `GET /session/{id}/message?limit=N` returns the
+  newest N messages, oldest first; `X-Next-Cursor` and a `Link` header with `rel=next` carry the
+  cursor that `before` takes for the page before them; the oldest page has no cursor, also when it
+  is full (a session of 38 messages read as 19 and 19); an invalid cursor is answered with 400.
+  Each message has `info.role` and `info.time.created` in milliseconds.
+- DeepSeek Harness 0.2.0-rc.2: each `session/page` event has `seq` and `time` in milliseconds, as
+  the #514 evidence above records; no new live run.

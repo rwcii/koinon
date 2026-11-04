@@ -93,33 +93,73 @@ Use UTC so that every agent's files sort in one order. The file is
 
 ## 4. Seed from the progress note and the last handoff of this agent
 
-Start from `$dir/progress.md` when it exists (step 6), then take what the note does not cover
-from the last snapshot. Find both with the `pickup` skill's lookup (step 2 there), which
-selects the timestamped files. Carry forward what is still true and still open, and leave out
-work that is finished or abandoned. The new file is a complete snapshot, not a difference from
-the last one.
+Use the progress note (step 6) only when it is newer than the last snapshot. Run this after the
+block of step 2, which sets `dir`:
+
+```sh
+note="$dir/progress.md"
+last=$(ls "$dir"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]*.md 2>/dev/null | sort | tail -1)
+if [ -f "$note" ] && [ "$(wc -c < "$note")" -le 4096 ] && { [ -z "$last" ] || [ "$note" -nt "$last" ]; }; then
+  echo "seed: note${last:+, then $last}"
+elif [ -n "$last" ]; then
+  echo "seed: $last; note older, absent or unusable"
+else
+  echo "seed: none"
+fi
+```
+
+With `seed: note`, start from the note, then take what it does not cover from the last
+snapshot, always with its Goal, Blockers and tasks, Next steps, Maintainer direction and My
+proposals not yet raised sections. With
+`seed: SNAPSHOT; note older, absent or unusable`, start from that snapshot and say in the new
+handoff that the note was not used. Carry forward what is still true and still open, and leave
+out work that is finished or abandoned. The new file is a complete snapshot, not a difference
+from the last one.
 
 ## 5. Verify, then write
 
 Check each volatile fact with a command before you write it: branch, tip commit, clean or dirty
-state, pull request and issue states, CI state. Write:
+state, pull request and issue states, CI state, and the state of each decision item that the
+handoff names, with `decision_get` or the installed guide's command path. Write:
 
 ```markdown
 # Handoff — <agent-id> — <timestamp> [<label>]
+
+## Goal
+- Goal: <the outcome that the work serves>; source: <the maintainer's words with their date and
+  where they were given, or the issue or sprint that assigns it>, or unknown
+- Success criteria: <the checkable conditions that complete the goal>
+
+## Blockers and tasks
+- Blocker 1: <what stops progress towards the goal now>; evidence: <a failing check, an open
+  review finding, missing evidence or a decision item, with its identifier>
+  - Task 1.1: <the work that clears it, and its approach>; state: <done, underway with its
+    branch, commit, pull request or running job, or not started>; done: <what is finished>;
+    remaining: <what is not>; depends on: <a task, or nothing>
+- Open work without a blocker: <tasks that move the goal and wait on nothing, with the same fields>
+
+## Next steps
+1. <the first open task that you would do now: the next action>
+2. <the open tasks after it, in order, to the goal; a step that belongs to the maintainer or to
+   another agent names whose it is>
 
 ## Where things stand
 - Branch, base, tip commit, clean or dirty
 - Open pull requests and issues this work touches, with their states
 - Delivered: <identifiers>
-- Remaining: <in order>
 
-## Goal and success criteria
-- <the goal, and the checkable conditions that complete it>
+## Maintainer direction
+- "<the maintainer's words>" (<date>, <where: terminal, dashboard or board card REFERENCE>),
+  answering: <the question or proposal it answered>
+
+## My proposals not yet raised
+- <a draft, open point or idea of yours that the maintainer has not seen>
 
 ## Resume here
-- Next action: <the single first step>
-- Blockers and open decisions: <with the context to act>
-- Anything mid-operation: <uncommitted edits, running jobs>
+- Next action: <step 1 of Next steps>
+- Decisions waiting for the maintainer: <each decision item's reference, its state and revision as
+  read now, and what waits on it; none when no item holds one>
+- Anything mid-operation: <uncommitted edits and running jobs, each with the task that it serves>
 - Running subagents: <each one's task, ID, state and where its result goes>
 
 ## Bridge identity
@@ -158,6 +198,35 @@ List each subagent or background job that still runs: a context clear does not s
 Code background subagent, and its result arrives in the next conversation, which knows its task
 only from this list (WDR 005, Decision 4).
 
+The Goal section names the outcome that the work serves, not the current pull request or task: a
+pull request is a task under a blocker. Its source is what assigned it, the maintainer's words
+with their date or a verified issue or sprint, with the scope that the source gives; do not make
+a larger goal from the pull request, and do not record your own proposal as the goal. When no
+source records a goal, write unknown and continue the work that you are authorized to do. A
+blocker is a fact, with its evidence, that stops progress towards the goal now; unfinished work
+that waits on nothing is open work, not a blocker, and a fact that you could not check stays
+unverified, not a blocker. When no blocker is verified, write none. Each blocker has one or
+more tasks. The next steps are the open tasks in order, and Next action is the first; a step
+that is the maintainer's or another agent's is named as theirs and gives you no new authority
+(WDR 005, Decision 6).
+
+Maintainer direction holds each direction that is still in force, in the maintainer's own words,
+with its date, where it was given and the question or proposal it answered; a summary in your
+words can narrow it. My proposals not yet raised holds your own drafts, open points and ideas
+that the maintainer has not seen: write them as yours, not as questions from the maintainer or
+as rules. The pause of a managed cycle is for that cycle; it is not a direction for the next
+session.
+
+A decision waits for the maintainer only when a decision item on the board holds it. Name that
+item by its reference, with the state and revision that you read when you write the handoff;
+a verdict that you did not handle yet is named with it. A draft that the maintainer has not
+seen goes under My proposals not yet raised, never as waiting or pending. A point that you
+raised in a conversation without an item keeps where and when you raised it, and is not a
+decision waiting for the maintainer. When the board cannot be read, write the claim as
+unverified, with the error. The maintainer's direct instructions, the quoted directions and the
+approvals that the maintainer gives in a conversation or a native prompt keep their own sources;
+this rule adds no item before you act on them (WDR 005, Decision 5).
+
 Use commit hashes, branch names, issue and pull request numbers, and repository-relative
 paths. Leave out a section that has no content. The file stays on this machine: name a key or
 credential by where it is kept, and summarize peer messages in your own words.
@@ -171,17 +240,20 @@ The note is `$dir/progress.md`, in the resolved Handoff path, at most 4 KiB, wit
 
 ```markdown
 # Progress — <agent-id>
-- Task: <the current task and its issue>
+- Goal: <the goal and its source>; done when: <the success criteria>
+- Blockers: <each blocker and its evidence, then its tasks with their states; or none>
 - PR and head: <number and commit, or none>
 - Completed: <stages and checks that are done>
-- Decisions: <confirmed choices and their sources>
-- Open issues: <missing evidence or blockers>
-- Next action: <one concrete step>
+- Decisions: <confirmed choices and their sources; maintainer directions are quoted in the snapshot>
+- Waiting for the maintainer: <decision item references and states as read, or none>
+- Next steps: <the open tasks in order; the first is the next action>
 ```
 
-Update this short note after a completed stage, recording the current result and next action.
+Update this short note after a completed stage, recording the current result and next steps.
 Write verified values, with the same privacy rules as a snapshot, and replace the whole note
-each time. A managed cycle reports the timestamped snapshot.
+each time. Its Goal, Blockers and Next steps lines follow the rules of step 5 for the Goal,
+Blockers and tasks and Next steps sections, in short; the snapshot holds them in full. Its
+Waiting line follows the rule of step 5 for decisions that wait for the maintainer. A managed cycle reports the timestamped snapshot.
 
 ## Repository facts
 

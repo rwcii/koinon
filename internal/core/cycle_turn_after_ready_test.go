@@ -401,3 +401,56 @@ func TestRecordTurnSinceChangedDuringRead(t *testing.T) {
 		t.Fatalf("always changing: %v after %d records", err, reads)
 	}
 }
+
+// The controller returns a Grok clear refused for a queue before its first key to ready, with no
+// key sent (review of #599).
+func TestGrokQueueAtTheTypingFence(t *testing.T) {
+	f := newCycleFixture(t)
+	view, _ := f.readyCycle(t)
+	g := newGrokTerminal(t)
+	g.said = []string{"an earlier prompt"}
+	g.events(t, "turn_started", -9000, "mcp_tool_call_completed", 0, "turn_ended", 900)
+	err := f.s.enterInput(context.Background(), f.cycle(t, view.ID), cycleClearIntent, cycleClearReceived, pinnedRequester(context.Background()),
+		func(fence CycleFence) (bool, error) {
+			return (grokCycle{}).Clear(context.Background(), g.readyTarget(), func(ctx context.Context) error {
+				if err := fence(ctx); err != nil {
+					return err
+				}
+				g.mu.Lock()
+				g.queued = []string{"a queued prompt"}
+				g.mu.Unlock()
+				return g.fence(ctx)
+			})
+		})
+	if after := f.cycle(t, view.ID); err != nil || after.State != cycleReady || after.Reason != inputQueued || len(g.sent()) != 0 {
+		t.Fatalf("%v %s %s %q", err, after.State, after.Reason, g.sent())
+	}
+}
+
+// A clear refused for input that has not started, or for a record that could not be read back
+// to the ready report, returns the cycle to ready with nothing entered (#593). While Inspect
+// still sees it, the cycle waits and asks for no new handoff, also at the stage's deadline,
+// which ends the cycle as for any pane that never became ready.
+func TestContextCycleWaitsForQueuedInput(t *testing.T) {
+	for _, refusal := range []error{errInputQueued, errHistoryUnread} {
+		f := newCycleFixture(t)
+		first, _ := f.readyCycle(t)
+		f.adapter.clearErr = refusal
+		f.step(t)
+		back := f.status(t, f.k)
+		if back.State != cycleReady || back.Reason != refusal.Error() || back.Revision != first.Revision+2 || f.adapter.count("clear") != 1 {
+			t.Fatalf("%v: refused clear: %+v", refusal, back)
+		}
+		f.adapter.clearErr = nil
+		f.adapter.pane = PaneState{Seen: refusal.Error()}
+		f.step(t)
+		if v := f.status(t, f.k); v.State != cycleReady || len(f.overwatchRequests(t)) != 1 || f.adapter.count("clear") != 1 {
+			t.Fatalf("%v: waits: %+v", refusal, v)
+		}
+		f.clock = f.clock.Add(cycleReadyWait + time.Second)
+		f.step(t)
+		if v := f.status(t, f.k); v.State != cycleFailed || v.Reason != "ready_timeout."+refusal.Error() || len(f.overwatchRequests(t)) != 1 {
+			t.Fatalf("%v: deadline: %+v", refusal, v)
+		}
+	}
+}

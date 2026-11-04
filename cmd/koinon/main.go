@@ -272,7 +272,8 @@ func serve(ctx context.Context, state string, listen []string, lockWait time.Dur
 // runs as, when a file is missing or holds other content (#406): under the Claude Code
 // configuration root of the daemon's environment ($CLAUDE_CONFIG_DIR, else ~/.claude), in
 // ~/.agents/skills for Codex, in OpenCode's and agy's configuration directories when they
-// exist (#461), and in the Grok home when it exists (#515). It runs at each start, so a brew upgrade, which restarts the
+// exist (#461), and in the Grok home when it exists (#515), with OpenCode's slash commands for
+// them (#603). It runs at each start, so a brew upgrade, which restarts the
 // daemon, writes it too. A failure is logged and never stops the daemon; the adapter's Probe
 // then names the install step for that session.
 func ensurePickupSkills(logEvent func(string, map[string]any)) {
@@ -316,6 +317,26 @@ func ensurePickupSkills(logEvent func(string, map[string]any)) {
 			if _, err := core.InstallTeamSkill(path, skill); err != nil {
 				logEvent("team_skill", map[string]any{"family": root.Family, "path": path, "result": "failed", "code": "write_failed"})
 			}
+		}
+	}
+	// OpenCode's slash commands, in its existing configuration directory (#603); a file that
+	// stays the person's is logged as kept.
+	opencode := core.OpenCodeConfigRoot(os.Getenv("XDG_CONFIG_HOME"), home)
+	if !dirExists(opencode) {
+		return
+	}
+	commands, err := core.OpenCodeCommands()
+	if err != nil {
+		logEvent("opencode_command", map[string]any{"result": "failed", "code": "catalog_unavailable"})
+		return
+	}
+	for _, command := range commands {
+		path := core.OpenCodeCommandPath(opencode, command.Name)
+		result, err := core.InstallOpenCodeCommand(path, command)
+		if err != nil {
+			logEvent("opencode_command", map[string]any{"path": path, "result": "failed", "code": "write_failed"})
+		} else if result == "kept" {
+			logEvent("opencode_command", map[string]any{"path": path, "result": "kept"})
 		}
 	}
 }

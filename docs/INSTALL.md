@@ -152,6 +152,20 @@ does this:
    `handoff`, is left as it is. An entry directory or file that is a symbolic link, such as a
    link to a project's skill, is yours: the install, the daemon and the uninstall leave it and
    what it points at unchanged and report it as `kept`.
+   OpenCode lists skills for its skill tool but shows none as a slash command, so when its
+   configuration directory exists the install and the daemon at each start also write
+   `commands/NAME.md` there for each `koinon-NAME` entry, which makes `/koinon-NAME` available in
+   every directory (#603). Each command lists the entry's description and loads the entry with
+   the skill tool; it carries a marker line `<!-- koinon:command sha256=... -->` with the SHA-256
+   of the rest of the file. `koinon-pickup` gets no command of its name: a command file of that
+   name would take the skill's place in OpenCode's command list, where the managed cycle runs
+   it. `/koinon-resume` loads `koinon-pickup` instead. A command
+   file whose rest still matches its marker is Koinon's, of any version, and is replaced or
+   removed. A file without the marker, an edited one and a linked file or `commands` directory
+   are yours: they stay unchanged and are reported as `kept`. `opencode_commands` in the report
+   gives each name, path and result; a file that cannot be written fails the install with
+   `opencode_command_failed`, and the daemon logs an `opencode_command` event for a failure
+   (`write_failed`) or a kept file and keeps running.
    The install, `koinon setup codex` and the daemon at each start also take the retired Python
    runtime's blocks (`<!-- BEGIN KOINON CODEX -->` and `<!-- BEGIN CODEX PEER BRIDGE -->`, each
    to its end marker) out of the Codex `AGENTS.md` (`$CODEX_HOME`, else `~/.codex`), and keep
@@ -486,6 +500,8 @@ staging files.
 - Each `koinon-pickup` skill file (Install, step 7) that still holds this binary's skill, and its
   then empty directory; another content is kept (`pickup_skills`, `"result": "kept"`). The other
   skill entries are removed the same way (`team_skills`).
+- Each OpenCode command file whose content still matches its Koinon marker, of any version, and
+  then the empty `commands` directory; any other file is kept (`opencode_commands`).
 
 It keeps the state directory and reports its path. A repeated uninstall changes nothing.
 

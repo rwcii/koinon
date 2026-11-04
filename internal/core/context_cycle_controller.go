@@ -391,13 +391,7 @@ func (s *Store) stepCycle(ctx context.Context, c cycleRow) error {
 			// Work after the ready report is not in its handoff: ask for a new one now (#456),
 			// also after a conversation turn (#592).
 			if (pane.Seen == subagentAfterReady || pane.Seen == turnAfterReady) && c.State == cycleReady {
-				switch err := s.repeatCycleRequest(ctx, c.ID, c.Revision, pane.Seen); {
-				case errors.Is(err, errCycleEventLimit):
-					_, err = s.endCycle(ctx, c.ID, c.Revision, cycleFailed, "event_limit")
-					return err
-				case err != nil && !errors.Is(err, ErrCycleChanged) && !errors.Is(err, ErrCapacity):
-					return err
-				}
+				return s.repeatAfterTurn(ctx, c, pane.Seen)
 			}
 			return nil
 		}
@@ -662,6 +656,45 @@ func cycleWaitsForPane(state string) bool {
 	return state == cycleReady || state == cycleBootstrapVerified || state == cycleResetVerified
 }
 
+// historyUnread is the Seen code of a session whose native record could not be read back to
+// its ready report, or did not show where the report is in it (#593): a turn after the report
+// cannot be ruled out, so the cycle waits and asks for no new handoff.
+const historyUnread = "history_unread"
+
+// errHistoryUnread refuses an effect before it is made, for historyUnread (#593).
+var errHistoryUnread = errors.New(historyUnread)
+
+// inputQueued is the Seen code of input that the session accepted and has not started, such as
+// Grok's queued prompt, which no file holds until its turn starts (#593); errInputQueued
+// refuses an effect before it is made for it.
+const inputQueued = "input_queued"
+
+var errInputQueued = errors.New(inputQueued)
+
+// unsentRefusal is the code of an effect that an adapter refused before making it because of
+// the session's conversation since its ready report (#592, #593).
+func unsentRefusal(err error) (string, bool) {
+	for _, refusal := range []error{errTurnAfterReady, errHistoryUnread, errInputQueued} {
+		if errors.Is(err, refusal) {
+			return refusal.Error(), true
+		}
+	}
+	return "", false
+}
+
+// repeatAfterTurn asks a ready session for a new handoff, because seen, work after its ready
+// report, is not in it (#456, #592). A cycle that changed meanwhile is left as it is.
+func (s *Store) repeatAfterTurn(ctx context.Context, c cycleRow, seen string) error {
+	switch err := s.repeatCycleRequest(ctx, c.ID, c.Revision, seen); {
+	case errors.Is(err, errCycleEventLimit):
+		_, err = s.endCycle(ctx, c.ID, c.Revision, cycleFailed, "event_limit")
+		return err
+	case err != nil && !errors.Is(err, ErrCycleChanged) && !errors.Is(err, ErrCapacity):
+		return err
+	}
+	return nil
+}
+
 // enterInput records the intent, makes the input and records its receipt. guard adds the
 // caller's checks to the intent's transaction; the input's fence holds the cycle to that
 // intent. A failed or unreceived input is uncertain: its effect is unknown, and it is never
@@ -673,10 +706,11 @@ func (s *Store) enterInput(ctx context.Context, c cycleRow, intent, received str
 		return err
 	}
 	ok, err := input(s.cycleFence(c))
-	if intent == cycleClearIntent && errors.Is(err, errTurnAfterReady) {
-		// Nothing was entered: the session had a turn after its ready report. The cycle
-		// returns to ready, whose next step asks for a new handoff (#592).
-		_, err := s.advanceCycle(ctx, c.ID, c.Revision, intent, cycleReady, turnAfterReady, nil, nil)
+	if code, unsent := unsentRefusal(err); intent == cycleClearIntent && unsent {
+		// Nothing was entered: the session had a turn after its ready report, holds input that
+		// has not started, or its record could not rule a turn out. The cycle returns to ready,
+		// whose next step asks for a new handoff after a turn, or waits (#592, #593).
+		_, err := s.advanceCycle(ctx, c.ID, c.Revision, intent, cycleReady, code, nil, nil)
 		return err
 	}
 	if err != nil || !ok {
@@ -697,6 +731,11 @@ func (s *Store) createSuccessor(ctx context.Context, c cycleRow, t CycleTarget, 
 		return err
 	}
 	id, err := create.Create(ctx, t, s.cycleFence(c))
+	if code, unsent := unsentRefusal(err); unsent {
+		// Nothing was created: the cycle returns to ready, as for a refused clear (#593).
+		_, err := s.advanceCycle(ctx, c.ID, c.Revision, cycleClearIntent, cycleReady, code, nil, nil)
+		return err
+	}
 	if err != nil || id == "" || id == c.Epoch || !nativeEpoch.MatchString(id) {
 		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, inputReason(cycleClearIntent, err))
 		return err
@@ -748,7 +787,13 @@ func (s *Store) stepHostless(ctx context.Context, c cycleRow, t CycleTarget, ada
 		// null and a quiet requester; an unreadable harness or a busy requester waits within the
 		// stage deadline. An intent's end is uncertain (endCycle); a busy requester's names its code.
 		var busy deepSeekNotQuiet
+		code, unsent := unsentRefusal(r.err)
 		switch {
+		case unsent:
+			// Nothing was created: the cycle returns to ready, as for a refused clear (#593).
+			s.paneSeen.set(c.ID, code)
+			_, err := s.advanceCycle(ctx, c.ID, c.Revision, cycleClearIntent, cycleReady, code, nil, nil)
+			return err
 		case errors.Is(r.err, errDeepSeekConflict):
 			_, err := s.endCycle(ctx, c.ID, c.Revision, cycleFailed, "session_conflict")
 			return err
@@ -797,6 +842,10 @@ func (s *Store) stepHostless(ctx context.Context, c cycleRow, t CycleTarget, ada
 			r.pane.Seen = "pane_not_ready"
 		}
 		s.paneSeen.set(c.ID, r.pane.Seen)
+		if r.pane.Seen == turnAfterReady && c.State == cycleReady {
+			// A turn after the ready report is not in its handoff: ask for a new one (#593).
+			return s.repeatAfterTurn(ctx, c, r.pane.Seen)
+		}
 		return nil
 	}
 	s.paneSeen.set(c.ID, "")
@@ -854,15 +903,20 @@ const selectReason = "select_sent"
 
 // selectSuccessor shows the created session in the pane once: its intent is recorded first,
 // so a restart never selects again. It reports whether the select was sent before this step,
-// so that the reset's proof can be read.
+// so that the reset's proof can be read. A select that the adapter refused before sending it
+// returns the cycle to ready, which keeps the created session (#593): that return, a ready
+// event after the intent, is the durable proof that the intent was not sent, so the next
+// create's select is sent once again. Any other intent may have been sent and is never sent
+// again.
 func (s *Store) selectSuccessor(ctx context.Context, c cycleRow, t CycleTarget, create SessionAdapter) (bool, error) {
 	if c.SuccessorEpoch == "" {
 		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, "reset_unproven")
 		return false, err
 	}
 	var sent int
-	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM context_cycle_events WHERE cycle_id=? AND stage=? AND reason=? LIMIT 1`,
-		c.ID, cycleClearReceived, selectReason).Scan(&sent)
+	err := s.db.QueryRowContext(ctx, `SELECT 1 FROM context_cycle_events WHERE cycle_id=? AND stage=? AND reason=? AND ordinal>
+		COALESCE((SELECT MAX(ordinal) FROM context_cycle_events WHERE cycle_id=? AND stage=?),0) LIMIT 1`,
+		c.ID, cycleClearReceived, selectReason, c.ID, cycleReady).Scan(&sent)
 	if err == nil {
 		return true, nil
 	}
@@ -873,7 +927,12 @@ func (s *Store) selectSuccessor(ctx context.Context, c cycleRow, t CycleTarget, 
 	if err != nil {
 		return false, err
 	}
-	if ok, err := create.Select(ctx, t, s.cycleFence(c)); err != nil || !ok {
+	ok, err := create.Select(ctx, t, s.cycleFence(c))
+	if code, unsent := unsentRefusal(err); unsent {
+		_, err := s.advanceCycle(ctx, c.ID, c.Revision, cycleClearReceived, cycleReady, code, nil, nil)
+		return false, err
+	}
+	if err != nil || !ok {
 		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleUncertain, inputReason("select", err))
 		return false, err
 	}
@@ -1233,16 +1292,26 @@ func (s *Store) cycleTarget(ctx context.Context, c cycleRow) CycleTarget {
 	}
 	var held int
 	t.Holds = s.db.QueryRowContext(ctx, `SELECT 1 FROM names WHERE kind='alias' AND family=? AND holder_id=? LIMIT 1`, c.Family, c.SessionID).Scan(&held) == nil
-	if c.State == cycleReady {
+	switch c.State {
+	case cycleReady, cycleClearIntent, cycleClearReceived:
 		// The ready report's own event has no reason; a resolved dialog's is prompt_resolved
-		// (#456). An unreadable event compares with the cycle's start, which never misses work.
-		var at sql.NullInt64
-		err := s.db.QueryRowContext(ctx, `SELECT MAX(at) FROM context_cycle_events WHERE cycle_id=? AND stage=? AND reason=''`,
-			c.ID, cycleReady).Scan(&at)
+		// (#456), and a return from a refused input names its code (#592, #593). An unreadable
+		// event compares with the cycle's start, which never misses work. The clear's stages
+		// keep the report, so that their last reads before an effect compare with it (#593).
+		// Each stage event takes the next ordinal and the next revision, so the report answered
+		// the revision before its event's ordinal.
+		var at, ordinal sql.NullInt64
+		err := s.db.QueryRowContext(ctx, `SELECT at,ordinal FROM context_cycle_events WHERE cycle_id=? AND stage=? AND reason=''
+			ORDER BY ordinal DESC LIMIT 1`, c.ID, cycleReady).Scan(&at, &ordinal)
 		t.ReadyAt = c.CreatedAt
-		if err == nil && at.Valid {
-			t.ReadyAt = at.Int64
+		if err == nil && at.Valid && ordinal.Valid {
+			t.ReadyAt, t.ReadyRevision = at.Int64, ordinal.Int64-1
 		}
+	}
+	if _, creates := cycleAdapterOf(c.Family).(SessionAdapter); creates && (c.State == cycleReady || c.State == cycleWaitingReady || c.State == cycleClearIntent) {
+		// A created session that no select showed is kept for the next create, not shown as the
+		// successor before the reset (#593).
+		t.keptSuccessor, t.SuccessorEpoch = c.SuccessorEpoch, ""
 	}
 	return t
 }

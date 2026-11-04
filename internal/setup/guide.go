@@ -234,13 +234,16 @@ while fresh and for the current published name.
 - The request is in your session's own inbox, also when you hold a participant address. A
   wake notice whose range holds it ends with "Managed context-cycle request ID: answer it
   before other work." Read that inbox range first.
-- On a request: pause your work at the next safe stopping point and start no new work. In a
+- On a request: pause your work at the next safe stopping point and start no new work. The
+  pause is for this cycle only; your handoff does not record it as a rule for the next
+  session. In a
   Claude session the clear does not stop your background subagents: do not stop them or wait for them; list each
   one that still runs in the handoff, with its task and where its result goes, and the new
   session gets each result as a message. A Claude subagent that finishes after your ready
-  report makes overwatch ask again, and so does a new turn after it, such as a message from
-  the maintainer: answer it, then write a new handoff for the new request. Other families: let your running background subagents
-  finish, or stop them, so that the handoff holds their results. The request names its ready
+  report makes overwatch ask again. Other families: let your running background subagents
+  finish, or stop them, so that the handoff holds their results. In every family a new turn
+  after your ready report, such as a message from the maintainer, makes overwatch ask again:
+  answer it, then write a new handoff for the new request. The request names its ready
   deadline as a UTC time: stop any such subagent that will not finish with enough time left to
   update the handoff and report ready by then. Write
   your handoff with your canonical handoff procedure into _handoff/AGENT/ of the main checkout,

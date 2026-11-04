@@ -189,6 +189,7 @@ type deepSeekUserMessage struct {
 type deepSeekCycleEvent struct {
 	Type string          `json:"type"`
 	Seq  openCodeCount   `json:"seq"`
+	Time openCodeCount   `json:"time"`
 	Data json.RawMessage `json:"data"`
 }
 
@@ -357,6 +358,57 @@ func deepSeekQuiet(ctx context.Context, c *deepSeekClient, id string) (seen stri
 	return "", used, nil
 }
 
+// deepSeekTurnSince reports whether session id had a conversation turn after the ready report
+// at readyAt (Unix milliseconds): a user/message or turn/start event created after it (#593).
+// It reads the log back from its newest event, contiguous pages within the scan's bound, to the
+// turn/start at or before the report, the start of the turn that made it, or to the log's start,
+// and then the log's end again, which must not have moved. The session reports ready from a tool
+// call inside a turn, so that turn did not end at or before the report: a turn/start at or before
+// it whose turn did is not the report's, and the read is unread. Going back, each event's time
+// must be at or before the newer one's, so a later event's earlier time never hides a turn. An
+// event without a valid time, a time out of order, a gap, a moved end and an exhausted bound are
+// errors (errHistoryUnread), so a turn is never missed. Only a harness clock that goes back
+// across the report's own turn could still hide one.
+func deepSeekTurnSince(ctx context.Context, c *deepSeekClient, id string, readyAt int64) (bool, error) {
+	if readyAt <= 0 {
+		return false, nil
+	}
+	view, found, err := deepSeekView(ctx, c, id)
+	if err != nil || !found {
+		return false, errHistoryUnread
+	}
+	turn, unread, newer, ended := false, false, int64(maxSafeInt), int64(-1)
+	_, err = deepSeekHistory(ctx, c, id, view.AsOfSeq.value, false, func(e deepSeekCycleEvent) bool {
+		switch {
+		case !e.Time.ok || e.Time.value > newer:
+			unread = true
+			return false
+		case e.Time.value > readyAt && (e.Type == "user/message" || e.Type == "turn/start"):
+			turn = true
+			return false
+		case e.Type == "turn/end":
+			ended = e.Time.value
+		case e.Type == "turn/start":
+			// The report's own turn ended after the report, or is still open.
+			unread = ended >= 0 && ended <= readyAt
+			return false
+		}
+		newer = e.Time.value
+		return true
+	})
+	if err != nil || unread {
+		return false, errHistoryUnread
+	}
+	if turn {
+		return true, nil
+	}
+	again, found, err := deepSeekView(ctx, c, id)
+	if err != nil || !found || again.AsOfSeq.value != view.AsOfSeq.value {
+		return false, errHistoryUnread
+	}
+	return false, nil
+}
+
 // requester reads the facts that the cycle pins: the requester's cwd and model, and the
 // harness default, which must be the same model.
 func (a deepSeekCycle) facts(ctx context.Context, c *deepSeekClient, t CycleTarget) (cwd string, pin deepSeekPin, reason string) {
@@ -477,6 +529,15 @@ func (a deepSeekCycle) Inspect(ctx context.Context, t CycleTarget, _ CycleFence)
 	if seen == "" && id == t.SuccessorEpoch && users > 0 {
 		seen = "successor_not_empty"
 	}
+	if seen == "" && id == t.SessionID {
+		// A conversation turn after the ready report is not in the handoff (#593).
+		switch turn, err := deepSeekTurnSince(ctx, c, id, t.ReadyAt); {
+		case err != nil:
+			seen = historyUnread
+		case turn:
+			seen = turnAfterReady
+		}
+	}
 	return PaneState{Idle: seen == "", Seen: seen}, nil
 }
 
@@ -510,6 +571,13 @@ func (a deepSeekCycle) Create(ctx context.Context, t CycleTarget, fence CycleFen
 	}
 	if err := fence(ctx); err != nil {
 		return "", err
+	}
+	// The last read before the create: a turn after the ready report refuses it unsent (#593).
+	switch turn, err := deepSeekTurnSince(ctx, c, t.SessionID, t.ReadyAt); {
+	case err != nil:
+		return "", errHistoryUnread
+	case turn:
+		return "", errTurnAfterReady
 	}
 	var created struct {
 		SessionID string `json:"sessionId"`

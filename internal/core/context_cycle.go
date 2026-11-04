@@ -424,6 +424,9 @@ type CycleTarget struct {
 	// the cycle is ready, else 0. Work after it, such as a background subagent's, is not in
 	// the handoff. A resolved dialog returns the cycle to ready without changing it.
 	ReadyAt int64
+	// ReadyRevision is the request revision that the current ready report answered, while
+	// ReadyAt is set, else 0. agy binds the report's own tool call to it (#593).
+	ReadyRevision int64
 	// State is the cycle's state; Directory is the session's registered directory.
 	State     string
 	Directory string
@@ -437,6 +440,9 @@ type CycleTarget struct {
 	// recorded, in Unix milliseconds, from pickup_intent on.
 	openCode *LaunchTarget
 	pickupAt int64
+	// keptSuccessor is the session that an earlier create of this cycle made and that no
+	// select showed, before the reset (#593); the next create reuses it while it is empty.
+	keptSuccessor string
 	// DeepSeek (#514): the requester's harness target, which also hosts the created successor,
 	// and the cycle's adapter pin, "" before admission.
 	deepSeek *wakeTarget
@@ -641,7 +647,8 @@ func cycleRequestBody(id string, revision int64, family, agent string, deadline 
 		ready, reset, idle = "run koinon cycle-ready --as deepseek:$DSH_SESSION_ID", "starts a new harness session for the pickup once this session is idle", "session"
 	}
 	return "overwatch: managed context cycle " + id + " revision " + strconv.FormatInt(revision, 10) +
-		" requests your handoff. Report ready by " + by + ". Pause your work at the next safe stopping point and start no new work. " + subagents + " Write your handoff " +
+		" requests your handoff. Report ready by " + by + ". Pause your work at the next safe stopping point and start no new work. " +
+		"This pause is for this cycle only; the handoff does not record it as a rule for the next session. " + subagents + " Write your handoff " +
 		"with your canonical handoff procedure into _handoff/" + agent + "/ of the main checkout (outside a Git checkout, of the directory " +
 		"where this session started), or into the directory that the Handoff path fact of " + handoffFacts + " names, then " + ready + " with this cycle ID, " +
 		"its revision and the handoff file name. Then end your turn and stay idle: overwatch " + reset + ", and asks again " +
@@ -681,7 +688,8 @@ const deepSeekReadyNext = "Paused and ready: end your turn now, start no other w
 func cycleRepeatable(seen string) bool {
 	switch seen {
 	case "", errTmuxUnavailable.Error(), "pane_unproven", "pane_in_mode", "pane_unreadable", "home_unknown", "rollout_unreadable",
-		"harness_unreadable", "harness_changed":
+		"harness_unreadable", "harness_changed", historyUnread, inputQueued:
+		// Unread history and input that has not started are no turn: the cycle waits (#593).
 		return false
 	}
 	return true

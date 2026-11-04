@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -380,6 +381,122 @@ func agyHome(t CycleTarget) (string, error) {
 	return home, nil
 }
 
+// agyTranscriptPath is the transcript of conversation id under the host's home, as agy writes
+// it (native evidence, agy 1.4.12).
+func agyTranscriptPath(home, id string) string {
+	return filepath.Join(home, ".gemini", "antigravity-cli", "brain", id, ".system_generated", "logs", "transcript.jsonl")
+}
+
+// agyStep is the allowlisted part of one transcript step: its kind and the names and the
+// Koinon arguments of its tool calls. Texts are not decoded.
+type agyStep struct {
+	Type      string `json:"type"`
+	Source    string `json:"source"`
+	StepIndex *int64 `json:"step_index"`
+	ToolCalls []struct {
+		Name string                     `json:"name"`
+		Args map[string]json.RawMessage `json:"args"`
+	} `json:"tool_calls"`
+}
+
+// agyStepSources are the step kinds and sources that agy 1.4.12 writes; a step after the
+// ready report of another kind cannot be classified.
+var agyStepSources = map[string]map[string]bool{
+	"USER_INPUT":       {"USER_EXPLICIT": true},
+	"PLANNER_RESPONSE": {"MODEL": true},
+	"GENERIC":          {"MODEL": true},
+	"SYSTEM_MESSAGE":   {"SYSTEM": true},
+	"CHECKPOINT":       {"SYSTEM": true},
+}
+
+// agyEncoded decodes one call_mcp_tool argument: agy writes each as a JSON string that holds
+// the argument's own JSON.
+func agyEncoded(raw json.RawMessage, value any) bool {
+	var text string
+	return json.Unmarshal(raw, &text) == nil && json.Unmarshal([]byte(text), value) == nil
+}
+
+// readyCall reports whether the step calls Koinon's context_cycle_ready for the cycle's
+// current ready report: its cycle ID and the request revision that the report answered.
+func (step agyStep) readyCall(t CycleTarget) bool {
+	for _, call := range step.ToolCalls {
+		var server, tool string
+		var arguments struct {
+			CycleID  string `json:"cycle_id"`
+			Revision int64  `json:"revision"`
+		}
+		if call.Name == "call_mcp_tool" && agyEncoded(call.Args["ServerName"], &server) && server == "koinon" &&
+			agyEncoded(call.Args["ToolName"], &tool) && tool == "context_cycle_ready" &&
+			agyEncoded(call.Args["Arguments"], &arguments) && arguments.CycleID == t.CycleID && arguments.Revision == t.ReadyRevision {
+			return true
+		}
+	}
+	return false
+}
+
+// agyTurnSince reports whether the pinned conversation had a user input after its ready report
+// (#593). agy writes one step per line with step_index 0, 1, 2 and so on, and its times have only
+// seconds, so the step order places the report: the first step that calls context_cycle_ready
+// for the cycle's current report. A repeated or refused call later is not the report. Each step
+// after it is classified: a USER_INPUT step, as which agy records a prompt and a message that
+// Koinon delivers to the terminal, is a turn; the model's and agy's own steps are not. A file
+// that is too large, changes during the read or ends in a partial line, a step out of order, a
+// missing report and a step after it of another kind are errors (errHistoryUnread).
+func agyTurnSince(t CycleTarget) (bool, error) {
+	if t.ReadyAt <= 0 {
+		return false, nil
+	}
+	home, err := agyHome(t)
+	if err != nil || !nativeEpoch.MatchString(t.Epoch) || t.ReadyRevision <= 0 {
+		return false, errHistoryUnread
+	}
+	path := agyTranscriptPath(home, t.Epoch)
+	before, err := os.Stat(path)
+	if err != nil || !before.Mode().IsRegular() || before.Size() > recordTailMax {
+		return false, errHistoryUnread
+	}
+	data, err := readBounded(path, recordTailMax)
+	if err != nil {
+		return false, errHistoryUnread
+	}
+	after, err := os.Stat(path)
+	if err != nil || after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) || int64(len(data)) != before.Size() ||
+		len(data) > 0 && data[len(data)-1] != '\n' {
+		return false, errHistoryUnread
+	}
+	reported := false
+	for i, line := range bytes.Split(bytes.TrimSuffix(data, []byte("\n")), []byte("\n")) {
+		var step agyStep
+		if json.Unmarshal(line, &step) != nil || step.StepIndex == nil || *step.StepIndex != int64(i) {
+			return false, errHistoryUnread
+		}
+		switch {
+		case !reported:
+			reported = step.readyCall(t)
+		case !agyStepSources[step.Type][step.Source]:
+			return false, errHistoryUnread
+		case step.Type == "USER_INPUT":
+			return true, nil
+		}
+	}
+	if !reported {
+		return false, errHistoryUnread
+	}
+	return false, nil
+}
+
+// agyQuiet refuses an effect when the conversation had a user input after its ready report, or
+// when its transcript could not rule one out (#593).
+func agyQuiet(t CycleTarget) error {
+	switch turn, err := agyTurnSince(t); {
+	case err != nil:
+		return errHistoryUnread
+	case turn:
+		return errTurnAfterReady
+	}
+	return nil
+}
+
 // AgyPickupSkillPath is the koinon-pickup skill in agy's global customization root, which agy
 // lists for every session (N4).
 func AgyPickupSkillPath(home string) string {
@@ -536,7 +653,17 @@ func (agyCycle) Inspect(ctx context.Context, t CycleTarget, fence CycleFence) (P
 	if err != nil {
 		return PaneState{}, err
 	}
-	switch seen := agyNotReady(t, screen); seen {
+	seen := agyNotReady(t, screen)
+	if seen == "" && t.SuccessorEpoch == "" {
+		// A user input after the ready report is not in the handoff (#593).
+		switch err := agyQuiet(t); {
+		case errors.Is(err, errTurnAfterReady):
+			seen = turnAfterReady
+		case err != nil:
+			seen = historyUnread
+		}
+	}
+	switch seen {
 	case "native_dialog":
 		return PaneState{Prompt: seen}, nil
 	case "":
@@ -600,9 +727,11 @@ func (a agyCycle) erase(ctx context.Context, t CycleTarget, fence CycleFence, te
 
 // command types a slash command while a fresh read shows the pane ready, and submits it with
 // one Enter while the composer holds exactly it and its menu selects its one row (match accepts
-// that row). done reads back its effect. Typed text that is not submitted is erased again; a
-// draft that someone started is never touched.
-func (a agyCycle) command(ctx context.Context, t CycleTarget, fence CycleFence, text string, match func(agyRow) bool, done func(codexScreen) bool) (bool, error) {
+// that row). done reads back its effect. final, when set, runs after the Enter's proof and
+// fence, right before the key; its refusal is returned. Typed text that is not submitted is
+// erased again; a draft that someone started is never touched.
+func (a agyCycle) command(ctx context.Context, t CycleTarget, fence CycleFence, text string, match func(agyRow) bool, done func(codexScreen) bool,
+	final func() error) (bool, error) {
 	ready := func(s codexScreen) bool { return agyNotReady(t, s) == "" }
 	if err := a.keyIf(ctx, t, fence, ready, errAgyNotReady, "-l", text); err != nil {
 		return false, err
@@ -615,8 +744,25 @@ func (a agyCycle) command(ctx context.Context, t CycleTarget, fence CycleFence, 
 		}
 		return false, errAgyTyped
 	}
-	if err := a.keyIf(ctx, t, fence, typed, errAgyTyped, "Enter"); err != nil {
-		a.erase(ctx, t, fence, text)
+	var refused error
+	enter := func(s codexScreen) bool {
+		if !typed(s) {
+			return false
+		}
+		if final != nil {
+			refused = final()
+		}
+		return refused == nil
+	}
+	if err := a.keyIf(ctx, t, fence, enter, errAgyTyped, "Enter"); err != nil {
+		erased := a.erase(ctx, t, fence, text)
+		if refused != nil {
+			// A refusal that says nothing was entered holds only after the erase (#592).
+			if erased != nil {
+				return false, erased
+			}
+			return false, refused
+		}
 		return false, err
 	}
 	if !awaitAgy(ctx, t, done) {
@@ -625,10 +771,11 @@ func (a agyCycle) command(ctx context.Context, t CycleTarget, fence CycleFence, 
 	return true, nil
 }
 
-// Clear enters /clear and reads back the cleared screen; that is its receipt. The new
-// conversation is proven separately, by NewEpoch.
+// Clear enters /clear and reads back the cleared screen; that is its receipt. After the Enter's
+// fence, right before the key, a user input after the ready report refuses it, and the typed
+// command is erased (#593). The new conversation is proven separately, by NewEpoch.
 func (a agyCycle) Clear(ctx context.Context, t CycleTarget, fence CycleFence) (bool, error) {
-	return a.command(ctx, t, fence, "/clear", nil, agyCleared)
+	return a.command(ctx, t, fence, "/clear", nil, agyCleared, func() error { return agyQuiet(t) })
 }
 
 // NewEpoch returns the conversation that the host's status line reported after the clear
@@ -686,7 +833,7 @@ func (a agyCycle) Pickup(ctx context.Context, t CycleTarget, fence CycleFence) (
 	}
 	return a.command(ctx, t, fence, agyPickupCommand, pickupRow(t.Pickup), func(s codexScreen) bool {
 		return agySubmitted(before, s, agyPickupCommand)
-	})
+	}, nil)
 }
 
 // Answerable is false: every agy dialog waits for the native session or the maintainer.

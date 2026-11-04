@@ -5,6 +5,72 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-11-04 — Goal-first handoffs, board-checked waits, and OpenCode slash commands
+
+This release makes a handoff carry the work's goal: the goal with its source and success
+criteria, the blockers that stop it, the tasks under each blocker and the next steps, and pickup
+reports them first. A handoff quotes the maintainer's directions apart from the agent's own
+proposals, and says that a decision waits for the maintainer only with the board item that
+holds it, which pickup reads again. A turn after the ready report stops the clear for agy, Grok,
+OpenCode and DeepSeek too. OpenCode shows the Koinon skills as slash commands in every
+directory. The state schema stays at 37.
+
+- OpenCode shows the Koinon skills as slash commands in every directory: `koinon install` and
+  the daemon at each start write `commands/koinon-NAME.md` in OpenCode's configuration
+  directory, when it exists, for each skill entry, and `/koinon-resume` for `koinon-pickup`,
+  whose own name stays with the skill that the managed cycle runs (#603). Each command loads its
+  skill. A marker line with the file's digest marks Koinon's files; a file without it, an edited
+  file and a link stay as they are and are reported as `kept`, and `koinon uninstall` removes
+  only Koinon's files. The install report lists them in `opencode_commands`.
+- A handoff records the goal that the work serves, with its source and success criteria, the
+  blockers that stop it with their evidence, the tasks under each blocker with their state, and
+  the next steps; the progress note carries them in short form (#602). The current pull request
+  is a task, never the goal. `pickup` always reads these sections, checks each blocker and task
+  against the live state, reports the goal first and continues the work underway.
+- A handoff says that a decision waits for the maintainer only with the decision item that holds
+  it, with its reference and state, and `pickup` reads the decision board again before it
+  reports: a claim without a live item is reported as a difference, and a board that cannot be
+  read as unverified, never as a wait (#600). A draft that the maintainer has not seen stays
+  under the agent's own proposals.
+- A managed cycle no longer clears an agy, Grok, OpenCode or DeepSeek session that had a
+  conversation turn after its ready report: it asks for a new handoff, as for Claude and Codex
+  (#593, board card TURN-AFTER-READY-592). Koinon reads the session's own record back to the
+  report, before the clear and again right before its input: the agy transcript's steps, the
+  Grok event log, the OpenCode session's messages and the DeepSeek history, never their text. A
+  Grok prompt that waits in Grok's queue keeps the clear from running, and a record that cannot
+  be read back to the report does too (`history_unread`). On an idle pane neither asks for a new
+  handoff; a queue during a running turn is a running turn, which asks again at the ready
+  deadline (GROK-RUNNING-QUEUE-593). An OpenCode select that a turn refuses
+  keeps the created session, and the next reset selects that session once.
+- A handoff quotes the maintainer's directions and keeps the agent's own proposals apart
+  (board card HANDOFF-WORDS). The handoff skill's template has a Maintainer direction section,
+  each direction still in force in the maintainer's words with its date, where it was given and
+  the question it answered, and a My proposals not yet raised section for the agent's own
+  drafts and open points. A handoff starts from the progress note only when the note is newer
+  than the last snapshot, else from the snapshot, and says that the note was not used. Pickup
+  reads both sections also when the note is usable and reports the proposals as the agent's
+  own. The managed cycle request and the guide say that the pause is for that cycle only and
+  that the handoff does not record it as a rule for the next session. `library_read` serves the
+  new skill text; `library_state` shows a copy whose recorded adoption has the earlier text as
+  `outdated`.
+
+Upgrade from v0.9.1 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and rewrites the `koinon-pickup` skill and the other skill entries,
+and, when OpenCode's configuration directory exists, writes its `commands/koinon-NAME.md` and
+`commands/koinon-resume.md`; the state schema stays at 37. The restart ends current dashboard
+logins: log in again with the maintainer secret, or run `koinon dashboard` for a one-time link.
+Homebrew then shows the steps that `koinon install --plan` finds; run them, and run
+`koinon install --plan` again to check. A running `koinon mcp` server runs the new release
+without a session restart.
+
+Upgrade notes:
+
+- An OpenCode session that is already open lists the new slash commands after OpenCode starts
+  again. A command file of the same name that you wrote or edited is kept and reported as
+  `kept` (#603).
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+
 ## 2026-11-03 — Decision record modes, a board export, and clears that wait for a new turn
 
 This release lets each repository choose how a board verdict is recorded, with `none` as the

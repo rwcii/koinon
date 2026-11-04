@@ -54,8 +54,11 @@ fi
 
 Read the progress note first when it exists (step 6 of the `handoff` skill). Then read the
 newest handoff, or in a managed cycle the handoff that the cycle names (step 4), for what the
-note does not cover, such as identity and claims. When the note is absent, unreadable or larger
-than 4 KiB, read the whole handoff and say so in the report.
+note does not cover, such as identity and claims, and always its Goal, Blockers and tasks, Next
+steps, Maintainer direction and My proposals not yet raised sections: the note does not replace
+them. An older handoff has Goal and success criteria and Resume here in their place: read those
+as its goal and its next action, without a stop. When the note is absent,
+unreadable or larger than 4 KiB, read the whole handoff and say so in the report.
 
 Handoff file names start with a UTC timestamp, so the last name in sort order is the newest.
 The handoffs are the timestamped files: `progress.md` is the note, and a directory with only the
@@ -85,6 +88,15 @@ gh issue list --state open
 
 When the handoff names a sprint, read its plan under `docs/sprints/` and list the open issues on
 its milestone, if it has one: `gh issue list --milestone "<sprint>" --state open`.
+
+Check the goal's hierarchy against the same live state: each blocker's evidence (does the check
+still fail, is the finding still open), and each task's state (its branch and commit, its pull
+request, its CI run or job: running, finished or failed). Read a running job's state; do not
+start it again. A blocker that the live state no longer shows, and a task that finished after
+the handoff, are differences; report a fact that you could not check as unverified.
+
+Claims that a decision waits for the maintainer are checked against the decision board at the
+end of step 4, when the daemon knows this session.
 
 ## 4. Reconnect to the daemon
 
@@ -133,19 +145,69 @@ and cursors from before participant ownership keep their old owners, and other h
 stay theirs until they expire or are released. Report identity changes, succession or refusal,
 and pending leases; private values stay in the ignored handoff.
 
+Then check the decision board, with the installed guide's decision tools or its command path
+(WDR 005, Decision 5):
+
+1. Read `decision_list` with the filter `waiting`, and `decision_pending`, each page by page to
+   its end. `waiting` lists the active decision items and tasks; `decision_pending` lists the
+   verdicts delivered to you that you have not acknowledged, not undecided items.
+2. Read each decision item that the note or the handoff names with `decision_get`, also one
+   that is not in the waiting list.
+3. Compare each claim that a decision waits for the maintainer with that read:
+   - an active item of kind `decision` or `task` at the revision that the claim names still
+     waits: report its reference, kind, revision and what waits on it;
+   - an active item of kind `decision` or `task` at a newer revision than the claim names was
+     reopened or edited: report the difference, with both revisions, and that it waits at the
+     newer one;
+   - an active item of kind `fyi`, at any revision, is information for the maintainer, not a
+     decision that waits: report it as a difference, with its revision;
+   - an item in another state (approved and in progress, returned with feedback, archived or
+     withdrawn) is a difference: report its state, revision and verdict, not a wait;
+   - a claim that names no item, or an item that does not exist, is a difference too: report
+     it as drift, not as a wait, and not as a question for the maintainer. Its point keeps the
+     source that the note or the handoff gives, such as a tracker row, a peer or a
+     conversation; it is the previous session's own proposal only when the handoff says so,
+     and without a source, report the source as unknown.
+4. A verdict from `decision_pending` that you did not handle yet: handle it from its current
+   item as the guide's Decisions section says, then acknowledge it. A superseded verdict is not
+   handled again.
+
+The report lists the waiting items of the work that you resume; the cards of other
+repositories are not part of it. A read that is refused, an unavailable daemon or tool, an older runtime without
+these tools and a page you could not finish leave the claim unverified: report it with the
+error, not as none and not as a wait, and continue the other steps.
+
 ## 5. Orient, then continue
 
-Report briefly:
+Report briefly, the goal's hierarchy first:
 
+- The goal, with its source and success criteria: the outcome that the work serves, not the
+  current pull request or task; unknown when the handoff records none. Asked for the goal, give
+  this goal.
+- Each blocker with its evidence as the live state shows it now, and under it each task with its
+  state, what is done and what remains; open work without a blocker; each difference from the
+  handoff and each fact that you could not check, as unverified.
+- The next steps, corrected for the differences; the first one that still applies is the next
+  action. A claim that the board read did not confirm adds no wait for the maintainer to it.
 - Where things stand now, with each difference from the note and the handoff named.
-- The goal and success criteria, if they are still valid.
-- The next action, corrected for the differences.
 - Open work that the handoff does not name.
 - Each subagent that the handoff lists as running: its result, or that it has not arrived
   (WDR 005, Decision 4).
-- Blockers and decisions that need the maintainer.
+- Decisions waiting for the maintainer, only from the board read of step 4, with each reference
+  and revision; each claim that the read did not confirm, as drift or as unverified.
+- The maintainer's directions that the handoff quotes, with their dates, and your own proposals
+  not yet raised, as yours.
 
-Then start the next action. When the live state changed the next action materially or left it
+In the saved handoff, Maintainer direction holds the maintainer's words and My proposals not
+yet raised holds the previous session's own ideas: report each proposal as yours, not as a
+question or a rule from the maintainer. The maintainer's current instructions are a direct
+source as always.
+
+Then start the next action. An underway task goes on from where it stopped, a job that finished
+with success for the current head is not run again, a failed, cancelled or stale run (such as
+one for an older head) is read and run again when its task needs it, and open work without a
+blocker can go on while a blocker waits for someone else. A step that is the maintainer's or another agent's stays theirs. When the live state
+changed the next action materially or left it
 ambiguous, ask the maintainer, with a recommendation. When the maintainer asked for orientation,
 the report is the result.
 

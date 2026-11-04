@@ -283,24 +283,26 @@ are unknown, so no session is eligible until fresh native reports arrive.
 
 ### Managed context cycles
 
-Chunk 02 adds the durable cycle. A context observation that makes an enabled session
-eligible admits a cycle when the family has a registered cycle adapter, the session still has
-the host and tmux pane that its Enable pinned, it has no unfinished cycle (nor has its host),
-and fewer than 16 cycles are unfinished. Chunk 03 registers the Claude Code adapter, chunk
-04 the Codex adapter, #512 the agy adapter, #513 the OpenCode adapter and #514 the DeepSeek adapter; the other families have none, so their Enable is refused. Admission is one ordinary transaction:
-the cycle row, its first event `requested admitted`, an audit record and the typed request in
-the session's own inbox. The request's sender is the reserved system identity `overwatch`
+Chunk 02 adds the durable cycle. A context observation that makes an enabled session eligible
+admits a cycle when the family has a registered cycle adapter, the session still has the host
+and tmux pane that its Enable pinned, it has no unfinished cycle (nor has its host), and fewer
+than 16 cycles are unfinished. Chunk 03 registers the Claude Code adapter, chunk 04 the Codex
+adapter, #512 the agy adapter, #513 the OpenCode adapter and #514 the DeepSeek adapter; the
+other families have none, so their Enable is refused. Admission is one ordinary transaction: the
+cycle row, its first event `requested admitted`, an audit record and the typed request in the
+session's own inbox. The request's sender is the reserved system identity `overwatch`
 (`sender_family` and `sender_id` `overwatch`, `sender_name` `overwatch`), with `system_kind`
-`context_cycle_request`, `cycle_id` and `cycle_enable_revision`; its fixed body names the
-cycle and its revision and asks the session to pause at the next safe stopping point, start no new work, write its
-handoff, report it with `context_cycle_ready`, then end its turn and stay idle (#431). A wake
-whose range holds the request of an unfinished cycle ends its notice with ` Managed
-context-cycle request ID: answer it before other work.`, after any decision verdict suffix; a finished cycle's request adds
-nothing (#445). No session, alias or participant can take the name `overwatch`, it has no
-inbox, and no tool or command can send as it.
-Inbox reads return `system_kind`, `cycle_id` and `cycle_enable_revision` with the message. A
-name record called `overwatch` retained from before schema 23 is kept unchanged; while one
-exists no cycle is admitted, and the session's trigger reason is `overwatch_name_conflict`.
+`context_cycle_request`, `cycle_id` and `cycle_enable_revision`; its fixed body names the cycle
+and its revision and asks the session to pause at the next safe stopping point, start no new
+work (for this cycle only; the handoff does not record the pause as a rule for the next
+session), write its handoff, report it with `context_cycle_ready`, then end its turn and stay
+idle (#431). A wake whose range holds the request of an unfinished cycle ends its notice with `
+Managed context-cycle request ID: answer it before other work.`, after any decision verdict
+suffix; a finished cycle's request adds nothing (#445). No session, alias or participant can
+take the name `overwatch`, it has no inbox, and no tool or command can send as it. Inbox reads
+return `system_kind`, `cycle_id` and `cycle_enable_revision` with the message. A name record
+called `overwatch` retained from before schema 23 is kept unchanged; while one exists no cycle
+is admitted, and the session's trigger reason is `overwatch_name_conflict`.
 
 Schema 23 adds `context_cycles` (state, compared revision, the pinned session, host, pane,
 participant, Enable revision and pre-reset epoch, the policy snapshot, deadlines, artifact
@@ -422,8 +424,13 @@ typed request with the new revision in the session's inbox; `waiting_ready` does
 pane, so its wake goes out. The codes are `status_busy` (a turn in progress), `status_waiting`
 (a native wait), `status_unknown`, `input_not_empty` (a draft), `input_line_not_found`,
 `turn_running` and `turn_not_ended` (Codex), `transcript_unread` (#592), or
-`pane_not_ready`. A `ready` stage that sees `subagent_after_ready` (Claude, #456) or
-`turn_after_ready` (Claude and Codex, #592) asks again at once, the same way. A repeat refused because the
+`pane_not_ready`. `history_unread` (a record that could not be read back to the ready report)
+and `input_queued` (input that the session accepted and has not started, such as Grok's queue or
+DeepSeek's inbox) wait without a new request; their timeout ends the cycle (#593). A `ready`
+stage that sees `subagent_after_ready` (Claude, #456) or `turn_after_ready` (every family:
+Claude and Codex, #592; agy, Grok, OpenCode and DeepSeek, #593) asks again at once, the same
+way. An input refused before it was made, for a turn, unread history or queued input, returns
+the cycle to `ready` with that code as its reason; the report and its time stay. A repeat refused because the
 cycle changed, its Enable or pin ended, or the store is full ends the cycle as a timeout; the
 lifetime, the event limit (`event_limit`) and the page credit end repeated requests. A `ready`
 stage whose pane could not be read or proven, and a `bootstrap_verified` or `reset_verified`
@@ -521,7 +528,10 @@ configuration directories when they exist), when it is missing or holds other co
 skill entries in `team_skills`, one row per file with `family`, `name` (for an entry), `path`
 and `result`: `created`, `replaced` or `unchanged` for an install, `removed` or `absent` for an
 uninstall, and `kept` for a file with other content at uninstall or a symbolically linked entry
-directory or file, which neither writes through. A write the daemon cannot make is logged
+directory or file, which neither writes through. `opencode_commands` lists OpenCode's
+`commands/koinon-NAME.md` files, with `koinon-resume` for `koinon-pickup`, in the same rows
+(#603); a command file without an intact
+Koinon marker is `kept`. A write the daemon cannot make is logged
 (`pickup_skill`, `write_failed`) and does not stop it. `koinon claude` adds no directory to a launch,
 and the cycle adds none to a running session.
 
@@ -655,6 +665,22 @@ dialog shows; after the clear the screen must still be the cleared one. A draft 
 while the composer holds exactly it and the menu selects its one `/clear` row; the receipt is an
 idle composer below the latest banner, with nothing of a turn between them.
 
+Before the clear, a user input after the ready report asks again (`turn_after_ready`, #593).
+agy 1.4.12 writes the conversation's transcript to
+`~/.gemini/antigravity-cli/brain/CONVERSATION/.system_generated/logs/transcript.jsonl`, one step
+per line with `step_index` 0, 1, 2 and so on; its times have only seconds, so the step order
+places the report: the first step with a `call_mcp_tool` call of Koinon's `context_cycle_ready`
+whose arguments name the cycle and the request revision that the report answered. A repeated
+or refused call later is not the report. A `USER_INPUT` step after it is a turn: agy records a
+prompt and a message that Koinon types into the pane that way. Its model's steps
+(`PLANNER_RESPONSE`, `GENERIC`) and its own (`SYSTEM_MESSAGE`, `CHECKPOINT`) are not. Koinon
+reads only the step's kind, source, index and the Koinon call's arguments, never the text. A
+transcript that is missing, over 16 MiB, changes during the read or ends in a partial line, a step
+out of order, no such call, and a step after it of another kind or source is `history_unread`:
+the cycle waits and asks for no new handoff. The clear reads the transcript again after the
+Enter's proof and fence, right before the key; a turn found then erases the typed `/clear` and
+returns the cycle to `ready`.
+
 The reset is proven by a witness. The agy status-line hook sends each conversation it reports to
 `POST /v1/cycles/agy-witness` with its own PID and start; agy runs it as `sh -c` under the host.
 The daemon keeps a report, in memory, only for an agy cycle from `clear_intent` to the pickup. It
@@ -724,6 +750,33 @@ starts a new session in the same host and keeps the earlier one live. The receip
 `Session ID, use /dashboard to switch between sessions` above an empty input box, naming a session
 other than the cycle's epoch and other than any that the screen named before the Enter.
 
+Before the clear, a turn after the ready report asks again (`turn_after_ready`, #593). Grok Build
+1.0.50 keeps each session's events in
+`$GROK_HOME/sessions/ESCAPED-CWD/SESSION/events.jsonl`, one event per line with `ts` in
+milliseconds; Koinon takes the one directory whose unescaped name is the host's `PWD` and that
+holds the session, so no escaping rule is assumed; it writes `turn_started` when
+a prompt starts its turn. A `turn_started` after the ready report is a turn; the report's own
+turn started before it, and its tool call's completion, `loop_started` and `turn_ended` are not.
+Its own context, such as a system reminder, starts no turn. The log is read as the Claude
+transcript is, from its end back to the last event at or before the report; an event after the
+report without a valid time, a time earlier than the one before it (the log's times never went
+back in 49 sessions), a partial last line, a missing log or an unknown working directory is
+`history_unread`. A prompt typed during a running turn waits in Grok's queue, shown as
+`▾ Queued N` and its numbered rows right above the input box and the menu, with
+`Enter:send now` in the shortcut bar; no file holds it until its turn starts, about 0.1 s after
+the running turn ends (two live runs). While that queue shows, the pane is not ready
+(`input_queued`): the cycle waits and asks for no new handoff, and the queued turn, once
+started, asks again. While a turn runs the pane is `turn_running`, also with a queue: the queued
+turn starts after it and asks again then, and a ready stage that times out on a running turn asks
+again, as for any family. This is an exception to the #593 criterion "while the pane shows
+`▾ Queued N`, no new request" (decision GROK-RUNNING-QUEUE-593, approved by the maintainer on
+2026-11-03): `input_queued` does not ask again, so during a long turn it would fail the cycle at
+the ready stage's 2-minute deadline and end the Enable, and the clear never runs while a turn
+runs. A queue that shows when the clear would type `/new` refuses it with
+nothing typed; the clear reads the queue and the log again after the Enter's proof and fence,
+right before the key, and a queue or a turn found then erases the typed `/new`. Both return the
+cycle to `ready`.
+
 The reset is proven by a witness, with the agy contract: the Grok status-line hook sends each
 session it reports to `POST /v1/cycles/grok-witness` with its own PID and start, also for an input
 without usable counts; Grok runs it as `sh -c` under the host. A report is kept only for a Grok
@@ -780,13 +833,33 @@ composer is the last block of `┃` rows at the left margin above its `╹▀` r
 is the message column's, left of the sidebar. The home screen's centered composer is no session
 view (`input_line_not_found`).
 
+Before the reset, a user message after the ready report asks again (`turn_after_ready`, #593): a
+prompt, or a message that Koinon delivered. `GET /session/{id}/message?limit=50` lists the
+requester's newest messages, oldest first, and names the page before them in `X-Next-Cursor`,
+which `before` takes; the oldest page has no cursor, also when it is full (opencode 1.18.35).
+Koinon reads back a page at a time, at most 20, to a message created at or before the report or
+to the oldest page, then the newest message again, which must be the same, so a message that
+came during the read is not missed; it reads only each message's ID, role and `time.created`,
+never its parts. A message without a role or a valid time, a page out of order, a failed page, a
+newer message after the read and a read past the bound is `history_unread`: the cycle waits and
+asks for no new handoff.
+
 The clear stage creates the successor (`POST /session` with the title `koinon-cycle-CYCLE`,
-after a fresh read and the fence). The created ID is recorded with the receipt, in the write that
-enters `clear_received`; a create whose response is lost has no recorded ID and ends `uncertain`,
-and nothing is created again. In `clear_received` the select's intent is recorded first, as the
-same-state event `clear_received` `select_sent`, then `POST /tui/select-session` with the created
-ID is sent once; a refusal ends `uncertain` (`select_unreceived`), and a restart never selects
-again. OpenCode accepts the select with `true` but gives no read-back of the session that the
+after a fresh read and the fence). Right before the request, after the fence, the requester's
+messages are read again; a turn after the report, or messages that cannot be read, refuse the
+create with nothing created, and the cycle returns to `ready`. The created ID is recorded with
+the receipt, in the write that enters `clear_received`; a create whose response is lost has no
+recorded ID and ends `uncertain`, and nothing is created again. In `clear_received` the select's
+intent is recorded first, as the same-state event `clear_received` `select_sent`, then `POST
+/tui/select-session` with the created ID is sent once; a refusal ends `uncertain`
+(`select_unreceived`), and a restart never selects again. The select reads the requester's
+messages again after its fence, right before the request: a turn after the report, or messages
+that cannot be read, refuse it unsent. The cycle then returns to `ready` with that reason and
+keeps the created session. That `ready` event after the intent is the durable proof that the
+intent was not sent, so a later select is sent once again; any other intent may have been sent
+and is never sent again. The next create uses the kept session while the server shows it with
+the cycle's title and no messages; a kept session that no longer is ends the cycle `uncertain`
+(`successor_not_empty`), and no other session replaces it. OpenCode accepts the select with `true` but gives no read-back of the session that the
 TUI shows. The reset is proven by the server and the pane: the recorded session exists with the
 cycle's title and no messages, and the pane shows an empty session view with an empty composer.
 That proves the creation, not the display: another empty session looks the same. The pre-pickup
@@ -887,6 +960,20 @@ not block. A created session is ready for its pickup only while it has no turn a
 message (`successor_not_empty`). The harness has no client read of a running `/compact` other
 than these events.
 
+Before the reset, a conversation turn after the ready report asks again (`turn_after_ready`,
+#593): a `user/message` or `turn/start` event whose `time` is after the report, also a message
+without a turn, such as one that Koinon delivered. The scan reads the requester's history back
+from its newest event, past the newest `turn/start`, to the `turn/start` at or before the report,
+the start of the turn that made it, or to the log's start, in contiguous pages within the same
+budget, and then the projections again, whose `asOfSeq` must not have moved. The session reports
+ready from a tool call inside a turn, so that turn did not end at or before the report: a
+`turn/start` at or before the report whose `turn/end` is also at or before it is not the
+report's turn. Going back, each event's time must be at or before the newer one's. That
+turn, an event without a valid `time`, a time out of order, a gap, a moved end and an
+exhausted budget are `history_unread`: the cycle waits and asks for no new handoff. Only a
+harness clock that goes back across the report's own turn could still hide a turn. Its worker
+publishes the turn like any other read, and the step asks again.
+
 The reset creates the successor: under the recorded `clear_intent` and after the pin, the
 fence and a read that shows no session with the chosen ID, `session/create` with
 `{sessionId, cwd}`: `session-` and a UUID derived from the cycle ID, and the requester's `cwd`.
@@ -897,7 +984,10 @@ then the same create is sent again; a session with that ID in the pinned `cwd` w
 user message is the created one, and any other is `session_conflict`, never adopted. Before the
 fence the create's worker reads the requester's quiet point again, because the ready step
 applied an earlier read: a requester that is no longer quiet gets no create, and the cycle waits
-in `clear_intent` and ends `uncertain` with that code at the stage deadline. An
+in `clear_intent` and ends `uncertain` with that code at the stage deadline. After the fence,
+right before `session/create`, it reads the history back to the ready report again: a turn
+since, or a history that cannot be read, refuses the create with nothing created, and the cycle
+returns to `ready`, whose next step asks again or waits. An
 unreadable harness waits until the stage deadline, then ends `uncertain` (`reset_unproven`). The
 `select_sent` event is recorded and nothing is sent: the harness has no server record of the
 session that a browser shows. The reset is proven when the created session exists in the
