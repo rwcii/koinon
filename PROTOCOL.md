@@ -528,7 +528,10 @@ configuration directories when they exist), when it is missing or holds other co
 skill entries in `team_skills`, one row per file with `family`, `name` (for an entry), `path`
 and `result`: `created`, `replaced` or `unchanged` for an install, `removed` or `absent` for an
 uninstall, and `kept` for a file with other content at uninstall or a symbolically linked entry
-directory or file, which neither writes through. A write the daemon cannot make is logged
+directory or file, which neither writes through. `opencode_commands` lists OpenCode's
+`commands/koinon-NAME.md` files, with `koinon-resume` for `koinon-pickup`, in the same rows
+(#603); a command file without an intact
+Koinon marker is `kept`. A write the daemon cannot make is logged
 (`pickup_skill`, `write_failed`) and does not stop it. `koinon claude` adds no directory to a launch,
 and the cycle adds none to a running session.
 

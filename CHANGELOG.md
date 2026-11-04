@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- OpenCode shows the Koinon skills as slash commands in every directory: `koinon install` and
+  the daemon at each start write `commands/koinon-NAME.md` in OpenCode's configuration
+  directory, when it exists, for each skill entry, and `/koinon-resume` for `koinon-pickup`,
+  whose own name stays with the skill that the managed cycle runs (#603). Each command loads its
+  skill. A marker line with the file's digest marks Koinon's files; a file without it, an edited
+  file and a link stay as they are and are reported as `kept`, and `koinon uninstall` removes
+  only Koinon's files. The install report lists them in `opencode_commands`.
 - A handoff records the goal that the work serves, with its source and success criteria, the
   blockers that stop it with their evidence, the tasks under each blocker with their state, and
   the next steps; the progress note carries them in short form (#602). The current pull request

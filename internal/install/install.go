@@ -109,6 +109,8 @@ type Report struct {
 	PickupSkills []PickupSkill `json:"pickup_skills"`
 	// TeamSkills reports the koinon-NAME team skill entries for each family (#453).
 	TeamSkills []PickupSkill `json:"team_skills"`
+	// OpenCodeCommands reports OpenCode's slash-command file for each skill entry (#603).
+	OpenCodeCommands []PickupSkill `json:"opencode_commands"`
 	// RetiredInstructions reports the Codex AGENTS.md without the retired Python runtime's
 	// blocks: removed, unchanged or absent (#487).
 	RetiredInstructions *RetiredInstructions `json:"retired_instructions,omitempty"`
@@ -529,7 +531,32 @@ func installPickupSkills(o Options, r *Report) error {
 		skill.Result = result
 		r.PickupSkills = append(r.PickupSkills, skill)
 	}
-	return eachTeamSkill(o, r, core.InstallTeamSkill)
+	if err := eachTeamSkill(o, r, core.InstallTeamSkill); err != nil {
+		return err
+	}
+	return eachOpenCodeCommand(o, r, core.InstallOpenCodeCommand)
+}
+
+// eachOpenCodeCommand applies change to OpenCode's command file for each skill entry, when
+// OpenCode's configuration directory exists, and reports them (#603).
+func eachOpenCodeCommand(o Options, r *Report, change func(path string, command core.OpenCodeCommand) (string, error)) error {
+	if info, err := os.Stat(o.Opencode); err != nil || !info.IsDir() {
+		return nil
+	}
+	commands, err := core.OpenCodeCommands()
+	if err != nil {
+		return fmt.Errorf("opencode_command_failed: %v", err)
+	}
+	for _, command := range commands {
+		target := PickupSkill{Family: "opencode", Name: command.Name, Path: core.OpenCodeCommandPath(o.Opencode, command.Name)}
+		result, err := change(target.Path, command)
+		if err != nil {
+			return fmt.Errorf("opencode_command_failed: %s: %v", target.Path, err)
+		}
+		target.Result = result
+		r.OpenCodeCommands = append(r.OpenCodeCommands, target)
+	}
+	return nil
 }
 
 // eachTeamSkill applies change to each family's skill entry files and reports them.
@@ -561,7 +588,8 @@ func Install(ctx context.Context, o Options) (Report, error) {
 		return Report{}, err
 	}
 	r := Report{Binary: Binary(o.Prefix), Backend: o.Services.Backend, Artifact: o.Services.DaemonArtifact(),
-		StateDir: o.StateDir, Agents: []setup.Report{}, PickupSkills: []PickupSkill{}, TeamSkills: []PickupSkill{}}
+		StateDir: o.StateDir, Agents: []setup.Report{}, PickupSkills: []PickupSkill{}, TeamSkills: []PickupSkill{},
+		OpenCodeCommands: []PickupSkill{}}
 	if !o.Upgrade {
 		i, err := legacy.ReadInstall(o.PythonPrefix)
 		if err != nil {
@@ -774,7 +802,8 @@ func Uninstall(ctx context.Context, o Options) (Report, error) {
 		return Report{}, err
 	}
 	r := Report{Binary: Binary(o.Prefix), Backend: o.Services.Backend, Artifact: o.Services.DaemonArtifact(),
-		StateDir: o.StateDir, Agents: []setup.Report{}, PickupSkills: []PickupSkill{}, TeamSkills: []PickupSkill{}}
+		StateDir: o.StateDir, Agents: []setup.Report{}, PickupSkills: []PickupSkill{}, TeamSkills: []PickupSkill{},
+		OpenCodeCommands: []PickupSkill{}}
 	agents := o.Agents
 	if len(agents) == 0 {
 		agents = Families
@@ -813,6 +842,11 @@ func Uninstall(ctx context.Context, o Options) (Report, error) {
 	}
 	if err := eachTeamSkill(o, &r, func(path string, skill core.TeamSkill) (string, error) {
 		return core.RemoveSkillFile(path, skill.Content)
+	}); err != nil {
+		return r, err
+	}
+	if err := eachOpenCodeCommand(o, &r, func(path string, _ core.OpenCodeCommand) (string, error) {
+		return core.RemoveOpenCodeCommand(path)
 	}); err != nil {
 		return r, err
 	}

@@ -25,6 +25,8 @@ type TeamSkill struct {
 	Content []byte
 	// Shared: the name is also the catalog item's own (#461).
 	Shared bool
+	// Description is the item's description, which the command menus list.
+	Description string
 }
 
 // teamSkillMark begins every entry's body; a file without it is not a Koinon entry.
@@ -62,7 +64,8 @@ func TeamSkills() ([]TeamSkill, error) {
 		if shared {
 			name = item.Name
 		}
-		skills = append(skills, TeamSkill{Name: name, Content: []byte(teamSkillContent(name, item.Name, item.Facts.Filename, item.Description)), Shared: shared})
+		skills = append(skills, TeamSkill{Name: name, Content: []byte(teamSkillContent(name, item.Name, item.Facts.Filename, item.Description)), Shared: shared,
+			Description: item.Description})
 	}
 	if len(skills) == 0 {
 		return nil, fmt.Errorf("catalog has no skills")
