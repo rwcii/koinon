@@ -263,8 +263,10 @@ read when they are written; a draft that the maintainer has not seen is a propos
 raised, and a point raised in a conversation without an item keeps that source. `pickup` reads
 the board after it reconnects (`decision_list` waiting and `decision_pending`, to the last page,
 and `decision_get` for each named item) and reports as waiting only the active items of the work
-it resumes. A claim with no item, or with an item that is no longer active, is reported as a
-difference; a board that cannot be read leaves the claim unverified, with the error. The
+it resumes: an active decision or task at the named revision. A claim with no item, with an
+item that is no longer active, reopened at a newer revision or of kind `fyi`, is reported as a
+difference, and its point keeps the source that the handoff gives; a board that cannot be read
+leaves the claim unverified, with the error. The
 maintainer's direct instructions, quoted directions and approvals given in a conversation or a
 native prompt keep their own sources: the rule adds no item before an agent acts on them.
 

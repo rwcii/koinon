@@ -190,8 +190,12 @@ func TestHandoffWaitsNameBoardItems(t *testing.T) {
 		{"handoff", handoff, "- Waiting for the maintainer: <decision item references and states as read, or none>"},
 		{"pickup", pickup, "1. Read `decision_list` with the filter `waiting`, and `decision_pending`, each page by page to\n   its end."},
 		{"pickup", pickup, "2. Read each decision item that the note or the handoff names with `decision_get`, also one\n   that is not in the waiting list."},
-		{"pickup", pickup, "a claim that names no item, or an item that does not exist, is a difference too: report\n     it as drift, not as a wait."},
+		{"pickup", pickup, "a claim that names no item, or an item that does not exist, is a difference too: report\n     it as drift, not as a wait, and not as a question for the maintainer."},
+		{"pickup", pickup, "an active item of kind `fyi` is information for the maintainer, not a decision that\n     waits"},
+		{"pickup", pickup, "an active item at a newer revision than the claim names was reopened or edited"},
+		{"pickup", pickup, "it is the previous session's own proposal only when the handoff says so,\n     and without a source, report the source as unknown."},
 		{"pickup", pickup, "leave the claim unverified: report it with the\nerror, not as none and not as a wait, and continue the other steps."},
+		{"pickup", pickup, "- The next action, corrected for the differences. A claim that the board read did not confirm\n  adds no wait for the maintainer to it."},
 		{"pickup", pickup, "- Decisions waiting for the maintainer, only from the board read of step 4, with each reference\n  and revision; each claim that the read did not confirm, as drift or as unverified."},
 	} {
 		if !strings.Contains(c.text, c.want) {

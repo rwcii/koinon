@@ -146,15 +146,19 @@ Then check the decision board, with the installed guide's decision tools or its 
 2. Read each decision item that the note or the handoff names with `decision_get`, also one
    that is not in the waiting list.
 3. Compare each claim that a decision waits for the maintainer with that read:
-   - an active item that the claim names still waits: report its reference, revision and what
-     waits on it;
-   - an item in another state (approved and in progress, returned with feedback, archived,
-     withdrawn, or reopened at a newer revision) is a difference: report its state, revision and
-     verdict, not a wait;
+   - an active item of kind `decision` or `task` at the revision that the claim names still
+     waits: report its reference, kind, revision and what waits on it;
+   - an active item at a newer revision than the claim names was reopened or edited: report
+     the difference, with both revisions, and that it waits at the newer one;
+   - an active item of kind `fyi` is information for the maintainer, not a decision that
+     waits: report it as a difference;
+   - an item in another state (approved and in progress, returned with feedback, archived or
+     withdrawn) is a difference: report its state, revision and verdict, not a wait;
    - a claim that names no item, or an item that does not exist, is a difference too: report
-     it as drift, not as a wait. Its point is the previous session's own proposal, reported as
-     yours and not as a question that waits for the maintainer; a point that the handoff says
-     was raised in a conversation keeps that source.
+     it as drift, not as a wait, and not as a question for the maintainer. Its point keeps the
+     source that the note or the handoff gives, such as a tracker row, a peer or a
+     conversation; it is the previous session's own proposal only when the handoff says so,
+     and without a source, report the source as unknown.
 4. A verdict from `decision_pending` that you did not handle yet: handle it from its current
    item as the guide's Decisions section says, then acknowledge it. A superseded verdict is not
    handled again.
@@ -170,7 +174,8 @@ Report briefly:
 
 - Where things stand now, with each difference from the note and the handoff named.
 - The goal and success criteria, if they are still valid.
-- The next action, corrected for the differences.
+- The next action, corrected for the differences. A claim that the board read did not confirm
+  adds no wait for the maintainer to it.
 - Open work that the handoff does not name.
 - Each subagent that the handoff lists as running: its result, or that it has not arrived
   (WDR 005, Decision 4).
