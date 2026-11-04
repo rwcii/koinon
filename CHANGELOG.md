@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A handoff records the goal that the work serves, with its source and success criteria, the
+  blockers that stop it with their evidence, the tasks under each blocker with their state, and
+  the next steps; the progress note carries them in short form (#602). The current pull request
+  is a task, never the goal. `pickup` always reads these sections, checks each blocker and task
+  against the live state, reports the goal first and continues the work underway.
 - A handoff says that a decision waits for the maintainer only with the decision item that holds
   it, with its reference and state, and `pickup` reads the decision board again before it
   reports: a claim without a live item is reported as a difference, and a board that cannot be
