@@ -5,6 +5,16 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-11-04 — Goal-first handoffs, board-checked waits, and OpenCode slash commands
+
+This release makes a handoff carry the work's goal: the goal with its source and success
+criteria, the blockers that stop it, the tasks under each blocker and the next steps, and pickup
+reports them first. A handoff quotes the maintainer's directions apart from the agent's own
+proposals, and says that a decision waits for the maintainer only with the board item that
+holds it, which pickup reads again. A turn after the ready report stops the clear for agy, Grok,
+OpenCode and DeepSeek too. OpenCode shows the Koinon skills as slash commands in every
+directory. The state schema stays at 37.
+
 - OpenCode shows the Koinon skills as slash commands in every directory: `koinon install` and
   the daemon at each start write `commands/koinon-NAME.md` in OpenCode's configuration
   directory, when it exists, for each skill entry, and `/koinon-resume` for `koinon-pickup`,
@@ -43,6 +53,23 @@ into a dated release section when promoted to `main`.
   that the handoff does not record it as a rule for the next session. `library_read` serves the
   new skill text; `library_state` shows a copy whose recorded adoption has the earlier text as
   `outdated`.
+
+Upgrade from v0.9.1 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and rewrites the `koinon-pickup` skill and the other skill entries,
+and, when OpenCode's configuration directory exists, writes its `commands/koinon-NAME.md` and
+`commands/koinon-resume.md`; the state schema stays at 37. The restart ends current dashboard
+logins: log in again with the maintainer secret, or run `koinon dashboard` for a one-time link.
+Homebrew then shows the steps that `koinon install --plan` finds; run them, and run
+`koinon install --plan` again to check. A running `koinon mcp` server runs the new release
+without a session restart.
+
+Upgrade notes:
+
+- An OpenCode session that is already open lists the new slash commands after OpenCode starts
+  again. A command file of the same name that you wrote or edited is kept and reported as
+  `kept` (#603).
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
 
 ## 2026-11-03 — Decision record modes, a board export, and clears that wait for a new turn
 
