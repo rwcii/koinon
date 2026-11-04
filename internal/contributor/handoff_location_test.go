@@ -171,3 +171,48 @@ func TestHandoffCarriesMaintainerWords(t *testing.T) {
 		}
 	}
 }
+
+// A decision waits for the maintainer only when a board item holds it: the handoff names the
+// item with its state, and pickup reads the board after the reconnect, before its report, and
+// reports a claim without a live item as a difference (#600). The checks are of the skill text;
+// the behavior is checked by a fresh-context pickup run in the pull request's evidence.
+func TestHandoffWaitsNameBoardItems(t *testing.T) {
+	handoff := read(t, filepath.Join("agents", "skills", "handoff", "SKILL.md"))
+	pickup := read(t, filepath.Join("agents", "skills", "pickup", "SKILL.md"))
+	for _, c := range []struct {
+		name, text, want string
+	}{
+		{"handoff", handoff, "- Decisions waiting for the maintainer: <each decision item's reference, its state and revision as\n  read now, and what waits on it; none when no item holds one>"},
+		{"handoff", handoff, "A decision waits for the maintainer only when a decision item on the board holds it."},
+		{"handoff", handoff, "A draft that the maintainer has not\nseen goes under My proposals not yet raised, never as waiting or pending."},
+		{"handoff", handoff, "When the board cannot be read, write the claim as\nunverified, with the error."},
+		{"handoff", handoff, "this rule adds no item before you act on them (WDR 005, Decision 5)."},
+		{"handoff", handoff, "- Waiting for the maintainer: <decision item references and states as read, or none>"},
+		{"pickup", pickup, "1. Read `decision_list` with the filter `waiting`, and `decision_pending`, each page by page to\n   its end."},
+		{"pickup", pickup, "2. Read each decision item that the note or the handoff names with `decision_get`, also one\n   that is not in the waiting list."},
+		{"pickup", pickup, "a claim that names no item, or an item that does not exist, is a difference too: report\n     it as drift, not as a wait, and not as a question for the maintainer."},
+		{"pickup", pickup, "an active item of kind `fyi`, at any revision, is information for the maintainer, not a\n     decision that waits"},
+		{"pickup", pickup, "an active item of kind `decision` or `task` at a newer revision than the claim names was\n     reopened or edited"},
+		{"pickup", pickup, "it is the previous session's own proposal only when the handoff says so,\n     and without a source, report the source as unknown."},
+		{"pickup", pickup, "leave the claim unverified: report it with the\nerror, not as none and not as a wait, and continue the other steps."},
+		{"pickup", pickup, "- The next action, corrected for the differences. A claim that the board read did not confirm\n  adds no wait for the maintainer to it."},
+		{"pickup", pickup, "- Decisions waiting for the maintainer, only from the board read of step 4, with each reference\n  and revision; each claim that the read did not confirm, as drift or as unverified."},
+	} {
+		if !strings.Contains(c.text, c.want) {
+			t.Errorf("%s lacks %q", c.name, c.want)
+		}
+	}
+	for _, c := range []struct{ name, text, old string }{
+		{"handoff", handoff, "Blockers and open decisions"},
+		{"pickup", pickup, "- Blockers and decisions that need the maintainer."},
+	} {
+		if strings.Contains(c.text, c.old) {
+			t.Errorf("%s still has %q", c.name, c.old)
+		}
+	}
+	// The board is read once the daemon knows the session: in step 4, after the reconnect.
+	board := strings.Index(pickup, "Then check the decision board")
+	if board < strings.Index(pickup, "## 4. Reconnect to the daemon") || board > strings.Index(pickup, "## 5. Orient, then continue") {
+		t.Errorf("pickup reads the board outside step 4")
+	}
+}
