@@ -32,12 +32,14 @@ Agents that develop Koinon end sessions, reset context and resume later. The `ha
 writes a snapshot of one agent's work, and the `pickup` skill resumes from it. This record
 describes where handoffs live, why they stay out of Git, whose handoff a pickup reads, and the
 short progress note that each agent keeps beside its snapshots, the subagents that a handoff
-lists, and how a handoff carries the maintainer's words apart from the agent's own proposals.
+lists, how a handoff carries the maintainer's words apart from the agent's own proposals, and
+how it records the goal with its blockers, their tasks and the next steps.
 
 The location decision quotes the maintainer. Pickup's default of the caller's own handoff
 shipped without recorded maintainer words, so the record is a draft. The progress note was
 requested by the maintainer, and the maintainer stated the subagent rule and approved the
-maintainer-direction sections on the decision board.
+maintainer-direction sections on the decision board. The maintainer required the goal, its
+blockers, their tasks and the next steps in the terminal.
 
 ---
 
@@ -49,8 +51,9 @@ maintainer-direction sections on the decision board.
 4. Decision 3: A progress note beside the snapshots
 5. Decision 4: A handoff lists the subagents that still run
 6. Decision 5: A handoff quotes the maintainer's directions and keeps the agent's proposals apart
-7. Conclusion
-8. Document History
+7. Decision 6: A handoff records the goal, its blockers, their tasks and the next steps
+8. Conclusion
+9. Document History
 
 ---
 
@@ -174,13 +177,15 @@ location changed in PR #130 (merge commit 2fe8c28) and the wording to "the maint
 
 Each agent currently keeps one short progress note, `progress.md`, in its own handoff directory
 beside its timestamped snapshots, in the resolved Handoff path. The note has fixed fields
-(task, pull request and head, completed stages, decisions, open issues, next action), holds at
+(goal with its success criteria, blockers with their tasks, pull request and head, completed
+stages, decisions, decisions waiting for the maintainer, next steps; Decision 6), holds at
 most 4 KiB, and is the only file there that is updated in place: the agent updates it after a
 completed stage, and `handoff` starts a snapshot from it when it is newer than the last
 snapshot, else from that snapshot, saying that the note was not used, and updates it in the same
 step. `pickup` reads the note first, verifies its volatile claims once, and takes from the
 newest snapshot what the note does not cover, such as identity and claims, and always the
-snapshot's maintainer directions and unraised proposals (Decision 5). When the note is absent,
+snapshot's goal, blockers and tasks, next steps (Decision 6), maintainer directions and unraised
+proposals (Decision 5). When the note is absent,
 unreadable or larger than 4 KiB, pickup reads the whole handoff and says so. The timestamped
 files are the snapshots, and a managed cycle restores the snapshot that it names and reconciles
 a newer or different note against the live state.
@@ -317,6 +322,59 @@ maintainer is told that a decision waits only when the board holds it.
 
 ---
 
+## 7. Decision 6: A handoff records the goal, its blockers, their tasks and the next steps
+
+### Decision
+
+A handoff has a Goal section, a Blockers and tasks section and a Next steps section (#602). The
+goal is the outcome that the work serves, with its source (the maintainer's words with their
+date, or a verified issue or sprint) and its success criteria; it is not the current pull
+request, which is a task under a blocker, and it is unknown when no source records it. Each
+blocker is a fact with its evidence that stops progress towards the goal now, and has one or
+more tasks, each with its approach, its state (done, underway with its branch, commit, pull
+request or job, or not started), what is done, what remains and what it depends on. Work that
+waits on nothing is open work, and a fact that could not be checked stays unverified; neither is
+a blocker. The next steps are the open tasks in order, the first is the next action, and a step
+that is the maintainer's or another agent's stays theirs. The progress note carries the same
+items in short form. `pickup` reads these sections also when the note is usable, reads an older
+snapshot's Goal and success criteria and Resume here in their place, checks each blocker and
+task against the live state without starting a running job or one that finished with success for
+the current head again, reports the goal's hierarchy first, gives this goal when it is asked for
+the goal, and continues at the first next step that still applies, with open work going on while
+a blocker waits for someone else.
+
+**Provenance:** Maintainer, 2026-11-04, terminal: "we need to adjust the koinon-handoff skill.
+handoffs are losing critical context around goals. specifically, the ultimate goal, the current
+blocker towards that goal, the work underway to clear that blocker should be captured, and the
+next steps after the handoff in that process should be documented. can you evaluate the current
+skill against these requirements, and also make sure the pickup correctly primes the session
+for these critical items?" Then, about a session of an adopting project: "in [that project],
+the agent lost track of the goal, and adopted the current pr as its goal when asked", and "this
+is why goal/blocker(s)/task(s) is more important". The evaluation in issue #602 found a
+one-level Goal field that took the current task, a progress note with no goal, no record of the
+work underway, one next step, and a pickup that read the note first and did not always read the
+goal. The question: how a handoff carries the goal so that the next session keeps it. The
+section layout, the fields and the pickup checks were settled with the reviewing peer from the
+maintainer's goal/blocker(s)/task(s) structure. The intent: the next session knows the outcome
+that it works towards, what stops it, what is being done about it and what comes next.
+
+### Alternatives Considered
+
+| Alternative | Description | Why Rejected |
+| ----------- | ----------- | ------------ |
+| One Goal line | The template before this decision | The line takes the current task or pull request, and the outcome is lost |
+| A flat list of next steps | Next steps without blockers and tasks | It does not say which step clears what, or which work can go on while a blocker waits |
+| The goal in the note only | Carry the hierarchy in the 4 KiB note | The note is short; the snapshot holds the hierarchy in full and pickup always reads it |
+
+### Rationale
+
+1. A goal with its source cannot be replaced by the current pull request without a visible
+   difference.
+2. Blockers with their tasks and states let the next session continue the work underway and the
+   open work, instead of starting again or waiting.
+
+---
+
 ## Conclusion
 
 Koinon's development agents currently keep handoffs in the main checkout's Git-ignored
@@ -328,7 +386,9 @@ Each agent also keeps a short progress note beside its snapshots, which pickup r
 A handoff lists the subagents that still run, as the maintainer stated on 2026-10-27, and
 quotes the maintainer's directions apart from the agent's own proposals, as the maintainer
 approved on 2026-11-03. A decision that waits for the maintainer is named by its board item, and
-pickup reads the board again (#600).
+pickup reads the board again (#600). A handoff records the goal with its source, its blockers
+with their tasks and the next steps, which pickup reads and reports first, as the maintainer
+required on 2026-11-04.
 
 ---
 
@@ -343,3 +403,4 @@ pickup reads the board again (#600).
 | 2026-11-01 | Decision 1: a failed directory check stops the handoff, which #487 had removed, approved on the decision board (RESTORE-STEPS-487) |
 | 2026-11-03 | Decision 5: a handoff quotes the maintainer's directions and keeps the agent's proposals apart; Decision 3: the note seeds a handoff only when newer than the last snapshot, approved on the decision board (HANDOFF-WORDS) |
 | 2026-11-03 | Decision 5: a decision waits for the maintainer only when a board item holds it; pickup reads the board and reports other claims as differences (#600) |
+| 2026-11-04 | Decision 6: a handoff records the goal, its blockers, their tasks and the next steps, and pickup reads and reports them first (#602) |

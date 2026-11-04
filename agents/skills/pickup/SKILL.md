@@ -54,8 +54,10 @@ fi
 
 Read the progress note first when it exists (step 6 of the `handoff` skill). Then read the
 newest handoff, or in a managed cycle the handoff that the cycle names (step 4), for what the
-note does not cover, such as identity and claims, and always its Maintainer direction and My
-proposals not yet raised sections: the note does not replace them. When the note is absent,
+note does not cover, such as identity and claims, and always its Goal, Blockers and tasks, Next
+steps, Maintainer direction and My proposals not yet raised sections: the note does not replace
+them. An older handoff has Goal and success criteria and Resume here in their place: read those
+as its goal and its next action, without a stop. When the note is absent,
 unreadable or larger than 4 KiB, read the whole handoff and say so in the report.
 
 Handoff file names start with a UTC timestamp, so the last name in sort order is the newest.
@@ -86,6 +88,12 @@ gh issue list --state open
 
 When the handoff names a sprint, read its plan under `docs/sprints/` and list the open issues on
 its milestone, if it has one: `gh issue list --milestone "<sprint>" --state open`.
+
+Check the goal's hierarchy against the same live state: each blocker's evidence (does the check
+still fail, is the finding still open), and each task's state (its branch and commit, its pull
+request, its CI run or job: running, finished or failed). Read a running job's state; do not
+start it again. A blocker that the live state no longer shows, and a task that finished after
+the handoff, are differences; report a fact that you could not check as unverified.
 
 Claims that a decision waits for the maintainer are checked against the decision board at the
 end of step 4, when the daemon knows this session.
@@ -171,16 +179,20 @@ error, not as none and not as a wait, and continue the other steps.
 
 ## 5. Orient, then continue
 
-Report briefly:
+Report briefly, the goal's hierarchy first:
 
+- The goal, with its source and success criteria: the outcome that the work serves, not the
+  current pull request or task; unknown when the handoff records none. Asked for the goal, give
+  this goal.
+- Each blocker with its evidence as the live state shows it now, and under it each task with its
+  state, what is done and what remains; open work without a blocker; each difference from the
+  handoff and each fact that you could not check, as unverified.
+- The next steps, corrected for the differences; the first one that still applies is the next
+  action. A claim that the board read did not confirm adds no wait for the maintainer to it.
 - Where things stand now, with each difference from the note and the handoff named.
-- The goal and success criteria, if they are still valid.
-- The next action, corrected for the differences. A claim that the board read did not confirm
-  adds no wait for the maintainer to it.
 - Open work that the handoff does not name.
 - Each subagent that the handoff lists as running: its result, or that it has not arrived
   (WDR 005, Decision 4).
-- Blockers.
 - Decisions waiting for the maintainer, only from the board read of step 4, with each reference
   and revision; each claim that the read did not confirm, as drift or as unverified.
 - The maintainer's directions that the handoff quotes, with their dates, and your own proposals
@@ -191,7 +203,11 @@ yet raised holds the previous session's own ideas: report each proposal as yours
 question or a rule from the maintainer. The maintainer's current instructions are a direct
 source as always.
 
-Then start the next action. When the live state changed the next action materially or left it
+Then start the next action. An underway task goes on from where it stopped, a job that finished
+with success for the current head is not run again, a failed, cancelled or stale run (such as
+one for an older head) is read and run again when its task needs it, and open work without a
+blocker can go on while a blocker waits for someone else. A step that is the maintainer's or another agent's stays theirs. When the live state
+changed the next action materially or left it
 ambiguous, ask the maintainer, with a recommendation. When the maintainer asked for orientation,
 the report is the result.
 
