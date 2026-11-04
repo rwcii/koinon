@@ -148,10 +148,11 @@ Then check the decision board, with the installed guide's decision tools or its 
 3. Compare each claim that a decision waits for the maintainer with that read:
    - an active item of kind `decision` or `task` at the revision that the claim names still
      waits: report its reference, kind, revision and what waits on it;
-   - an active item at a newer revision than the claim names was reopened or edited: report
-     the difference, with both revisions, and that it waits at the newer one;
-   - an active item of kind `fyi` is information for the maintainer, not a decision that
-     waits: report it as a difference;
+   - an active item of kind `decision` or `task` at a newer revision than the claim names was
+     reopened or edited: report the difference, with both revisions, and that it waits at the
+     newer one;
+   - an active item of kind `fyi`, at any revision, is information for the maintainer, not a
+     decision that waits: report it as a difference, with its revision;
    - an item in another state (approved and in progress, returned with feedback, archived or
      withdrawn) is a difference: report its state, revision and verdict, not a wait;
    - a claim that names no item, or an item that does not exist, is a difference too: report
