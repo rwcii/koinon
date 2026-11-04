@@ -251,6 +251,16 @@ func TestServeWritesPickupSkills(t *testing.T) {
 	if data, err := os.ReadFile(filepath.Join(opencode, "skills", core.PickupSkillName, "SKILL.md")); err != nil || !bytes.Equal(data, core.PickupSkill()) {
 		t.Fatalf("opencode pickup: %q %v", data, err)
 	}
+	// OpenCode's slash commands go to its configuration directory (#603).
+	commands, err := core.OpenCodeCommands()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range commands {
+		if data, err := os.ReadFile(core.OpenCodeCommandPath(opencode, command.Name)); err != nil || !bytes.Equal(data, command.Content) {
+			t.Fatalf("opencode command %s: %q %v", command.Name, data, err)
+		}
+	}
 	if _, err := os.Lstat(filepath.Join(home, ".gemini")); !os.IsNotExist(err) {
 		t.Fatalf("made agy's directory: %v", err)
 	}
@@ -258,7 +268,7 @@ func TestServeWritesPickupSkills(t *testing.T) {
 		t.Fatalf("wrote ~/.claude although CLAUDE_CONFIG_DIR is set: %v", err)
 	}
 	for _, event := range log.events() {
-		if event["event"] == "pickup_skill" || event["event"] == "team_skill" {
+		if event["event"] == "pickup_skill" || event["event"] == "team_skill" || event["event"] == "opencode_command" {
 			t.Fatalf("a successful write was logged as %v", event)
 		}
 	}
@@ -313,6 +323,78 @@ func TestServePickupSkillFailureKeepsServing(t *testing.T) {
 	if len(failed) != 1 || failed[0]["family"] != "claude" || failed[0]["result"] != "failed" || failed[0]["code"] != "write_failed" ||
 		failed[0]["path"] != core.ClaudePickupSkillPath(blocked) {
 		t.Fatalf("logged %v", failed)
+	}
+}
+
+// An OpenCode command that cannot be written, and a command file that is the person's, are
+// logged and the start goes on to its report (#603).
+func TestServeOpenCodeCommandFailureKeepsStarting(t *testing.T) {
+	log := &lockedBuffer{}
+	daemonLog = log
+	defer func() { daemonLog = os.Stderr }()
+	dir := t.TempDir()
+	home, xdg := filepath.Join(dir, "home"), filepath.Join(dir, "xdg")
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(dir, "claude-config"))
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	opencode := filepath.Join(xdg, "opencode")
+	if err := os.MkdirAll(opencode, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	commands, err := core.OpenCodeCommands()
+	if err != nil {
+		t.Fatal(err)
+	}
+	events := func(result string) []map[string]any {
+		var found []map[string]any
+		for _, event := range log.events() {
+			if event["event"] == "opencode_command" && event["result"] == result {
+				found = append(found, event)
+			}
+		}
+		return found
+	}
+	started := func() {
+		t.Helper()
+		if err := run(context.Background(), serveArgs(filepath.Join(dir, "state")), nil, failingWriter{}); err == nil {
+			t.Fatal("the report failure was not returned")
+		}
+		last := log.events()[len(log.events())-1]
+		if last["event"] != "stop" || last["code"] != "report_failed" {
+			t.Fatalf("the start did not reach its report: %v", last)
+		}
+	}
+	// commands is a file: no command can be written.
+	if err := os.WriteFile(filepath.Join(opencode, "commands"), []byte("a file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	started()
+	failed := events("failed")
+	if len(failed) != len(commands) || failed[0]["code"] != "write_failed" || failed[0]["path"] != core.OpenCodeCommandPath(opencode, commands[0].Name) {
+		t.Fatalf("logged %v", failed)
+	}
+	if data, err := os.ReadFile(core.CodexPickupSkillPath(home)); err != nil || !bytes.Equal(data, core.PickupSkill()) {
+		t.Fatalf("codex skill: %q %v", data, err)
+	}
+	// A custom command stays and is logged as kept; the others are written.
+	os.Remove(filepath.Join(opencode, "commands"))
+	mine := core.OpenCodeCommandPath(opencode, commands[1].Name)
+	os.MkdirAll(filepath.Dir(mine), 0o700)
+	if err := os.WriteFile(mine, []byte("my own command\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	started()
+	if kept := events("kept"); len(kept) != 1 || kept[0]["path"] != mine {
+		t.Fatalf("logged %v", kept)
+	}
+	if data, _ := os.ReadFile(mine); string(data) != "my own command\n" {
+		t.Fatalf("custom command changed: %q", data)
+	}
+	if data, err := os.ReadFile(core.OpenCodeCommandPath(opencode, commands[0].Name)); err != nil || !bytes.Equal(data, commands[0].Content) {
+		t.Fatalf("command %s: %q %v", commands[0].Name, data, err)
+	}
+	if _, err := os.Lstat(core.OpenCodeCommandPath(opencode, core.PickupSkillName)); !os.IsNotExist(err) {
+		t.Fatalf("a koinon-pickup command: %v", err)
 	}
 }
 

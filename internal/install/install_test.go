@@ -956,3 +956,102 @@ func TestInstallLinksAHomebrewKeg(t *testing.T) {
 		})
 	}
 }
+
+// OpenCode gets a slash command for each skill entry only when its configuration directory
+// exists; a repeated install changes nothing, a file the person wrote is kept, and the
+// uninstall removes Koinon's files of any version and the then empty commands directory (#603).
+func TestInstallOpenCodeCommands(t *testing.T) {
+	e := newEnv(t, "systemd")
+	r, err := Install(context.Background(), e.o)
+	if err != nil || !r.OK || len(r.OpenCodeCommands) != 0 {
+		t.Fatalf("install without OpenCode %+v %v", r.OpenCodeCommands, err)
+	}
+	if _, err := os.Lstat(e.o.Opencode); !os.IsNotExist(err) {
+		t.Fatalf("made OpenCode's directory: %v", err)
+	}
+	if err := os.MkdirAll(e.o.Opencode, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	commands, err := core.OpenCodeCommands()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := func(result string) map[string]string {
+		m := map[string]string{}
+		for _, command := range commands {
+			m["opencode "+command.Name] = result
+		}
+		return m
+	}
+	r, err = Install(context.Background(), e.o)
+	if err != nil || !r.OK || !reflect.DeepEqual(teamResults(r.OpenCodeCommands), want("created")) {
+		t.Fatalf("install %+v %v", r.OpenCodeCommands, err)
+	}
+	for _, command := range commands {
+		path := core.OpenCodeCommandPath(e.o.Opencode, command.Name)
+		if data, err := os.ReadFile(path); err != nil || !bytes.Equal(data, command.Content) {
+			t.Fatalf("%s: %q %v", path, data, err)
+		}
+	}
+	again, err := Install(context.Background(), e.o)
+	if err != nil || !reflect.DeepEqual(teamResults(again.OpenCodeCommands), want("unchanged")) {
+		t.Fatalf("repeat %+v %v", again.OpenCodeCommands, err)
+	}
+	mine := core.OpenCodeCommandPath(e.o.Opencode, commands[1].Name)
+	if err := os.WriteFile(mine, []byte("my own command\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	kept, err := Install(context.Background(), e.o)
+	expect := want("unchanged")
+	expect["opencode "+commands[1].Name] = "kept"
+	if err != nil || !reflect.DeepEqual(teamResults(kept.OpenCodeCommands), expect) {
+		t.Fatalf("install over a custom file %+v %v", kept.OpenCodeCommands, err)
+	}
+	u, err := Uninstall(context.Background(), e.o)
+	removed := want("removed")
+	removed["opencode "+commands[1].Name] = "kept"
+	if err != nil || !u.OK || !reflect.DeepEqual(teamResults(u.OpenCodeCommands), removed) {
+		t.Fatalf("uninstall %+v %v", u.OpenCodeCommands, err)
+	}
+	if data, _ := os.ReadFile(mine); string(data) != "my own command\n" {
+		t.Fatalf("custom command changed: %q", data)
+	}
+	if _, err := os.Stat(filepath.Join(e.o.Opencode, "commands")); err != nil {
+		t.Fatalf("commands directory with a custom file: %v", err)
+	}
+	os.Remove(mine)
+	if r, err := Install(context.Background(), e.o); err != nil || !reflect.DeepEqual(teamResults(r.OpenCodeCommands), want("created")) {
+		t.Fatalf("reinstall %+v %v", r.OpenCodeCommands, err)
+	}
+	if u, err := Uninstall(context.Background(), e.o); err != nil || !reflect.DeepEqual(teamResults(u.OpenCodeCommands), want("removed")) {
+		t.Fatalf("uninstall %+v %v", u.OpenCodeCommands, err)
+	}
+	if _, err := os.Lstat(filepath.Join(e.o.Opencode, "commands")); !os.IsNotExist(err) {
+		t.Fatalf("commands directory left: %v", err)
+	}
+	repeat, err := Uninstall(context.Background(), e.o)
+	if err != nil || !reflect.DeepEqual(teamResults(repeat.OpenCodeCommands), want("absent")) {
+		t.Fatalf("repeat uninstall %+v %v", repeat.OpenCodeCommands, err)
+	}
+}
+
+// A command file that cannot be written fails the install with opencode_command_failed and
+// its path, after the skill entries (#603).
+func TestInstallOpenCodeCommandFailure(t *testing.T) {
+	e := newEnv(t, "systemd")
+	if err := os.MkdirAll(e.o.Opencode, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(e.o.Opencode, "commands"), []byte("a file"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	commands, err := core.OpenCodeCommands()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := Install(context.Background(), e.o)
+	if err == nil || !strings.Contains(err.Error(), "opencode_command_failed: "+core.OpenCodeCommandPath(e.o.Opencode, commands[0].Name)) ||
+		r.OK || len(r.TeamSkills) == 0 {
+		t.Fatalf("install %+v %v", r, err)
+	}
+}
