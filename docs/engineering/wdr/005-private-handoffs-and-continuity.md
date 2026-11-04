@@ -338,9 +338,10 @@ a blocker. The next steps are the open tasks in order, the first is the next act
 that is the maintainer's or another agent's stays theirs. The progress note carries the same
 items in short form. `pickup` reads these sections also when the note is usable, reads an older
 snapshot's Goal and success criteria and Resume here in their place, checks each blocker and
-task against the live state without starting a running job again, reports the goal's hierarchy
-first, gives this goal when it is asked for the goal, and continues at the first next step that
-still applies, with open work going on while a blocker waits for someone else.
+task against the live state without starting a running job or one that finished with success for
+the current head again, reports the goal's hierarchy first, gives this goal when it is asked for
+the goal, and continues at the first next step that still applies, with open work going on while
+a blocker waits for someone else.
 
 **Provenance:** Maintainer, 2026-11-04, terminal: "we need to adjust the koinon-handoff skill.
 handoffs are losing critical context around goals. specifically, the ultimate goal, the current

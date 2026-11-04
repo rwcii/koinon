@@ -242,7 +242,7 @@ func TestHandoffKeepsGoalHierarchy(t *testing.T) {
 		{"pickup", pickup, "Read a running job's state; do not\nstart it again."},
 		{"pickup", pickup, "Report briefly, the goal's hierarchy first:"},
 		{"pickup", pickup, "the outcome that the work serves, not the\n  current pull request or task; unknown when the handoff records none. Asked for the goal, give\n  this goal."},
-		{"pickup", pickup, "An underway task goes on from where it stopped, a job that finished\nis not run again, and open work without a blocker can go on while a blocker waits for someone\nelse."},
+		{"pickup", pickup, "An underway task goes on from where it stopped, a job that finished\nwith success for the current head is not run again, a failed, cancelled or stale run (such as\none for an older head) is read and run again when its task needs it, and open work without a\nblocker can go on while a blocker waits for someone else."},
 	} {
 		if !strings.Contains(c.text, c.want) {
 			t.Errorf("%s lacks %q", c.name, c.want)

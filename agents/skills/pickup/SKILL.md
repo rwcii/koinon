@@ -204,8 +204,9 @@ question or a rule from the maintainer. The maintainer's current instructions ar
 source as always.
 
 Then start the next action. An underway task goes on from where it stopped, a job that finished
-is not run again, and open work without a blocker can go on while a blocker waits for someone
-else. A step that is the maintainer's or another agent's stays theirs. When the live state
+with success for the current head is not run again, a failed, cancelled or stale run (such as
+one for an older head) is read and run again when its task needs it, and open work without a
+blocker can go on while a blocker waits for someone else. A step that is the maintainer's or another agent's stays theirs. When the live state
 changed the next action materially or left it
 ambiguous, ask the maintainer, with a recommendation. When the maintainer asked for orientation,
 the report is the result.
