@@ -2044,8 +2044,9 @@ of items. Reads move no inbox read or acknowledgement marker and no memory curso
   `limit` (1–100, default 100). Items come in item ID order, keyset-paged: a page holds at
   most `limit` summaries and stops before the summary that would take the serialized reply,
   with its envelope and JSON escaping, past 64 KiB; it always holds at least one. It returns
-  `items` (`reference`, `title`, `kind`, `state`, `revision`, `order`, and `verdict` when
-  the item has a current one), `more` and
+  `items` (`reference`, `title`, `kind`, `state`, `revision`, `order`, `verdict` when
+  the item has a current one, and `author_repository` as `decision_get` gives it, when the
+  item has one (#612)), `more` and
   `next_after`. An item does not appear twice in a walk; an item that matches during the
   whole walk appears once; an item whose match changes during the walk appears at most once.
 - `POST /v1/decisions/get` takes `caller` and `reference` and returns every field with

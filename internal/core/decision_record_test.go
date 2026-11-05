@@ -252,6 +252,38 @@ func TestDecisionRecordRepository(t *testing.T) {
 	}
 }
 
+// Each summary of a list names its item's author_repository, the repository of the author's
+// session, so that a pickup keeps its own repository's cards (#612).
+func TestDecisionListRepository(t *testing.T) {
+	f := newVerdictFixture(t)
+	s, ctx := f.s, context.Background()
+	elsewhere := joinAs(t, s, "codex", "synthetic-verdict-elsewhere", namedRepo(t, "elsewhere"), "")
+	mustCreate(t, s, f.holderKey, "REC-3", DecisionFields{Title: ptr("Repository item"), Kind: ptr("decision")})
+	mustCreate(t, s, f.peerKey, "REC-4", DecisionFields{Title: ptr("Plain peer item"), Kind: ptr("task")})
+	mustCreate(t, s, Key{"codex", elsewhere.ID}, "REC-5", DecisionFields{Title: ptr("Other repository item"), Kind: ptr("decision"), Recipients: &[]string{f.address}})
+	want := map[string]string{"REC-3": f.holder.Repository, "REC-4": "", "REC-5": elsewhere.Repository}
+	if f.holder.Repository == "" || elsewhere.Repository == "" || f.holder.Repository == elsewhere.Repository {
+		t.Fatalf("fixture repositories: %q %q", f.holder.Repository, elsewhere.Repository)
+	}
+	for _, filter := range []string{"waiting", "active"} {
+		page, err := s.DecisionList(ctx, f.peerKey, filter, 0, 0)
+		if err != nil || len(page.Items) != len(want) {
+			t.Fatalf("%s: %+v %v", filter, page, err)
+		}
+		for _, item := range page.Items {
+			if item.AuthorRepository != want[item.Reference] {
+				t.Fatalf("%s %s: %q", filter, item.Reference, item.AuthorRepository)
+			}
+		}
+	}
+	if page, err := s.DecisionList(ctx, f.holderKey, "mine", 0, 0); err != nil || len(page.Items) != 1 || page.Items[0].AuthorRepository != elsewhere.Repository {
+		t.Fatalf("mine: %+v %v", page, err)
+	}
+	if item, err := s.DecisionGet(ctx, f.peerKey, "REC-5"); err != nil || item.AuthorRepository != elsewhere.Repository {
+		t.Fatalf("get: %q %v", item.AuthorRepository, err)
+	}
+}
+
 // localDecisionCall answers the two reads that CollectDecisionRecord sends, as the daemon's
 // routes frame them.
 func localDecisionCall(ctx context.Context, s *Store, caller Key, path string, body map[string]any) ([]byte, error) {

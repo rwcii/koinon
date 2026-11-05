@@ -223,7 +223,10 @@ type DecisionSummary struct {
 	Verdict string `json:"verdict,omitempty"`
 	// Withdrawn is set while an agent's withdrawal archives the item (#504).
 	Withdrawn bool `json:"withdrawn,omitempty"`
-	id        int64
+	// AuthorRepository is the item's author_repository, so that a list can keep one
+	// repository's cards (#612); a plain peer's item has none.
+	AuthorRepository string `json:"author_repository,omitempty"`
+	id               int64
 }
 
 // DecisionPage is one keyset page of summaries in item ID order.
@@ -747,9 +750,7 @@ func decisionItem(ctx context.Context, q querier, reference string) (DecisionIte
 	if err := q.QueryRowContext(ctx, `SELECT author_participant FROM decision_items WHERE id=?`, id).Scan(&participant); err != nil {
 		return item, err
 	}
-	if parts := strings.Split(participant, "\x1f"); len(parts) == 3 {
-		item.AuthorRepository = parts[1]
-	}
+	item.AuthorRepository = participantRepository(participant)
 	rows, err := q.QueryContext(ctx, `SELECT name FROM decision_recipients WHERE item_id=? ORDER BY ordinal`, id)
 	if err != nil {
 		return item, err
@@ -904,7 +905,26 @@ func (s *Store) DecisionList(ctx context.Context, caller Key, filter string, aft
 // agent's withdrawal archives the item now (#504).
 const decisionSummaryColumns = `id,reference,title,kind,state,revision,item_order,COALESCE((SELECT CASE WHEN v.superseded_at=0 THEN v.verdict ELSE '' END
 	FROM decision_verdicts v WHERE v.item_id=decision_items.id ORDER BY v.id DESC LIMIT 1),''),
-	state='archived' AND COALESCE((SELECT w.reopened_at=0 FROM decision_withdrawals w WHERE w.item_id=decision_items.id ORDER BY w.id DESC LIMIT 1),0)`
+	state='archived' AND COALESCE((SELECT w.reopened_at=0 FROM decision_withdrawals w WHERE w.item_id=decision_items.id ORDER BY w.id DESC LIMIT 1),0),
+	author_participant`
+
+// scanDecisionSummary reads one row of decisionSummaryColumns.
+func scanDecisionSummary(row interface{ Scan(...any) error }, s *DecisionSummary) error {
+	var participant string
+	if err := row.Scan(&s.id, &s.Reference, &s.Title, &s.Kind, &s.State, &s.Revision, &s.Order, &s.Verdict, &s.Withdrawn, &participant); err != nil {
+		return err
+	}
+	s.AuthorRepository = participantRepository(participant)
+	return nil
+}
+
+// participantRepository is the repository of a stored author participant, or "".
+func participantRepository(participant string) string {
+	if parts := strings.Split(participant, "\x1f"); len(parts) == 3 {
+		return parts[1]
+	}
+	return ""
+}
 
 // decisionWaitingQuery reads one page of waiting items, decision items and tasks. The waiting
 // index holds only those; naming it keeps the page off the state index, whose range also holds
@@ -949,8 +969,7 @@ func decisionPage(ctx context.Context, q querier, filter string, targets []strin
 		}
 		for _, id := range ids {
 			var s DecisionSummary
-			if err := q.QueryRowContext(ctx, `SELECT `+decisionSummaryColumns+` FROM decision_items WHERE id=?`, id).
-				Scan(&s.id, &s.Reference, &s.Title, &s.Kind, &s.State, &s.Revision, &s.Order, &s.Verdict, &s.Withdrawn); err != nil {
+			if err := scanDecisionSummary(q.QueryRowContext(ctx, `SELECT `+decisionSummaryColumns+` FROM decision_items WHERE id=?`, id), &s); err != nil {
 				return DecisionPage{}, err
 			}
 			summaries = append(summaries, s)
@@ -967,7 +986,7 @@ func decisionPage(ctx context.Context, q querier, filter string, targets []strin
 		}
 		for rows.Next() {
 			var s DecisionSummary
-			if err := rows.Scan(&s.id, &s.Reference, &s.Title, &s.Kind, &s.State, &s.Revision, &s.Order, &s.Verdict, &s.Withdrawn); err != nil {
+			if err := scanDecisionSummary(rows, &s); err != nil {
 				rows.Close()
 				return DecisionPage{}, err
 			}

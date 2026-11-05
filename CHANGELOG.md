@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Each `decision_list` summary names its item's `author_repository`, as `decision_get` does, when
+  the item has one (#612). The board lists the cards of every repository; `pickup` now keeps the
+  cards of its own repository by that field, without a `decision_get` of each card.
+
 - A managed cycle of an idle OpenCode session finds its composer in every pane (#613). The cycle
   read the pane with its rows joined; when tmux marked the screen rows as wrapped, the composer
   was not found, each ready stage ended with `not_idle.input_line_not_found` and the cycle asked
