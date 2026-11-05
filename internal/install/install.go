@@ -634,6 +634,12 @@ func Install(ctx context.Context, o Options) (Report, error) {
 	if o.Address == "" {
 		o.Address = core.Listeners(r.Port)[0]
 	}
+	// The daemon that answers before the binary changes: without a manager, the install tells
+	// it from one that a manager starts in its place after the change (#619).
+	var before *daemonStatus
+	if status, err := readStatus(ctx, o); err == nil {
+		before = &status
+	}
 	// In user mode, a Homebrew binary is linked, so that brew upgrade alone upgrades the
 	// daemon (#397). A system-mode daemon keeps a copy that brew cannot replace.
 	if opt := platform.HomebrewOpt(o.Source); opt != "" && system == nil {
@@ -659,7 +665,7 @@ func Install(ctx context.Context, o Options) (Report, error) {
 			return r, err
 		}
 		r.Service = "system"
-	} else if err := startAgent(ctx, o, &r); err != nil {
+	} else if err := startAgent(ctx, o, &r, before); err != nil {
 		return r, err
 	}
 	agents, err := reviewFamilies(ctx, o, &r)
@@ -713,7 +719,7 @@ func removeRetiredInstructions(o Options, r *Report) error {
 }
 
 // startAgent writes the user service and, unless NoStart, starts it and waits for the daemon.
-func startAgent(ctx context.Context, o Options, r *Report) error {
+func startAgent(ctx context.Context, o Options, r *Report, before *daemonStatus) error {
 	if _, err := o.Services.WriteDaemon(r.Binary, o.StateDir); err != nil {
 		return err
 	}
@@ -728,7 +734,7 @@ func startAgent(ctx context.Context, o Options, r *Report) error {
 		// appears to succeed when Koinon does not work (#619). Nothing starts it again after a
 		// restart, or after brew upgrade, when it exits for its new binary; the report says so.
 		r.StartCommand = setup.ShellWord(r.Binary) + " serve --state-dir " + setup.ShellWord(o.StateDir)
-		if err := startBackground(ctx, o, r); err != nil {
+		if err := startBackground(ctx, o, r, before); err != nil {
 			return err
 		}
 	case err != nil:
@@ -825,14 +831,23 @@ func endProcess(p *os.Process, wait time.Duration) error {
 // unchanged. Any other answering daemon exits for its new binary, or its manager replaces it;
 // the install waits for that and starts a daemon only when none answers, so no start waits
 // behind a daemon and an old daemon's answer never counts for the new one. A start that does
-// not answer is stopped, so it cannot take the state directory later.
-func startBackground(ctx context.Context, o Options, r *Report) error {
+// not answer is stopped, so it cannot take the state directory later. before is the daemon
+// that answered before the binary changed: a daemon of this version with another process ID
+// already replaces it.
+func startBackground(ctx context.Context, o Options, r *Report, before *daemonStatus) error {
 	log := filepath.Join(o.StateDir, "daemon.log")
 	r.Service, r.DaemonLog, r.RestartStep = "background", log, "No user service manager answers, so the daemon runs in the background without one. "+
 		"After this machine or container restarts, or after brew upgrade koinon, start it again with: "+restartCommand(o, r.Binary)
-	if old, err := readStatus(ctx, o); err == nil {
-		if r.BinaryResult == "unchanged" && current(o, old) {
+	if now, err := readStatus(ctx, o); err == nil {
+		if r.BinaryResult == "unchanged" && current(o, now) {
 			return nil
+		}
+		old := now
+		if before != nil {
+			if now.PID != before.PID && current(o, now) {
+				return nil
+			}
+			old = *before
 		}
 		replaced, err := waitForReplacement(ctx, o, old)
 		if err != nil {

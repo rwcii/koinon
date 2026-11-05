@@ -1134,6 +1134,9 @@ type fakeDaemon struct {
 	// exits for its new binary; replace makes its manager start a daemon of start in its place.
 	exitAfter int
 	replace   bool
+	// binary, when set, is the installed binary whose content the running daemon started
+	// from: once the content changes, its manager has started a daemon of start in its place.
+	binary, content string
 }
 
 // newDaemon gives e a fake daemon whose starts run version and answer, with no daemon running.
@@ -1143,6 +1146,11 @@ func newDaemon(e *env, version string) *fakeDaemon {
 	e.o.Status = func(context.Context, string, string) (json.RawMessage, error) {
 		if !d.running {
 			return nil, errors.New("connection refused")
+		}
+		if d.binary != "" {
+			if data, _ := os.ReadFile(d.binary); string(data) != d.content {
+				d.binary, d.pid, d.version = "", d.pid+100, d.start
+			}
 		}
 		if d.exitAfter > 0 {
 			if d.exitAfter--; d.exitAfter == 0 {
@@ -1208,6 +1216,15 @@ func TestBackgroundInstall(t *testing.T) {
 		t.Fatalf("replaced by its manager %+v %v %+v", r, err, d)
 	}
 	d.replace = false
+	// A manager that replaces the old daemon as soon as the binary changes, before the
+	// install reads the status again: the new daemon of this version qualifies at once.
+	content, _ := os.ReadFile(Binary(e.o.Prefix))
+	d.version, d.binary, d.content = "v1", Binary(e.o.Prefix), string(content)
+	os.WriteFile(e.o.Source, []byte("synthetic binary, replaced by its manager"), 0700)
+	old := d.pid
+	if r, err := Install(ctx, e.o); err != nil || !r.OK || r.BinaryResult != "replaced" || len(d.starts) != 2 || len(d.stops) != 0 || d.version != "v2" || d.pid == old {
+		t.Fatalf("replaced at the binary change %+v %v %+v", r, err, d)
+	}
 	// A changed binary also waits for a daemon of the same version to exit.
 	os.WriteFile(e.o.Source, []byte("synthetic binary, rebuilt"), 0700)
 	d.exitAfter = 3
