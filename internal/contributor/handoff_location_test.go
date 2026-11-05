@@ -219,17 +219,17 @@ func TestHandoffWaitsNameBoardItems(t *testing.T) {
 
 // pickup reads the session inbox and the held participant's inbox after their acknowledged
 // cursors, in step 4 before the board; it orders the messages by created_at against the
-// handoff, reports a refused read with its error, and lists the messages in its report (#611).
+// handoff and the note, reports a refused read with its error, and lists the messages in its report (#611).
 // The checks are of the skill text.
 func TestPickupReadsInboxes(t *testing.T) {
 	pickup := read(t, filepath.Join("agents", "skills", "pickup", "SKILL.md"))
 	for _, want := range []string{
 		"Then read this session's inbox and, when it holds a participant, the participant's inbox, each\nafter its acknowledged cursor and page by page to its end",
-		"An unacknowledged message is not always newer than the handoff: compare each\nmessage's `created_at` with the handoff's timestamp",
-		"A message created\nafter the handoff can change the goal, a blocker, a task or a next step: it wins over the\nhandoff and the note",
-		"reconcile it with the handoff's sections and the maintainer's dated directions, and report it\nwhen the handoff does not cover it.",
+		"An unacknowledged message is not always newer than the saved sources: compare\neach message's `created_at` with the handoff's timestamp, its file name in UTC, and with the\nprogress note's modification time.",
+		"A message created after both can change the goal, a blocker,\na task or a next step: it wins over them",
+		"reconcile it with the sections and the maintainer's dated directions\nof both, and report it when neither covers it.",
 		"A read that is refused, such as `stale_holder` while the succession waits, or an\nunavailable daemon leaves the inbox unread: report it with the error",
-		"- The inbox messages of step 4: each one created after the handoff, with its sender and what it\n  changes, and each older one that the handoff does not cover; or that the inbox was not read,\n  and why.",
+		"- The inbox messages of step 4: each one created after the handoff and the note, with its\n  sender and what it changes, and each older one that neither covers; or that the inbox was not\n  read, and why.",
 	} {
 		if !strings.Contains(pickup, want) {
 			t.Errorf("pickup lacks %q", want)
