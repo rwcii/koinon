@@ -250,8 +250,8 @@ A spent retry stays spent in the same native context epoch, and an inbox read st
 that epoch is still required. A fresh epoch gets its own retry. An unfinished cycle stays on
 the retired session and ends under its existing outcome rules; it does not continue on the
 successor through this succession. Only the successor's own fresh, verified context reading
-can start its next cycle. These are the implementation and regression criteria of #621,
-agreed with the observer; they do not change the existing freshness or terminal-input rules.
+can start its next cycle. This is implemented in #621. The existing freshness and
+terminal-input rules still apply.
 
 **Provenance (same-host succession):** Maintainer, 2026-11-05, decision board item
 `ENABLE-SAME-HOST-621`, revision 1, "approved"
@@ -260,7 +260,7 @@ whether Enable should survive an MCP-server restart that registers a new native 
 the same host and pane, taking the same participant address. Before the fix, Enable stayed on
 the retired session, and an above-threshold successor got `not_enabled`. The card recommended:
 "A succession with the evidence `same_host` keeps the Enable when the pane and the participant
-are the same." Its alternative kept Enable carry-over limited to a verified managed reset,
+are the same." Before #621, the rule kept Enable carry-over limited to a verified managed reset,
 requiring the maintainer to enable the session again after such a restart. The approved scope
 is `same_host` with the same pane and participant; other succession evidence does not gain
 carry-over. The reason is that this restart changes neither the host process, the pane nor
