@@ -250,6 +250,13 @@ func failure(w http.ResponseWriter, err error) {
 			"error": "the recipient session is expired or retired", "details": map[string]string{"reason": inactive.Reason}})
 		return
 	}
+	var wait HolderWait
+	if errors.As(err, &wait) {
+		respond(w, http.StatusConflict, map[string]any{"ok": false, "code": ErrStaleHolder.Code,
+			"error":   "this session does not hold that participant yet: its succession waits (details.succession); call again after details.retry_after_ms",
+			"details": map[string]any{"succession": wait.Reason, "holder": wait.Holder, "retry_after_ms": wait.RetryAfterMS}})
+		return
+	}
 	var refusal Refusal
 	if errors.As(err, &refusal) {
 		status := http.StatusConflict
@@ -279,6 +286,9 @@ func errorCode(err error) string {
 	var work WorkRefusal
 	if errors.As(err, &work) {
 		return work.Code
+	}
+	if errors.As(err, new(HolderWait)) {
+		return ErrStaleHolder.Code
 	}
 	var refusal Refusal
 	if errors.As(err, &refusal) {
