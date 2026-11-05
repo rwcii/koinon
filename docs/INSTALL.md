@@ -176,13 +176,18 @@ does this:
 
 When no user service manager answers, for example in a container without a systemd user bus,
 the install starts the daemon itself in the background, in its own session, with its output in
-`daemon.log` in the state directory, and waits for its answer (PDR 003, Decision 6). The report
+`daemon.log` in the state directory, and waits until a daemon of its version answers (PDR 003,
+Decision 6). A daemon of its version that already answers stays when the binary is unchanged;
+another one exits for its new binary, and the install waits for that before it starts the new
+one. The report
 says `"service": "background"` and gives `daemon_log`, the `start_command` and `restart_step`,
 which the install also prints on the terminal: nothing starts the daemon again after the
 machine or container restarts, or after `brew upgrade koinon`, when the daemon exits for its new
-binary; then run `koinon install` again. `koinon install --plan` names that install when no
-daemon of its version answers. When the daemon does not start or does not answer, the install
-fails with `daemon_not_started` and the log. The default install never uses sudo, system
+binary; then run the `koinon install` command that it names, with the installation's
+`--prefix` and `--state-dir` when they are not the defaults. `koinon install --plan` names that install when no
+daemon of its version answers. When the daemon does not start or does not answer, or an old
+daemon still answers, the install fails with `daemon_not_started`; a start that does not answer
+is stopped. The default install never uses sudo, system
 services, lingering or permission changes (PDR 003, Decision 1); `--system` on macOS (below) is an
 explicit choice whose privileged steps run through `sudo` under the host's sudo policy.
 `--no-start` writes the binary and the service file and starts nothing. A repeated install replaces the binary in place and restarts the service. The Go state
@@ -500,9 +505,10 @@ staging files.
 - The service file that carries the marker. It is removed only after the manager reports the
   service stopped. When the manager refuses the stop, or still reports the service running,
   uninstall refuses with `service_stop_failed` and keeps the service file and the binary.
-- Without a user service manager, the daemon that the install started in the background: the
-  uninstall sends it SIGTERM and waits until it no longer answers, else it refuses with
-  `service_stop_failed` (#619).
+- A daemon that still answers on the state directory after the managed services are gone, such
+  as one that the install started in the background without a manager, also when the manager
+  answers again: the uninstall sends it SIGTERM and waits until it no longer answers, else it
+  refuses with `service_stop_failed` (#619).
 - In system mode on macOS, the LaunchDaemon plist that carries the marker: `sudo launchctl
   bootout system/<label>`, then `sudo rm`. A plist without the marker is kept, and the error
   gives the commands that remove it (`service_artifact_unowned`).

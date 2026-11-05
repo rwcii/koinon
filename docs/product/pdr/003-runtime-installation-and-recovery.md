@@ -334,12 +334,14 @@ action is required." `TestHomebrewFormula` in `internal/contributor` keeps this 
 
 Implemented: when no user service manager answers, `startAgent` in `internal/install` starts
 `koinon serve` in its own session, with its output in `daemon.log` in the state directory,
-and waits for its answer. The report says `"service": "background"`, and `restart_step`, also
+and waits until a daemon of its version answers. An older daemon exits for its new binary
+first; the install sends it no signal, because a manager that the install cannot reach may run
+it. The report says `"service": "background"`, and `restart_step`, also
 printed on the terminal, says to run `koinon install` again after a restart or after `brew
 upgrade koinon`. A daemon that does not start or answer fails the install with
 `daemon_not_started`. Without a manager, `koinon install --plan` names `koinon install` when no
-daemon of its version answers, and the uninstall stops the background daemon.
-`TestInstallRefusals`, `TestBackgroundStart`, `TestPlanSteps` and
+daemon of its version answers, and the uninstall stops a daemon that still answers after the
+managed services are gone. `TestBackgroundInstall`, `TestBackgroundStart`, `TestPlanSteps` and
 `TestUninstallStopsBackgroundDaemon` cover these outcomes.
 
 **Provenance:** #551 replaced the fixed steps with the plan's commands under the heading "The

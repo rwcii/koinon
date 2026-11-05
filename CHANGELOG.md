@@ -6,10 +6,10 @@ into a dated release section when promoted to `main`.
 ## Unreleased
 
 - Without a user service manager, for example in a container without a systemd user bus,
-  `koinon install` starts the daemon in the background and waits for its answer (#619; PDR 003,
-  Decision 6). The report says `"service": "background"` with `daemon_log` and `restart_step`,
-  which the install also prints: after a restart or `brew upgrade koinon`, run `koinon install`
-  again, and `koinon install --plan` names it. A daemon that does not start or answer fails the
+  `koinon install` starts the daemon in the background and waits until a daemon of its version
+  answers (#619; PDR 003, Decision 6). The report says `"service": "background"` with `daemon_log` and `restart_step`,
+  which the install also prints: after a restart or `brew upgrade koinon`, run the `koinon
+  install` that it names, and `koinon install --plan` names it too. A daemon that does not start or answer fails the
   install with `daemon_not_started`, and `koinon uninstall` stops the background daemon. Before,
   the install reported `"ok": true` with `"service": "manual_required"`, and the next command
   found no daemon.
