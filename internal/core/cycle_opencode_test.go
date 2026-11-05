@@ -130,6 +130,9 @@ type fakeOpenCode struct {
 	keys        []string
 	fences      int
 	failFence   bool
+	// wrapped makes the terminal mark each screen row above the rule as wrapped, as tmux
+	// did for an opencode 1.18.35 pane at 147 columns (#613): -J then joins them into one line.
+	wrapped bool
 	// commandModel is the model that the server records for a command, "" for the requested one.
 	commandModel  *openCodePair
 	home, dir     string
@@ -283,7 +286,15 @@ func (f *fakeOpenCode) tmux(_ context.Context, socket string, args ...string) (s
 	case args[0] == "display-message":
 		return "%6 5151\n", nil
 	case args[0] == "capture-pane":
-		return f.screen(), nil
+		screen := f.screen()
+		for _, arg := range args {
+			if arg == "-J" && f.wrapped {
+				rows := strings.Split(strings.TrimSuffix(screen, "\n"), "\n")
+				end := len(rows) - 2
+				screen = strings.Join(append([]string{strings.Join(rows[:end], "")}, rows[end:]...), "\n") + "\n"
+			}
+		}
+		return screen, nil
 	case args[0] == "send-keys":
 		f.keys = append(f.keys, strings.Join(args[3:], " "))
 		return "", nil
@@ -777,6 +788,18 @@ func TestOpenCodeTurnSince(t *testing.T) {
 	f := newFakeOpenCode(t)
 	if turn, err := openCodeTurnSince(ctx, f.target(cycleReady)); turn || err != nil || f.pages != 0 {
 		t.Fatalf("no report: %v %v", turn, err)
+	}
+}
+
+// Inspect reads the pane row by row: a terminal that marks the rows as wrapped keeps the
+// composer and the tool-call rows found (#613).
+func TestOpenCodeWrappedRows(t *testing.T) {
+	ctx := context.Background()
+	f := newFakeOpenCode(t)
+	f.history(9, 3000, map[int]string{6: "assistant", 8: "assistant"})
+	f.wrapped = true
+	if pane, err := (openCodeCycle{}).Inspect(ctx, f.readyTarget(cycleReady), f.fence); err != nil || !pane.Idle {
+		t.Fatalf("wrapped rows: %+v %v", pane, err)
 	}
 }
 
