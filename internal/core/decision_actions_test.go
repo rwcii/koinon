@@ -145,8 +145,8 @@ func TestDecisionFeedbackReturnsToAuthor(t *testing.T) {
 	if err != nil || restored.State != "active" || restored.Verdict != nil {
 		t.Fatalf("restore: %+v %v", restored, err)
 	}
-	// The repository entry quotes the feedback under its own label.
-	entry := DecisionRecordEntry("FB-1", "", first)
+	// The verdict text quotes the feedback under its own label.
+	entry := DecisionVerdictText("", first)
 	if !strings.Contains(entry, "**Feedback**, revision 1") || !strings.Contains(entry, "Feedback:\n\n> Compare **two** stores first.") || strings.Contains(entry, "Note:") {
 		t.Fatalf("entry: %s", entry)
 	}

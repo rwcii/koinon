@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Koinon writes no `DECISIONS.md` (#623; WDR 001, Decision 7). The `decision_record` tool,
+  `koinon decision record` and the `short` and `full` record modes are removed. `decision_get`,
+  `decision_pending` and the verdict message give the verdict, the card text and the record form:
+  record the decision in the ADR, PDR, WDR or sprint document that holds the rule, with the
+  decider's name, the date, the context, the decision, the reason and scope, and the condition
+  for a review. Before, each read named `DECISIONS.md` as the record and gave an entry in its
+  format, also in mode `none`. A `Decision record` fact in `.koinon/skills/ship.md` stays
+  valid, and Koinon ignores its value.
 - A same-host session succession keeps the managed-handoff Enable and its threshold when the
   pane and participant stay the same (#621). An MCP-server restart previously left Enable on
   the retired session, so the successor stopped getting cycles. Retry state follows Enable;

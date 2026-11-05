@@ -34,9 +34,9 @@ record with its source, scope, alternatives and status, and it sets how existing
 constraints are routed into records.
 
 A decision is stated once, in its record, as "Koinon currently does X because Y". Other text
-cites the record instead of restating it as a general rule. A verdict on the decision board is
-recorded as the repository's record mode says: by default in the document that it changes,
-with the maintainer's words, and never by its verdict ID.
+cites the record instead of restating it as a general rule. Each decision, from the decision
+board or given directly, is recorded in the document that holds its rule, with the decider's
+name, the date, the context and the condition for its review, and never by its verdict ID.
 
 ---
 
@@ -49,7 +49,7 @@ with the maintainer's words, and never by its verdict ID.
 5. Decision 4: Code-enforced blocks follow their PDR (deprecated)
 6. Decision 5: A record covers the case it answered
 7. Decision 6: A separate refusal review gate
-8. Decision 7: Board verdicts are recorded as the repository's record mode says
+8. Decision 7: Decisions are recorded in the document that holds the rule
 9. Conclusion
 10. Document History
 
@@ -295,14 +295,15 @@ approval or stop steps, in text, tests and code conditions, and finds a source t
 case (Decision 5). It records its own verdict comment and `refusal-review` commit status on the
 full hash. The `refusal-review` skill describes the steps.
 
-The same review checks each maintainer decision that the change records or cites as a source.
-The record states the question the decision answered, the options that were on the table, the
-maintainer's answer quoted with its date, and the reason with its scope: what the decision
-covers and what it does not. A bare quote, or one without its question or reason, is a finding,
-as is a decision applied beyond its stated scope. The review checks these parts in the document
-that states the rule; a `DECISIONS.md` entry is a log of verdicts and is not checked for them,
-and a board reference alone is not a source, because a reviewer on another machine cannot read
-the board (#589; provenance in Decision 7).
+The same review checks each decision that the change records or cites as a source. The
+record has the parts of Decision 7: who decided it, by name; the date; the context, with the
+question and the options that were on the table; the decision, with the decider's words quoted
+when the record attributes it to them; the reason with its scope, what the decision covers and
+what it does not; and the condition for its review, when one is known. A bare quote, or one
+without its question or reason, is a finding, as is a decision applied beyond its stated scope.
+The review checks these parts in the document that states the rule. A board reference alone is
+not a source, because a reviewer on another machine cannot read the board (#589, #623;
+provenance in Decision 7).
 
 **Provenance:** Maintainer, 2026-10-12, approving Gate B for #140: "make sure you and your
 peer didn't slip more refusal language in these two projects. if you have spare time, build a
@@ -346,45 +347,67 @@ the decision board ([DECISIONS.md#493-5](../../../DECISIONS.md#493-5), [#493 com
 
 ---
 
-## 8. Decision 7: Board verdicts are recorded as the repository's record mode says
+## 8. Decision 7: Decisions are recorded in the document that holds the rule
 
 ### Decision
 
-Each verdict that the maintainer gives on the decision board is recorded in the repository that
-the item was created in, and only there, as that repository's record mode says. The mode is the
-first word of the `Decision record` fact in the repository's `.koinon/skills/ship.md` (#589):
+Each decision, from the decision board or given directly, is recorded in the repository that it
+decides for, in the pull request that does the work, in the ADR, PDR, WDR or sprint document
+that holds the rule. No other file records decisions: Koinon writes no record file, and a
+repository keeps no separate log of verdicts. The record is succinct and free of spelling and
+typing errors, and has these parts:
 
-- `none`, the default: Koinon writes nothing. The pull request that does the work puts the
-  changed rule into the document that holds it, with the question, the chosen option, the
-  reason and the maintainer's words with their date, and names the card reference.
-- `short`: `decision_record` appends to `DECISIONS.md` one entry per verdict with the verdict,
-  the title, the recommendation's heading and the maintainer's note or feedback.
-- `full`: the entry also holds the card text that the maintainer saw.
+- **Decided by:** the name of the person who made the decision, not a role such as
+  "maintainer" or "owner".
+- **Date:** the date of the decision.
+- **Context:** the question that the decision answered and the options that were on the table.
+- **Decision:** what was chosen, with the decider's words quoted when the record attributes it
+  to them, spelling-corrected with their meaning kept.
+- **Reason and scope:** why, and what the decision covers and does not cover.
+- **Review when:** a known condition that calls for a review of the decision. A record with no
+  known condition leaves this part out.
 
-The agent that handles the verdict calls `decision_record` (`koinon decision record`), which
-applies the mode, corrects the spelling and typing errors in the maintainer's words without
-changing their meaning or wording, and commits what it changed with the work. A commit, a pull
-request or a document names the decision by its reference, never by its verdict ID, which
-exists only in one machine's store. Recorded text is public, so agents write every card as
-public text. An item from another repository is recorded in a checkout of the repository that
-it names (`author_repository`), with no new approval. An item with no recorded repository, whose
-author held no repository participant, is not recorded: the tool cannot tell which repository
-the decision belongs to. In the `short` and `full` modes, a `DECISIONS.md` in another format
-keeps its text, and the entries follow it. `koinon decision export PATH` writes every item, live
-and deep-archived, as JSON lines to a new private file outside a Git work tree, so a person or
-CI can read a copy of the board without the daemon. A contributor test checks that a
-`DECISIONS.md#REFERENCE` citation in the tracked documents has its entry, the
+A declined decision goes into the record's Alternatives Considered. A commit, a pull request or
+a document names a board decision by its card reference, never by its verdict ID, which exists
+only in one machine's store. Recorded text is public, so agents write every card as public text.
+A decision from another repository is recorded in a checkout of the repository that it names
+(`author_repository`), with no new approval. A verdict read (`decision_get`, `decision_pending`,
+the verdict message) gives the verdict, the card text and this form; the installed guide and
+the ship skill give the same form. `koinon decision export PATH` writes every item, live and
+deep-archived, as JSON lines to a new private file outside a Git work tree, so a person or CI
+can read a copy of the board without the daemon. The ship skill no longer declares the
+`Decision record` fact: a `.koinon/skills/ship.md` that holds it stays valid, and Koinon
+ignores its value.
+
+Koinon's own `DECISIONS.md` takes no new entries. #623 moves its entries into the records that
+hold each rule and removes the file; until then, its citations stay valid, a contributor test
+checks that each `DECISIONS.md#REFERENCE` citation in the tracked documents has its entry, the
 `decision-citations` check checks the pull request text in CI, and the `commit-msg` hook checks
 commit messages.
 
-Koinon's own repository uses the default `none` from 2026-11-03. Its `DECISIONS.md` and the
-entries in it stay, and the citations of those entries stay valid.
+**Provenance (2026-11-05, #623):**
 
-The verdicts that Koinon's documents cited before this decision were recorded on 2026-10-28 as
-public rewrites of their cards, written once; the Unify card that PDR 008 cites stays out of
-this repository.
+- **Decided by:** Robert Capps.
+- **Date:** 2026-11-05.
+- **Context:** Robert Capps asked why the decision record module still instructed agents to
+  write to `DECISIONS.md`. Every verdict read gave `record.path: "DECISIONS.md"` and an entry in
+  the file's format in each record mode, also in `none` (#623). Robert Capps then gave the rule,
+  and was asked to approve a two-PR plan: remove the record modes, the `Decision record` fact,
+  `decision_record` and `koinon decision record`, and give one record form in the verdict reads
+  (PR 1); move the existing entries into their records and remove the file (PR 2).
+- **Decision:** "nothing should be written to decisions.md. this has been superseded. all
+  decisions should be written to a durable portion of the repo's own files, such as decision
+  records such as ADR, etc, or sprint docs. decisions should be succinct and should be free of
+  typographic errors, and should clearly indicate who made the decision (name of the author, not
+  'maintainer' or 'owner'), the date of the decision, and the context in which the decision is
+  made. If there are circumstances that would warrant a review of the decision, it should also
+  be recorded." Then: "let's clean this up, once and for all. deprecate decisions.md
+  completely." The plan: "yes".
+- **Reason and scope:** a record file beside the decision records kept telling agents to write
+  there. The decision covers where and in what form every decision is recorded, and what the
+  refusal review checks (Decision 6). It replaces the record modes below.
 
-**Provenance (record modes, 2026-11-03):** Requested in #589 (issue body: a short entry form,
+**Provenance (record modes, 2026-11-03; replaced on 2026-11-05):** Requested in #589 (issue body: a short entry form,
 and a refusal review that accepts a short entry). An adopting project's coordinator reported on
 2026-11-03 that one shared `DECISIONS.md` made parallel branches conflict at each merge, put
 peer agents' words into commits, and restarted reviews; it reported that the maintainer had told
@@ -435,6 +458,7 @@ maintainer then set these requirements while the change was built (#536; the tim
 | An export command into `.koinon/decisions/` | One file per item, written on request | The maintainer asked for MCP and one visible append file |
 | Full entries in every repository (until 2026-11-03) | One `DECISIONS.md` with the card text, committed with each change | Parallel branches conflict at each merge, a record commit restarts a review, and peer agents' words go into commits (#589) |
 | Koinon keeps `full` while other repositories use `none` | Koinon's citations stay `DECISIONS.md#REFERENCE` | The maintainer approved `none` for Koinon too (RECORD-MODE-589) |
+| Record modes none, short and full (2026-11-03 to 2026-11-05) | Each repository chooses whether `decision_record` appends to `DECISIONS.md` | Every verdict read still named the file in each mode (#623); Robert Capps, 2026-11-05: "deprecate decisions.md completely." |
 | A records branch or repository that the daemon writes to | No commit in the work branch | The daemon would run Git writes and pushes, and parallel writers can still conflict |
 | The daemon writes the file at the verdict | No agent step | An item names no repository, and the write would land outside any branch and review |
 | A comment on the GitHub issue per verdict | As for #493 | Not in the repository |
@@ -444,7 +468,7 @@ maintainer then set these requirements while the change was built (#536; the tim
 
 1. The rule and the maintainer's words are in the document that holds the rule, so they resolve
    for every contributor, clone and CI run, and change with the work in the same review.
-2. No shared file conflicts between parallel branches in the default mode.
+2. No shared file conflicts between parallel branches, and no agent is told to write to one.
 3. The export gives a copy of the board that does not depend on one machine.
 
 ---
@@ -453,8 +477,9 @@ maintainer then set these requirements while the change was built (#536; the tim
 
 Every significant constraint lives in one record with its source, scope and status. Routine
 work needs no record. Other text cites records. A record covers the case it answered, and a
-refusal review checks the source of each new constraint. Board verdicts are recorded as each
-repository's record mode says, by default in the document that they change.
+refusal review checks the source of each new constraint. Each decision is recorded in the
+document that holds its rule, with the decider's name, the date, the context and the condition
+for its review.
 
 ---
 
@@ -469,3 +494,4 @@ repository's record mode says, by default in the document that they change.
 | 2026-10-26 | #493: Decision 6 cites the maintainer's verdict that keeps the required `refusal-review` and `peer-review` statuses ([DECISIONS.md#493-5](../../../DECISIONS.md#493-5)) |
 | 2026-10-28 | Decision 7: board verdicts are recorded in `DECISIONS.md` and cited there (#536); Decision 6's quotes are spelling-corrected |
 | 2026-11-03 | Decision 7: record modes none (the default), short and full; an export of the board; Koinon uses none (#589, RECORD-MODE-589). Decision 6: the four parts are checked in the governing document |
+| 2026-11-05 | Decision 7: decisions are recorded only in the document that holds the rule, in one form with the decider's name; the record modes, `decision_record` and new `DECISIONS.md` entries end (#623); Decision 6 checks the same parts |

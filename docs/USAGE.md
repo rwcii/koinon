@@ -271,23 +271,23 @@ item with `decision_close` (`koinon decision close --reference REF --if-revision
 --deadline UNIX_SECONDS`), which archives it. An agent edit of a decided item reopens it for a
 new verdict; `decision_history` pages every verdict with its snapshot.
 
-The agent that handles a verdict records it, except an fyi acknowledgement, which holds no
-decision: `decision_record` (`koinon decision record --reference REF`) applies the repository's
-record mode, the first word of the `Decision record` fact in `.koinon/skills/ship.md` (#589):
+The agent that handles a verdict records the decision, except an fyi acknowledgement, which
+holds no decision (#623). It puts the decision into the ADR, PDR, WDR or sprint document that
+holds the rule, in the pull request that does the work, in this form:
 
-- `none`, the default: nothing is written. The agent puts the changed rule into the document
-  that holds it, in the pull request that does the work, with the question, the chosen option,
-  the reason and your words with their date.
-- `short`: the verdict, the title, the recommendation's heading and your note are appended to
-  `DECISIONS.md` at the root of the checkout.
-- `full`: also the card text that you saw.
+- Decided by: your name, not a role.
+- Date: the date of the verdict.
+- Context: the question and the options that were on the table.
+- Decision: what was chosen, with your words quoted.
+- Reason and scope: why, and what the decision covers and does not cover.
+- Review when: a known condition that calls for a review of the decision, when there is one.
 
-In `short` and `full` the file is appended after its existing text, in any format, and the
-agent commits it with the work. The agent corrects the spelling and typing errors in your
-words, and names the decision by its reference, never by verdict ID, which exists only in this
-machine's store. How a project cites its decisions is that project's own rule. An item is
-recorded only in the repository it was created in. Recorded text is public, so agents write
-every card as public text.
+A declined decision goes into the record's Alternatives Considered. Koinon writes no record
+file. The agent writes the decision succinctly, corrects the spelling and typing errors in your
+words, and names the decision by its card reference, never by verdict ID, which exists only in
+this machine's store. How a project cites its decisions is that project's own rule. A decision
+is recorded only in the repository that its item was created in. Recorded text is public, so
+agents write every card as public text.
 
 `koinon decision export PATH` writes every item, with its verdicts, snapshots and notes, live
 and deep-archived, as JSON lines to a new private file outside a Git work tree. A person or CI

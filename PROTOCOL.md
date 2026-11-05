@@ -2104,14 +2104,13 @@ participant inbox, read by its current holder also after a holder change; to an 
 peer it is `queued` with one message in that session's inbox. Otherwise it is `skipped`
 with `reason` `unknown_name`, `maintainer` or `recipient_inactive`. The message comes from
 `maintainer` with `system_kind` `decision_verdict`, the typed `decision_verdict` ID and a
-body that holds the reference, the ID and, for a recorded verdict, its entry (see Repository
-record); it holds no other card text. The body starts with `Decision REF has a verdict (ID).`
-and the instruction to read it with `decision_get` and then call `decision_record`, which
-applies the repository's Decision record fact (#589); for `feedback`, with `Item REF has the
-maintainer's feedback (ID) and is returned to its author.` and the instruction to call
-`decision_record` and then edit or withdraw the item;
-for `acknowledged`, with `Fyi item REF was acknowledged (ID).` and the note that nothing is
-recorded. A wake whose range
+body that holds the reference, the ID and, for a verdict other than an fyi acknowledgement or
+dismissal, the record instruction and the verdict with its card text (see Repository record);
+it holds no other card text. The body starts with `Decision REF has a verdict (ID).` and the
+instruction to read it with `decision_get`, whose `record` says how to record the decision; for
+`feedback`, with `Item REF has the maintainer's feedback (ID) and is returned to its author.`
+and the instruction to edit or withdraw the item; for `acknowledged`, with `Fyi item REF was
+acknowledged (ID).` and the note that it holds no decision to record. A wake whose range
 holds such messages ends its notice with ` Decision verdicts ID, ID.`: at most 8 IDs in
 sequence order, then ` +N more`; target selection, coalescing, retries and inbox reads and
 acknowledgements do not change.
@@ -2217,48 +2216,29 @@ with `reference_in_use`.
   link, is `export_in_worktree`. Pages that read different versions start the export again, up
   to four attempts. The result gives `path`, `records` and `version`.
 
-**Repository record (#536, #589).** A decided item read (`decision_get`, the lookup) with a
-current verdict that is not an fyi acknowledgement or dismissal carries `record`: `path`
-(`DECISIONS.md`, the file of the short and full modes), `instruction`, which asks to call
-`decision_record`, and `entry`, the current verdict's full entry. A pending page with a delivery that is not an fyi acknowledgement or dismissal
-carries `record` with `path` and `instruction`, and each such delivery carries `entry`; a page
+**Repository record (#536, #623).** Koinon writes no record file. A decided item read
+(`decision_get`, the lookup) with a current verdict that is not an fyi acknowledgement or
+dismissal carries `record`: `instruction`, the record form, and `entry`, the current verdict
+with its card text. A pending page with a delivery that is not an fyi acknowledgement or
+dismissal carries `record` with `instruction`, and each such delivery carries `entry`; a page
 stops before the delivery that would take the serialized reply past 512 KiB and always holds
-one, which the largest entry fits. The verdict message of such a verdict holds the notice, then
-`Verdict and card text:` with the full entry. An entry that would take the message past 64
-KiB, which only stored hidden commands can cause, is left out, and the message says that
-`decision_get` and `decision_pending` give it. An item read carries
-`author_repository`, the repository of the participant that the item stored for its author at
-create; a plain peer's item has none. A snapshot stores the item's `where` since #536; an
-older snapshot has none.
-
-`decision_record` (`reference`, optional `directory`) and `koinon decision record --reference
-REF [--directory DIR]` record in the checkout of the MCP working directory or of `directory`,
-which must share its Git common directory (else `repo_unresolved`). They first read the
-checkout's record mode: the first word, without trailing `,.;:`, of the `Decision record` fact
-in its `.koinon/skills/ship.md`, parsed with the ship skill's facts schema. An absent file or
-fact is `none`; another word or an invalid facts file is `decision_record_mode_invalid`. Then
-they read the item and its history through these routes. The item's `author_repository` must
-be that Git common directory: another is `decision_other_repository`, none is
-`decision_repository_unknown`. Mode `none` opens no file: the result gives `mode`, an empty
-`appended` and an `instruction` that puts the changed rule, with the question, the chosen
-option, the reason and the maintainer's words, into the document that holds it. Modes `short`
-and `full` append to `DECISIONS.md` at the checkout root. The file starts with the Koinon
-header when it is created; a file in another format keeps its text, and the entries follow it.
-A symbolic link, a non-regular file or a file over 64 MiB is `decision_record_invalid`.
-Nothing is written on a refusal. Under an exclusive lock on the
-file, each verdict that is not an fyi acknowledgement or dismissal and whose marker line is
-absent is appended, in
-verdict order: the reference's anchor (`<a id="ref"></a>`, the reference in lower case, as GitHub writes its
-anchors) before its first entry, then a
-`## REF` heading, the marker `<!-- koinon-decision REF revision N VERDICT MS -->`, the verdict,
-revision and UTC time, the title and where, and the context, recommendation and note (labeled
-`Feedback` for a feedback verdict) as block quotes, with the commands as an indented code block. A
-short entry has the heading, marker, verdict line and title, then `- Recommendation:` with the
-recommendation's first line (without `## Recommendation:`) when it has one, and the note or
-feedback as a block quote; the shared marker keeps a mode change from adding a verdict twice.
-The result gives `mode`, `path`, `reference` and the verdict IDs `appended`, `present` and
-`skipped`, and an `instruction` when it appended. An item with no recordable verdict creates no
-file.
+one, which the largest entry fits. The verdict message of such a verdict holds the notice, the
+instruction, then `Verdict and card text:` with the entry. An entry that would take the message
+past 64 KiB, which only stored hidden commands can cause, is left out, and the message says
+that `decision_get` and `decision_pending` give it. The entry starts with the verdict word,
+the revision and the UTC time, then the title and where, and the context, recommendation and
+note (labeled `Feedback` for a feedback verdict) as block quotes, with the commands as an
+indented code block; card text keeps its words inside its quotes. The instruction asks the
+agent, when the verdict decides how the project works, to record the decision in the
+repository that the item was created in, in the pull request that does the work, in the ADR,
+PDR, WDR or sprint document that holds the rule, with Decided by (the person's name, not a
+role), Date, Context, Decision, Reason and scope, and Review when; a declined decision goes
+into Alternatives Considered; the decision is named by its card reference, never by verdict
+ID. An item read carries `author_repository`, the repository of the participant that the item
+stored for its author at create; a plain peer's item has none. A snapshot stores the item's
+`where` since #536; an older snapshot has none. The `decision_record` tool and `koinon
+decision record` are removed (#623). The ship skill no longer declares the `Decision record`
+fact: a `.koinon/skills/ship.md` that holds it stays valid, and Koinon ignores its value.
 
 ### MCP server
 
@@ -2283,8 +2263,7 @@ decisions and bounded reads in that same native client.
 room routes.
 `decision_create`, `decision_edit`, `decision_list`, `decision_get`, `decision_history`,
 `decision_pending`, `decision_ack`, `decision_close`, `decision_withdraw` and `decision_restore` take the fields of the
-decision routes, refuse any other argument by name and call those routes. `decision_record`
-writes the repository record as described above.
+decision routes, refuse any other argument by name and call those routes.
 They take no model-supplied consumer or caller identity. A tool
 error is a result with `isError` and a JSON text `{"ok": false, "code": ...}`: the daemon's code,
 `daemon_unavailable`, `identity_unavailable`, `grok_leader_mode`, `invalid_arguments` or `unknown_tool`, with the
