@@ -155,13 +155,13 @@ func TestContextCyclePickupPromptDeadlineHolds(t *testing.T) {
 // The dashboard shows a pickup's dialog with its options, nothing to answer between two
 // dialogs, and then the next dialog; an answer to the earlier dialog enters nothing.
 func TestContextCyclePickupDialogsOnDashboard(t *testing.T) {
-	d, root := startTestDaemon(t)
-	s := d.store
 	adapter := &fakeAdapter{pane: PaneState{Idle: true}, clear: true, epoch: "synthetic-epoch-2", pickup: true, answered: true,
 		probe: CycleProbe{Entry: "koinon-pickup"}}
 	previous := cycleAdapters
 	cycleAdapters = map[string]CycleAdapter{"claude": adapter}
 	t.Cleanup(func() { cycleAdapters = previous })
+	d, root := startTestDaemon(t)
+	s := d.store
 	repo := namedRepo(t, "cycle-pickup-dialog")
 	os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("_handoff/\n"), 0o644)
 	a := join(t, s, "claude", "synthetic-pickup-a", repo)
