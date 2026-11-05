@@ -365,7 +365,7 @@ func (s *Store) ReadInboxes(ctx context.Context, caller Key, after int64, partic
 		return Inbox{}, err
 	}
 	if participantAfter != nil && address == "" {
-		return Inbox{}, ErrStaleHolder
+		return Inbox{}, staleHolder(ctx, tx, now, caller)
 	}
 	result := Inbox{Messages: []Message{}}
 	if result.LastSeq, result.AckedThrough, result.More, err = readMessages(ctx, tx, caller, after, limit, "session", &result.Messages); err != nil {
@@ -548,7 +548,7 @@ func (s *Store) AckParticipant(ctx context.Context, caller Key, through int64) (
 		return "", 0, err
 	}
 	if address == "" {
-		return "", 0, ErrStaleHolder
+		return "", 0, staleHolder(ctx, tx.Tx, now, caller)
 	}
 	if err := ensureParticipantInbox(ctx, tx.Tx, now, address); err != nil {
 		return "", 0, tx.fail(err)

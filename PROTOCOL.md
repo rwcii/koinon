@@ -180,6 +180,11 @@ only the maintainer's dashboard choice removes its fence. A holder defaults to t
 participant consumer for memory and work. Every participant call validates the current
 native holder, family and repository, including explicit consumer keys, read paths and
 stored retries, before returning a replay or writing. Refusals use `stale_holder` (409).
+While the caller's last succession result is refused with a wait (`holder_active` or
+`cycle_receipt_pending`), an inbox read with `participant_after`, a participant
+acknowledgement and a participant memory or work call return `stale_holder` with `details`
+`{succession, holder, retry_after_ms}`: the reason, the holder's peer name and the remaining
+wait. The session takes the participant at its first tool call after that wait (#610).
 Split memory/work calls serialize against holder changes, and each write transaction checks
 its native caller again. The successor continues participant inbox acknowledgements, memory
 cursors and live claims with their existing generations and deadlines.

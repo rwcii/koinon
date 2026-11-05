@@ -169,7 +169,9 @@ once the former host is proven ended. Unknown evidence refuses succession. Read 
 succession result in its own (self) row of peers: succeeded reports same_host, host_cleared or same_pane; refused reports no_host,
 host_running, other_pane, subagent, holder_active, fenced or other_participant.
 holder_active returns the daemon's remaining retry_after_ms; MCP retries at the first native
-tool call after that wait. Renewals and observation timers do not count as activity or retry.
+tool call after that wait. A participant call during the wait, such as an inbox read with
+participant_after, is refused with stale_holder whose details give succession, holder and
+retry_after_ms: call again after that wait. Renewals and observation timers do not count as activity or retry.
 A daemon restart counts as activity for one guard period. Other refusals have no scheduled
 retry; the maintainer's holder choice settles them. no_host against a
 launched predecessor without a host record resolves

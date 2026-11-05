@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A participant call from a session that waits to succeed the holder says so (#610). An inbox
+  read with `participant_after`, a participant acknowledgement and a participant memory or work
+  call during the holder's guard still return `stale_holder`, and now add `details` with the
+  succession reason, the holder's peer name and the remaining `retry_after_ms`. Before, only the
+  session's own `peers` row showed the wait, and the refusal read as a permanent loss.
+
 ## 2026-11-04 — Goal-first handoffs, board-checked waits, and OpenCode slash commands
 
 This release makes a handoff carry the work's goal: the goal with its source and success
