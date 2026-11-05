@@ -517,9 +517,11 @@ func (v openCodeView) sessions() []string {
 	return ids
 }
 
-// readOpenCodePane captures the pane's current view, with attributes and wrapped rows joined.
+// readOpenCodePane captures the pane's current view with attributes, row by row. OpenCode draws
+// a full screen and wraps its own rows; tmux can mark every row as wrapped, so joining them
+// (-J) loses the composer (#613).
 func readOpenCodePane(ctx context.Context, t CycleTarget) (openCodeView, bool, error) {
-	out, err := t.tools.tmux(ctx, t.Socket, "capture-pane", "-p", "-e", "-J", "-t", t.Pane)
+	out, err := t.tools.tmux(ctx, t.Socket, "capture-pane", "-p", "-e", "-t", t.Pane)
 	if err != nil {
 		return openCodeView{}, false, err
 	}
