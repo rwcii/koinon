@@ -147,13 +147,17 @@ and pending leases; private values stay in the ignored handoff.
 
 Then read this session's inbox and, when it holds a participant, the participant's inbox, each
 after its acknowledged cursor and page by page to its end, with the installed guide's inbox tool
-or command (#611). These messages arrived after the handoff and the note were written, so they
-are newer than both: a message that changes the goal, a blocker, a task or a next step wins over
-the handoff, and the report names it as a difference. A message from the maintainer is the
-maintainer's instruction. Handle each message, and acknowledge it as the guide says. A read that
-is refused, such as `stale_holder` while the succession waits, or an unavailable daemon leaves
-the inbox unread: report it with the error, read it again after the wait, and continue the other
-steps.
+or command (#611). An unacknowledged message is not always newer than the handoff: compare each
+message's `created_at` with the handoff's timestamp, its file name in UTC. A message created
+after the handoff can change the goal, a blocker, a task or a next step: it wins over the
+handoff and the note, and the report names it as a difference. A message created before the
+handoff can be one that the handoff already handled or that a later direction replaced:
+reconcile it with the handoff's sections and the maintainer's dated directions, and report it
+when the handoff does not cover it. A message from the maintainer is the maintainer's
+instruction; of two directions, the later one applies. Handle each message, and acknowledge it as
+the guide says. A read that is refused, such as `stale_holder` while the succession waits, or an
+unavailable daemon leaves the inbox unread: report it with the error, read it again after the
+wait, and continue the other steps.
 
 Then check the decision board, with the installed guide's decision tools or its command path
 (WDR 005, Decision 5):
@@ -200,8 +204,9 @@ Report briefly, the goal's hierarchy first:
 - The next steps, corrected for the differences; the first one that still applies is the next
   action. A claim that the board read did not confirm adds no wait for the maintainer to it.
 - Where things stand now, with each difference from the note and the handoff named.
-- The messages that arrived after the handoff (step 4), each with its sender and what it
-  changes, or that the inbox was not read and why.
+- The inbox messages of step 4: each one created after the handoff, with its sender and what it
+  changes, and each older one that the handoff does not cover; or that the inbox was not read,
+  and why.
 - Open work that the handoff does not name.
 - Each subagent that the handoff lists as running: its result, or that it has not arrived
   (WDR 005, Decision 4).

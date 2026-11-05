@@ -217,6 +217,33 @@ func TestHandoffWaitsNameBoardItems(t *testing.T) {
 	}
 }
 
+// pickup reads the session inbox and the held participant's inbox after their acknowledged
+// cursors, in step 4 before the board; it orders the messages by created_at against the
+// handoff, reports a refused read with its error, and lists the messages in its report (#611).
+// The checks are of the skill text.
+func TestPickupReadsInboxes(t *testing.T) {
+	pickup := read(t, filepath.Join("agents", "skills", "pickup", "SKILL.md"))
+	for _, want := range []string{
+		"Then read this session's inbox and, when it holds a participant, the participant's inbox, each\nafter its acknowledged cursor and page by page to its end",
+		"An unacknowledged message is not always newer than the handoff: compare each\nmessage's `created_at` with the handoff's timestamp",
+		"A message created\nafter the handoff can change the goal, a blocker, a task or a next step: it wins over the\nhandoff and the note",
+		"reconcile it with the handoff's sections and the maintainer's dated directions, and report it\nwhen the handoff does not cover it.",
+		"A read that is refused, such as `stale_holder` while the succession waits, or an\nunavailable daemon leaves the inbox unread: report it with the error",
+		"- The inbox messages of step 4: each one created after the handoff, with its sender and what it\n  changes, and each older one that the handoff does not cover; or that the inbox was not read,\n  and why.",
+	} {
+		if !strings.Contains(pickup, want) {
+			t.Errorf("pickup lacks %q", want)
+		}
+	}
+	inbox, board := strings.Index(pickup, "Then read this session's inbox"), strings.Index(pickup, "Then check the decision board")
+	if inbox < strings.Index(pickup, "## 4. Reconnect to the daemon") || inbox < strings.Index(pickup, "Report identity changes, succession or refusal") || inbox > board {
+		t.Errorf("pickup reads the inboxes outside step 4, after the succession report and before the board")
+	}
+	if report := strings.Index(pickup, "- The inbox messages of step 4"); report < strings.Index(pickup, "## 5. Orient, then continue") {
+		t.Errorf("the inbox messages are not in the step 5 report")
+	}
+}
+
 // A handoff records the goal, its blockers and their tasks, and the next steps, and pickup
 // reads them also with a usable note, checks them against the live state and reports them
 // first (#602). The checks are of the skill text; the behavior is checked by a fresh-context

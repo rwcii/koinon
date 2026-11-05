@@ -6,10 +6,11 @@ into a dated release section when promoted to `main`.
 ## Unreleased
 
 - `pickup` reads the session's inbox and, when it holds a participant, the participant's inbox
-  after their acknowledged cursors, before the decision board (#611). Those messages arrived after
-  the handoff was written, so a message that changes the goal, a blocker, a task or a next step
-  wins over the handoff, and the pickup report lists them. Before, a pickup could miss the
-  messages that held a peer's open questions.
+  after their acknowledged cursors, before the decision board (#611). A message created after the
+  handoff wins over it where it changes the goal, a blocker, a task or a next step; an older
+  unacknowledged message is reconciled with the handoff and the maintainer's dated directions.
+  The pickup report lists them. Before, a pickup could miss the messages that held a peer's open
+  questions.
 
 - A managed cycle of an idle OpenCode session finds its composer in every pane (#613). The cycle
   read the pane with its rows joined; when tmux marked the screen rows as wrapped, the composer
