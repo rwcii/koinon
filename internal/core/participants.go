@@ -246,10 +246,47 @@ func requireHolder(ctx context.Context, tx *sql.Tx, now int64, caller Key, addre
 	if err != nil {
 		return err
 	}
-	if held == "" || held != address {
+	if held == "" {
+		return staleHolder(ctx, tx, now, caller)
+	}
+	if held != address {
 		return ErrStaleHolder
 	}
 	return nil
+}
+
+// HolderWait is ErrStaleHolder for a session whose last succession waits, such as for the
+// holder's guard (holder_active): its first tool call after RetryAfterMS tries the succession
+// again, which can take the participant or give another wait (#610).
+type HolderWait struct {
+	Reason       string
+	Holder       string
+	RetryAfterMS int64
+}
+
+func (e HolderWait) Error() string { return ErrStaleHolder.Error() }
+
+// Is makes a waiting refusal match ErrStaleHolder.
+func (e HolderWait) Is(target error) bool { return target == ErrStaleHolder }
+
+// staleHolder is the refusal of a caller that holds no participant: HolderWait while its last
+// succession result waits, else ErrStaleHolder.
+func staleHolder(ctx context.Context, tx *sql.Tx, now int64, caller Key) error {
+	var stored string
+	if err := tx.QueryRowContext(ctx, `SELECT succession FROM sessions WHERE family=? AND id=?`, caller.Family, caller.ID).Scan(&stored); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrStaleHolder
+		}
+		return err
+	}
+	var last Succession
+	if stored == "" || json.Unmarshal([]byte(stored), &last) != nil || last.Result != "refused" || last.RetryAfterMS <= 0 {
+		return ErrStaleHolder
+	}
+	if left := last.At + last.RetryAfterMS - now; left > 0 {
+		return HolderWait{Reason: last.Reason, Holder: last.Holder, RetryAfterMS: left}
+	}
+	return ErrStaleHolder
 }
 
 // ensureParticipantInbox creates the participant's internal inbox row when it is missing.

@@ -15,6 +15,11 @@ into a dated release section when promoted to `main`.
   read the pane with its rows joined; when tmux marked the screen rows as wrapped, the composer
   was not found, each ready stage ended with `not_idle.input_line_not_found` and the cycle asked
   for the handoff again until it timed out. The pane is now read row by row.
+- A participant call from a session that waits to succeed the holder says so (#610). An inbox
+  read with `participant_after`, a participant acknowledgement and a participant memory or work
+  call during the holder's guard still return `stale_holder`, and now add `details` with the
+  succession reason, the holder's peer name and the remaining `retry_after_ms`. Before, only the
+  session's own `peers` row showed the wait, and the refusal read as a permanent loss.
 
 ## 2026-11-04 — Goal-first handoffs, board-checked waits, and OpenCode slash commands
 
