@@ -184,7 +184,9 @@ While the caller's last succession result is refused with a wait (`holder_active
 `cycle_receipt_pending`), an inbox read with `participant_after`, a participant
 acknowledgement and a participant memory or work call return `stale_holder` with `details`
 `{succession, holder, retry_after_ms}`: the reason, the holder's peer name and the remaining
-wait. The session takes the participant at its first tool call after that wait (#610).
+wait. The first tool call after that wait tries the succession again with the current checks:
+it takes the participant, or it is refused again, for example with a new wait when the holder
+was active during this one (#610).
 Split memory/work calls serialize against holder changes, and each write transaction checks
 its native caller again. The successor continues participant inbox acknowledgements, memory
 cursors and live claims with their existing generations and deadlines.

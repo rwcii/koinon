@@ -256,8 +256,8 @@ func requireHolder(ctx context.Context, tx *sql.Tx, now int64, caller Key, addre
 }
 
 // HolderWait is ErrStaleHolder for a session whose last succession waits, such as for the
-// holder's guard (holder_active): the session takes the participant at its first tool call
-// after RetryAfterMS (#610).
+// holder's guard (holder_active): its first tool call after RetryAfterMS tries the succession
+// again, which can take the participant or give another wait (#610).
 type HolderWait struct {
 	Reason       string
 	Holder       string
