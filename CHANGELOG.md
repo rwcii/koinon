@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Each `decision_list` summary names its item's `author_repository`, as `decision_get` does, when
+  the item has one (#612). The board lists the cards of every repository; `pickup` now keeps the
+  cards of its own repository by that field, without a `decision_get` of each card.
 - `pickup` reads the session's inbox and, when it holds a participant, the participant's inbox
   after their acknowledged cursors, before the decision board (#611). A message created after both
   the handoff and the progress note wins over them where it changes the goal, a blocker, a task or

@@ -187,7 +187,9 @@ Then check the decision board, with the installed guide's decision tools or its 
    handled again.
 
 The report lists the waiting items of the work that you resume; the cards of other
-repositories are not part of it. A read that is refused, an unavailable daemon or tool, an older runtime without
+repositories are not part of it. Each summary's `author_repository` names its repository:
+keep the cards whose value is the `repository` of your own row in `peers`, and the cards
+without one that the note or the handoff names. A read that is refused, an unavailable daemon or tool, an older runtime without
 these tools and a page you could not finish leave the claim unverified: report it with the
 error, not as none and not as a wait, and continue the other steps.
 
