@@ -195,6 +195,8 @@ func TestHandoffWaitsNameBoardItems(t *testing.T) {
 		{"pickup", pickup, "an active item of kind `decision` or `task` at a newer revision than the claim names was\n     reopened or edited"},
 		{"pickup", pickup, "it is the previous session's own proposal only when the handoff says so,\n     and without a source, report the source as unknown."},
 		{"pickup", pickup, "leave the claim unverified: report it with the\nerror, not as none and not as a wait, and continue the other steps."},
+		// The board lists every repository's cards; each summary names its repository (#612).
+		{"pickup", pickup, "Each summary's `author_repository` names its repository:\nkeep the cards whose value is the `repository` of your own row in `peers`"},
 		{"pickup", pickup, "- The next steps, corrected for the differences; the first one that still applies is the next\n  action. A claim that the board read did not confirm adds no wait for the maintainer to it."},
 		{"pickup", pickup, "- Decisions waiting for the maintainer, only from the board read of step 4, with each reference\n  and revision; each claim that the read did not confirm, as drift or as unverified."},
 	} {
