@@ -254,6 +254,14 @@ func (s *Store) succeed(ctx context.Context, tx *sql.Tx, now int64, k Key, repos
 		return nil, err
 	}
 	if evidence != "" {
+		// An MCP restart can replace the native session without changing its host, pane
+		// or participant. Keep that session's Enable (PDR 006, Decision 2,
+		// ENABLE-SAME-HOST-621), before setHolder retires the former session.
+		if evidence == "same_host" && samePane && sh.socket != "" {
+			if err := carrySameHostEnable(ctx, tx, now, k, address, holder); err != nil {
+				return nil, err
+			}
+		}
 		result.Result, result.Reason = "succeeded", evidence
 		return result, setHolder(ctx, tx, now, address, holder, k.ID, evidence, "session", string(details))
 	}
@@ -268,6 +276,37 @@ func (s *Store) succeed(ctx context.Context, tx *sql.Tx, now int64, k Key, repos
 		return result, nil
 	}
 	return result, participantEvent(ctx, tx, now, address, "", result.Holder, "succession_refused", "session", string(details))
+}
+
+// carrySameHostEnable moves only an Enable still pinned to the former holder's host, pane
+// and participant. Registration renewals change its session revision, not those pins.
+// It does not carry observations or an unfinished cycle.
+// The retry remains spent for its native epoch, including an inbox read still owed; the
+// revision marker follows the successor's Enable revision rather than giving another retry.
+func carrySameHostEnable(ctx context.Context, tx *sql.Tx, now int64, k Key, address, former string) error {
+	result, err := tx.ExecContext(ctx, `INSERT INTO context_enables
+		(family,session_id,enabled,revision,session_revision,address,host_pid,host_start,tmux_socket,tmux_pane,updated_at,threshold,kept_epoch,kept_revision,kept_read)
+		SELECT s.family,s.id,1,1,s.revision,?,s.host_pid,s.host_start,s.tmux_socket,s.tmux_pane,?,e.threshold,e.kept_epoch,
+		CASE WHEN e.kept_revision=e.revision THEN 1 ELSE 0 END,e.kept_read
+		FROM sessions s JOIN sessions old ON old.family=s.family AND old.id=?
+		JOIN context_enables e ON e.family=old.family AND e.session_id=old.id
+		WHERE s.family=? AND s.id=? AND e.enabled=1 AND e.address=?
+		AND e.host_pid=old.host_pid AND e.host_start=old.host_start AND e.tmux_socket=old.tmux_socket AND e.tmux_pane=old.tmux_pane
+		ON CONFLICT(family,session_id) DO UPDATE SET enabled=1,revision=context_enables.revision+1,
+		session_revision=excluded.session_revision,address=excluded.address,host_pid=excluded.host_pid,host_start=excluded.host_start,
+		tmux_socket=excluded.tmux_socket,tmux_pane=excluded.tmux_pane,updated_at=excluded.updated_at,threshold=excluded.threshold,
+		kept_epoch=excluded.kept_epoch,kept_revision=CASE WHEN excluded.kept_revision=1 THEN context_enables.revision+1 ELSE 0 END,
+		kept_read=excluded.kept_read`, address, now, former, k.Family, k.ID, address)
+	if err != nil {
+		return err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil || changed == 0 {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE context_enables SET enabled=0,revision=revision+1,updated_at=?
+		WHERE family=? AND session_id=? AND enabled=1`, now, k.Family, former)
+	return err
 }
 
 // hostOf reads a session's host record.

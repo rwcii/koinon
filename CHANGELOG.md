@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A same-host session succession keeps the managed-handoff Enable and its threshold when the
+  pane and participant stay the same (#621). An MCP-server restart previously left Enable on
+  the retired session, so the successor stopped getting cycles. Retry state follows Enable;
+  an interrupted cycle ends normally and the successor needs its own fresh context reading.
 - Without a user service manager, for example in a container without a systemd user bus,
   `koinon install` starts the daemon in the background and waits until a daemon of its version
   answers (#619; PDR 003, Decision 6). The report says `"service": "background"` with `daemon_log` and `restart_step`,
