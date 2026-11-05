@@ -1144,13 +1144,13 @@ func newDaemon(e *env, version string) *fakeDaemon {
 	d := &fakeDaemon{answers: true, start: version}
 	e.o.Version, e.o.Wait = version, 500*time.Millisecond
 	e.o.Status = func(context.Context, string, string) (json.RawMessage, error) {
-		if !d.running {
-			return nil, errors.New("connection refused")
-		}
 		if d.binary != "" {
 			if data, _ := os.ReadFile(d.binary); string(data) != d.content {
-				d.binary, d.pid, d.version = "", d.pid+100, d.start
+				d.binary, d.running, d.pid, d.version = "", true, d.pid+100, d.start
 			}
+		}
+		if !d.running {
+			return nil, errors.New("connection refused")
 		}
 		if d.exitAfter > 0 {
 			if d.exitAfter--; d.exitAfter == 0 {
@@ -1224,6 +1224,14 @@ func TestBackgroundInstall(t *testing.T) {
 	old := d.pid
 	if r, err := Install(ctx, e.o); err != nil || !r.OK || r.BinaryResult != "replaced" || len(d.starts) != 2 || len(d.stops) != 0 || d.version != "v2" || d.pid == old {
 		t.Fatalf("replaced at the binary change %+v %v %+v", r, err, d)
+	}
+	// A manager that starts the daemon as the binary changes, when none answered before:
+	// it qualifies at once too.
+	content, _ = os.ReadFile(Binary(e.o.Prefix))
+	d.running, d.binary, d.content = false, Binary(e.o.Prefix), string(content)
+	os.WriteFile(e.o.Source, []byte("synthetic binary, started by its manager"), 0700)
+	if r, err := Install(ctx, e.o); err != nil || !r.OK || r.BinaryResult != "replaced" || len(d.starts) != 2 || len(d.stops) != 0 || !d.running || d.version != "v2" {
+		t.Fatalf("started at the binary change %+v %v %+v", r, err, d)
 	}
 	// A changed binary also waits for a daemon of the same version to exit.
 	os.WriteFile(e.o.Source, []byte("synthetic binary, rebuilt"), 0700)

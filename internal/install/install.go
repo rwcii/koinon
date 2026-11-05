@@ -842,11 +842,13 @@ func startBackground(ctx context.Context, o Options, r *Report, before *daemonSt
 		if r.BinaryResult == "unchanged" && current(o, now) {
 			return nil
 		}
+		// A daemon of this version that the install did not see before the binary changed
+		// was started for the new binary: none answered then, or it has another process ID.
+		if current(o, now) && (before == nil || now.PID != before.PID) {
+			return nil
+		}
 		old := now
 		if before != nil {
-			if now.PID != before.PID && current(o, now) {
-				return nil
-			}
 			old = *before
 		}
 		replaced, err := waitForReplacement(ctx, o, old)
