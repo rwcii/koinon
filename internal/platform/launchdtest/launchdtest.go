@@ -175,10 +175,11 @@ func plistJSON(path string) ([]byte, error) {
 	return json.Marshal(fields)
 }
 
-// StatusPID is the PID that the answering daemon reports.
+// StatusPID is the PID that the answering daemon reports. With neither job loaded, no daemon
+// answers.
 func (f *Fake) StatusPID(context.Context) (int, error) {
 	switch {
-	case f.StatusDown:
+	case f.StatusDown, !f.AgentLoaded && !f.SystemLoaded:
 		return 0, errors.New("connection refused")
 	case f.Stale || !f.SystemLoaded:
 		return f.AgentPID, nil

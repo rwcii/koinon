@@ -3,7 +3,7 @@ pdr: "003"
 title: "Runtime Installation and Recovery"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-25"
+updated: "2026-11-05"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -34,8 +34,9 @@ daemon, when it uses a system service, what it keeps when it is upgraded, remove
 unreachable, and which commands change services and agent configuration. Each decision states
 what Koinon currently does, why, and where it came from.
 
-The record is a draft. The maintainer decided the launcher PATH lookup (Decision 5) and the
-removal of an operation ban on agents (not adopted); the macOS system mode traces to the
+The record is a draft. The maintainer decided the launcher PATH lookup (Decision 5), the
+post-install and post-upgrade instructions (Decision 6) and the removal of an operation ban on
+agents (not adopted); the macOS system mode traces to the
 approval of a plan, and the rest is shipped behavior without a maintainer decision.
 
 ---
@@ -48,9 +49,10 @@ approval of a plan, and the rest is shipped behavior without a maintainer decisi
 4. Decision 3: State is kept across install, upgrade, removal and outages
 5. Decision 4: Services and configuration change through Koinon's commands
 6. Decision 5: A launcher records the CLI it finds on PATH
-7. Statements this record does not adopt
-8. Conclusion
-9. Document History
+7. Decision 6: After install and upgrade, Koinon says clearly what the person must do
+8. Statements this record does not adopt
+9. Conclusion
+10. Document History
 
 ---
 
@@ -97,9 +99,9 @@ Inventory rows: C016, C050, C051, C052, C054, C057.
 Koinon currently installs the binary and one service in the user's own service manager: a
 systemd user unit on Linux, or a launchd agent in `gui/<uid>` on macOS. The default install
 uses no sudo, system service, lingering or permission change. When no user manager answers, it
-reports `"service": "manual_required"` and a `start_command` to run in a persistent managed
-session. When no daemon answers, launchers, `koinon status` and `koinon recover` name the
-command that starts or restarts it. The system service that Koinon installs is the explicit
+starts the daemon in the background and reports the step after a restart (Decision 6). When
+no daemon answers, launchers, `koinon status` and `koinon recover` name the command that starts
+or restarts it. The system service that Koinon installs is the explicit
 `--system` mode on macOS (Decision 2).
 
 **Provenance:** Shipped in PR #205 (merge commit f65ad6e) and PR #302 (merge commit 7780c8c); no
@@ -311,6 +313,74 @@ recorded.
 
 ---
 
+## 7. Decision 6: After install and upgrade, Koinon says clearly what the person must do
+
+### Decision
+
+Decided: the text that Homebrew shows after `brew install koinon` and `brew upgrade koinon`
+clearly says what the person must do. When steps remain, it starts with an action line, then
+gives each command on its own line, in order, and says what `koinon install` does. When no
+step remains, it says that no action is required. A change to this text keeps it clear.
+
+Decided: an install never appears to succeed when Koinon does not work. Without a user
+service manager, the install starts the daemon itself and names the task that remains: start
+it again after a restart.
+
+Implemented: the `caveats` method of the formula that `scripts/homebrew-formula.sh` writes. The
+action line reads "ACTION REQUIRED: to finish the Koinon installation, run these commands, in
+order:". The commands come from `koinon install --plan`, or are the fixed steps when the plan
+cannot check everything. A current installation shows "The Koinon installation is current. No
+action is required." `TestHomebrewFormula` in `internal/contributor` keeps this text.
+
+Implemented: when no user service manager answers, `startAgent` in `internal/install` starts
+`koinon serve` in its own session, with its output in `daemon.log` in the state directory,
+and waits until a daemon of its version answers. An older daemon exits for its new binary
+first; the install sends it no signal, because a manager that the install cannot reach may run
+it. The report says `"service": "background"`, and `restart_step`, also
+printed on the terminal, says to run `koinon install` again after a restart or after `brew
+upgrade koinon`. A daemon that does not start or answer fails the install with
+`daemon_not_started`. Without a manager, `koinon install --plan` names `koinon install` when no
+daemon of its version answers, and the uninstall stops a daemon that still answers after the
+managed services are gone. `TestBackgroundInstall`, `TestBackgroundStart`, `TestPlanSteps` and
+`TestUninstallStopsBackgroundDaemon` cover these outcomes.
+
+**Provenance:** #551 replaced the fixed steps with the plan's commands under the heading "The
+steps that this installation needs:", without the sentence that said what `koinon install`
+does. On a new Linux machine, v0.9.2 showed `koinon install` with no instruction to run it.
+Maintainer, 2026-11-05: "the brew installer no longer prompts the user to run 'koinon install'
+a user would never know they need to run that command." and "post install/upgrade needs to
+CLEARLY identify what the user needs to do.  this content keeps getting replaced without any
+request to do so" (#618).
+On a Linux container without a systemd user manager, `koinon install --port 47687` reported
+`"ok": true` with `"service": "manual_required"`, and `koinon dashboard` then found no daemon.
+Maintainer, 2026-11-05: "this needs to be part of the installer, or raise a post install task
+for the user.  it can't appear to succeed and then not work." (#619). Asked whether the install
+should start the daemon in the background and report the step after a restart, in place of a
+failed install that names a command to run in a session that stays open, the maintainer
+answered "yes".
+
+### Alternatives Considered
+
+| Alternative | Description | Why Rejected |
+| ----------- | ----------- | ------------ |
+| Plan commands under a heading (previous behavior) | "The steps that this installation needs:" and the commands | It does not tell the person to run them; the maintainer found it unclear |
+| Report `manual_required` with `"ok": true` (previous behavior) | The install succeeds and the report holds the start command | The install appears to succeed and Koinon does not work |
+| Fail the install with the start command | The person starts `koinon serve` in a session that stays open | A step that the installer can take itself |
+
+### Rationale
+
+1. A person who has just run `brew install` does not know that Koinon needs more steps.
+2. The action line comes first, so the person sees what to do before the upgrade notes.
+3. The installer takes the step that it can take; the person gets only the step that it cannot.
+
+### User Impact
+
+After `brew install koinon` on a new machine, the person reads that they must run
+`koinon install`, and what it does. On a host without a user service manager, `koinon install`
+starts the daemon and says to run it again after a restart.
+
+---
+
 ## Statements this record does not adopt
 
 | Inventory row | Statement (short) | Where it appears | Why not adopted |
@@ -323,8 +393,10 @@ recorded.
 
 Koinon currently installs into the user's own service manager, offers a macOS LaunchDaemon
 through an explicit `--system` install, keeps state through install operations and outages, and
-changes the host through its own commands. A launcher records the CLI it finds on PATH, and
-agents can run `--system` or `sudo`, as the maintainer decided. The macOS system mode traces to
+changes the host through its own commands. A launcher records the CLI it finds on PATH, the
+text after install and upgrade clearly says what the person must do, an install without a
+service manager starts the daemon itself, and agents can
+run `--system` or `sudo`, as the maintainer decided. The macOS system mode traces to
 the approval of a plan; the rest is shipped behavior the maintainer has not yet decided.
 
 ---
@@ -337,3 +409,4 @@ the approval of a plan; the rest is shipped behavior the maintainer has not yet 
 | 2026-10-12 | Recorded the maintainer's decisions on the launcher PATH lookup and the `--system`/`sudo` sentence (#306) |
 | 2026-10-12 | Decision 5 implemented: the launcher records the CLI it finds on PATH (#306) |
 | 2026-10-25 | Decisions 1, 3 and 4: removed the unsourced sudo workaround, state-reset and authorization text (#487) |
+| 2026-11-05 | Decision 6: the maintainer's decisions on the post-install and post-upgrade instructions, implemented (#618, #619) |
