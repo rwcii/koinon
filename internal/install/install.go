@@ -13,9 +13,11 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/rwcii/koinon/internal/core"
@@ -70,7 +72,15 @@ type Options struct {
 	Inspect     func(context.Context, setup.Options) setup.Inspection
 	Permissions func(setup.Options, bool) (setup.PermissionsResult, error)
 	Status      func(ctx context.Context, address, secret string) (json.RawMessage, error)
-	Wait        time.Duration
+	// Background starts the daemon without a service manager, in its own session, with its
+	// output in log (#619).
+	Background func(binary, state, log string) (Started, error)
+	// Stop asks the background daemon with this process ID to stop (#619).
+	Stop func(pid int) error
+	// Version is the running binary's version. Without a service manager, the plan and the
+	// install count only a daemon of this version: an older one exits for its new binary (#619).
+	Version string
+	Wait    time.Duration
 	// SystemWait bounds the wait for the system daemon; zero is 90 seconds.
 	SystemWait time.Duration
 	// PlanWait bounds all of a plan's checks, zero is 30 seconds; StatusWait bounds its wait
@@ -91,6 +101,8 @@ type Report struct {
 	Artifact     string         `json:"artifact"`
 	Service      string         `json:"service"`
 	StartCommand string         `json:"start_command,omitempty"`
+	DaemonLog    string         `json:"daemon_log,omitempty"`
+	RestartStep  string         `json:"restart_step,omitempty"`
 	StateDir     string         `json:"state_dir"`
 	Port         int            `json:"port,omitempty"`
 	Link         string         `json:"link"`
@@ -202,6 +214,12 @@ func (o *Options) defaults() error {
 	}
 	if o.Wait == 0 {
 		o.Wait = 20 * time.Second
+	}
+	if o.Background == nil {
+		o.Background = background
+	}
+	if o.Stop == nil {
+		o.Stop = func(pid int) error { return syscall.Kill(pid, syscall.SIGTERM) }
 	}
 	for _, path := range []string{o.Prefix, o.StateDir, o.PythonPrefix, o.Source, o.LinkDir, o.ClaudeConfig} {
 		if !filepath.IsAbs(path) {
@@ -616,6 +634,12 @@ func Install(ctx context.Context, o Options) (Report, error) {
 	if o.Address == "" {
 		o.Address = core.Listeners(r.Port)[0]
 	}
+	// The daemon that answers before the binary changes: without a manager, the install tells
+	// it from one that a manager starts in its place after the change (#619).
+	var before *daemonStatus
+	if status, err := readStatus(ctx, o); err == nil {
+		before = &status
+	}
 	// In user mode, a Homebrew binary is linked, so that brew upgrade alone upgrades the
 	// daemon (#397). A system-mode daemon keeps a copy that brew cannot replace.
 	if opt := platform.HomebrewOpt(o.Source); opt != "" && system == nil {
@@ -641,7 +665,7 @@ func Install(ctx context.Context, o Options) (Report, error) {
 			return r, err
 		}
 		r.Service = "system"
-	} else if err := startAgent(ctx, o, &r); err != nil {
+	} else if err := startAgent(ctx, o, &r, before); err != nil {
 		return r, err
 	}
 	agents, err := reviewFamilies(ctx, o, &r)
@@ -695,7 +719,7 @@ func removeRetiredInstructions(o Options, r *Report) error {
 }
 
 // startAgent writes the user service and, unless NoStart, starts it and waits for the daemon.
-func startAgent(ctx context.Context, o Options, r *Report) error {
+func startAgent(ctx context.Context, o Options, r *Report, before *daemonStatus) error {
 	if _, err := o.Services.WriteDaemon(r.Binary, o.StateDir); err != nil {
 		return err
 	}
@@ -705,7 +729,14 @@ func startAgent(ctx context.Context, o Options, r *Report) error {
 	}
 	switch err := o.Services.StartDaemon(ctx); {
 	case errors.Is(err, platform.ErrManualRequired):
-		r.Service, r.StartCommand = "manual_required", r.Binary+" serve --state-dir "+o.StateDir
+		// Without a service manager, for example in a container without a systemd user bus,
+		// the install starts the daemon itself and waits for its answer, so the install never
+		// appears to succeed when Koinon does not work (#619). Nothing starts it again after a
+		// restart, or after brew upgrade, when it exits for its new binary; the report says so.
+		r.StartCommand = setup.ShellWord(r.Binary) + " serve --state-dir " + setup.ShellWord(o.StateDir)
+		if err := startBackground(ctx, o, r, before); err != nil {
+			return err
+		}
 	case err != nil:
 		return err
 	default:
@@ -752,23 +783,234 @@ func systemMode(ctx context.Context, o Options) (*platform.SystemPlist, error) {
 	return &p, nil
 }
 
-// statusPID is the process ID that the answering daemon reports.
-func statusPID(ctx context.Context, o Options) (int, error) {
+// background starts binary serve for state in its own session, so it stays when the install's
+// terminal closes. It waits for the lock as the service does, so a daemon that is still
+// exiting hands over to it.
+func background(binary, state, log string) (Started, error) {
+	out, err := platform.OpenPrivate(log, os.O_WRONLY|os.O_CREATE|os.O_APPEND)
+	if err != nil {
+		return Started{}, err
+	}
+	defer out.Close()
+	cmd := exec.Command(binary, "serve", "--state-dir", state, "--lock-wait", platform.LockWait)
+	cmd.Stdout, cmd.Stderr, cmd.SysProcAttr = out, out, &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return Started{}, err
+	}
+	p := cmd.Process
+	return Started{PID: p.Pid, Release: p.Release, Abort: func() error { return endProcess(p, abortWait) }}, nil
+}
+
+// abortWait is how long an aborted start has to exit after SIGTERM before SIGKILL.
+var abortWait = 10 * time.Second
+
+// endProcess sends p SIGTERM, then SIGKILL when it has not exited after wait, and reaps it.
+func endProcess(p *os.Process, wait time.Duration) error {
+	exited := make(chan struct{})
+	go func() {
+		p.Wait()
+		close(exited)
+	}()
+	if err := p.Signal(syscall.SIGTERM); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		return err
+	}
+	select {
+	case <-exited:
+		return nil
+	case <-time.After(wait):
+	}
+	if err := p.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		return err
+	}
+	<-exited
+	return nil
+}
+
+// startBackground starts the daemon without a service manager and waits until a daemon of
+// this version answers (#619). A daemon of this version that answers stays when the binary is
+// unchanged. Any other answering daemon exits for its new binary, or its manager replaces it;
+// the install waits for that and starts a daemon only when none answers, so no start waits
+// behind a daemon and an old daemon's answer never counts for the new one. A start that does
+// not answer is stopped, so it cannot take the state directory later. before is the daemon
+// that answered before the binary changed: a daemon of this version with another process ID
+// already replaces it.
+func startBackground(ctx context.Context, o Options, r *Report, before *daemonStatus) error {
+	log := filepath.Join(o.StateDir, "daemon.log")
+	r.Service, r.DaemonLog, r.RestartStep = "background", log, "No user service manager answers, so the daemon runs in the background without one. "+
+		"After this machine or container restarts, or after brew upgrade koinon, start it again with: "+restartCommand(o, r.Binary)
+	if now, err := readStatus(ctx, o); err == nil {
+		if r.BinaryResult == "unchanged" && current(o, now) {
+			return nil
+		}
+		// A daemon of this version that the install did not see before the binary changed
+		// was started for the new binary: none answered then, or it has another process ID.
+		if current(o, now) && (before == nil || now.PID != before.PID) {
+			return nil
+		}
+		old := now
+		if before != nil {
+			old = *before
+		}
+		replaced, err := waitForReplacement(ctx, o, old)
+		if err != nil {
+			return fmt.Errorf("daemon_not_started: no user service manager answers, and %v; stop it, then run %s again", err, restartCommand(o, r.Binary))
+		}
+		if replaced {
+			return nil
+		}
+	}
+	started, err := o.Background(r.Binary, o.StateDir, log)
+	if err != nil {
+		return fmt.Errorf("daemon_not_started: no user service manager answers, and the daemon did not start in the background: %v", err)
+	}
+	if err := waitForVersion(ctx, o); err != nil {
+		// The start, also one that still waits for the lock, ends before the failure is
+		// reported, so it cannot take the state directory later.
+		if abort := started.Abort(); abort != nil {
+			err = fmt.Errorf("%v; ending the start %d failed: %v", err, started.PID, abort)
+		}
+		return fmt.Errorf("daemon_not_started: no user service manager answers, and the daemon that the install started in the background did not answer; its log is %s: %v", log, err)
+	}
+	return started.Release()
+}
+
+// Started is a daemon that Background started: Abort ends it and waits for its exit, and
+// Release leaves it running on its own.
+type Started struct {
+	PID     int
+	Abort   func() error
+	Release func() error
+}
+
+// current reports whether status is a daemon of o.Version, or of any version when it is empty.
+func current(o Options, status daemonStatus) bool {
+	return o.Version == "" || status.Version == o.Version
+}
+
+// waitForReplacement waits until the old daemon no longer answers, or another daemon of this
+// version answers in its place, as its manager starts. It reports whether one answers in its
+// place.
+func waitForReplacement(ctx context.Context, o Options, old daemonStatus) (bool, error) {
+	for deadline := time.Now().Add(o.Wait); time.Now().Before(deadline); {
+		status, err := readStatus(ctx, o)
+		if err != nil {
+			return false, nil
+		}
+		if status.PID != old.PID && current(o, status) {
+			return true, nil
+		}
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	return false, fmt.Errorf("the daemon of version %s (process %d) still answers after %s", old.Version, old.PID, o.Wait)
+}
+
+// restartCommand is the install that starts this installation again, with its prefix and
+// state directory when they are not the defaults.
+func restartCommand(o Options, binary string) string {
+	command := setup.ShellWord(binary) + " install"
+	if prefix, err := DefaultPrefix(); err != nil || prefix != o.Prefix {
+		command += " --prefix " + setup.ShellWord(o.Prefix)
+	}
+	if state, err := platform.DefaultStateDir(); err != nil || state != o.StateDir {
+		command += " --state-dir " + setup.ShellWord(o.StateDir)
+	}
+	return command
+}
+
+// waitForVersion polls the daemon's status until a daemon of o.Version answers, or any daemon
+// when o.Version is empty, or the wait ends.
+func waitForVersion(ctx context.Context, o Options) error {
+	deadline := time.Now().Add(o.Wait)
+	last := errors.New("no answer")
+	for time.Now().Before(deadline) {
+		status, err := readStatus(ctx, o)
+		if err == nil && current(o, status) {
+			return nil
+		}
+		if err == nil {
+			err = fmt.Errorf("a daemon of version %s answers, not %s", status.Version, o.Version)
+		}
+		last = err
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	return last
+}
+
+// stopUnmanaged stops a daemon that still answers on the state directory after the managed
+// services are gone: one that the install started without a manager, also when the manager
+// answers again (#619). It reports whether it stopped one.
+func stopUnmanaged(ctx context.Context, o Options) (bool, error) {
+	if o.Address == "" {
+		port, err := core.RecordedPort(o.StateDir)
+		if err != nil {
+			return false, err
+		}
+		o.Address = core.Listeners(port)[0]
+	}
+	status, err := readStatus(ctx, o)
+	if err != nil {
+		return false, nil
+	}
+	if err := stopDaemon(ctx, o, status.PID); err != nil {
+		return false, fmt.Errorf("service_stop_failed: %v", err)
+	}
+	return true, nil
+}
+
+// stopDaemon asks the daemon with process ID pid to stop and waits until no daemon answers.
+func stopDaemon(ctx context.Context, o Options, pid int) error {
+	if pid <= 0 {
+		return errors.New("the answering daemon reports no process ID")
+	}
+	if err := o.Stop(pid); err != nil {
+		return fmt.Errorf("the background daemon %d did not take its stop: %v", pid, err)
+	}
+	for deadline := time.Now().Add(o.Wait); time.Now().Before(deadline); {
+		if _, err := readStatus(ctx, o); err != nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	return fmt.Errorf("the background daemon %d still answers after its stop", pid)
+}
+
+// daemonStatus is the part of the daemon's status that the install reads.
+type daemonStatus struct {
+	PID     int    `json:"pid"`
+	Version string `json:"version"`
+}
+
+// readStatus reads the answering daemon's status.
+func readStatus(ctx context.Context, o Options) (daemonStatus, error) {
+	var status daemonStatus
 	secret, err := core.ReadSecret(o.StateDir)
 	if err != nil {
-		return 0, err
+		return status, err
 	}
 	data, err := o.Status(ctx, o.Address, secret)
 	if err != nil {
-		return 0, err
+		return status, err
 	}
-	var status struct {
-		PID int `json:"pid"`
-	}
-	if err := json.Unmarshal(data, &status); err != nil {
-		return 0, err
-	}
-	return status.PID, nil
+	err = json.Unmarshal(data, &status)
+	return status, err
+}
+
+// statusPID is the process ID that the answering daemon reports.
+func statusPID(ctx context.Context, o Options) (int, error) {
+	status, err := readStatus(ctx, o)
+	return status.PID, err
 }
 
 // waitForDaemon polls the daemon's status until it answers or the wait ends.
@@ -830,6 +1072,13 @@ func Uninstall(ctx context.Context, o Options) (Report, error) {
 			r.Artifact = o.Services.SystemArtifact()
 		}
 		removed = removed || system
+	}
+	// Without a service manager, a daemon on this state directory runs in the background, as
+	// the install started it; the uninstall stops it after the managed services are gone (#619).
+	if stopped, err := stopUnmanaged(ctx, o); err != nil {
+		return r, err
+	} else if stopped {
+		removed = true
 	}
 	r.Service = map[bool]string{true: "removed", false: "absent"}[removed]
 	for _, skill := range pickupSkillPaths(o) {
