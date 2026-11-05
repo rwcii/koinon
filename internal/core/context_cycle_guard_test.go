@@ -383,13 +383,13 @@ func TestContextCycleFenceStopsInput(t *testing.T) {
 // A dialog the adapter does not answer shows on the Sessions page; the maintainer's option is
 // applied behind its recorded intent and audit record, only at the shown revision and dialog.
 func TestContextCycleMaintainerAnswersDialog(t *testing.T) {
-	d, root := startTestDaemon(t)
-	s := d.store
 	adapter := &fakeAdapter{pane: PaneState{Prompt: "native_dialog"}, probe: CycleProbe{Entry: "koinon-pickup"},
 		dialog: CycleDialog{Lines: []string{"Do you want to proceed?", "❯ 1. Yes", "2. No"}, Options: []string{"1", "2"}, Digest: strings.Repeat("d", 64)}}
 	previous := cycleAdapters
 	cycleAdapters = map[string]CycleAdapter{"claude": adapter}
 	t.Cleanup(func() { cycleAdapters = previous })
+	d, root := startTestDaemon(t)
+	s := d.store
 	repo := namedRepo(t, "cycle-dialog")
 	os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("_handoff/\n"), 0o644)
 	a := join(t, s, "claude", "synthetic-dialog-a", repo)
