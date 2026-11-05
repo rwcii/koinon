@@ -45,10 +45,12 @@ koinon version
 has passed, and otherwise keeps the formula of the previous release. Within about 15 seconds,
 `koinon status` reports the new `version` and its `schema`.
 
-After `brew install` and `brew upgrade`, Homebrew shows the steps that this machine still
-needs: the formula runs `koinon install --plan` (see Next steps below) and prints its commands,
-or "The Koinon installation is current." when there are none, or, when the plan cannot check
-everything, the fixed list of one-time steps. Homebrew runs it
+After `brew install` and `brew upgrade`, Homebrew shows what this machine still needs (PDR 003,
+Decision 6). When steps remain, the text starts with "ACTION REQUIRED: to finish the Koinon
+installation, run these commands, in order:", then gives the commands of `koinon install --plan`
+(see Next steps below), or, when the plan cannot check everything, the fixed list of one-time
+steps, and says what `koinon install` does. When none remain, it shows "The Koinon installation
+is current. No action is required." Homebrew runs it
 without `XDG_*`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME` and `KOINON_*`, so it checks the default
 locations; with other locations, run `koinon install --plan` yourself.
 
@@ -172,8 +174,15 @@ does this:
    the rest of the file byte for byte. `retired_instructions` in the install report gives its
    path and `removed`, `unchanged` or `absent` (#487).
 
-When no user service manager answers, the report says `"service": "manual_required"` and gives
-the `start_command` to run in a managed session. The default install never uses sudo, system
+When no user service manager answers, for example in a container without a systemd user bus,
+the install starts the daemon itself in the background, in its own session, with its output in
+`daemon.log` in the state directory, and waits for its answer (PDR 003, Decision 6). The report
+says `"service": "background"` and gives `daemon_log`, the `start_command` and `restart_step`,
+which the install also prints on the terminal: nothing starts the daemon again after the
+machine or container restarts, or after `brew upgrade koinon`, when the daemon exits for its new
+binary; then run `koinon install` again. `koinon install --plan` names that install when no
+daemon of its version answers. When the daemon does not start or does not answer, the install
+fails with `daemon_not_started` and the log. The default install never uses sudo, system
 services, lingering or permission changes (PDR 003, Decision 1); `--system` on macOS (below) is an
 explicit choice whose privileged steps run through `sudo` under the host's sudo policy.
 `--no-start` writes the binary and the service file and starts nothing. A repeated install replaces the binary in place and restarts the service. The Go state
@@ -491,6 +500,9 @@ staging files.
 - The service file that carries the marker. It is removed only after the manager reports the
   service stopped. When the manager refuses the stop, or still reports the service running,
   uninstall refuses with `service_stop_failed` and keeps the service file and the binary.
+- Without a user service manager, the daemon that the install started in the background: the
+  uninstall sends it SIGTERM and waits until it no longer answers, else it refuses with
+  `service_stop_failed` (#619).
 - In system mode on macOS, the LaunchDaemon plist that carries the marker: `sudo launchctl
   bootout system/<label>`, then `sudo rm`. A plist without the marker is kept, and the error
   gives the commands that remove it (`service_artifact_unowned`).

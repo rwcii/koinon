@@ -147,7 +147,7 @@ func lifecycleCommand(ctx context.Context, args []string, in io.Reader, out io.W
 			if other {
 				return usageError{"invalid_request", "--plan takes only --prefix and --state-dir"}
 			}
-			o := install.Options{Prefix: *prefix, StateDir: *state}
+			o := install.Options{Prefix: *prefix, StateDir: *state, Version: version}
 			flags.Visit(func(f *flag.Flag) {
 				o.PlanPrefix = o.PlanPrefix || f.Name == "prefix"
 				o.PlanState = o.PlanState || f.Name == "state-dir"
@@ -165,6 +165,10 @@ func lifecycleCommand(ctx context.Context, args []string, in io.Reader, out io.W
 		}
 		r, err := install.Install(ctx, o)
 		printJSON(out, r)
+		// The step after a restart is also on the terminal, outside the report (#619).
+		if r.RestartStep != "" {
+			fmt.Fprintln(os.Stderr, "ACTION REQUIRED after a restart: "+r.RestartStep)
+		}
 		return coded(err)
 	case "uninstall":
 		r, err := install.Uninstall(ctx, install.Options{Prefix: *prefix, StateDir: *state, Agents: agents})

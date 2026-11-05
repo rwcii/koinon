@@ -73,6 +73,31 @@ func TestPlanSteps(t *testing.T) {
 		if steps, want := plan(t, e), []string{b + " maintainer secret set", b + " setup codex --binary " + Binary(e.o.Prefix)}; !reflect.DeepEqual(steps, want) {
 			t.Fatalf("%s: plan %q, want %q", backend, steps, want)
 		}
+		// Without a service manager, a daemon that the install started in the background
+		// counts; when none answers, after a restart, the install comes alone (#619).
+		e.r.fail = func(argv []string) bool { return argv[0] == "systemctl" || argv[0] == "launchctl" }
+		if steps, want := plan(t, e), []string{b + " maintainer secret set", b + " setup codex --binary " + Binary(e.o.Prefix)}; !reflect.DeepEqual(steps, want) {
+			t.Fatalf("%s: plan without a manager %q, want %q", backend, steps, want)
+		}
+		status := e.o.Status
+		e.o.Status = func(context.Context, string, string) (json.RawMessage, error) {
+			return nil, errors.New("connection refused")
+		}
+		if steps, want := plan(t, e), []string{b + " install"}; !reflect.DeepEqual(steps, want) {
+			t.Fatalf("%s: plan without a manager or a daemon %q, want %q", backend, steps, want)
+		}
+		// A daemon of another version exits for its new binary; the install comes alone.
+		e.o.Status, e.o.Version = status, "v1.2.4"
+		if steps, want := plan(t, e), []string{b + " install"}; !reflect.DeepEqual(steps, want) {
+			t.Fatalf("%s: plan without a manager, older daemon %q, want %q", backend, steps, want)
+		}
+		e.o.Status = func(context.Context, string, string) (json.RawMessage, error) {
+			return json.RawMessage(`{"version":"v1.2.4","maintainer_secret_set":true}`), nil
+		}
+		if steps := plan(t, e); len(steps) != 1 || steps[0] != b+" setup codex --binary "+Binary(e.o.Prefix) {
+			t.Fatalf("%s: plan without a manager, current daemon %q", backend, steps)
+		}
+		e.r.fail, e.o.Status, e.o.Version = nil, status, ""
 		// An installed binary that differs from this one: the install comes alone.
 		os.WriteFile(Binary(e.o.Prefix), []byte("older binary"), 0755)
 		if steps, want := plan(t, e), []string{b + " install"}; !reflect.DeepEqual(steps, want) {

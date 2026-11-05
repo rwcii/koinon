@@ -83,8 +83,9 @@ services and the agent configuration
 ([PDR 003](docs/product/pdr/003-runtime-installation-and-recovery.md)). A checkout change does
 not replace a running installation.
 
-Without a reachable manager, the install report supplies a manual `start_command` for a
-persistent managed session. `koinon serve` runs the daemon; `koinon status` reports health.
+Without a reachable manager, for example in a container, the install starts the daemon in the
+background, waits for its answer and reports `"service": "background"` with the step after a
+restart (`restart_step`). `koinon serve` runs the daemon; `koinon status` reports health.
 `koinon uninstall` removes owned configuration, service and binary while preserving state.
 The install links `~/.local/bin/koinon` to the installed binary; when `koinon` on `PATH` does not
 run that binary, its report names the step that fixes it (`path_step`), such as adding

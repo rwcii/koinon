@@ -5,12 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/rwcii/koinon/internal/core"
 	"github.com/rwcii/koinon/internal/platform"
@@ -56,6 +59,11 @@ type env struct {
 	adopts   []string
 	// adopted lists the families whose fake earlier setup Adopt finds.
 	adopted map[string]bool
+	// backgrounds lists the daemons that a fake background start started; no test starts a
+	// real process (#619).
+	backgrounds []string
+	// stops lists the process IDs that a fake stop was given; no test signals a process.
+	stops []int
 }
 
 func newEnv(t *testing.T, backend string) *env {
@@ -91,6 +99,14 @@ func newEnv(t *testing.T, backend string) *env {
 			return setup.Report{OK: true, Family: o.Family}, nil
 		},
 		Status: func(context.Context, string, string) (json.RawMessage, error) { return json.RawMessage(`{}`), nil },
+		Background: func(binary, state, log string) error {
+			e.backgrounds = append(e.backgrounds, binary+" "+state+" "+log)
+			return nil
+		},
+		Stop: func(pid int) error {
+			e.stops = append(e.stops, pid)
+			return nil
+		},
 	}
 	return e
 }
@@ -590,12 +606,34 @@ func TestInstallRefusals(t *testing.T) {
 		t.Fatalf("python present: %v", err)
 	}
 	e.o.Upgrade = true
-	// Without a reachable manager the install reports the start command.
+	// Without a reachable manager the install starts the daemon in the background, waits for
+	// its answer and names the step after a restart (#619).
 	e.r.fail = func(argv []string) bool { return argv[0] == "systemctl" }
+	answer := errors.New("connection refused")
+	e.o.Status = func(context.Context, string, string) (json.RawMessage, error) { return nil, answer }
+	e.backgrounds = nil
+	e.o.Wait = 300 * time.Millisecond
+	log := filepath.Join(e.o.StateDir, "daemon.log")
+	// A daemon that does not answer fails the install with its log.
 	r, err := Install(context.Background(), e.o)
-	if err != nil || r.Service != "manual_required" || r.StartCommand != r.Binary+" serve --state-dir "+e.o.StateDir {
-		t.Fatalf("manual %+v %v", r, err)
+	if err == nil || r.OK || !strings.HasPrefix(err.Error(), "daemon_not_started: ") || !strings.Contains(err.Error(), "its log is "+log) ||
+		len(e.backgrounds) != 1 || e.backgrounds[0] != r.Binary+" "+e.o.StateDir+" "+log {
+		t.Fatalf("background without an answer %+v %v %v", r, err, e.backgrounds)
 	}
+	// A daemon that does not start fails the install too.
+	e.o.Background = func(string, string, string) error { return errors.New("exec format error") }
+	if r, err := Install(context.Background(), e.o); err == nil || r.OK || !strings.Contains(err.Error(), "did not start in the background: exec format error") {
+		t.Fatalf("background start failure %+v %v", r, err)
+	}
+	// A daemon that answers makes the install succeed, with the step after a restart.
+	answer = nil
+	e.o.Background = func(string, string, string) error { return nil }
+	r, err = Install(context.Background(), e.o)
+	if err != nil || !r.OK || r.Service != "background" || r.DaemonLog != log || r.StartCommand != r.Binary+" serve --state-dir "+e.o.StateDir ||
+		!strings.HasSuffix(r.RestartStep, "After this machine or container restarts, or after brew upgrade koinon, start it again with: "+r.Binary+" install") {
+		t.Fatalf("background %+v %v", r, err)
+	}
+	e.o.Wait = 0
 	// --no-start stages without any manager call.
 	e.r.calls = nil
 	e.o.NoStart = true
@@ -1053,5 +1091,71 @@ func TestInstallOpenCodeCommandFailure(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "opencode_command_failed: "+core.OpenCodeCommandPath(e.o.Opencode, commands[0].Name)) ||
 		r.OK || len(r.TeamSkills) == 0 {
 		t.Fatalf("install %+v %v", r, err)
+	}
+}
+
+// The background start runs serve in its own session, so it stays when the install's terminal
+// closes, and appends its output to the log (#619).
+func TestBackgroundStart(t *testing.T) {
+	dir := t.TempDir()
+	binary, pidFile := filepath.Join(dir, "koinon"), filepath.Join(dir, "pid")
+	script := "#!/bin/sh\necho \"$@\"\necho $$ > " + pidFile + ".tmp && mv " + pidFile + ".tmp " + pidFile + "\nsleep 10\n"
+	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	log := filepath.Join(dir, "daemon.log")
+	os.WriteFile(log, []byte("earlier\n"), 0o600)
+	if err := background(binary, filepath.Join(dir, "state"), log); err != nil {
+		t.Fatal(err)
+	}
+	var pid int
+	for deadline := time.Now().Add(5 * time.Second); pid == 0 && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if data, err := os.ReadFile(pidFile); err == nil {
+			fmt.Sscan(string(data), &pid)
+		}
+	}
+	if pid == 0 {
+		t.Fatal("the background start did not run")
+	}
+	defer syscall.Kill(pid, syscall.SIGKILL)
+	// A new session's leader leads its own process group.
+	if group, err := syscall.Getpgid(pid); err != nil || group != pid {
+		t.Fatalf("process group %d of %d: %v", group, pid, err)
+	}
+	if data, _ := os.ReadFile(log); string(data) != "earlier\nserve --state-dir "+filepath.Join(dir, "state")+" --lock-wait "+platform.LockWait+"\n" {
+		t.Fatalf("log %q", data)
+	}
+}
+
+// Without a service manager, the uninstall stops the background daemon and waits until it no
+// longer answers (#619).
+func TestUninstallStopsBackgroundDaemon(t *testing.T) {
+	e := newEnv(t, "systemd")
+	e.r.fail = func(argv []string) bool { return argv[0] == "systemctl" }
+	e.o.Wait = time.Second
+	running := true
+	e.o.Status = func(context.Context, string, string) (json.RawMessage, error) {
+		if !running {
+			return nil, errors.New("connection refused")
+		}
+		return json.RawMessage(`{"pid":4242}`), nil
+	}
+	e.o.Stop = func(pid int) error {
+		e.stops = append(e.stops, pid)
+		running = false
+		return nil
+	}
+	if r, err := Install(context.Background(), e.o); err != nil || r.Service != "background" {
+		t.Fatalf("install %+v %v", r, err)
+	}
+	r, err := Uninstall(context.Background(), e.o)
+	if err != nil || !r.OK || r.Service != "removed" || !reflect.DeepEqual(e.stops, []int{4242}) {
+		t.Fatalf("uninstall %+v %v %v", r, err, e.stops)
+	}
+	// A daemon that still answers after its stop fails the uninstall.
+	running, e.stops = true, nil
+	e.o.Stop = func(pid int) error { e.stops = append(e.stops, pid); return nil }
+	if r, err := Uninstall(context.Background(), e.o); err == nil || r.OK || !strings.Contains(err.Error(), "service_stop_failed: the background daemon 4242 still answers") {
+		t.Fatalf("daemon that stays %+v %v", r, err)
 	}
 }

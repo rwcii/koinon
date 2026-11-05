@@ -5,6 +5,20 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Without a user service manager, for example in a container without a systemd user bus,
+  `koinon install` starts the daemon in the background and waits for its answer (#619; PDR 003,
+  Decision 6). The report says `"service": "background"` with `daemon_log` and `restart_step`,
+  which the install also prints: after a restart or `brew upgrade koinon`, run `koinon install`
+  again, and `koinon install --plan` names it. A daemon that does not start or answer fails the
+  install with `daemon_not_started`, and `koinon uninstall` stops the background daemon. Before,
+  the install reported `"ok": true` with `"service": "manual_required"`, and the next command
+  found no daemon.
+- After `brew install` and `brew upgrade`, the Homebrew text starts with "ACTION REQUIRED: to
+  finish the Koinon installation, run these commands, in order:" when steps remain, and says
+  what `koinon install` does (#618; PDR 003, Decision 6). Before, a new installation showed
+  `koinon install` under "The steps that this installation needs:", with no instruction to run
+  it. A current installation now shows "The Koinon installation is current. No action is
+  required."
 - Each `decision_list` summary names its item's `author_repository`, as `decision_get` does, when
   the item has one (#612). The board lists the cards of every repository; `pickup` now keeps the
   cards of its own repository by that field, without a `decision_get` of each card.

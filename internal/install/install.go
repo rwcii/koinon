@@ -13,9 +13,11 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/rwcii/koinon/internal/core"
@@ -70,7 +72,15 @@ type Options struct {
 	Inspect     func(context.Context, setup.Options) setup.Inspection
 	Permissions func(setup.Options, bool) (setup.PermissionsResult, error)
 	Status      func(ctx context.Context, address, secret string) (json.RawMessage, error)
-	Wait        time.Duration
+	// Background starts the daemon without a service manager, detached from the install, with
+	// its output in log (#619).
+	Background func(binary, state, log string) error
+	// Stop asks the background daemon with this process ID to stop (#619).
+	Stop func(pid int) error
+	// Version is the running binary's version. Without a service manager, the plan counts
+	// only a daemon of this version: an older one exits for its new binary (#619).
+	Version string
+	Wait    time.Duration
 	// SystemWait bounds the wait for the system daemon; zero is 90 seconds.
 	SystemWait time.Duration
 	// PlanWait bounds all of a plan's checks, zero is 30 seconds; StatusWait bounds its wait
@@ -91,6 +101,8 @@ type Report struct {
 	Artifact     string         `json:"artifact"`
 	Service      string         `json:"service"`
 	StartCommand string         `json:"start_command,omitempty"`
+	DaemonLog    string         `json:"daemon_log,omitempty"`
+	RestartStep  string         `json:"restart_step,omitempty"`
 	StateDir     string         `json:"state_dir"`
 	Port         int            `json:"port,omitempty"`
 	Link         string         `json:"link"`
@@ -202,6 +214,12 @@ func (o *Options) defaults() error {
 	}
 	if o.Wait == 0 {
 		o.Wait = 20 * time.Second
+	}
+	if o.Background == nil {
+		o.Background = background
+	}
+	if o.Stop == nil {
+		o.Stop = func(pid int) error { return syscall.Kill(pid, syscall.SIGTERM) }
 	}
 	for _, path := range []string{o.Prefix, o.StateDir, o.PythonPrefix, o.Source, o.LinkDir, o.ClaudeConfig} {
 		if !filepath.IsAbs(path) {
@@ -705,7 +723,21 @@ func startAgent(ctx context.Context, o Options, r *Report) error {
 	}
 	switch err := o.Services.StartDaemon(ctx); {
 	case errors.Is(err, platform.ErrManualRequired):
-		r.Service, r.StartCommand = "manual_required", r.Binary+" serve --state-dir "+o.StateDir
+		// Without a service manager, for example in a container without a systemd user bus,
+		// the install starts the daemon itself and waits for its answer, so the install never
+		// appears to succeed when Koinon does not work (#619). Nothing starts it again after a
+		// restart, or after brew upgrade, when it exits for its new binary; the report says so.
+		r.StartCommand = setup.ShellWord(r.Binary) + " serve --state-dir " + setup.ShellWord(o.StateDir)
+		log := filepath.Join(o.StateDir, "daemon.log")
+		if err := o.Background(r.Binary, o.StateDir, log); err != nil {
+			return fmt.Errorf("daemon_not_started: no user service manager answers, and the daemon did not start in the background: %v", err)
+		}
+		if err := waitForDaemon(ctx, o); err != nil {
+			return fmt.Errorf("daemon_not_started: no user service manager answers, and the daemon that the install started in the background did not answer; its log is %s: %v", log, err)
+		}
+		r.Service, r.DaemonLog = "background", log
+		r.RestartStep = "No user service manager answers, so the daemon runs in the background without one. " +
+			"After this machine or container restarts, or after brew upgrade koinon, start it again with: " + setup.ShellWord(r.Binary) + " install"
 	case err != nil:
 		return err
 	default:
@@ -750,6 +782,56 @@ func systemMode(ctx context.Context, o Options) (*platform.SystemPlist, error) {
 		return nil, err
 	}
 	return &p, nil
+}
+
+// background starts binary serve for state in its own session, so it stays when the install's
+// terminal closes. It waits for the lock as the service does, so a daemon that is about to
+// exit for a new binary hands over to it.
+func background(binary, state, log string) error {
+	out, err := platform.OpenPrivate(log, os.O_WRONLY|os.O_CREATE|os.O_APPEND)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	cmd := exec.Command(binary, "serve", "--state-dir", state, "--lock-wait", platform.LockWait)
+	cmd.Stdout, cmd.Stderr, cmd.SysProcAttr = out, out, &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	return cmd.Process.Release()
+}
+
+// stopBackground stops the daemon that answers on the state directory when no user service
+// manager answers, and waits until it no longer answers. It reports whether it stopped one.
+func stopBackground(ctx context.Context, o Options) (bool, error) {
+	if o.Services.Available(ctx) {
+		return false, nil
+	}
+	if o.Address == "" {
+		port, err := core.RecordedPort(o.StateDir)
+		if err != nil {
+			return false, err
+		}
+		o.Address = core.Listeners(port)[0]
+	}
+	pid, err := statusPID(ctx, o)
+	if err != nil || pid <= 0 {
+		return false, nil
+	}
+	if err := o.Stop(pid); err != nil {
+		return false, fmt.Errorf("service_stop_failed: the background daemon %d did not take its stop: %v", pid, err)
+	}
+	for deadline := time.Now().Add(o.Wait); time.Now().Before(deadline); {
+		if _, err := statusPID(ctx, o); err != nil {
+			return true, nil
+		}
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	return false, fmt.Errorf("service_stop_failed: the background daemon %d still answers after its stop", pid)
 }
 
 // statusPID is the process ID that the answering daemon reports.
@@ -830,6 +912,13 @@ func Uninstall(ctx context.Context, o Options) (Report, error) {
 			r.Artifact = o.Services.SystemArtifact()
 		}
 		removed = removed || system
+	}
+	// Without a service manager, a daemon on this state directory runs in the background, as
+	// the install started it; the uninstall stops it after the managed services are gone (#619).
+	if stopped, err := stopBackground(ctx, o); err != nil {
+		return r, err
+	} else if stopped {
+		removed = true
 	}
 	r.Service = map[bool]string{true: "removed", false: "absent"}[removed]
 	for _, skill := range pickupSkillPaths(o) {
