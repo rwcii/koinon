@@ -17,8 +17,8 @@ its work target, keeping published history. Run the check skill and its required
 the project's PR limit, and coordinate the publication turn through the installed runtime.
 Record each board decision that the change carries out in the ADR, PDR, WDR or sprint document
 that holds the rule, in the form that the verdict read gives: decided by (the person's name),
-date, context, decision, reason and scope, and review when. Koinon writes no record file; the
-Decision record fact is retired, and Koinon ignores its value.
+date, context, decision, reason and scope, and review when. Koinon writes no record file. A
+facts file can still hold the retired Decision record heading; Koinon ignores it.
 Publish one complete increment; a follow-up goes on its own branch. Freeze the exact head and get
 the peer-review verdict and the other review gates that the project declares. For fixes, carry
 forward unchanged review and verify the accepted findings and the behavior they affect; collect
@@ -60,11 +60,6 @@ the file. The parser reads the file as plain text, up to 64 KiB.
     },
     {
       "heading": "Extra checks",
-      "required": false,
-      "default": "none"
-    },
-    {
-      "heading": "Decision record",
       "required": false,
       "default": "none"
     }

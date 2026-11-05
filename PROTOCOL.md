@@ -2237,8 +2237,8 @@ into Alternatives Considered; the decision is named by its card reference, never
 ID. An item read carries `author_repository`, the repository of the participant that the item
 stored for its author at create; a plain peer's item has none. A snapshot stores the item's
 `where` since #536; an older snapshot has none. The `decision_record` tool and `koinon
-decision record` are removed (#623), and the `Decision record` fact of `.koinon/skills/ship.md`
-is retired: a facts file that holds it stays valid, and Koinon ignores its value.
+decision record` are removed (#623). The ship skill no longer declares the `Decision record`
+fact: a `.koinon/skills/ship.md` that holds it stays valid, and Koinon ignores its value.
 
 ### MCP server
 

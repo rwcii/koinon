@@ -20,8 +20,9 @@ import (
 
 // The retired Decision record fact and the board's export (#589, #623). All data is synthetic.
 
-// A ship facts file that still holds the retired Decision record fact, with any value, stays
-// a valid facts file: Koinon ignores the value and writes no record file (#623).
+// The ship skill no longer declares the Decision record fact, and a ship facts file that still
+// holds it, with any value, stays a valid facts file whose values leave it out: Koinon ignores
+// it and writes no record file (#623). Another undeclared heading is still refused.
 func TestRetiredDecisionRecordFactStaysValid(t *testing.T) {
 	catalog, err := library.Embedded("")
 	if err != nil {
@@ -36,13 +37,27 @@ func TestRetiredDecisionRecordFactStaysValid(t *testing.T) {
 	if schema == nil {
 		t.Fatal("the catalog declares no ship facts")
 	}
-	for _, fact := range []string{"", "## Decision record\nnone\n", "## Decision record\nfull\n", "## Decision record\nshort: the board holds the card text.\n",
-		"## Decision record\nsometimes\n"} {
-		text := "# Repository facts — ship\n\n## Version\n1\n## Skill\nship\n## Sources\n- AGENTS.md\n\n## Work target\nsynthetic\n" +
-			"## Commit policy\nsynthetic\n## Required checks\nsynthetic\n## PR and merge policy\nsynthetic\n" + fact
-		if _, err := library.ParseFactValues([]byte(text), "ship", schema); err != nil {
-			t.Errorf("%q: %v", fact, err)
+	for _, field := range schema.Fields {
+		if field.Heading == "Decision record" {
+			t.Fatalf("the catalog still declares %+v", field)
 		}
+	}
+	facts := func(fact string) []byte {
+		return []byte("# Repository facts — ship\n\n## Version\n1\n## Skill\nship\n## Sources\n- AGENTS.md\n\n## Work target\nsynthetic\n" +
+			"## Commit policy\nsynthetic\n## Required checks\nsynthetic\n## PR and merge policy\nsynthetic\n" + fact)
+	}
+	for _, fact := range []string{"", "## Decision record\nnone\n", "## Decision record\nfull\n", "## Decision record\nshort: the board holds the card text.\n",
+		"## Decision record\nsometimes\n", "## Decision record\n\n"} {
+		values, err := library.ParseFactValues(facts(fact), "ship", schema)
+		if _, held := values.Fields["Decision record"]; err != nil || held || values.Fields["Work target"] != "synthetic" {
+			t.Errorf("%q: %+v %v", fact, values, err)
+		}
+	}
+	if _, err := library.ParseFactValues(facts("## Decision log\nfull\n"), "ship", schema); err == nil {
+		t.Fatal("an undeclared heading was accepted")
+	}
+	if _, err := library.ParseFactValues(facts("## Decision record\nnone\n## Decision record\nfull\n"), "ship", schema); err == nil {
+		t.Fatal("a repeated retired heading was accepted")
 	}
 }
 

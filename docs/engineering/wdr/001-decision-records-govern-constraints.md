@@ -34,9 +34,9 @@ record with its source, scope, alternatives and status, and it sets how existing
 constraints are routed into records.
 
 A decision is stated once, in its record, as "Koinon currently does X because Y". Other text
-cites the record instead of restating it as a general rule. A verdict on the decision board is
-recorded as the repository's record mode says: by default in the document that it changes,
-with the maintainer's words, and never by its verdict ID.
+cites the record instead of restating it as a general rule. Each decision, from the decision
+board or given directly, is recorded in the document that holds its rule, with the decider's
+name, the date, the context and the condition for its review, and never by its verdict ID.
 
 ---
 
@@ -49,7 +49,7 @@ with the maintainer's words, and never by its verdict ID.
 5. Decision 4: Code-enforced blocks follow their PDR (deprecated)
 6. Decision 5: A record covers the case it answered
 7. Decision 6: A separate refusal review gate
-8. Decision 7: Board verdicts are recorded as the repository's record mode says
+8. Decision 7: Decisions are recorded in the document that holds the rule
 9. Conclusion
 10. Document History
 
@@ -375,9 +375,9 @@ A decision from another repository is recorded in a checkout of the repository t
 the verdict message) gives the verdict, the card text and this form; the installed guide and
 the ship skill give the same form. `koinon decision export PATH` writes every item, live and
 deep-archived, as JSON lines to a new private file outside a Git work tree, so a person or CI
-can read a copy of the board without the daemon. The `Decision record` fact of
-`.koinon/skills/ship.md` is retired: a facts file that holds it stays valid, and Koinon ignores
-its value.
+can read a copy of the board without the daemon. The ship skill no longer declares the
+`Decision record` fact: a `.koinon/skills/ship.md` that holds it stays valid, and Koinon
+ignores its value.
 
 Koinon's own `DECISIONS.md` takes no new entries. #623 moves its entries into the records that
 hold each rule and removes the file; until then, its citations stay valid, a contributor test
