@@ -8,6 +8,12 @@ into a dated release section when promoted to `main`.
 - Each `decision_list` summary names its item's `author_repository`, as `decision_get` does, when
   the item has one (#612). The board lists the cards of every repository; `pickup` now keeps the
   cards of its own repository by that field, without a `decision_get` of each card.
+- `pickup` reads the session's inbox and, when it holds a participant, the participant's inbox
+  after their acknowledged cursors, before the decision board (#611). A message created after both
+  the handoff and the progress note wins over them where it changes the goal, a blocker, a task or
+  a next step; an older unacknowledged message is reconciled with both and the maintainer's dated
+  directions. The pickup report lists them. Before, a pickup could miss the messages that held a
+  peer's open questions.
 
 - A managed cycle of an idle OpenCode session finds its composer in every pane (#613). The cycle
   read the pane with its rows joined; when tmux marked the screen rows as wrapped, the composer
