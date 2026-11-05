@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A same-host session succession keeps the managed-handoff Enable and its threshold when the
+  pane and participant stay the same (#621). An MCP-server restart previously left Enable on
+  the retired session, so the successor stopped getting cycles. Retry state follows Enable;
+  an interrupted cycle ends normally and the successor needs its own fresh context reading.
 - Each `decision_list` summary names its item's `author_repository`, as `decision_get` does, when
   the item has one (#612). The board lists the cards of every repository; `pickup` now keeps the
   cards of its own repository by that field, without a `decision_get` of each card.

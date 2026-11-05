@@ -3,7 +3,7 @@ pdr: "006"
 title: "Context Monitoring and Managed Handoffs"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-27"
+updated: "2026-11-05"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -48,7 +48,7 @@ cycle. The rest is requested in #196 or proposed in its plan.
 
 1. Problem Context
 2. Decision 1: Family defaults with a per-session Enable
-3. Decision 2: Enable carries over a verified managed reset
+3. Decision 2: Enable carries over a verified managed reset or same-host succession
 4. Decision 3: Ask, wait for ready, then enter commands in the agent's pane
 5. Decision 4: Verify the reset, report every step, and pick up through Koinon's own skill
 6. Decision 5: A native check certifies the CLI version current then
@@ -228,18 +228,43 @@ from the dashboard, a shell or an agent; a session can keep its own threshold.
 
 ---
 
-## 3. Decision 2: Enable carries over a verified managed reset
+## 3. Decision 2: Enable carries over a verified managed reset or same-host succession
 
 ### Decision
 
 A session's Enable carries over to the session that follows a managed reset only when the
-cycle proves the new session is in the same pane and participant. A failed or uncertain
-cycle, or a change of pane or participant, ends the Enable; the maintainer enables again, and
+cycle proves the new session is in the same pane and participant. It also carries over on a
+successful succession with evidence `same_host`, when the host process, the pane (including
+its tmux socket) and the participant stay the same (#621). A different pane or participant,
+or a succession with evidence `host_cleared` or `same_pane` outside the existing managed-reset
+proof, does not carry it. A failed or uncertain cycle otherwise ends the Enable; the
+maintainer enables again, and
 the new Enable lets the next fresh reading at the threshold start a cycle in the same epoch
 (#584). One failure keeps the Enable: a cycle that times out while it waits for the ready
 report, before Koinon entered any input in the pane. This happens once in each context epoch;
 a second such timeout in the epoch ends the Enable, and a new Enable gives one more retry. The
 next cycle starts only after the session reads its own inbox after the timeout.
+
+The same-host carry-over keeps the session's own threshold and its ready-timeout retry state.
+A spent retry stays spent in the same native context epoch, and an inbox read still owed in
+that epoch is still required. A fresh epoch gets its own retry. An unfinished cycle stays on
+the retired session and ends under its existing outcome rules; it does not continue on the
+successor through this succession. Only the successor's own fresh, verified context reading
+can start its next cycle. These are the implementation and regression criteria of #621,
+agreed with the observer; they do not change the existing freshness or terminal-input rules.
+
+**Provenance (same-host succession):** Maintainer, 2026-11-05, decision board item
+`ENABLE-SAME-HOST-621`, revision 1, "approved"
+([#621](https://github.com/rwcii/koinon/issues/621#issuecomment-6665010648)). The question was
+whether Enable should survive an MCP-server restart that registers a new native session in
+the same host and pane, taking the same participant address. Before the fix, Enable stayed on
+the retired session, and an above-threshold successor got `not_enabled`. The card recommended:
+"A succession with the evidence `same_host` keeps the Enable when the pane and the participant
+are the same." Its alternative kept Enable carry-over limited to a verified managed reset,
+requiring the maintainer to enable the session again after such a restart. The approved scope
+is `same_host` with the same pane and participant; other succession evidence does not gain
+carry-over. The reason is that this restart changes neither the host process, the pane nor
+the participant, so it continues the same work without a new Enable action.
 
 **Provenance (ready timeout):** approved on the decision board, Maintainer, 2026-10-31
 ([DECISIONS.md#READY-TIMEOUT-ENABLE-487](../../../DECISIONS.md#ready-timeout-enable-487)),
@@ -257,6 +282,7 @@ the recommendation quoted in that comment.
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
 | Enable ends at every reset | The maintainer re-enables after each cycle | Not chosen; the maintainer took the recommendation |
+| Keep carry-over limited to a managed reset | An MCP-server restart on the same host needs Enable again | The maintainer approved same-host carry-over when the pane and participant stay the same (`ENABLE-SAME-HOST-621`) |
 | Carry over on any successor | Follow the participant to any new session | Not recommended; a different pane is not proven to be the same agent |
 
 ### Rationale
@@ -266,7 +292,9 @@ the recommendation quoted in that comment.
 ### User Impact
 
 A long-running session keeps its cycle across resets without re-enabling, until a cycle
-fails or the session moves.
+fails or the session moves. A same-host MCP-server restart in the same pane and participant
+also keeps Enable; it starts a new cycle from a fresh reading rather than resuming an
+interrupted one.
 
 ---
 
@@ -692,3 +720,4 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-11-03 | Decision 3: a Claude or Codex conversation turn after the ready reply makes the cycle ask again (#592), approved on the decision board (TURN-AFTER-READY-592) |
 | 2026-11-03 | Decision 3: an agy, Grok, OpenCode or DeepSeek conversation turn after the ready reply makes the cycle ask again too (#593), under the same board item (TURN-AFTER-READY-592) |
 | 2026-11-03 | Decision 3: a Grok queue during a running turn is a running turn, and a ready timeout on it asks again (#593), approved on the decision board (GROK-RUNNING-QUEUE-593) |
+| 2026-11-05 | Decision 2: same-host succession in the same pane and participant keeps Enable and its retry state; an interrupted cycle does not transfer (#621), approved on the decision board (ENABLE-SAME-HOST-621) |
