@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A managed cycle of an idle OpenCode session finds its composer in every pane (#613). The cycle
+  read the pane with its rows joined; when tmux marked the screen rows as wrapped, the composer
+  was not found, each ready stage ended with `not_idle.input_line_not_found` and the cycle asked
+  for the handoff again until it timed out. The pane is now read row by row.
+
 ## 2026-11-04 — Goal-first handoffs, board-checked waits, and OpenCode slash commands
 
 This release makes a handoff carry the work's goal: the goal with its source and success
