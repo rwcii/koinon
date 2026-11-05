@@ -776,8 +776,8 @@ func decisionItem(ctx context.Context, q querier, reference string) (DecisionIte
 		return item, err
 	}
 	if item.Verdict != nil && recordedVerdict(item.Verdict.Verdict) {
-		item.Record = &DecisionRecord{Path: DecisionRecordFile, Instruction: decisionRecordInstruction,
-			Entry: DecisionRecordEntry(item.Reference, item.Where, *item.Verdict)}
+		item.Record = &DecisionRecord{Instruction: decisionRecordInstruction,
+			Entry: DecisionVerdictText(item.Where, *item.Verdict)}
 	}
 	item.Withdrawals, item.WithdrawalCount, err = decisionWithdrawals(ctx, q, id)
 	item.Withdrawn = item.State == "archived" && len(item.Withdrawals) > 0 && item.Withdrawals[0].ReopenedAt == 0

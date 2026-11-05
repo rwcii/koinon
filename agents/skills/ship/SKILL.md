@@ -15,9 +15,10 @@ runtime supplies one: read its checkpoint before writing, report progress and re
 Commit under the declared policy, with no automated attribution. Bring the branch current with
 its work target, keeping published history. Run the check skill and its required gates. Follow
 the project's PR limit, and coordinate the publication turn through the installed runtime.
-Record each board verdict that the change carries out with decision_record, which applies the
-Decision record fact: none (the default) puts the changed rule, with the maintainer's words, into
-the document that holds it; short and full also append to DECISIONS.md.
+Record each board decision that the change carries out in the ADR, PDR, WDR or sprint document
+that holds the rule, in the form that the verdict read gives: decided by (the person's name),
+date, context, decision, reason and scope, and review when. Koinon writes no record file; the
+Decision record fact is retired, and Koinon ignores its value.
 Publish one complete increment; a follow-up goes on its own branch. Freeze the exact head and get
 the peer-review verdict and the other review gates that the project declares. For fixes, carry
 forward unchanged review and verify the accepted findings and the behavior they affect; collect

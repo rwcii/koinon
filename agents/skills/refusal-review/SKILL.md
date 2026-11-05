@@ -36,12 +36,13 @@ Each listed constraint needs a source that covers its case:
 - a verified native, platform, API or storage contract, or a reproduced correctness or
   security boundary.
 
-A recorded maintainer decision states four things: the question it answered, the options that
-were on the table, the answer quoted with its date, and the reason with its scope (what it
-covers and what it does not). A bare quote, or one without its question or reason, cannot show
-its scope, so a later agent may read it as a wider rule. Check these four parts in the document
-that states the rule, such as the ADR, PDR or WDR that the decision changes. A `DECISIONS.md`
-entry is a log of verdicts, short or full, and is not checked for them. A decision board
+A recorded decision states who decided it, by the person's name, not a role; the date; the
+context, with the question it answered and the options that were on the table; the decision,
+with the decider's words quoted when the record attributes it to them; the reason with its
+scope (what it covers and what it does not); and, when one is known, the condition that calls
+for its review. A bare quote, or one without its question or reason, cannot show its scope, so
+a later agent may read it as a wider rule. Check these parts in the document that states the
+rule, such as the ADR, PDR, WDR or sprint document that the decision changes. A decision board
 reference alone is not a source: a reviewer on another machine cannot read the board.
 
 A routine argument check or a demonstrated capability limit has its source in the code or the

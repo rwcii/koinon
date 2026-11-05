@@ -830,7 +830,7 @@ func errorReport(err error) map[string]any {
 		code, report["error"] = usage.code, usage.message
 		delete(report, "detail")
 	case errors.As(err, &local):
-		// A refusal of this process, such as decision record's (#536), keeps its code.
+		// A refusal of this process, such as decision export's (#589), keeps its code.
 		code, report["error"] = local.Code, local.Message
 		delete(report, "detail")
 	case errors.As(err, &refused):
