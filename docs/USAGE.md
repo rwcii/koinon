@@ -690,7 +690,11 @@ under `127.0.0.1`.
 
 ### Open the dashboard on the network
 
-On the daemon's host, set a maintainer secret, then run
+At a terminal, the first `koinon install` asks whether the dashboard opens only on this
+computer (the default) or also on a network address, lists this host's addresses, and offers
+to set or generate the maintainer secret when none is set
+([installation](INSTALL.md#network-dashboard)). Without those questions, on the daemon's host,
+set a maintainer secret, then run
 `koinon install --dashboard-address HOST:PORT`. HOST is that computer's non-loopback IP, or an
 FQDN that resolves to it, for example `board.example.test:8443`. `koinon dashboard --no-open`
 prints the network HTTPS URL and its certificate's SHA-256 fingerprint. Compare that value

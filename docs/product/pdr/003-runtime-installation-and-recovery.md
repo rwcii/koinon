@@ -265,8 +265,9 @@ restarted when this setting changes. The report's `dashboard_network` gives the 
 certificate fingerprint when started, and any required step. A missing secret or unavailable
 address keeps loopback working. With `--no-start`, the setting is staged for the next start.
 Robert Capps approved this on 2026-11-05, including an optional FQDN; ADR 001 Decision 2 records
-the question, options, quoted answer, reason and scope. The installation questions remain the
-second #624 increment.
+the question, options, quoted answer, reason and scope. At a terminal, a first install asks
+whether the dashboard opens only on this computer (the default) or also on a network address,
+and Decision 6 gives what it then reports.
 
 **Provenance (Claude permission rules, CLI-RULES-550):**
 
@@ -373,6 +374,16 @@ daemon of its version answers, and the uninstall stops a daemon that still answe
 managed services are gone. `TestBackgroundInstall`, `TestBackgroundStart`, `TestPlanSteps` and
 `TestUninstallStopsBackgroundDaemon` cover these outcomes.
 
+Implemented: the network dashboard questions of a first `koinon install` at a terminal
+(DASHBOARD-LAN-624, part 2, in ADR 001 Decision 2) end with what the person must know: the
+URL and the certificate's SHA-256 fingerprint, with the instruction to compare it once in the
+browser, or the code and step that remain. A network address without a maintainer secret gets
+the offer to set or generate one; a generated secret is shown once on the terminal. After a
+secret set there, the install restarts the daemon once and reports the status after that
+restart, never the status from before it: a failed restart is `dashboard_restart_failed` with
+its step, and the install fails with `daemon_restart_failed`. The tests in
+`internal/install/dashboard_questions_test.go` cover these outcomes.
+
 **Provenance:** #551 replaced the fixed steps with the plan's commands under the heading "The
 steps that this installation needs:", without the sentence that said what `koinon install`
 does. On a new Linux machine, v0.9.2 showed `koinon install` with no instruction to run it.
@@ -440,3 +451,4 @@ the approval of a plan; the rest is shipped behavior the maintainer has not yet 
 | 2026-10-25 | Decisions 1, 3 and 4: removed the unsourced sudo workaround, state-reset and authorization text (#487) |
 | 2026-11-05 | Decision 6: the maintainer's decisions on the post-install and post-upgrade instructions, implemented (#618, #619) |
 | 2026-11-05 | Decision 4: the Claude permission rules decision (CLI-RULES-550), moved into this record (#623) |
+| 2026-11-06 | Decisions 4 and 6: the network dashboard questions of `koinon install` (#624, part 2) |

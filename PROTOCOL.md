@@ -31,7 +31,12 @@ Several local answers choose one in canonical sorted order. Installation resolve
 daemon starts use the saved IP and requests use no DNS. Invalid input is
 `dashboard_address_invalid`, unresolved or unavailable addresses are
 `dashboard_address_unavailable`, and an invalid private setting is
-`dashboard_configuration_invalid`.
+`dashboard_configuration_invalid`. At a terminal, a first install asks for the setting; its
+local-only answer, and `--dashboard-address none`, are saved in the private, owner-checked
+`dashboard-local.json` (`{"choice":"local"}`), which only the installer reads. After a secret
+set at those questions, the install restarts the daemon once; a failed restart reports
+`dashboard_network.code` `dashboard_restart_failed` with its step, and the install fails with
+`daemon_restart_failed`.
 
 The network listener has no agent API or MCP routes. It uses TLS 1.2 or later and a self-signed
 certificate with the selected IP and configured FQDN in its SAN. The private

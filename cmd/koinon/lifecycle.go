@@ -167,9 +167,10 @@ func lifecycleCommand(ctx context.Context, args []string, in io.Reader, out io.W
 		// The report shows what was done also when a later step failed.
 		o := install.Options{Prefix: *prefix, StateDir: *state, Port: *port, Agents: agents, NoStart: *noStart, System: *system, Version: version}
 		o.DashboardAddress = *dashboardAddress
-		// At a terminal, install reviews the families and asks what to set up (#449).
-		if o.Ask = terminalAsk(in, os.Stderr); o.Ask != nil {
-			o.Tell = os.Stderr
+		// At a terminal, install reviews the families and asks what to set up (#449), and a
+		// first install asks where the dashboard opens (#624). One reader serves them all.
+		if t := openTerminal(ctx, in, os.Stderr); t != nil {
+			o.Ask, o.Line, o.NewSecret, o.Tell = ask(t.in, os.Stderr), t.line, t.newSecret, os.Stderr
 		}
 		r, err := install.Install(ctx, o)
 		printJSON(out, r)

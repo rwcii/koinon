@@ -11,7 +11,15 @@ into a dated release section when promoted to `main`.
   keeps one-time login links local. `koinon dashboard` prints its URL and certificate SHA-256
   fingerprint. The setting and private certificate survive restarts and upgrades;
   `--dashboard-address none` removes the setting. Install/status explain a missing secret or
-  unavailable address while loopback remains available. Installation questions follow in part 2.
+  unavailable address while loopback remains available.
+- At a terminal, the first `koinon install` asks whether the dashboard opens only on this
+  computer (the default) or also on a network address (#624, part 2; DASHBOARD-LAN-624 in ADR
+  001, Decision 2). It lists this host's addresses, takes a number or an FQDN and a port
+  (default 8443), shows a refused answer with its reason and asks again. Without a maintainer
+  secret, it offers to type or generate one, restarts the daemon once and shows the URL and the
+  certificate fingerprint, or `dashboard_restart_failed` with its step. The local answer is
+  saved, so a later install asks nothing. No questions without a terminal, with
+  `--dashboard-address`, in `koinon upgrade` or with `--plan`.
 - `DECISIONS.md` is removed (#623; WDR 001, Decision 7). Each of its 25 decisions is in the
   ADR, PDR or WDR that holds its rule, and documents and code comments cite that record and the
   card reference, for example "READY-TIMEOUT-ENABLE-487 in PDR 006, Decision 2". The records name
