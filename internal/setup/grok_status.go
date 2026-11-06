@@ -809,7 +809,14 @@ func (g grokStatusFile) setUp() (StatusLineResult, error) {
 	entry := g.wrapperEntry(original)
 	if grokEqual(entry, now) {
 		result.Outcome = "unchanged"
+		if g.dry {
+			return result, nil
+		}
 		return result, g.save(statusRecord{State: "enabled", Original: original, Wrapper: now, TableAdded: added, RawValues: raw})
+	}
+	if g.dry {
+		result.Outcome = "set_up"
+		return result, nil
 	}
 	// Save the original before the file changes, so a crash can never lose it.
 	if err := g.save(statusRecord{State: "pending", Original: original, Wrapper: entry, TableAdded: added, RawValues: raw}); err != nil {

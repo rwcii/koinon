@@ -77,6 +77,8 @@ type statusLine struct {
 	refresh        int
 	refreshKey     string
 	refreshInteger bool
+	// dry reports the outcome that setUp would reach and writes nothing (#631).
+	dry bool
 }
 
 func (l statusLine) name() string {
@@ -201,6 +203,24 @@ func equal(a, b json.RawMessage) bool {
 	return reflect.DeepEqual(x, y)
 }
 
+// emptyEntry reports whether entry is an object whose command and type are both absent or
+// empty strings, such as Antigravity CLI's {"type": "", "command": "", "enabled": true}.
+func emptyEntry(entry json.RawMessage) bool {
+	var e map[string]json.RawMessage
+	if json.Unmarshal(entry, &e) != nil || e == nil {
+		return false
+	}
+	for _, key := range []string{"type", "command"} {
+		if v, set := e[key]; set {
+			var s string
+			if json.Unmarshal(v, &s) != nil || s != "" {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 func entryCommand(entry json.RawMessage) string {
 	var e struct {
 		Type    string `json:"type"`
@@ -288,8 +308,14 @@ func (l statusLine) wrapperEntry(original json.RawMessage) json.RawMessage {
 	typ, _ := json.Marshal("command")
 	cmd, _ := json.Marshal(command)
 	fields = append(fields, field{"type", typ}, field{"command", cmd})
-	if original == nil {
-		fields = append(fields, l.defaults...)
+	// An entry without a command and without a type shows nothing of its own, so it takes the
+	// defaults as no entry does (#631); a default member that the entry already has is kept.
+	if original == nil || emptyEntry(original) {
+		for _, d := range l.defaults {
+			if lookup(fields, d.key) == nil {
+				fields = append(fields, d)
+			}
+		}
 	}
 	key := l.refreshKey
 	if key == "" {
@@ -543,7 +569,14 @@ func (l statusLine) setUp() (StatusLineResult, error) {
 	entry := l.wrapperEntry(original)
 	if equal(entry, now) {
 		result.Outcome = "unchanged"
+		if l.dry {
+			return result, nil
+		}
 		return result, l.save(statusRecord{State: "enabled", Original: original, Wrapper: now})
+	}
+	if l.dry {
+		result.Outcome = "set_up"
+		return result, nil
 	}
 	// Save the original before the settings change, so a crash can never lose it.
 	if err := l.save(statusRecord{State: "pending", Original: original, Wrapper: entry}); err != nil {
@@ -601,9 +634,13 @@ func ClaudeStatusLine(binary, state, configDir string, remove bool) (StatusLineR
 // file. Without an earlier entry, the hook stacks with agy's default status line and prints
 // nothing of its own.
 func AgyStatusLine(binary, state, settings string, remove bool) (StatusLineResult, error) {
+	return agyStatusLine(binary, settings).run(state, remove)
+}
+
+func agyStatusLine(binary, settings string) statusLine {
 	stack, _ := json.Marshal(true)
 	return statusLine{binary: binary, settings: settings, label: "Antigravity settings", hook: "agy-status",
-		record: "agy-statusline.json", missing: "agy_config_missing", defaults: []field{{"stack_with_default", stack}}}.run(state, remove)
+		record: "agy-statusline.json", missing: "agy_config_missing", defaults: []field{{"stack_with_default", stack}}}
 }
 
 func (l statusLine) run(state string, remove bool) (StatusLineResult, error) {

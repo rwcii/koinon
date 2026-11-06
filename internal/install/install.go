@@ -77,8 +77,11 @@ type Options struct {
 	Services platform.Services
 	Setup    func(context.Context, setup.Options) (setup.Report, error)
 	// Adopt records the launcher CLI of a family that an earlier setup configured.
-	Adopt  func(context.Context, setup.Options) (setup.Report, bool, error)
-	Remove func(context.Context, setup.Options) (setup.Report, error)
+	Adopt func(context.Context, setup.Options) (setup.Report, bool, error)
+	// CompleteStatusLine sets up the status line of a family that an earlier setup configured,
+	// when it is missing or out of date and the person has not removed or edited it (#631).
+	CompleteStatusLine func(context.Context, setup.Options) (setup.Report, bool, error)
+	Remove             func(context.Context, setup.Options) (setup.Report, error)
 	// Ask puts a yes-or-no question to the person at the terminal; nil means no terminal,
 	// and install asks nothing (#449). Tell receives the review that the questions follow.
 	Ask         func(question string) (bool, error)
@@ -220,6 +223,9 @@ func (o *Options) defaults() error {
 	}
 	if o.Adopt == nil {
 		o.Adopt = setup.Adopt
+	}
+	if o.CompleteStatusLine == nil {
+		o.CompleteStatusLine = setup.CompleteStatusLine
 	}
 	if o.Remove == nil {
 		o.Remove = setup.Remove
@@ -794,6 +800,22 @@ func Install(ctx context.Context, o Options) (Report, error) {
 			r.Agents = append(r.Agents, report)
 		}
 	}
+	// A family that an earlier setup configured gets the status line that its setup writes
+	// now, unless the person removed or edited it (#631; PDR 003, Decision 4). A settings file
+	// that cannot be read is reported, and the install goes on.
+	for _, family := range []string{"claude", "agy", "grok"} {
+		if slices.Contains(agents, family) {
+			continue
+		}
+		report, ran, err := o.CompleteStatusLine(ctx, setup.Options{Family: family, Binary: r.Binary, StateDir: o.StateDir,
+			ClaudeConfig: o.ClaudeConfig, AgyRoot: o.AgyRoot, GrokHome: o.GrokHome})
+		if err != nil {
+			report.OK, report.Note = false, err.Error()
+		} else if !ran {
+			continue
+		}
+		r.Agents = append(r.Agents, report)
+	}
 	if err := offerPermissions(o, agents, &r); err != nil {
 		return r, err
 	}
@@ -1272,7 +1294,8 @@ func reviewFamilies(ctx context.Context, o Options, r *Report) ([]string, error)
 	}
 	fmt.Fprintln(o.Tell, "Agent families on this computer:")
 	for _, family := range setupFamilies {
-		in := o.Inspect(ctx, setup.Options{Family: family, Binary: r.Binary, StateDir: o.StateDir, ClaudeConfig: o.ClaudeConfig})
+		in := o.Inspect(ctx, setup.Options{Family: family, Binary: r.Binary, StateDir: o.StateDir, ClaudeConfig: o.ClaudeConfig,
+			AgyRoot: o.AgyRoot, GrokHome: o.GrokHome})
 		r.Review = append(r.Review, in)
 		state := "not installed"
 		switch {

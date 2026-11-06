@@ -3014,8 +3014,11 @@ rules of docs/PERMISSIONS.md: `family`, `settings_file`, `outcome` and, by outco
 `different` (the file sets a rule's key to another value; nothing is added), `unreadable` or
 `manual` (Grok, DeepSeek). Only a yes at a terminal adds rules, with the same refusals as the
 status line. `koinon install` at a terminal also reports `review`, one entry per family with
-`family`, `cli` and `configured` before its questions, and `permissions` for each family that
-is set up. For a family that got the permission question, its `review` and `agents` entries
+`family`, `cli` and `configured` before its questions, `status_line` for a configured Claude,
+agy or Grok family (`current`, `needed`, `declined`, `changed` or `skipped`; when it cannot be
+read, `status_line_error` says why), and `permissions` for each family that is set up. A family
+whose `status_line` is `needed` and that the install does not set up gets its status line set
+up, and an `agents` entry with `status_line` and `changed` (#631). For a family that got the permission question, its `review` and `agents` entries
 report `permissions` after the question, as `koinon setup` does, and a yes also lists the rules
 in its `agents` entry's `changed`.
 

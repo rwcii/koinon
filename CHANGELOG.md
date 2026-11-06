@@ -12,9 +12,18 @@ a login by the maintainer secret, while the agent API stays on loopback. At a te
 first `koinon install` asks where the dashboard opens and can set the secret. Decisions live
 only in the ADR, PDR and WDR records: Koinon writes no `DECISIONS.md`, and `decision_record` is
 removed. An install without a user service manager starts the daemon in the background, and the
-Homebrew text starts with the action to take. A managed cycle of an idle OpenCode session finds
-its composer again. The state schema stays at 37.
+Homebrew text starts with the action to take. An older Claude, agy or Grok setup gets its
+current status line at the next install, so an agy session reports context and activity. A
+managed cycle of an idle OpenCode session finds its composer again. The state schema stays at 37.
 
+- `koinon install` completes the status line of a Claude, agy or Grok family that an earlier
+  setup configured, when it is missing or Koinon's unedited entry is out of date, and `koinon
+  install --plan` names `koinon setup FAMILY --binary BINARY` for it (#631; AGY-STATUSLINE-631 in
+  PDR 003, Decision 4). When that family's settings file cannot be read, the plan stops with
+  `agent_unreadable` and the cause. An entry that you removed or edited stays. Before, an agy setup from
+  before the agy status line kept giving no context or activity, and the plan said current.
+  An agy entry without a command and without a type, as Antigravity CLI 1.5.1 keeps it, now gets
+  `"stack_with_default": true`, so agy's own status line stays; before, it went.
 - `koinon install --dashboard-address HOST:PORT` adds an optional dashboard-only HTTPS listener
   on one local IP or an FQDN that resolves to it (#624, part 1; DASHBOARD-LAN-624 in ADR 001,
   Decisions 2 and 4). It needs the maintainer secret, leaves the agent API on loopback, and
@@ -94,6 +103,10 @@ Upgrade notes:
 - The dashboard stays on loopback until you choose a network address. The next `koinon install`
   at a terminal asks once; Enter keeps it on this computer. To choose without the question, run
   `koinon install --dashboard-address HOST:PORT` or `--dashboard-address none` (#624).
+- After `brew upgrade koinon`, the Homebrew text names `koinon setup agy --binary ...` (or
+  `claude` or `grok`) when that family's status line is missing or out of date; run it, or run
+  `koinon install`. An agy session that is already open can need a restart before it runs
+  the new status line (#631).
 - An agent that calls `decision_record` or `koinon decision record` gets an unknown-tool or
   usage refusal. Record a verdict in the ADR, PDR, WDR or sprint document that holds the rule,
   from the record form that `decision_get` gives (#623).

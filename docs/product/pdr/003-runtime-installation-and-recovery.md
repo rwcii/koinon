@@ -239,7 +239,9 @@ outage, the person restarts the named service and running sessions register agai
 Koinon currently changes services and agent configuration through the commands that a person
 or an agent runs: `koinon install`, `koinon upgrade`, `koinon uninstall` and `koinon setup
 FAMILY`. Install sets up the families it is told to set up and reads the configuration of the
-others. The daemon runs none of these commands itself.
+others; for a configured Claude, agy or Grok family, it also completes the status line that the
+family's setup writes now, unless the person removed or edited it (AGY-STATUSLINE-631, below).
+The daemon runs none of these commands itself.
 
 An agent that has an install, upgrade or installation-test task runs its steps and reports the
 result (WDR 002, Decision 1).
@@ -268,6 +270,36 @@ Robert Capps approved this on 2026-11-05, including an optional FQDN; ADR 001 De
 the question, options, quoted answer, reason and scope. At a terminal, a first install asks
 whether the dashboard opens only on this computer (the default) or also on a network address,
 and Decision 6 gives what it then reports.
+
+**Status-line completion (AGY-STATUSLINE-631, #631):**
+
+- **Decided by:** Robert Capps, 2026-11-06. On the decision board, card AGY-STATUSLINE-631,
+  revision 2, "approved", with no note; Robert Capps then ran `koinon setup agy` on the machine. In a
+  Claude Code terminal session the same day: "these issues need to make it in to 0.10, don't
+  release without it" (typos corrected).
+- **Context:** the dashboard showed no context or activity for a live agy session ("I note that
+  it does not report any context or activity on the dashboard."). The agy setup on that machine
+  predated the agy status-line hook (#519), a later `koinon install` did not run agy's setup
+  again, and `koinon install --plan` said the installation was current. Antigravity CLI 1.5.1
+  keeps `{"type": "", "command": "", "enabled": true}` when no command is set; setup took that
+  as an earlier entry and left out `stack_with_default`, so agy's own status line would go.
+  The card's options were to run `koinon setup agy` now, to wait for this fix, or to do nothing.
+- **Decision:** `koinon install` completes the status line of each configured Claude, agy or
+  Grok family that it does not set up, when the status line is missing or Koinon's unedited
+  entry is out of date. It changes only the status line, asks nothing, and leaves an entry that
+  the person removed (`--remove-status-line`) or edited. A settings file that cannot be read is
+  reported in the family's `agents` entry, and the install goes on. `koinon install --plan` names
+  `koinon setup FAMILY --binary BINARY` for such a family, and stops with `agent_unreadable`
+  and the cause when the family's settings file cannot be read. An earlier entry without a command
+  and without a type counts as no entry, so agy's wrapper gets `"stack_with_default": true`; a
+  `stack_with_default` that the entry has is kept, and removal restores the exact entry. An
+  explicit `koinon setup FAMILY` sets the status line up again also after a removal.
+- **Reason and scope:** Koinon reads an agy session's context and activity only from its status
+  line, so an older setup without it gives no dashboard readings and no managed cycle. The
+  status line was part of the setup that the person accepted, so completing it needs no new
+  question. Scope: the status lines of Claude, agy and Grok. MCP entries, hooks, launchers and
+  permission rules keep their current behavior.
+- **Review when:** a family gets another setup part that a later release adds.
 
 **Provenance (Claude permission rules, CLI-RULES-550):**
 
@@ -452,3 +484,4 @@ the approval of a plan; the rest is shipped behavior the maintainer has not yet 
 | 2026-11-05 | Decision 6: the maintainer's decisions on the post-install and post-upgrade instructions, implemented (#618, #619) |
 | 2026-11-05 | Decision 4: the Claude permission rules decision (CLI-RULES-550), moved into this record (#623) |
 | 2026-11-06 | Decisions 4 and 6: the network dashboard questions of `koinon install` (#624, part 2) |
+| 2026-11-06 | Decision 4: install completes the status line of an older setup, and an empty earlier entry keeps agy's default line (AGY-STATUSLINE-631, #631) |
