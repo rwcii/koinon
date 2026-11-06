@@ -255,8 +255,32 @@ start it again after the change.
 
 ### Network dashboard
 
-To reach the dashboard from another computer, set a maintainer secret on the daemon's host
-with `koinon maintainer secret set` or `koinon maintainer secret generate`, then run:
+At a terminal, the first `koinon install` asks where the dashboard opens:
+
+```text
+Open the dashboard only on this computer (default), or also on a network address?
+  1. Only on this computer
+  2. Also on a network address, over HTTPS, with a login by the maintainer secret
+Choice [1]:
+```
+
+Enter, or 1, keeps it on this computer and saves that answer in `dashboard-local.json` in the
+private state directory, so a later install asks nothing. 2 lists this host's network
+addresses, numbered; type a number or a fully qualified name of this host, then a port (Enter
+takes 8443). A refused address is shown with its reason, and the question comes again. When no
+maintainer secret is set, the install then offers to type one (twice, with echo off), to
+generate one, which it shows once on the terminal, or not now. After a secret set there, it
+restarts the daemon once and shows the URL and the certificate's SHA-256 fingerprint, which the
+report's `dashboard_network` also has. A failed restart is reported as
+`dashboard_restart_failed` with its step; "not now" saves the address and reports
+`dashboard_secret_required`. Ending the input (Ctrl-D) or Ctrl-C during the choice, address or
+port question saves no answer; at the secret question, they keep the address already saved and
+set no secret, as "not now" does. There are no questions
+without a terminal (Homebrew, scripts, CI), with `--dashboard-address`, in `koinon upgrade` or
+with `--plan`; `--no-start` saves the address and skips the secret and the start.
+
+Without the questions, set a maintainer secret on the daemon's host with `koinon maintainer
+secret set` or `koinon maintainer secret generate`, then run:
 
 ```sh
 koinon install --dashboard-address board.example.test:8443
@@ -271,22 +295,22 @@ which this setting does not carry; use a local IPv4 or routable IPv6 address ins
 saved setting's refusal names `dashboard-address.json` and the commands to replace or remove
 it, retaining the same state directory. Correct unsafe file ownership, mode 0600 or links first.
 A later install or upgrade keeps the setting; a later install
-resolves a saved FQDN again. `koinon install --dashboard-address none` removes it. With
-`--no-start`, the setting waits for the next daemon start.
+resolves a saved FQDN again. `koinon install --dashboard-address none` removes it and saves
+the local-only answer. With `--no-start`, the setting waits for the next daemon start.
 
 Open the printed network HTTPS URL and compare the browser's certificate SHA-256 fingerprint
 with `koinon dashboard`'s output. The certificate is self-signed, so the browser shows a warning
 until you accept it. Sign in with the maintainer secret. One-time links work on loopback only;
 the network listener serves the dashboard and no agent API or MCP routes.
 
-The state directory holds `dashboard-address.json` and the owner-checked, mode-0600
+The state directory holds `dashboard-address.json`, `dashboard-local.json` and the owner-checked, mode-0600
 `dashboard-tls.pem` certificate and private key. Restarts reuse the certificate; a changed
 identity or expired certificate replaces it and changes the fingerprint. Keep these files with
 the private state. A missing secret or unavailable selected IP leaves the loopback daemon
 working. Install/status show `dashboard_network` with the reason and next step. Set a missing
 secret, then run `koinon install` to start the listener. If a selected IP went away, run install
 again with an available address; a saved FQDN is resolved again. The daemon log names a failed
-network bind and its address. Interactive network questions are the second #624 increment.
+network bind and its address.
 
 ### System mode on macOS
 

@@ -195,8 +195,8 @@ agent-written plan text.
   to" ([record](https://github.com/rwcii/koinon/issues/624#issuecomment-6671638898)). An FQDN is
   resolved during installation to one address of this host. Its selected address is saved;
   requests use no DNS. The certificate covers that IP and the configured name. The login needs
-  the maintainer secret, while one-time links remain on loopback. Installation questions follow
-  the listener increment in a second pull request.
+  the maintainer secret, while one-time links remain on loopback. The installation questions
+  are the second part, below.
 - **Reason and scope:** HTTPS protects the secret and cookie on the network. The separate
   listener exposes the dashboard while the agent API and MCP remain on their existing paths.
   The default stays local. Plain HTTP sends credentials in clear text; a listener on every
@@ -217,6 +217,25 @@ addresses are refused at installation instead of saving a bind that cannot start
 link-local and routable IPv6 addresses remain supported. A saved-setting refusal names its file
 and the replacement/removal commands for the same state directory, retaining the private-file
 ownership, mode and link checks.
+
+Implementation (part 2, the installation questions): at a terminal, a first `koinon install`
+asks "Open the dashboard only on this computer (default), or also on a network address?". It
+asks nothing with a saved network setting, a saved local-only answer, `--dashboard-address`,
+`koinon upgrade`, `--plan` or without a terminal. The local answer, also an empty one, is saved
+in the private, owner-checked `dashboard-local.json`, which the daemon does not read;
+`--dashboard-address none` saves it too. A network answer lists this host's addresses without
+loopback, multicast and IPv6 link-local addresses, takes a number or an FQDN, then a port
+(default 8443), and checks the answer as `--dashboard-address` does. A refused answer is shown
+with its reason and asked again. Ended input or a cancel in the choice, address or port
+question saves nothing; at the secret question, it keeps the address already saved and sets no
+secret. Without a maintainer secret, the
+install offers to read a new one twice with echo off, or to generate one that it shows once on
+the terminal and never in the report; it sets the secret through the daemon's secret route and
+restarts the daemon once through the same backend. The report has the status after that
+restart, with the URL and the certificate fingerprint, or `dashboard_restart_failed` with its
+step. "Not now" keeps the network setting and reports `dashboard_secret_required` with its
+step. `--no-start` saves the answer and skips the secret, the start and the restart. One
+buffered reader serves every question of an install, so no answer typed ahead is lost.
 
 ### Alternatives Considered
 

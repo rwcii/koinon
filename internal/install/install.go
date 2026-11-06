@@ -37,6 +37,17 @@ type Options struct {
 	DashboardAddress string // dashboard HTTPS HOST:PORT; empty keeps the setting, none removes it
 	ResolveDashboard func(context.Context, string) (core.DashboardAddress, error)
 	dashboardChanged bool
+	// Line reads one answer at the terminal for the network dashboard questions, and returns
+	// io.EOF after the input ends; nil means no terminal, and install asks none of them
+	// (DASHBOARD-LAN-624, part 2). NewSecret reads a new maintainer secret there, typed twice
+	// with echo off. Both read from the same input as Ask.
+	Line      func(prompt string) (string, error)
+	NewSecret func() (string, error)
+	// HostAddresses lists the addresses that the questions offer; default
+	// core.DashboardHostAddresses. MaintainerSecret sets or generates the secret through the
+	// daemon's secret route and returns a generated secret; default the loopback route.
+	HostAddresses    func() ([]string, error)
+	MaintainerSecret func(ctx context.Context, address, bearer, action, secret string) (string, error)
 	PythonPrefix     string   // the Python-era prefix that refuses a plain install
 	Agents           []string // families to set up, or to remove (default: all for removal)
 	NoStart          bool
@@ -171,6 +182,12 @@ func (o *Options) defaults() error {
 	}
 	if o.ResolveDashboard == nil {
 		o.ResolveDashboard = core.ResolveDashboardAddress
+	}
+	if o.HostAddresses == nil {
+		o.HostAddresses = core.DashboardHostAddresses
+	}
+	if o.MaintainerSecret == nil {
+		o.MaintainerSecret = maintainerSecret
 	}
 	if o.Services.Run == nil {
 		if o.Services, err = platform.NewServices(); err != nil {
@@ -633,8 +650,25 @@ func Install(ctx context.Context, o Options) (Report, error) {
 	if err != nil && o.DashboardAddress == "" {
 		return r, err
 	}
+	// At a terminal, a first install asks where the dashboard opens; a saved setting, a saved
+	// local-only choice and an explicit --dashboard-address ask nothing (DASHBOARD-LAN-624).
+	var local bool
+	var asked *core.DashboardAddress
+	if o.Line != nil && !o.Upgrade && o.DashboardAddress == "" && oldNetwork == nil && !invalidNetwork {
+		saved, err := core.ReadDashboardLocal(o.StateDir)
+		if err != nil {
+			return r, err
+		}
+		if !saved {
+			if local, asked, err = askDashboard(ctx, o); err != nil {
+				return r, err
+			}
+		}
+	}
 	network := oldNetwork
-	if o.DashboardAddress == "none" {
+	if asked != nil {
+		network = asked
+	} else if o.DashboardAddress == "none" {
 		network = nil
 	} else if o.DashboardAddress != "" || !o.Upgrade && oldNetwork != nil && oldNetwork.Host != oldNetwork.IP {
 		address := o.DashboardAddress
@@ -649,6 +683,11 @@ func Install(ctx context.Context, o Options) (Report, error) {
 	}
 	if o.DashboardAddress != "" || network != nil {
 		if err := core.WriteDashboardAddress(o.StateDir, network); err != nil {
+			return r, err
+		}
+	}
+	if local || o.DashboardAddress == "none" {
+		if err := core.WriteDashboardLocal(o.StateDir); err != nil {
 			return r, err
 		}
 	}
@@ -693,20 +732,42 @@ func Install(ctx context.Context, o Options) (Report, error) {
 	if r.OtherBinary = otherBinary(o.Source, r.Binary, o.Path); r.OtherBinary != "" {
 		r.SourceStep = fmt.Sprintf("this ran the installed binary, so nothing was copied; to install %s, run %s install", r.OtherBinary, shellQuote(r.OtherBinary))
 	}
-	if system != nil {
-		r.Artifact = o.Services.SystemArtifact()
-		if err := o.Services.InstallSystem(ctx, platform.SystemInstall{Binary: r.Binary, State: o.StateDir, Plist: *system,
-			StatusPID: func(ctx context.Context) (int, error) { return statusPID(ctx, o) }, Wait: o.SystemWait}); err != nil {
-			return r, err
+	// start starts the daemon through the backend that this installation uses.
+	start := func(before *daemonStatus) error {
+		if system != nil {
+			r.Artifact = o.Services.SystemArtifact()
+			if err := o.Services.InstallSystem(ctx, platform.SystemInstall{Binary: r.Binary, State: o.StateDir, Plist: *system,
+				StatusPID: func(ctx context.Context) (int, error) { return statusPID(ctx, o) }, Wait: o.SystemWait}); err != nil {
+				return err
+			}
+			r.Service = "system"
+			return nil
 		}
-		r.Service = "system"
-	} else if err := startAgent(ctx, o, &r, before); err != nil {
+		return startAgent(ctx, o, &r, before)
+	}
+	if err := start(before); err != nil {
 		return r, err
 	}
 	if !o.NoStart && network != nil {
 		if status, err := readStatus(ctx, o); err == nil && status.DashboardNetwork != nil {
 			r.DashboardNetwork = status.DashboardNetwork
 		}
+	}
+	// A network address chosen at the terminal needs the maintainer secret. A secret set here
+	// takes effect after one restart through the same backend (DASHBOARD-LAN-624).
+	if asked != nil && !o.NoStart && r.DashboardNetwork != nil && r.DashboardNetwork.Code == "dashboard_secret_required" {
+		set, err := offerSecret(ctx, o)
+		if err != nil {
+			return r, err
+		}
+		if set {
+			if err := restart(ctx, o, &r, start, &system); err != nil {
+				return r, err
+			}
+		}
+	}
+	if asked != nil && r.DashboardNetwork != nil {
+		tellDashboard(o, *r.DashboardNetwork)
 	}
 	agents, err := reviewFamilies(ctx, o, &r)
 	if err != nil {
