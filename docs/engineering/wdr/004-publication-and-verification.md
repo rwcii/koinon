@@ -365,11 +365,34 @@ sentence and the facts), to the question "Do you approve this proposal?": "yes".
 the words "Before the maintainer's release approval" from the first sentence, with the release
 approval (WDR 002, Decision 6).
 
+**Rerun of jobs that no runner acquired (#630):** a GitHub-hosted macOS job can wait for a
+runner until GitHub cancels it, with the annotation "The job was not acquired by Runner of type
+hosted even after multiple attempts". The run then fails though no step ran. The v0.10.0
+account listed three such runs on 2026-11-05, after others on 2026-10-21 and 2026-11-03. The
+workflow `rerun-unacquired.yml` runs `scripts/rerun-unacquired.sh` after each failed Tests or
+Native Go lifecycle evidence run, from the default branch's own checkout. It reruns the failed
+jobs of the attempt, at most twice (attempts 1 and 2), only when every failed job has runner
+ID 0, no step that ran and that exact annotation, on every page, and the run is still that
+attempt, completed with failure. It does not rerun a run that has another failure, so that
+failure stays visible; a failed API call means no rerun. Each failed attempt stays in the account above.
+GitHub starts `workflow_run` workflows from the default branch, so the rerun works after the
+workflow is on `main`. `TestRerunUnacquired` in `internal/contributor` covers the decision.
+
+- Decided by: Robert Capps, 2026-11-06, in a Claude Code terminal session, while the v0.10.0
+  release was prepared: "fix the repeated CI issues in 0.10".
+- Context: the failed-run account since v0.9.2 had five cancellations by a newer push, which the
+  workflows' concurrency does by design, and three runs whose macOS job no runner acquired. The
+  macOS test failures since 2026-10-20 were fixed, and none recurred after 2026-10-28.
+- Reason and scope: the unacquired job is a GitHub capacity fault, not a test result. The rerun
+  covers only that fault, in the Tests and Native Go lifecycle evidence workflows. A test
+  failure, a timeout and a cancellation by a newer push are not rerun.
+
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
 | Each failure on its own | Fix or rerun a failed run when it is seen | The macOS timing failures recurred for days; each run looked like one event |
+| Rerun every failed run | Rerun any failed Tests run automatically | It also reruns test failures, so a recurring fault is read as noise (#630) |
 | Latest attempt only | List the runs whose final result is failure | A failure that a rerun turned green is not seen |
 | More measures | Also record usage with retries, review time and corrections per task | Not requested; an optional later test on comparable accepted tasks |
 
@@ -381,7 +404,7 @@ approval (WDR 002, Decision 6).
 ### Enforcement
 
 Practice only: the `release` skill and the promotion pull request evidence. No CI job checks the
-list.
+list. The rerun of unacquired jobs is the `rerun-unacquired.yml` workflow.
 
 ---
 
@@ -405,3 +428,4 @@ choices; the rest waits for the maintainer's decision.
 | 2026-10-25 | Decision 6: failed CI runs are accounted for before a release |
 | 2026-10-25 | #487: Decision 2 states the branch update without its limits; Decision 3 drops the push gate; Decision 6 drops the release approval |
 | 2026-10-26 | #493: Decision 3 cites the maintainer's verdict that keeps the required `peer-review` and `refusal-review` statuses (493-5 in WDR 001, Decision 6); Decision 1 cites the verdict that keeps the `pre-commit` block (493-6) |
+| 2026-11-06 | Decision 6: the rerun of CI jobs that no runner acquired (#630) |
