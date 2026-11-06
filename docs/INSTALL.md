@@ -273,7 +273,9 @@ generate one, which it shows once on the terminal, or not now. After a secret se
 restarts the daemon once and shows the URL and the certificate's SHA-256 fingerprint, which the
 report's `dashboard_network` also has. A failed restart is reported as
 `dashboard_restart_failed` with its step; "not now" saves the address and reports
-`dashboard_secret_required`. Ending the input (Ctrl-D) saves no answer. There are no questions
+`dashboard_secret_required`. Ending the input (Ctrl-D) or Ctrl-C during the choice, address or
+port question saves no answer; at the secret question, they keep the address already saved and
+set no secret, as "not now" does. There are no questions
 without a terminal (Homebrew, scripts, CI), with `--dashboard-address`, in `koinon upgrade` or
 with `--plan`; `--no-start` saves the address and skips the secret and the start.
 

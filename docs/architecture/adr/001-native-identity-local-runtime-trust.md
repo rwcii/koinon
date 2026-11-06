@@ -226,7 +226,9 @@ in the private, owner-checked `dashboard-local.json`, which the daemon does not 
 `--dashboard-address none` saves it too. A network answer lists this host's addresses without
 loopback, multicast and IPv6 link-local addresses, takes a number or an FQDN, then a port
 (default 8443), and checks the answer as `--dashboard-address` does. A refused answer is shown
-with its reason and asked again. Ended input saves nothing. Without a maintainer secret, the
+with its reason and asked again. Ended input or a cancel in the choice, address or port
+question saves nothing; at the secret question, it keeps the address already saved and sets no
+secret. Without a maintainer secret, the
 install offers to read a new one twice with echo off, or to generate one that it shows once on
 the terminal and never in the report; it sets the secret through the daemon's secret route and
 restarts the daemon once through the same backend. The report has the status after that
