@@ -115,9 +115,11 @@ func lifecycleCommand(ctx context.Context, args []string, in io.Reader, out io.W
 	var noStart, system, plan, fromPython, verify, status *bool
 	var from, pythonPrefix, python *string
 	var port *int
+	var dashboardAddress *string
 	switch args[0] {
 	case "install":
 		port = flags.Int("port", 0, "loopback port of the daemon and dashboard; kept by later installs")
+		dashboardAddress = flags.String("dashboard-address", "", "optional dashboard HTTPS HOST:PORT, or none; kept by later installs")
 		noStart = flags.Bool("no-start", false, "write the service without starting it")
 		system = flags.Bool("system", false, "macOS: run the daemon as a LaunchDaemon that survives logout; asks sudo")
 		plan = flags.Bool("plan", false, "print the commands that this installation still needs; change nothing")
@@ -157,8 +159,14 @@ func lifecycleCommand(ctx context.Context, args []string, in io.Reader, out io.W
 		if given && !core.ValidPort(*port) {
 			return usageError{"invalid_request", "--port takes a port from 1 to 65535"}
 		}
+		var dashboardGiven bool
+		flags.Visit(func(f *flag.Flag) { dashboardGiven = dashboardGiven || f.Name == "dashboard-address" })
+		if dashboardGiven && *dashboardAddress == "" {
+			return usageError{"dashboard_address_invalid", "--dashboard-address takes HOST:PORT or none"}
+		}
 		// The report shows what was done also when a later step failed.
 		o := install.Options{Prefix: *prefix, StateDir: *state, Port: *port, Agents: agents, NoStart: *noStart, System: *system, Version: version}
+		o.DashboardAddress = *dashboardAddress
 		// At a terminal, install reviews the families and asks what to set up (#449).
 		if o.Ask = terminalAsk(in, os.Stderr); o.Ask != nil {
 			o.Tell = os.Stderr

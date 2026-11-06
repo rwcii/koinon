@@ -3,7 +3,7 @@ pdr: "003"
 title: "Runtime Installation and Recovery"
 status: draft
 created: "2026-10-12"
-updated: "2026-11-05"
+updated: "2026-11-06"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -255,6 +255,18 @@ sentence continued "requests to install or configure this bridge provide that sc
 pointed to the maintainer's own agent instructions for limits on peer requests. No maintainer
 source was found for these statements in this repository; #487 removed them (Decision 1 has the
 #487 source).
+
+**Network dashboard (DASHBOARD-LAN-624):** `koinon install --dashboard-address HOST:PORT`
+records the optional HTTPS listener. HOST is a local non-loopback IP or an FQDN that resolves
+to one. `--dashboard-address none` removes it. Later installs and upgrades keep the setting;
+an install resolves a saved FQDN again. Linux units, macOS plists and background starts use
+the same `--state-dir`, from which the daemon reads it. An unchanged background daemon is
+restarted when this setting changes. The report's `dashboard_network` gives the URL, state,
+certificate fingerprint when started, and any required step. A missing secret or unavailable
+address keeps loopback working. With `--no-start`, the setting is staged for the next start.
+Robert Capps approved this on 2026-11-05, including an optional FQDN; ADR 001 Decision 2 records
+the question, options, quoted answer, reason and scope. The installation questions remain the
+second #624 increment.
 
 **Provenance (Claude permission rules, CLI-RULES-550):**
 

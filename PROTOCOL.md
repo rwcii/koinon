@@ -4,7 +4,7 @@
 
 The Go daemon is the Koinon runtime. Its HTTP API uses a
 private user secret from the selected Go state root, passed in `Authorization: Bearer SECRET`.
-No API endpoint is anonymous. Each listener must be a literal loopback address; foreign
+No API endpoint is anonymous. Each agent API listener must be a literal loopback address; foreign
 browser origins and non-loopback Host headers are refused. The API accepts no browser cookies.
 The daemon listens on `127.0.0.1` and `[::1]` at the port that the state root's `port` file
 records, 47671 when there is none; `koinon install --port N` writes that file, one decimal
@@ -16,6 +16,30 @@ with `port_invalid` (docs/INSTALL.md). A launcher sets `KOINON_DAEMON_ADDRESS` f
 only when the launch address is not the state root's installed address, and `koinon mcp`
 without `--address` resolves the address for each daemon call, so both follow a new recorded
 port.
+
+An optional separate dashboard HTTPS listener is configured by `koinon install
+--dashboard-address HOST:PORT`, or removed by `--dashboard-address none` (#624;
+DASHBOARD-LAN-624 in ADR 001, Decisions 2 and 4). The private `dashboard-address.json` file
+contains `host`, the selected local `ip`, and `port`. A literal IP must belong to this host
+and be non-loopback, non-wildcard and non-multicast. An FQDN must resolve to a local address;
+several local answers choose one in canonical sorted order. Installation resolves it again;
+daemon starts use the saved IP and requests use no DNS. Invalid input is
+`dashboard_address_invalid`, unresolved or unavailable addresses are
+`dashboard_address_unavailable`, and an invalid private setting is
+`dashboard_configuration_invalid`.
+
+The network listener has no agent API or MCP routes. It uses TLS 1.2 or later and a self-signed
+certificate with the selected IP and configured FQDN in its SAN. The private
+`dashboard-tls.pem` contains its certificate and key, mode 0600 and owner-checked; starts reuse
+it, and a changed identity or expired certificate generates a replacement. A missing secret
+skips the bind with `dashboard_secret_required`. Status gives the secret/start steps; once the
+secret is set, `dashboard_restart_required` names `koinon install` as the next step. A failed
+bind or unavailable pinned IP leaves loopback available, with the address and error in the
+daemon log. The loopback status and login-link reply include nullable `dashboard_network`:
+`address`, `bind`, `url`, `sha256_fingerprint` when known, `code`, and optional `error` and `step`.
+Status reads also check that a running listener's pinned IP still belongs to this host; if it
+went away, only the network server closes and the loss is logged once. An install retries a
+previously failed network listener even when its binary and saved address did not change.
 The secret and state files are user-owned regular files, mode 0600; the state root is private.
 Secrets, runtime session identifiers and response bodies stay in the state directory, outside
 repositories.
@@ -2359,7 +2383,8 @@ and removes the settings file; successful jobs retain the file. Koinon owns `--b
 
 ### Dashboard and session observations
 
-The daemon serves a dashboard under `/dashboard/` on its loopback listeners. Pages are
+The daemon serves a dashboard under `/dashboard/` on its loopback listeners and, when configured,
+its separate network HTTPS listener. Pages are
 rendered on the server and their CSS and script are embedded in the binary; nothing is fetched
 from elsewhere. Peer message bodies appear here, escaped, and nowhere else outside the inboxes.
 
@@ -2489,7 +2514,7 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   `maintainer_token_expired`, the server writes the reply of a request in progress, writes the
   code to standard error and exits with status 1, also while standard input is open and idle.
   A poll that no daemon answers is tried again after 1 second, doubling to at most 30 seconds.
-- **Request protection.** Every dashboard request must name a literal loopback IP with a port in
+- **Request protection.** Every loopback dashboard request must name a literal loopback IP with a port in
   `Host` (`127.0.0.1:PORT` or `[::1]:PORT`; `localhost` and other names are refused). PORT may
   differ from the listener's, as through an SSH tunnel from another local port (ADR 001,
   Decision 4). An `Origin`, when present, must be `http://` plus that host. A request other
@@ -2503,6 +2528,14 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   `Origin: null` with a same-origin `POST`, which the origin check refuses), `Cache-Control: no-store`
   and `Cross-Origin-Opener-Policy: same-origin`. The dashboard cookie never authorizes `/v1/`, and
   the bearer secret never authorizes `/dashboard/`.
+  On the optional network listener the authority must be exactly the configured IP:port or
+  FQDN:port, and the origin must be `https://` plus that authority. Its cookie also has `Secure`.
+  Host case and default port 443 normalize as HTTP specifies, so an omitted default port
+  denotes the configured port 443; this adds no other host or port.
+  The login form requires the maintainer secret; a one-time link is refused without consuming
+  it. Removing the secret immediately refuses network requests. Routes outside `/dashboard/`
+  are absent, including `/v1/` and MCP. `koinon dashboard` also prints the network URL,
+  certificate SHA-256 fingerprint and any required step; it opens the loopback one-time link.
 - **Views.** `sessions` (100 per page, with the counts of active, expired and retired
   sessions; names, family, repository and working directory, state and times, the
   observations below with their source and time, and the live claims held under the session

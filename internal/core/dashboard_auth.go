@@ -173,6 +173,13 @@ func (a *dashboardAuth) prune(now time.Time) {
 // tunnel to another computer's daemon, keeps its own login (#454).
 func cookieName(r *http.Request) string {
 	_, port, _ := net.SplitHostPort(r.Host)
+	if networkDashboard(r) {
+		if port == "" {
+			port = "443"
+		} else if n, err := strconv.Atoi(port); err == nil {
+			port = strconv.Itoa(n)
+		}
+	}
 	return dashboardCookie + "_" + port
 }
 

@@ -31,12 +31,15 @@ var Families = []string{"claude", "codex", "agy", "opencode", "grok", "deepseek"
 
 // Options select the installation. Zero values take the documented defaults.
 type Options struct {
-	Prefix       string   // default $XDG_DATA_HOME/koinon/go
-	StateDir     string   // the Go state root; default platform.DefaultStateDir
-	Port         int      // the daemon's loopback port to record (#405); zero keeps the recorded one
-	PythonPrefix string   // the Python-era prefix that refuses a plain install
-	Agents       []string // families to set up, or to remove (default: all for removal)
-	NoStart      bool
+	Prefix           string // default $XDG_DATA_HOME/koinon/go
+	StateDir         string // the Go state root; default platform.DefaultStateDir
+	Port             int    // the daemon's loopback port to record (#405); zero keeps the recorded one
+	DashboardAddress string // dashboard HTTPS HOST:PORT; empty keeps the setting, none removes it
+	ResolveDashboard func(context.Context, string) (core.DashboardAddress, error)
+	dashboardChanged bool
+	PythonPrefix     string   // the Python-era prefix that refuses a plain install
+	Agents           []string // families to set up, or to remove (default: all for removal)
+	NoStart          bool
 	// System installs the daemon as a macOS LaunchDaemon (#283); a later install or
 	// uninstall finds system mode from its plist.
 	System bool
@@ -94,24 +97,25 @@ type Options struct {
 
 // Report is the JSON result of an install or an uninstall.
 type Report struct {
-	OK           bool           `json:"ok"`
-	Binary       string         `json:"binary"`
-	BinaryResult string         `json:"binary_result"`
-	Backend      string         `json:"backend"`
-	Artifact     string         `json:"artifact"`
-	Service      string         `json:"service"`
-	StartCommand string         `json:"start_command,omitempty"`
-	DaemonLog    string         `json:"daemon_log,omitempty"`
-	RestartStep  string         `json:"restart_step,omitempty"`
-	StateDir     string         `json:"state_dir"`
-	Port         int            `json:"port,omitempty"`
-	Link         string         `json:"link"`
-	LinkResult   string         `json:"link_result"`
-	OnPath       string         `json:"on_path,omitempty"`
-	PathStep     string         `json:"path_step,omitempty"`
-	OtherBinary  string         `json:"other_binary,omitempty"`
-	SourceStep   string         `json:"source_step,omitempty"`
-	Agents       []setup.Report `json:"agents"`
+	OK               bool                         `json:"ok"`
+	Binary           string                       `json:"binary"`
+	BinaryResult     string                       `json:"binary_result"`
+	Backend          string                       `json:"backend"`
+	Artifact         string                       `json:"artifact"`
+	Service          string                       `json:"service"`
+	StartCommand     string                       `json:"start_command,omitempty"`
+	DaemonLog        string                       `json:"daemon_log,omitempty"`
+	RestartStep      string                       `json:"restart_step,omitempty"`
+	StateDir         string                       `json:"state_dir"`
+	Port             int                          `json:"port,omitempty"`
+	DashboardNetwork *core.DashboardNetworkStatus `json:"dashboard_network,omitempty"`
+	Link             string                       `json:"link"`
+	LinkResult       string                       `json:"link_result"`
+	OnPath           string                       `json:"on_path,omitempty"`
+	PathStep         string                       `json:"path_step,omitempty"`
+	OtherBinary      string                       `json:"other_binary,omitempty"`
+	SourceStep       string                       `json:"source_step,omitempty"`
+	Agents           []setup.Report               `json:"agents"`
 	// Review is each family's state before an install at a terminal, with the permission rules
 	// after the question for a family that got it (#462); Permissions reports the permission
 	// rules of each set-up family after its question (#449).
@@ -164,6 +168,9 @@ func (o *Options) defaults() error {
 	}
 	if o.Port != 0 && !core.ValidPort(o.Port) {
 		return errors.New("invalid_request: the port must be from 1 to 65535")
+	}
+	if o.ResolveDashboard == nil {
+		o.ResolveDashboard = core.ResolveDashboardAddress
 	}
 	if o.Services.Run == nil {
 		if o.Services, err = platform.NewServices(); err != nil {
@@ -621,6 +628,34 @@ func Install(ctx context.Context, o Options) (Report, error) {
 	if err != nil {
 		return r, err
 	}
+	oldNetwork, err := core.ReadDashboardAddress(o.StateDir)
+	invalidNetwork := err != nil
+	if err != nil && o.DashboardAddress == "" {
+		return r, err
+	}
+	network := oldNetwork
+	if o.DashboardAddress == "none" {
+		network = nil
+	} else if o.DashboardAddress != "" || !o.Upgrade && oldNetwork != nil && oldNetwork.Host != oldNetwork.IP {
+		address := o.DashboardAddress
+		if address == "" {
+			address = oldNetwork.Address()
+		}
+		resolved, err := o.ResolveDashboard(ctx, address)
+		if err != nil {
+			return r, err
+		}
+		network = &resolved
+	}
+	if o.DashboardAddress != "" || network != nil {
+		if err := core.WriteDashboardAddress(o.StateDir, network); err != nil {
+			return r, err
+		}
+	}
+	o.dashboardChanged = invalidNetwork || oldNetwork == nil && network != nil || oldNetwork != nil && network == nil || oldNetwork != nil && network != nil && *oldNetwork != *network
+	if network != nil {
+		r.DashboardNetwork = &core.DashboardNetworkStatus{Address: network.Address(), Bind: network.Bind(), URL: "https://" + network.Address() + "/dashboard/", Code: "dashboard_restart_required", Step: "Start the daemon to open the configured network dashboard."}
+	}
 	// The service runs serve --state-dir alone, so the daemon reads its port from the state
 	// directory, as every client of that directory does; the service file stays the same.
 	if o.Port != 0 {
@@ -667,6 +702,11 @@ func Install(ctx context.Context, o Options) (Report, error) {
 		r.Service = "system"
 	} else if err := startAgent(ctx, o, &r, before); err != nil {
 		return r, err
+	}
+	if !o.NoStart && network != nil {
+		if status, err := readStatus(ctx, o); err == nil && status.DashboardNetwork != nil {
+			r.DashboardNetwork = status.DashboardNetwork
+		}
 	}
 	agents, err := reviewFamilies(ctx, o, &r)
 	if err != nil {
@@ -839,24 +879,31 @@ func startBackground(ctx context.Context, o Options, r *Report, before *daemonSt
 	r.Service, r.DaemonLog, r.RestartStep = "background", log, "No user service manager answers, so the daemon runs in the background without one. "+
 		"After this machine or container restarts, or after brew upgrade koinon, start it again with: "+restartCommand(o, r.Binary)
 	if now, err := readStatus(ctx, o); err == nil {
-		if r.BinaryResult == "unchanged" && current(o, now) {
-			return nil
-		}
-		// A daemon of this version that the install did not see before the binary changed
-		// was started for the new binary: none answered then, or it has another process ID.
-		if current(o, now) && (before == nil || now.PID != before.PID) {
-			return nil
-		}
-		old := now
-		if before != nil {
-			old = *before
-		}
-		replaced, err := waitForReplacement(ctx, o, old)
-		if err != nil {
-			return fmt.Errorf("daemon_not_started: no user service manager answers, and %v; stop it, then run %s again", err, restartCommand(o, r.Binary))
-		}
-		if replaced {
-			return nil
+		retryNetwork := now.DashboardNetwork != nil && now.DashboardNetwork.Code != "running" && now.DashboardNetwork.Code != "dashboard_secret_required"
+		if o.dashboardChanged || retryNetwork {
+			if err := stopDaemon(ctx, o, now.PID); err != nil {
+				return fmt.Errorf("daemon_not_started: network configuration changed: %w", err)
+			}
+		} else {
+			if r.BinaryResult == "unchanged" && current(o, now) {
+				return nil
+			}
+			// A daemon of this version that the install did not see before the binary changed
+			// was started for the new binary: none answered then, or it has another process ID.
+			if current(o, now) && (before == nil || now.PID != before.PID) {
+				return nil
+			}
+			old := now
+			if before != nil {
+				old = *before
+			}
+			replaced, err := waitForReplacement(ctx, o, old)
+			if err != nil {
+				return fmt.Errorf("daemon_not_started: no user service manager answers, and %v; stop it, then run %s again", err, restartCommand(o, r.Binary))
+			}
+			if replaced {
+				return nil
+			}
 		}
 	}
 	started, err := o.Background(r.Binary, o.StateDir, log)
@@ -988,8 +1035,9 @@ func stopDaemon(ctx context.Context, o Options, pid int) error {
 
 // daemonStatus is the part of the daemon's status that the install reads.
 type daemonStatus struct {
-	PID     int    `json:"pid"`
-	Version string `json:"version"`
+	PID              int                          `json:"pid"`
+	Version          string                       `json:"version"`
+	DashboardNetwork *core.DashboardNetworkStatus `json:"dashboard_network"`
 }
 
 // readStatus reads the answering daemon's status.
