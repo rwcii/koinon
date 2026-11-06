@@ -225,7 +225,7 @@ func claudeRules(dir string, add bool) (PermissionsResult, error) {
 
 // The Claude rules allow the agent-facing commands with and without arguments, for the PATH
 // name and for the installed binary, and no command that changes the installation, the
-// service, the maintainer's settings or a login (DECISIONS.md#CLI-RULES-550).
+// service, the maintainer's settings or a login (CLI-RULES-550 in PDR 003, Decision 4).
 func TestClaudeRulesCoverAgentCommands(t *testing.T) {
 	if len(ClaudePermissions) != 1+2*len(ClaudeCommands) || ClaudePermissions[0] != "mcp__koinon__*" {
 		t.Fatalf("rules: %q", ClaudePermissions)

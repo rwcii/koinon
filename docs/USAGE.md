@@ -482,7 +482,7 @@ session; the page names the reason (for example a session that is not in its lau
 or a missing `koinon-pickup` skill, with the `koinon install` step that installs it). Disabling always works. A stored mode or threshold that is not valid
 keeps the family default, and the Settings page names the error.
 
-The Settings page also turns on the spoken alert (#553, DECISIONS.md#SPEAK-SCOPE-553). While it
+The Settings page also turns on the spoken alert (#553, SPEAK-SCOPE-553 in PDR 007, Decision 1). While it
 is on and a dashboard page is open, the browser says each decision or task that starts to wait
 for you, with its repository: "koinon: a decision waits for you", or "koinon: 2 items wait for
 you" for several at once. An item that a new revision returns to waiting is new again. The
@@ -500,7 +500,7 @@ page says so). The **Test** button speaks a sample sentence.
 Claude sessions report their context through the status line that `koinon setup claude`
 installs. Koinon's status-line entry runs every 30 seconds (Claude Code's `refreshInterval`),
 also while the session is idle, so an idle Claude session at its threshold gets its handoff
-cycle without a new turn (#566, DECISIONS.md#CLAUDE-IDLE-566). This needs Claude Code 2.1.97 or
+cycle without a new turn (#566, CLAUDE-IDLE-566 in PDR 006, Decision 1). This needs Claude Code 2.1.97 or
 later. An interval of 1 to 30 seconds that your entry already had stays. After an upgrade, run
 `koinon setup claude` again to add the interval. If you edited Koinon's status-line entry, setup
 keeps it and reports `statusline_changed`: add `"refreshInterval": 30` to the entry yourself.
@@ -510,7 +510,7 @@ agy sessions report their context and activity through the status line that `koi
 installs, so the Sessions page shows their readings. The agy family default stays `observe`.
 Antigravity CLI runs the status line when its state changes, not while the session is idle, so
 in `handoff_cycle` an idle agy session above its threshold gets its cycle at its next turn and
-runs that turn with its full context (DECISIONS.md#AGY-IDLE-568,
+runs that turn with its full context (AGY-IDLE-568 in PDR 006, Decision 1,
 [#571](https://github.com/rwcii/koinon/issues/571)). Koinon has no verified
 status-line timer for Antigravity CLI 1.4.7 (the inspected binary showed no timer setting, and
 idle timer behavior is not live-checked), its hook reports are not retried, and it has no
@@ -521,7 +521,7 @@ reply and its model's context limit. A direct `opencode` start shows none. The O
 default stays `observe`. In `handoff_cycle` an idle OpenCode, DeepSeek or Codex session above
 its threshold gets its cycle without a new turn: an older reading counts while the daemon's
 newest confirmation shows that the session is idle with nothing after the reading (#569,
-DECISIONS.md#PULLED-IDLE-569). The DeepSeek case is not yet checked against a live harness.
+PULLED-IDLE-569 in PDR 006, Decision 1). The DeepSeek case is not yet checked against a live harness.
 DeepSeek sessions registered with `koinon register` show their model and context too: the
 daemon reads them every 15 seconds from the session's own harness, with the wake's credential,
 from the token meter's newest usage and the model's context window. Its family default stays
@@ -532,7 +532,7 @@ current tokens and its size. An input without both counts leaves the last readin
 Its family default stays `observe`. Koinon's `[ui.status_line]` table has `refresh_interval =
 30`, so Grok runs the status line every 30 seconds, also while the session is idle, and an idle
 Grok session at its threshold gets its handoff cycle without a new turn (#568,
-DECISIONS.md#GROK-IDLE-568). An interval of 1 to 30 seconds that your table already had stays.
+GROK-IDLE-568 in PDR 006, Decision 1). An interval of 1 to 30 seconds that your table already had stays.
 After an upgrade, run `koinon setup grok` again, then start Grok again: Grok reads its
 configuration at startup. If you edited Koinon's status-line command, setup keeps it and reports
 `statusline_changed`: add `refresh_interval = 30` to the table yourself, then start Grok again.

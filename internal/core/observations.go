@@ -78,12 +78,12 @@ type ObservedValue struct {
 	End *RolloutEnd `json:"end,omitempty"`
 	// current is a daemon reader's proof that no newer context exists than this reading: an
 	// OpenCode or DeepSeek session read idle with nothing after the reading, in one round
-	// (DECISIONS.md#PULLED-IDLE-569). Only the daemon's own readers set it; no report decodes it
+	// (PULLED-IDLE-569 in PDR 006, Decision 1). Only the daemon's own readers set it; no report decodes it
 	// and no view shows it.
 	current bool
 	// newest marks a daemon reader's reading as its source's newest: at the same source time
 	// it replaces a different stored reading, such as a new usage event in the same
-	// millisecond (DECISIONS.md#PULLED-IDLE-569). No report decodes it.
+	// millisecond (PULLED-IDLE-569 in PDR 006, Decision 1). No report decodes it.
 	newest bool
 	// activity. TurnError is the fixed code of a failed Codex turn on an idle activity (#250).
 	State     string `json:"state,omitempty"`
@@ -127,7 +127,7 @@ type storedValue struct {
 	seen  int64
 	epoch string
 	end   *RolloutEnd // the caught-up mark of the newest confirmation, or nil
-	// current is the proof of the newest confirmation (DECISIONS.md#PULLED-IDLE-569).
+	// current is the proof of the newest confirmation (PULLED-IDLE-569 in PDR 006, Decision 1).
 	current bool
 }
 
@@ -537,7 +537,7 @@ func (s *Store) contextEvidence(k Key) ContextEvidence {
 
 // clearContextProof ends the proof of a session's stored context reading at once and confirms
 // nothing: a daemon reader calls it after a read that failed or gave no reading
-// (DECISIONS.md#PULLED-IDLE-569).
+// (PULLED-IDLE-569 in PDR 006, Decision 1).
 func (s *Store) clearContextProof(k Key) {
 	s.observed.mu.Lock()
 	defer s.observed.mu.Unlock()

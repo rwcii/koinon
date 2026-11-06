@@ -476,7 +476,7 @@ func TestInstallSharedEntryKeepsAdoptedCopy(t *testing.T) {
 	}
 	codex := core.CodexSkillPath(e.o.Services.Home, guide.Name)
 	claude := core.ClaudeSkillPath(e.o.ClaudeConfig, guide.Name)
-	// The entry as v0.5.0 to v0.8.0 wrote it, before DECISIONS.md#RESTORE-STEPS-487.
+	// The entry as v0.5.0 to v0.8.0 wrote it, before RESTORE-STEPS-487 in PDR 006, Decision 3.
 	older := strings.Replace(string(guide.Content), "Repository facts section says. If the\ntool is unavailable, stop and report that.\n",
 		"Repository facts section says.\n", 1)
 	if older == string(guide.Content) {

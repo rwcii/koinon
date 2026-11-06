@@ -610,7 +610,7 @@ func TestContextCycleDeadlinesAndIntentRecovery(t *testing.T) {
 	if v := f.status(t, f.k); v.State != cycleFailed || v.Reason != "waiting_ready_timeout.unread" {
 		t.Fatalf("ready timeout: %+v", v)
 	}
-	// A first ready timeout before any input keeps the Enable (DECISIONS.md#READY-TIMEOUT-ENABLE-487).
+	// A first ready timeout before any input keeps the Enable (READY-TIMEOUT-ENABLE-487 in PDR 006, Decision 2).
 	if e, _ := f.s.contextEnables(context.Background()); !e[f.k].Enabled {
 		t.Fatal("a first ready timeout ended the Enable")
 	}

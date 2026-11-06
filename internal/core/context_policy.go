@@ -294,7 +294,7 @@ func (s *Store) SetContextEnable(ctx context.Context, peer string, sessionRevisi
 	}
 	if enabled && current.Enabled {
 		// An Enable that is on for the same session, host and pane changes nothing: it gives
-		// no new retry and arms no crossing (#584, DECISIONS.md#READY-TIMEOUT-ENABLE-487).
+		// no new retry and arms no crossing (#584, READY-TIMEOUT-ENABLE-487 in PDR 006, Decision 2).
 		var pin struct {
 			revision, hostPID, hostStart int64
 			address, socket, pane        string
@@ -453,9 +453,9 @@ func (s *Store) contextEnables(ctx context.Context) (map[Key]ContextEnable, erro
 // Trigger clocks (#196 DoD, approved at Gate B): a trigger needs the context source at most
 // two minutes old and the daemon's last confirmation of it at most 90 seconds old. In
 // native_compaction an older source counts when its newest confirmation is caught up
-// (DECISIONS.md#IDLE-COMPACT-564): an idle Codex rollout records no new reading. In
+// (IDLE-COMPACT-564 in PDR 006, Decision 1): an idle Codex rollout records no new reading. In
 // handoff_cycle it also counts when that confirmation is caught up, or carries a daemon reader's
-// proof that the OpenCode or DeepSeek reading is current (DECISIONS.md#PULLED-IDLE-569).
+// proof that the OpenCode or DeepSeek reading is current (PULLED-IDLE-569 in PDR 006, Decision 1).
 const (
 	contextSourceMaxAge       = 2 * time.Minute
 	contextConfirmationMaxAge = 90 * time.Second
@@ -472,7 +472,7 @@ type ContextEvidence struct {
 	ConfirmedAt int64 // when the daemon last received confirmation (ms)
 	// End is the caught-up mark of that confirmation, or nil (#564).
 	End *RolloutEnd
-	// Current is a daemon reader's proof that the reading is current (DECISIONS.md#PULLED-IDLE-569).
+	// Current is a daemon reader's proof that the reading is current (PULLED-IDLE-569 in PDR 006, Decision 1).
 	Current bool
 }
 
@@ -490,7 +490,7 @@ type ContextTriggerInput struct {
 	Now               int64  // ms
 	LatchedEpoch      string // the epoch whose crossing was already selected, or ""
 	// AwaitingRead reports a ready timeout that kept the Enable in this epoch, with no inbox
-	// read by the session since (DECISIONS.md#READY-TIMEOUT-ENABLE-487).
+	// read by the session since (READY-TIMEOUT-ENABLE-487 in PDR 006, Decision 2).
 	AwaitingRead bool
 }
 
@@ -535,8 +535,8 @@ func SelectContextTrigger(in ContextTriggerInput) (bool, string) {
 
 // currentReading reports a reading whose newest confirmation shows that no newer context
 // exists, so its source age does not count: in native_compaction a Codex caught-up mark
-// (DECISIONS.md#IDLE-COMPACT-564), and in handoff_cycle that mark or a daemon reader's proof
-// (DECISIONS.md#PULLED-IDLE-569). The confirmation age, the epoch and the threshold still apply.
+// (IDLE-COMPACT-564 in PDR 006, Decision 1), and in handoff_cycle that mark or a daemon reader's proof
+// (PULLED-IDLE-569 in PDR 006, Decision 1). The confirmation age, the epoch and the threshold still apply.
 func currentReading(mode string, e ContextEvidence) bool {
 	switch mode {
 	case ContextNativeCompaction:

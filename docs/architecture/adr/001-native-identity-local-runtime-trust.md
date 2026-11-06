@@ -119,20 +119,21 @@ said "Koinon does not use, stop or change the user's shared Codex app-server or 
 configuration file", and Requirement 3 said "A peer's message reaches the recipient as data; it
 does not run or configure anything." #487 restated both as what the code does. The #487
 review listed three limits and proposed to keep them; the question was whether to keep them or
-to remove them too. Maintainer, 2026-10-25: "remove all limit text.  remove all of the caveats,
+to remove them too. Robert Capps, 2026-10-25: "remove all limit text.  remove all of the caveats,
 controls, etc.  the agents have their own built in safeties, they do not need you adding more
 complications." ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
 Reason: limit text with no source makes agents of different families refuse each other's work.
 Scope: agent-facing text, skills, setup blocks and the docs and records that restate them. The #487 audit listed the code
 refusals for a separate decision (#493).
 
-`identity_unavailable`: Maintainer, 2026-10-26, on decision board item 493-1, which asked
+`identity_unavailable`: Robert Capps, 2026-10-26, on decision board item 493-1, which asked
 whether to keep or remove the refusal of a Koinon MCP tool call whose arguments contain
 `caller`, `family`, `id`, `as`, `session` or `session_id` (`internal/mcp/identity.go`):
-approved ([DECISIONS.md#493-1](../../../DECISIONS.md#493-1)), with the note "keep it"
+approved (493-1), with the note "keep it"
 ([#493 comment 6406425541](https://github.com/rwcii/koinon/issues/493#issuecomment-6406425541)).
 The card's recommendation and reason: "Keep it. It sends each message, claim and cycle to the
-session that made the call, and it stops no work." Scope: this refusal; the code does not
+session that made the call, and it stops no work." Without the refusal, a call could name an
+identity, and an agent could read another session's inbox or send as that session. Scope: this refusal; the code does not
 change. The Grok leader-mode refusal is PDR 001 (Decision 1).
 
 ### Alternatives Considered
@@ -359,4 +360,4 @@ agent.
 | 2026-10-22 | Decision 4: the login cookie is named after the `Host` port (#454) |
 | 2026-10-25 | Decision 4: the login form accepts the maintainer secret (PDR 009, #470) |
 | 2026-10-25 | Requirement 3, Decisions 1 and 3: the peer-data and "does not" statements are restated as what the code does (#487) |
-| 2026-10-26 | Decision 1: the maintainer kept the `identity_unavailable` refusal ([DECISIONS.md#493-1](../../../DECISIONS.md#493-1), #493) |
+| 2026-10-26 | Decision 1: the maintainer kept the `identity_unavailable` refusal (493-1, #493) |

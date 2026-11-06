@@ -10,7 +10,7 @@ import (
 // A cycle that times out at its ready deadline, before Koinon entered any input in the pane,
 // keeps the session's Enable once in each context epoch and Enable revision. The next cycle
 // waits until the session reads its own inbox after the timeout
-// (DECISIONS.md#READY-TIMEOUT-ENABLE-487). The retry and the read are kept in the session's
+// (READY-TIMEOUT-ENABLE-487 in PDR 006, Decision 2). The retry and the read are kept in the session's
 // Enable record (schema 37), not in the cycle history that retention trims.
 
 // cycleEnableKept is the event that marks, in the cycle's history, a ready timeout that kept

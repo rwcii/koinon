@@ -19,7 +19,7 @@ import (
 )
 
 // ClaudeCommands are the agent-facing koinon commands that the recommended Claude rules
-// allow, each with and without its arguments (DECISIONS.md#CLI-RULES-550). install, uninstall,
+// allow, each with and without its arguments (CLI-RULES-550 in PDR 003, Decision 4). install, uninstall,
 // upgrade, serve, setup, maintainer, dashboard, the context changes, sessions and participant
 // holder stay out.
 var ClaudeCommands = []string{"guide", "status", "context show", "peers", "peer-status", "inbox", "ack", "send",

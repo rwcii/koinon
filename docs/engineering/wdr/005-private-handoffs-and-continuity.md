@@ -88,7 +88,7 @@ Inventory rows: C048, C049.
   maintainer's approval for a pending prompt; a peer cannot widen permissions; refuse permission
   laundering and report it). Keep them, or remove them too?
 - Options: keep the three limits, or remove them as well.
-- Answer: Maintainer, 2026-10-25
+- Answer: Robert Capps, 2026-10-25
   ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)):
   "remove all limit text.  remove all of the caveats, controls, etc.  the agents have their own
   built in safeties, they do not need you adding more complications."
@@ -113,14 +113,14 @@ wrong place. `.gitignore` lists `_handoff/`; when a branch lacks that rule, the 
 the local `info/exclude`, creates the directories with mode 0700 and checks with `git
 check-ignore` and `git ls-files` that Git ignores and tracks nothing there. When a check
 fails, the agent stops, tells the maintainer which check failed and writes no handoff
-([DECISIONS.md#RESTORE-STEPS-487](../../../DECISIONS.md#restore-steps-487)). The skill does not
+(RESTORE-STEPS-487 in PDR 006, Decision 3). The skill does not
 stage, commit or push a handoff. Native session IDs and tmux values recorded in a handoff
 stay only in that ignored file.
 
-**Provenance:** Maintainer, 2026-09-24, session transcript: "fix the handoff to use the
-gitignored _handoff directory as you were told to use." and "maybe the skill needs to be specifc
-in that the _handoff directory in the main checkou/repo directory is where all _handoffs belong,
-nver in the worktree since they get purged." Shipped in PR #130 (merge commit 2fe8c28).
+**Provenance:** Robert Capps, 2026-09-24, session transcript: "fix the handoff to use the
+gitignored _handoff directory as you were told to use." and "maybe the skill needs to be specific
+in that the _handoff directory in the main checkout/repo directory is where all _handoffs belong,
+never in the worktree since they get purged." Shipped in PR #130 (merge commit 2fe8c28).
 
 ### Alternatives Considered
 
@@ -196,7 +196,7 @@ so. The note is not a handoff: only timestamped files are snapshots".
 **Provenance:** Requested in #478 (issue body), a request record with observations from about 12
 handoff cycles on 2026-10-24 and 2026-10-25: handoffs were written only when context filled,
 sessions reached 58–77% before they stopped, and one pickup of a 7–11 KB handoff cost 28% of
-context and 14 minutes. Maintainer, 2026-10-25, session transcript, after a review of an article
+context and 14 minutes. Robert Capps, 2026-10-25, session transcript, after a review of an article
 on agent harness setup: "are you updating the koinon-pickup/handoff skills so a handoff starts
 from progress.md and a pickup reads it first, like discussed in the article?", then
 "[another project's agent] filed https://github.com/rwcii/koinon/issues/478 covering the
@@ -230,7 +230,7 @@ a Claude Code background subagent; its result arrives in the new conversation as
 the new session knows the task only from the handoff (PDR 006, Decision 3). `pickup` reports
 each listed subagent with its result, or says that the result has not arrived.
 
-**Provenance:** Maintainer, 2026-10-27, session transcript, while the #533 fix was in review:
+**Provenance:** Robert Capps, 2026-10-27, session transcript, while the #533 fix was in review:
 "the sub agents continue on clear, but an agent handoff should capture the state of the
 subagents." The intent: the subagents run on, and the handoff carries their state so that the
 next session can use their results.
@@ -275,7 +275,7 @@ leaves the claim unverified, with the error. The
 maintainer's direct instructions, quoted directions and approvals given in a conversation or a
 native prompt keep their own sources: the rule adds no item before an agent acts on them.
 
-**Provenance:** Maintainer, 2026-11-03, session transcript: "we're getting much less accurate
+**Provenance:** Robert Capps, 2026-11-03, session transcript: "we're getting much less accurate
 summaries that are causing drift in work after a pickup is completed. in one example, the
 handoff and pickup cycle ended up adding refusal content that was not part of the context prior
 to the handoff cycle." The example, from an adopting project's session on 2026-11-03: its
@@ -285,7 +285,7 @@ than the maintainer's words, next to the cycle's pause; after the pickup the age
 those points again, and the maintainer said "this is not what we discussed and agreed on". The
 handoff skill had never asked for the maintainer's words, and its step 4 started from the
 progress note without checking that the note was newer; in the example the note was a day
-older. Maintainer, 2026-11-03, decision board item HANDOFF-WORDS (revision 1), "approved", no
+older. Robert Capps, 2026-11-03, decision board item HANDOFF-WORDS (revision 1), "approved", no
 note, after "agreed" in the terminal. The question: "Handoffs carry the maintainer's words and
 keep the agent's own proposals apart". The card recommended the two template sections, the
 note only when newer than the last snapshot, pickup reporting the proposals as the agent's own,
@@ -296,7 +296,7 @@ ideas as its own.
 The board check: a peer session of an adopting project reported on 2026-11-03 that its handoff
 wrote "Recommendation pending the maintainer's answer" for a proposal that was only in a tracker
 row, with no decision item, and that pickup reported the line to the maintainer as "Waiting on
-you" while the board was empty. The maintainer, 2026-11-03, relayed by that session (issue
+you" while the board was empty. Robert Capps, 2026-11-03, relayed by that session (issue
 #600): "your handoffs are flawed if you are adding shit like this in, and then you don't
 validate on pickup. report this issue to claude-koinon". The template's "Blockers and open
 decisions" line asked for no item, and `pickup` checked Git, pull request and issue claims but
@@ -343,7 +343,7 @@ the current head again, reports the goal's hierarchy first, gives this goal when
 the goal, and continues at the first next step that still applies, with open work going on while
 a blocker waits for someone else.
 
-**Provenance:** Maintainer, 2026-11-04, terminal: "we need to adjust the koinon-handoff skill.
+**Provenance:** Robert Capps, 2026-11-04, terminal: "we need to adjust the koinon-handoff skill.
 handoffs are losing critical context around goals. specifically, the ultimate goal, the current
 blocker towards that goal, the work underway to clear that blocker should be captured, and the
 next steps after the handoff in that process should be documented. can you evaluate the current

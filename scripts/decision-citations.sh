@@ -6,6 +6,6 @@
 found=$(grep -niE 'verdicts?( id)? #?[0-9]+')
 if [ -n "$found" ]; then
   printf '%s\n' "$found" >&2
-  echo "Name a decision board verdict by its card reference, or DECISIONS.md#REFERENCE for an entry in that file, not by its verdict ID (#536)." >&2
+  echo "Name a decision board verdict by its card reference, not by its verdict ID (#536)." >&2
   exit 1
 fi

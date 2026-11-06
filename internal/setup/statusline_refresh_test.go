@@ -8,7 +8,7 @@ import (
 )
 
 // The Claude status line runs at least every 30 seconds, also while the session is idle
-// (DECISIONS.md#CLAUDE-IDLE-566): setup sets refreshInterval in its entry, keeps an earlier
+// (CLAUDE-IDLE-566 in PDR 006, Decision 1): setup sets refreshInterval in its entry, keeps an earlier
 // valid interval of 1 to 30 seconds, and leaves the saved original and an edited entry alone.
 
 func claudeLine(t *testing.T) statusLine {

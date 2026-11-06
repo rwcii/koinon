@@ -153,7 +153,7 @@ In `~/.claude/settings.json` (`$CLAUDE_CONFIG_DIR/settings.json` when overridden
 
 The first rule covers the configured `koinon` server; an individual rule is, for example,
 `mcp__koinon__inbox`. The Bash entries permit, with and without their arguments, the commands
-that agents run ([DECISIONS.md#CLI-RULES-550](../DECISIONS.md#cli-rules-550)): `guide`,
+that agents run (CLI-RULES-550 in PDR 003, Decision 4): `guide`,
 `status`, `context show`, `peers`, `peer-status`, `inbox`, `ack`, `send`, `cycle-status`,
 `cycle-ready`, `cycle-pickup`, `decision`, `work`, `claim renew`, `memory`, `room list`,
 `room members`, `room post`, `room read` and `library`. They leave out `install`, `uninstall`,

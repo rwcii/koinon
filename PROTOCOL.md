@@ -273,9 +273,9 @@ percentage of a positive limit (equality and use above the limit included), the 
 source is at most 120 seconds old and its last confirmation at most 90 seconds old, and the
 observation's native epoch has not been selected already. In `native_compaction` an older
 source also counts when the newest confirmation carries the reader's caught-up mark (#564,
-DECISIONS.md#IDLE-COMPACT-564). In `handoff_cycle` an older source counts when the newest
+IDLE-COMPACT-564 in PDR 006, Decision 1). In `handoff_cycle` an older source counts when the newest
 confirmation carries that mark or the daemon reader's proof that an `opencode_server` or
-`dsh_projections` reading is current (#569, DECISIONS.md#PULLED-IDLE-569; see "Session
+`dsh_projections` reading is current (#569, PULLED-IDLE-569 in PDR 006, Decision 1; see "Session
 observations"). A source or confirmation time later
 than the daemon's clock is `observation_future`. Otherwise it names one reason:
 `session_inactive`, `mode_observe`, `not_enabled`,
@@ -475,7 +475,7 @@ the cycle in their own transaction. A cycle that ends after an input whose effec
 proven (an intent, or `clear_received` without a proven reset) is `uncertain`, with the
 reason of whatever ended it. Failed, cancelled and uncertain cycles end the session's Enable; a
 later cycle needs a new Enable and a new handoff. One exception
-(DECISIONS.md#READY-TIMEOUT-ENABLE-487): a cycle that fails at its ready deadline
+(READY-TIMEOUT-ENABLE-487 in PDR 006, Decision 2): a cycle that fails at its ready deadline
 (`waiting_ready_timeout`), with no input event at any stage, keeps the Enable once for each
 epoch and Enable revision; the lifetime deadline (`cycle_timeout`) keeps the rule above. The
 session's Enable record holds the retry (schema 37: `kept_epoch`, `kept_revision`,
@@ -1101,7 +1101,7 @@ return `invalid_request`.
 
 Schema 37 adds `kept_epoch` (text), `kept_revision` and `kept_read` (0 or 1) to
 `context_enables`, all with defaults, for the ready-timeout retry
-(DECISIONS.md#READY-TIMEOUT-ENABLE-487). A schema 36 binary refuses the upgraded store.
+(READY-TIMEOUT-ENABLE-487 in PDR 006, Decision 2). A schema 36 binary refuses the upgraded store.
 
 Schema 36 rebuilds `decision_items` and `decision_verdicts` (#537), because SQLite cannot widen
 a CHECK in place: `kind` adds `task`, `state` adds `returned`, and `verdict` adds `feedback`,
@@ -2589,7 +2589,7 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   "more": BOOL}`, at most 200 items. `version` is the `decisions` change version, which each
   decision write moves; `repository` is the base name of the author participant's repository,
   empty for a plain peer's item. A bad `after` is 400. The Settings page's switch (#553,
-  DECISIONS.md#SPEAK-SCOPE-553) is browser state: `speak.js` reads page 1, stops when `version`
+  SPEAK-SCOPE-553 in PDR 007, Decision 1) is browser state: `speak.js` reads page 1, stops when `version`
   equals the stored one, otherwise reads every page and starts again when a page's `version`
   differs. It compares the items' `reference@revision` with the stored set; new ones become
   sentences in the same stored value, which the browser speaks one at a time under the Web Lock
@@ -2729,7 +2729,7 @@ values are confirmed at least every 30 seconds while Koinon's status-line entry 
 it; a Grok session's likewise, while Koinon's `[ui.status_line]` table has its
 `refresh_interval` and Grok was started after it was set (#568). In `handoff_cycle` an idle agy
 session above its threshold therefore gets its cycle at its next turn, not while it is idle
-(DECISIONS.md#AGY-IDLE-568, [#571](https://github.com/rwcii/koinon/issues/571)): Koinon has no verified
+(AGY-IDLE-568 in PDR 006, Decision 1, [#571](https://github.com/rwcii/koinon/issues/571)): Koinon has no verified
 status-line timer for Antigravity CLI 1.4.7 (the inspected binary showed no timer setting, and
 idle timer behavior is not live-checked), its hook reports are not retried, and it has no verified native record that
 shows the session idle with nothing after the reading. A session that is not active shows `unknown` with `session_expired` or
@@ -2883,7 +2883,7 @@ prints the model's display name without one, and reports the model and context o
 `session_id`. `koinon setup claude` makes it the `statusLine` entry, keeping the entry's other
 fields and wrapping its previous command. The entry gets `"refreshInterval": 30`, so Claude Code
 runs it at least every 30 seconds, also while the session is idle (#566,
-DECISIONS.md#CLAUDE-IDLE-566; Claude Code 2.1.97 or later, not checked). A previous interval
+CLAUDE-IDLE-566 in PDR 006, Decision 1; Claude Code 2.1.97 or later, not checked). A previous interval
 that is a number from 1 to 30 stays as it was; no interval, a longer one or one that Claude Code
 does not accept (below 1, or not a number) becomes 30. The saved previous entry keeps its own
 interval or none. The previous entry is saved once, before the settings
@@ -2934,7 +2934,7 @@ session's reading becomes stale after 30 minutes. `koinon setup
 grok` makes `'BINARY' hook grok-status` the `command` of a `[ui.status_line]` table with
 `type = "command"` in Grok's `config.toml` (`--grok-home`, else `$GROK_HOME`, else `~/.grok`).
 Setup owns only the table's `type`, `command` and `refresh_interval` (#568,
-DECISIONS.md#GROK-IDLE-568): `refresh_interval = 30` runs the status line every 30 seconds, also
+GROK-IDLE-568 in PDR 006, Decision 1): `refresh_interval = 30` runs the status line every 30 seconds, also
 while the session is idle, so the reading stays inside the trigger's clocks; an earlier integer
 from 1 to 30 stays, and any other value or none becomes 30. That rule is Koinon's choice: Grok's
 documentation gives no range and no first version for the key. Grok reads `config.toml` at

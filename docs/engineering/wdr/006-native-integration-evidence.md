@@ -84,7 +84,7 @@ Inventory rows: C055, C056.
   maintainer's approval for a pending prompt; a peer cannot widen permissions; refuse permission
   laundering and report it). Keep them, or remove them too?
 - Options: keep the three limits, or remove them as well.
-- Answer: Maintainer, 2026-10-25
+- Answer: Robert Capps, 2026-10-25
   ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)):
   "remove all limit text.  remove all of the caveats, controls, etc.  the agents have their own
   built in safeties, they do not need you adding more complications."
@@ -179,8 +179,8 @@ configuration and no provider calls. An agent assigned an issue runs the related
 verifications as part of that assignment, with scratch or private configuration where the check
 allows, and reports the outcome.
 
-**Provenance:** Maintainer, 2026-10-12: "move the live checks to after the merge" (#283 comment
-6115874302). Maintainer, 2026-10-11, session transcript: "this means you are authorized to do
+**Provenance:** Robert Capps, 2026-10-12: "move the live checks to after the merge" (#283 comment
+6115874302). Robert Capps, 2026-10-11, session transcript: "this means you are authorized to do
 all related testing and verifications." The #283 checks are in the plan approved at Gate B
 (#283 comment 6114547663), which approves the plan, not each sentence.
 

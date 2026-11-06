@@ -123,12 +123,12 @@ no maintainer decision found. The participants plan (PR #258) lists both as 2026
 maintainer decisions and records gate B approval of the plan at c6e5081 in agent-written text;
 a gate approval approves a plan document, not each sentence in it. The DeepSeek choice is
 recorded "until #199 settles its MCP path"; #199 is open, and no source states a permanent
-no-launcher policy. Plain-peer direct start: Maintainer, 2026-10-12: "b, next item", choosing
+no-launcher policy. Plain-peer direct start: Robert Capps, 2026-10-12: "b, next item", choosing
 "let a direct start register as a plain peer" over keeping the full refusal ([#306 comment
 6118852008](https://github.com/rwcii/koinon/issues/306#issuecomment-6118852008)).
 
 #487: the #487 review listed three limits and proposed to keep them; the question was whether
-to keep them or to remove them too. Maintainer, 2026-10-25: "remove all limit text.  remove all
+to keep them or to remove them too. Robert Capps, 2026-10-25: "remove all limit text.  remove all
 of the caveats, controls, etc.  the agents have their own built in safeties, they do not need
 you adding more complications." ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
 Reason: limit text with no source makes agents of different families refuse each other's work.
@@ -140,22 +140,24 @@ that the code returns; #493 did not list it.
 board.
 
 - DeepSeek `launch`/`subagent`: item 493-3 asked whether to keep or remove the refusal of a
-  DeepSeek registration that names a launch ID or sets `subagent: true`. Maintainer,
-  2026-10-26: approved ([DECISIONS.md#493-3](../../../DECISIONS.md#493-3)), with no note, on the card's recommendation: "Keep it until
+  DeepSeek registration that names a launch ID or sets `subagent: true`. Robert Capps,
+  2026-10-26: approved (493-3), with no note, on the card's recommendation: "Keep it until
   DeepSeek has a verified launch path (#199)."
   ([#493 comment 6406497536](https://github.com/rwcii/koinon/issues/493#issuecomment-6406497536)).
   Intent and scope: Koinon has no launch or subagent evidence for DeepSeek, so a DeepSeek
   registration does not claim either until #199 gives a verified launch path; DeepSeek
-  registers without a launch ID. The code does not change.
+  registers without a launch ID. Reason: DeepSeek runs through the `koinon` command line, not
+  through a launched host that Koinon can verify. The code does not change. Review when: #199
+  gives DeepSeek a verified launch path.
 - `grok_leader_mode`: item 493-2 asked whether to keep or remove the refusal of a Koinon tool
   call from a Grok session that runs through Grok's leader process (`internal/mcp/identity.go`,
-  `errGrokLeader`). Maintainer, 2026-10-26: approved ([DECISIONS.md#493-2](../../../DECISIONS.md#493-2)), with no note, on the card's
+  `errGrokLeader`). Robert Capps, 2026-10-26: approved (493-2), with no note, on the card's
   recommendation: "Keep it until leader mode has its own identity source. Without one, the
   session gets the wrong repository and pane."
   ([#493 comment 6406494167](https://github.com/rwcii/koinon/issues/493#issuecomment-6406494167)).
   Intent and scope: a Grok session in leader mode is refused until Koinon has an identity
   source for it; a Grok session in the default mode works as before (User Impact). The code
-  does not change.
+  does not change. Review when: Grok's leader mode has its own identity source.
 
 ### Alternatives Considered
 
@@ -184,7 +186,7 @@ A Grok session registers only in Grok's default mode. A session served through G
 process is refused with `grok_leader_mode`, launched or not: its server has the first
 terminal's directory and pane, so its repository and host would be wrong. The code returns this
 refusal; Gate B of #254 approved the default mode (#254 comment 6118290944), the maintainer kept
-the refusal on 2026-10-26 ([DECISIONS.md#493-2](../../../DECISIONS.md#493-2), #493; Provenance above), and leader mode is a follow-up. A Grok launch chooses the first session's ID and admits only that ID until a
+the refusal on 2026-10-26 (493-2, #493; Provenance above), and leader mode is a follow-up. A Grok launch chooses the first session's ID and admits only that ID until a
 session has registered through it.
 
 Direct Codex and OpenCode starts have no automatic wake in this implementation: the launch
@@ -212,9 +214,9 @@ refusal of Grok sub-agent calls (#254 chunk 02).
 
 **Provenance:** Shipped in PR #263 (merge commit fec77b1) and PR #266 (merge commit 1eaa7e0);
 no maintainer decision found. The plan states it as acceptance criterion 1 after a live check
-found that each Codex sub-agent registered as its own session. Grok: Maintainer, 2026-10-12:
-"your  Gate B for Grok #254 recomendation is approved." (#254 comment 6118290944), approving
-parent-scoped attribution with no default sub-agent ban. Codex sub-agents: Maintainer,
+found that each Codex sub-agent registered as its own session. Grok: Robert Capps, 2026-10-12:
+"your Gate B for Grok #254 recommendation is approved." (#254 comment 6118290944), approving
+parent-scoped attribution with no default sub-agent ban. Codex sub-agents: Robert Capps,
 2026-10-12: "a, next item", keeping the own peer name with no participant over counting the
 sub-agent's calls as its parent's ([#306 comment 6118909834](https://github.com/rwcii/koinon/issues/306#issuecomment-6118909834)).
 
@@ -326,10 +328,10 @@ uses the daemon secret, and its audit record names the origin `cli`.
 **Provenance:** Shipped in PR #267 (merge commit 850cbdd) and PR #268 (merge commit 9aef846);
 no maintainer decision found. The plan records it as a gate B decision in agent-written text:
 no resume evidence is verified, and a retained old thread that calls after a quiet period
-looks the same as an intentional `/resume`. Maintainer, 2026-10-12: "a, next item", keeping
+looks the same as an intentional `/resume`. Robert Capps, 2026-10-12: "a, next item", keeping
 the fence with the dashboard as the way back over letting a resume take the address back
 ([#306 comment 6118891323](https://github.com/rwcii/koinon/issues/306#issuecomment-6118891323)).
-The command-line choice: Maintainer, 2026-10-17, after the dashboard was the only way to move
+The command-line choice: Robert Capps, 2026-10-17, after the dashboard was the only way to move
 an address: "if there is no path other than the dashboard, this is another missing cli
 method", then "yes, take on all 3 open issues" (#398). Intent: the maintainer can make the
 holder choice without the dashboard. It is still an explicit choice, so a `/resume` cannot
@@ -366,7 +368,7 @@ the address continues the unread messages, the cursor position and the live clai
 and lease. Messages sent to a peer name stay with that one session.
 
 **Provenance:** Shipped in PR #266 (merge commit 1eaa7e0) and PR #267 (merge commit 850cbdd).
-Maintainer, 2026-10-12: "a, next
+Robert Capps, 2026-10-12: "a, next
 item", keeping participant ownership over each native session owning its own state, as #228
 criterion 4 asked ([#306 comment 6118864620](https://github.com/rwcii/koinon/issues/306#issuecomment-6118864620)).
 
@@ -415,4 +417,4 @@ roles and succession evidence remain shipped behavior without a maintainer decis
 | 2026-10-14 | Recorded the managed cycle's reset link `cycle_reset` in Decision 4 (#196 chunk 04) |
 | 2026-10-17 | Decision 5: the command-line holder choice also lifts a fence (#398) |
 | 2026-10-25 | Decisions 1 and 3: the DeepSeek, `grok_leader_mode` and role syntax refusals are described as code behavior; the "maintainer-assigned" role text is replaced (#487) |
-| 2026-10-26 | Decision 1: the maintainer kept the DeepSeek `launch`/`subagent` refusal ([DECISIONS.md#493-3](../../../DECISIONS.md#493-3)) and the `grok_leader_mode` refusal ([DECISIONS.md#493-2](../../../DECISIONS.md#493-2)) (#493) |
+| 2026-10-26 | Decision 1: the maintainer kept the DeepSeek `launch`/`subagent` refusal (493-3) and the `grok_leader_mode` refusal (493-2) (#493) |

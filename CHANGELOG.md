@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- `DECISIONS.md` is removed (#623; WDR 001, Decision 7). Each of its 25 decisions is in the
+  ADR, PDR or WDR that holds its rule, and documents and code comments cite that record and the
+  card reference, for example "READY-TIMEOUT-ENABLE-487 in PDR 006, Decision 2". The records name
+  the decider, Robert Capps, in place of "Maintainer". A contributor test checks that no tracked
+  file names the removed file outside the changelog, WDR 001 and the tests that refuse it, and
+  that each card reference is in a record.
 - Koinon writes no `DECISIONS.md` (#623; WDR 001, Decision 7). The `decision_record` tool,
   `koinon decision record` and the `short` and `full` record modes are removed. `decision_get`,
   `decision_pending` and the verdict message give the verdict, the card text and the record form:

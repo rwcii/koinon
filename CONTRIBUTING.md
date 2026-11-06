@@ -36,7 +36,7 @@ In short:
 
 Run `scripts/setup-repo.sh` to apply the local guards and GitHub settings. The `commit-msg`
 hook refuses a commit message that cites a decision board verdict by its ID; name the card
-reference instead, or `DECISIONS.md#REFERENCE` for an entry in that file (WDR 001, Decision 7). Server-side
+reference instead (WDR 001, Decision 7). Server-side
 rulesets depend on the account's support for private-repository protection; the script
 reports any unavailable enforcement explicitly. This follows the branch policy in
 [rwcii/engineering-standards](https://github.com/rwcii/engineering-standards) and the

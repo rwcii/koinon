@@ -938,7 +938,7 @@ func migrate(db *sql.DB, version, target int) error {
 		}
 	}
 	if version < 37 && target >= 37 {
-		// Version 37: the ready-timeout retry of a session's Enable (DECISIONS.md#READY-TIMEOUT-ENABLE-487):
+		// Version 37: the ready-timeout retry of a session's Enable (READY-TIMEOUT-ENABLE-487 in PDR 006, Decision 2):
 		// the epoch and Enable revision whose retry a ready timeout used, and whether the session
 		// has read its inbox since.
 		if _, err := tx.Exec(`ALTER TABLE context_enables ADD COLUMN kept_epoch TEXT NOT NULL DEFAULT '';

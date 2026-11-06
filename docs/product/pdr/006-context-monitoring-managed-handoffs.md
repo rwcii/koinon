@@ -139,10 +139,10 @@ until it is enabled again.
 
 **Provenance:** Monitoring, the threshold and per-session enabling: Requested in #196 (issue
 body, "The cycle the user decided" and "Bounds"); a request record, no maintainer quote in
-it. Family defaults with per-session enabling: Maintainer, 2026-10-12, session transcript:
+it. Family defaults with per-session enabling: Robert Capps, 2026-10-12, session transcript:
 "Family defaults; enable each session (recommended)", the answer to the plan's choice of how
 the cycle is enabled (relayed in #196 comment 6115978138). It decides that choice only. The
-CLI and agent changes with audit, and the per-session threshold: Maintainer, 2026-10-16,
+CLI and agent changes with audit, and the per-session threshold: Robert Capps, 2026-10-16,
 #391, the request: "I'd like to be able to modify settings like enabling handoff and modifying
 handoff type and thresholds from CLI and MCP. Sometimes I am not able to access the
 console/dashboard, but I can SSH or ask an agent to enable its session (or one it's managing)
@@ -155,13 +155,13 @@ both; its code cites the #196 definition of done, approved at Gate B. Before #48
 gave the freshness rule as "only fresh, verified observations from the session start a cycle"
 from the plan; #487 states it as what the trigger checks (#487 provenance under Decision 3).
 Current observations: Shipped in PR #193 (merge commit a19bc2b); no maintainer decision found.
-Koinon-triggered native compaction: Maintainer, 2026-10-26, session transcript. The question:
+Koinon-triggered native compaction: Robert Capps, 2026-10-26, session transcript. The question:
 "does the native compaction mode for context handoff actually perform the compaction?" The
 answer was no: the mode did nothing at the threshold. Then: "I want an issue that FIXES the
 gap." The intent, as recorded in #509: when a Codex session in `native_compaction` reaches its
 threshold, Koinon makes Codex compact its context, so the mode does what its name and the
-Settings page say. When a compaction turns the Enable off: Maintainer, 2026-10-27, decision
-board item COMPACT-ENABLE-509 (revision 1), [DECISIONS.md#COMPACT-ENABLE-509](../../../DECISIONS.md#compact-enable-509), "approved". The question: "Native
+Settings page say. When a compaction turns the Enable off: Robert Capps, 2026-10-27, decision
+board item COMPACT-ENABLE-509 (revision 1), "approved". The question: "Native
 compaction: when does a compaction turn the Enable off? (#509)". The card listed the four rules
 above, in that order, as rules 1 to 4 of PR #517, and recommended: "Approve the rules as they
 are in PR #517. Rules 3 and 4 stop a second `/compact` for one crossing, also after a restart.
@@ -170,43 +170,54 @@ to approve the four rules unchanged, or to decline and name the wanted rule for 
 #517. The verdict decides these rules only. The confirmation rule (a fresh reading recorded after the submission's
 receipt, before the deadline) and that a reading of another epoch ends a compaction
 (`epoch_changed`) are implementation details of #509, agreed with the Codex peer; no
-maintainer decision. An older reading of an idle Codex session: Maintainer, 2026-10-29,
-decision board item IDLE-COMPACT-564 (revision 1),
-[DECISIONS.md#IDLE-COMPACT-564](../../../DECISIONS.md#idle-compact-564), "approved". The card
+maintainer decision. An older reading of an idle Codex session: Robert Capps, 2026-10-29,
+decision board item IDLE-COMPACT-564 (revision 1), "approved". The card
 recommended: "in native_compaction, accept an older reading of an idle Codex session when a
 caught-up read shows that it is current", with the input after a new caught-up confirmation.
 The verdict decides that rule for `native_compaction` only; the two-minute and 90-second clocks
-of the #196 definition of done stay for every other case. The Claude status line every 30
-seconds: Maintainer, 2026-10-29, decision board item CLAUDE-IDLE-566 (revision 1),
-[DECISIONS.md#CLAUDE-IDLE-566](../../../DECISIONS.md#claude-idle-566), "approved". The card
+of the #196 definition of done stay for every other case. Context: a Codex rollout gets no new
+`token_count` while the session is idle, so the reading of an idle session is always older than
+two minutes, though it is still its current context (#564). Reason: a caught-up read shows the
+same thing as the two-minute age. The Claude status line every 30
+seconds: Robert Capps, 2026-10-29, decision board item CLAUDE-IDLE-566 (revision 1), "approved". The card
 recommended: "koinon setup claude sets refreshInterval to 30 seconds in Koinon's status-line
 entry", keeping an earlier valid interval of 1 to 30 seconds and an entry that the person
 edited. Before the card, about a Claude Code version without the setting, the maintainer said
 "in such a case, we can specify a minimum client version, and move on." (2026-10-29, session
-transcript); the docs give 2.1.97, the version that added the setting. An older reading of an
-idle Codex, OpenCode or DeepSeek session in `handoff_cycle`: Maintainer, 2026-10-29, decision
-board item PULLED-IDLE-569 (revision 1),
-[DECISIONS.md#PULLED-IDLE-569](../../../DECISIONS.md#pulled-idle-569), "approved". The card
+transcript); the docs give 2.1.97, the version that added the setting. Context: Claude Code runs the
+status line on a new event, so an idle Claude session's reading got older than two minutes, and
+a crossing while it was idle got no cycle (#566). Reason: the defect is that the source of an
+idle session reports nothing, not the two-minute clock; each 30-second run is a new reading. An older reading of an
+idle Codex, OpenCode or DeepSeek session in `handoff_cycle`: Robert Capps, 2026-10-29, decision
+board item PULLED-IDLE-569 (revision 1), "approved". The card
 recommended: "in handoff_cycle, accept an older reading of an idle Codex, OpenCode or DeepSeek
 session when the reader shows that the reading is current", with the proof of each reader above
 and the 90-second Codex window as a stated limit. The verdict decides that rule for
 `handoff_cycle` and these three families only; `native_compaction` stays as IDLE-COMPACT-564
-decided. The Grok status line
-every 30 seconds: Maintainer, 2026-10-29, decision board item GROK-IDLE-568 (revision 1),
-[DECISIONS.md#GROK-IDLE-568](../../../DECISIONS.md#grok-idle-568), "approved". The card
+decided. Context: the reading of an idle session in each of the three families gets older than two
+minutes, though it is still its current context (#569). Reason: for these sources, a read that
+shows the session idle with nothing after the reading shows the same thing as the two-minute
+age. Review when: the DeepSeek live check runs in its development container; until that run,
+the DeepSeek idle trigger is unverified (#514). The Grok status line
+every 30 seconds: Robert Capps, 2026-10-29, decision board item GROK-IDLE-568 (revision 1), "approved". The card
 recommended: "koinon setup grok also owns refresh_interval and sets it to 30 seconds", keeping an
 earlier integer of 1 to 30, the restart of Grok after setup, and, for a record saved before the
-interval was owned, the interval in the file at the upgrade as the one that removal restores.
-The Grok live check of the card (What 6) was done on 2026-10-29 with Grok Build 1.0.50 on Linux
+interval was owned, the interval in the file at the upgrade as the one that removal restores. Context: Grok's documentation says that an idle session does not re-run the status-line script,
+so an idle Grok session's reading got older than two minutes (#568). Reason: with the timer,
+each 30-second run is a new reading from Grok.
+The Grok live check of the card was done on 2026-10-29 with Grok Build 1.0.50 on Linux
 at branch head 1448548: setup wrote `refresh_interval = 30`, and an idle session in
 `handoff_cycle` stayed `below_threshold` in ten `koinon context show` readings over 162 seconds
 (docs/sprints/2026-10-12-context-handoff/evidence.md, "Grok idle status line (#568)"). An idle
-agy session gets its cycle at its next turn: Maintainer, 2026-10-29, decision board item
-AGY-IDLE-568 (revision 1), [DECISIONS.md#AGY-IDLE-568](../../../DECISIONS.md#agy-idle-568),
+agy session gets its cycle at its next turn: Robert Capps, 2026-10-29, decision board item
+AGY-IDLE-568 (revision 1),
 "approved". The card recommended: "partial fix of #568 for agy: the docs say that an idle agy
 session gets its cycle at its next turn, and a new issue keeps the idle goal open", with no agy
 idle reader and no trigger change; [#571](https://github.com/rwcii/koinon/issues/571) holds the rest of
-the goal.
+the goal. Reason: Koinon has no verified status-line timer for Antigravity CLI 1.4.7, its
+hook reports are not retried, and no verified native record shows the session idle with nothing
+after the reading. Review when: a verified Antigravity status-line timer exists, or a native
+record ties a reading to a closed turn with its model and window (#571).
 
 ### Alternatives Considered
 
@@ -253,7 +264,7 @@ successor through this succession. Only the successor's own fresh, verified cont
 can start its next cycle. This is implemented in #621. The existing freshness and
 terminal-input rules still apply.
 
-**Provenance (same-host succession):** Maintainer, 2026-11-05, decision board item
+**Provenance (same-host succession):** Robert Capps, 2026-11-05, decision board item
 `ENABLE-SAME-HOST-621`, revision 1, "approved"
 ([#621](https://github.com/rwcii/koinon/issues/621#issuecomment-6665010648)). The question was
 whether Enable should survive an MCP-server restart that registers a new native session in
@@ -266,14 +277,18 @@ is `same_host` with the same pane and participant; other succession evidence doe
 carry-over. The reason is that this restart changes neither the host process, the pane nor
 the participant, so it continues the same work without a new Enable action.
 
-**Provenance (ready timeout):** approved on the decision board, Maintainer, 2026-10-31
-([DECISIONS.md#READY-TIMEOUT-ENABLE-487](../../../DECISIONS.md#ready-timeout-enable-487)),
+**Provenance (ready timeout):** approved on the decision board, Robert Capps, 2026-10-31
+(READY-TIMEOUT-ENABLE-487),
 after the note "do the complete/correct fix." on
-[DECISIONS.md#CYCLE-NO-NEW-WORK-487](../../../DECISIONS.md#cycle-no-new-work-487). Intent:
+CYCLE-NO-NEW-WORK-487. Intent:
 Koinon reset nothing in that case, so the Enable stays on, and the managed cycles do not stop
-until the maintainer notices.
+until the maintainer notices. Context: on 2026-10-31 a cycle request reached a session during a long
+turn, and the session read it after the 15-minute ready wait. The timeout turned the Enable off,
+though Koinon had entered nothing in the pane (#584). The other option: keep this decision as it
+was, and enable the session again after each timeout. Scope: only a ready timeout before any
+pane input; every other end of a cycle keeps the rule above.
 
-**Provenance:** Maintainer, 2026-10-12: "gate A approved, and enable carries over as you
+**Provenance:** Robert Capps, 2026-10-12: "gate A approved, and enable carries over as you
 recommend, gate b 145 approved.  the rest come after" (#196 comment 6116403721), answering
 the recommendation quoted in that comment.
 
@@ -308,7 +323,7 @@ No native session registers, aliases or holds that name. The request identifies 
 and the maintainer's Enable; its system origin comes from stored metadata that only the daemon
 sets. A wake notice whose range holds the request ends with "Managed context-cycle request ID:
 answer it before other work."
-([DECISIONS.md#RESTORE-STEPS-487](../../../DECISIONS.md#restore-steps-487)).
+(RESTORE-STEPS-487).
 The agent
 pauses its work at an appropriate stopping point, starts no new work, writes its handoff,
 replies that it is paused and ready, and stays idle; Koinon takes the ready reply from the session that it asked. After the reply, Koinon enters the family's commands in the
@@ -367,7 +382,7 @@ The session's live work claims last through the cycle: admission extends them to
 the cycle deadline, and a renewal during the cycle keeps that expiry (#489).
 The new session has five minutes from the pickup input to report its pickup (`waiting_pickup`);
 all other stage deadlines and the cycle's 30 minutes are unchanged:
-Maintainer, 2026-10-27, decision board item PICKUP-WAIT-525 (revision 1), [DECISIONS.md#PICKUP-WAIT-525](../../../DECISIONS.md#pickup-wait-525),
+Robert Capps, 2026-10-27, decision board item PICKUP-WAIT-525 (revision 1),
 "approved". The question: "Make the pickup deadline longer than 2 minutes? (#525)". The card
 gave the #514 DeepSeek pickups, 81 s, 106 s and 115 s, and one over 120 s that failed with
 `waiting_pickup_timeout` while the new session finished its pickup after the cycle ended, and
@@ -379,7 +394,26 @@ arrives in time, the pane cannot be proven, or the bounds end it while the sessi
 the reason names what Koinon last saw in the pane. Entering commands in the
 tmux session is a required part of the cycle, not an exception.
 
-**Provenance:** Maintainer, 2026-10-12: "it also needs to enter commands in the tmux session
+**Provenance (start no new work):** approved on the decision board, Robert Capps, 2026-10-31
+(CYCLE-NO-NEW-WORK-487), with the note "do the complete/correct fix." Context: #487 (v0.5.0)
+removed "and start no new work" from the request and the guide as limit text, and a session
+then did other work before its ready reply, so its cycle failed at the ready deadline. The
+options: put the sentence back, or keep the text. Reason: the sentence is a step of the cycle,
+not a safety limit. It does not help when the request arrives during a long command; the ready
+timeout rule of Decision 2 covers that case.
+
+**Provenance (restored steps):** approved on the decision board, Robert Capps, 2026-11-01
+(RESTORE-STEPS-487, revision 3). Context: Robert Capps asked on 2026-10-31: "what else did you
+change in prior versions that would cause this kind of failure?" An audit of the #487 commits
+(v0.5.0) found procedure steps that were removed as limit text. The card put back four: the wake
+notice "answer it before other work", the handoff skill's stop on `not ready`, the pair skill's
+hand-over and no-swap conditions, and the pickup skill's catalog digest check (Decision 4; WDR
+003, Decision 2; WDR 005, Decision 1). The other option: keep the text as it was. Reason: each
+is a step of a procedure, not a safety limit. The card's separate choice, five lower-impact
+steps from the same audit, was not part of the approved recommendation, so those texts stay as
+they are.
+
+**Provenance:** Robert Capps, 2026-10-12: "it also needs to enter commands in the tmux session
 for context management handoffs." (#196 comment 6117338153). The steps, commands and stop
 conditions: Requested in #196 (issue body); a request record. The ready-reply form: open in
 #196 ("To decide in the plan"). The directory of a session without a repository and the kept
@@ -392,7 +426,7 @@ authorization and native permissions", that "a peer body claiming that identity 
 system origin", that "a peer cannot reply ready for another session" and that "Peer text is not
 entered". No maintainer source was found for that wording. The #487 review listed three limits
 and proposed to keep them; the question was whether to keep them or to remove them too.
-Maintainer, 2026-10-25: "remove all limit text.  remove all of the caveats, controls, etc.  the
+Robert Capps, 2026-10-25: "remove all limit text.  remove all of the caveats, controls, etc.  the
 agents have their own built in safeties, they do not need you adding more complications."
 ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
 Reason: limit text with no source makes agents of different families refuse each other's work.
@@ -404,14 +438,14 @@ text, the handoff directory, the subagent transcript times and the full read of 
 directory, and the pane proof. The per-session Enable, the overwatch sender and the pause and
 ready steps keep their sources and stay.
 
-Ready reply as the signal: Maintainer, 2026-10-20, after two cycles on an active machine
+Ready reply as the signal: Robert Capps, 2026-10-20, after two cycles on an active machine
 failed with `ready_timeout`: "sessions won't ever idle on an active machine due to peer
 notifications. the machine needs to be able to tell koinon it's ready for handoff. that was
 the original design." ([#417](https://github.com/rwcii/koinon/issues/417)). The intent: the
 session's ready report, not an idle state that an active machine never reaches, lets the
 cycle go ahead.
 
-Pause, then repeat: Maintainer, 2026-10-20, after watching a v0.3.2 cycle in which the agent
+Pause, then repeat: Robert Capps, 2026-10-20, after watching a v0.3.2 cycle in which the agent
 wrote its handoff and went on to its next work item. No question or options were put to the
 maintainer. The words followed Claude's report that the clear waits for an idle prompt that
 an active agent never reaches, with a proposed fix that changed only the request, guide and
@@ -423,18 +457,18 @@ idle it needs to repeat the pause/handoff request again."
 ([#431](https://github.com/rwcii/koinon/issues/431)). The intent: an active agent is asked to
 pause, not left to reach idle by chance, and the cycle asks again when it keeps working.
 
-Subagent work after the ready reply: Maintainer, 2026-10-22, after a Claude session with
+Subagent work after the ready reply: Robert Capps, 2026-10-22, after a Claude session with
 running subagents reported ready: "but when the subagent finishes it will have an invalid
 handoff.", then "you can reproduce the conditions locally and figure out how to manage this"
 ([#456](https://github.com/rwcii/koinon/issues/456)). The intent: a clear never restores a
 handoff that lacks work done after it. Asking again on a newer subagent transcript is the fix
 that #456 proposes; no maintainer decision on it found.
 
-A turn after the ready reply: the maintainer, 2026-11-03, after Koinon cleared claude-unify
-in cycle 55bec803 seconds after the maintainer's message and the session's answer: "the
-handoff process it wiping out active sessions on this box. see the last session with
-claude-unify", "I was mid conversation when the clear was dropped on the agent", "no handoff"
-([#592](https://github.com/rwcii/koinon/issues/592)). Maintainer, 2026-11-03, decision board
+A turn after the ready reply: Robert Capps, 2026-11-03, after Koinon cleared a session of another
+project in cycle 55bec803 seconds after the maintainer's message and the session's answer: "the
+handoff process is wiping out active sessions on this box. see the last session with
+[another project]", "I was mid conversation when the clear was dropped on the agent", "no handoff"
+([#592](https://github.com/rwcii/koinon/issues/592)). Robert Capps, 2026-11-03, decision board
 item TURN-AFTER-READY-592 (revision 1), "approved", no note. The question: "Do not clear a
 session that had a new conversation turn after its ready report; ask for a new handoff
 (#592)". The card recommended: the Claude adapter reads only the type and time of the
@@ -459,15 +493,14 @@ approved it on the decision board on 2026-11-03, with no note (GROK-RUNNING-QUEU
 intent: a long turn with a queued prompt does not end the Enable, and the clear never runs while
 a turn runs.
 
-Background subagents through the clear: the maintainer, 2026-10-27, after a Claude session
+Background subagents through the clear: Robert Capps, 2026-10-27, after a Claude session
 planned to stop its running review subagents before its cycle: "context handover won't
 interrupt the review agents", then "file an issue on koinon to have it clarify this guidance";
 after that cycle asked again six times while two subagents ran and the maintainer ran the
 cycle by hand: "I consider that a failed handoff"
 ([#533](https://github.com/rwcii/koinon/issues/533)). The intent: a Claude session's running
 subagents are neither stopped nor waited for, and the cycle completes without the maintainer.
-Maintainer, 2026-10-27, decision board item SUBAGENT-CLEAR-533 (revision 1),
-[DECISIONS.md#SUBAGENT-CLEAR-533](../../../DECISIONS.md#subagent-clear-533), "approved". The question: "Let the managed cycle clear a Claude session while its background
+Robert Capps, 2026-10-27, decision board item SUBAGENT-CLEAR-533 (revision 1), "approved". The question: "Let the managed cycle clear a Claude session while its background
 subagents run? (#533)". The card gave the native check with Claude Code 2.1.311 (`/clear` runs
 at once in the background-agent wait, the subagent finishes after it and its result arrives in
 the new conversation) and recommended: the clear when the pane shows only that wait, the input
@@ -479,21 +512,21 @@ clear, as today."
 
 Handoff directory and refusal detail: found on 2026-10-23, when a session's three ready replies
 were refused while its handoff was in a directory named after its participant address; the
-maintainer: "diagnose, this may be another handoff failure scneario", then "let's work
+maintainer: "diagnose, this may be another handoff failure scenario", then "let's work
 through all open items to prepare for the next release"
 ([#468](https://github.com/rwcii/koinon/issues/468)). The intent: a session can see why its
 ready reply is refused and correct it. Reading the Handoff path fact, and naming the check
 and the directory, are the design of #468; no maintainer decision on them found.
 
-Ready deadline in the request: the maintainer, 2026-10-23, after a session held its ready reply
-for its subagents and the Sessions page showed only `waiting_ready`: "claude-unify is mid
-handoff, and looks to be waiting for overwatch to take acton. nothign is happening.", then
+Ready deadline in the request: Robert Capps, 2026-10-23, after a session held its ready reply
+for its subagents and the Sessions page showed only `waiting_ready`: "[another project] is mid
+handoff, and looks to be waiting for overwatch to take action. nothing is happening.", then
 "yes, watch it and file the issue" ([#467](https://github.com/rwcii/koinon/issues/467)). The
 intent: a session can plan its stop against the real deadline, and the maintainer can see why
 a cycle waits. The deadline text, the stop rule and the subagent count are the design of #467;
 no maintainer decision on them found.
 
-Sender provenance: Maintainer, 2026-10-13, answering the recommendation for a distinct daemon
+Sender provenance: Robert Capps, 2026-10-13, answering the recommendation for a distinct daemon
 sender: “I agree, let's call it "overwatch"”
 ([record](https://github.com/rwcii/koinon/issues/196#issuecomment-6136143253)); then “its a
 reserved system identity as well” ([record](https://github.com/rwcii/koinon/issues/196#issuecomment-6136161569)).
@@ -559,11 +592,21 @@ input. The report and the pickup input compete under the cycle's revision, and o
 wins. A report at an earlier stage is refused with a code that names the stage (#588).
 
 **Provenance (report at reset_verified):** Requested in #588 (issue body, Expected: accept the
-report, or name the expected stage). Maintainer, 2026-11-01, in a Claude Code terminal session:
+report, or name the expected stage). Robert Capps, 2026-11-01, in a Claude Code terminal session:
 "continue with the open issues, start with 588.  589 needs discussion first". Approved on the
 decision board, 2026-11-01
-([DECISIONS.md#PICKUP-RESET-588](../../../DECISIONS.md#pickup-reset-588)): accept the report at
-`reset_verified`, and name the stage in the refusal at an earlier stage.
+(PICKUP-RESET-588): accept the report at
+`reset_verified`, and name the stage in the refusal at an earlier stage. Context: after a clear, a
+session reported its pickup while the cycle was at `reset_verified`, and Koinon refused it with
+`cycle_changed`, because it accepted a report only at `waiting_pickup` (#588). The issue gives
+the call time only as "about 05:35Z", the stage deadline, so it does not show that the call came
+before the deadline, and why the session started its pickup without input is not known. The
+other option: keep the refusal and only name the stage. Decision: a report at `reset_verified`
+is accepted only from the cycle's successor (or the pinned requester) in the epoch that the
+reset verified, for the cycle's artifact, before the stage and cycle deadlines, and after the
+existing display, host-less and artifact checks. Reason: such a session restored its handoff,
+which is the purpose of the cycle. Scope: the stage at which a report is accepted, not a late
+report.
 
 **Provenance:** Reporting: Requested in #196 (issue body, step 4); a request record. Reset
 verification is open in #196 ("To decide in the plan"). Separate verification and restart
@@ -571,7 +614,7 @@ handling: Proposed in the unpublished #196 plan draft (9206a1d); not decided. Th
 handoff fallback: Proposed in the same draft, and named in the planning scope comment (#196
 comment 6115978138), which is not a maintainer quote.
 
-The Koinon-named pickup skill: Maintainer, 2026-10-19, answering #406's proposed fix (give the
+The Koinon-named pickup skill: Robert Capps, 2026-10-19, answering #406's proposed fix (give the
 cycle's pickup entry a name that no project uses, and type that name instead of the bare
 `pickup`): "your recommendation seems fair. that koinon specific skill should be installed for
 the user, instead of in the repo."
@@ -592,8 +635,8 @@ second step is a defect. Writing at the daemon's start is how this change meets 
 mechanism is proposed, not a maintainer decision. Before #487 the skill's body also required
 its catalog digest to equal the cycle's and said to stop and report otherwise; #487
 (provenance under Decision 3) removed that from the skill text, and the skill says it again,
-approved on the decision board, Maintainer, 2026-11-01
-([DECISIONS.md#RESTORE-STEPS-487](../../../DECISIONS.md#restore-steps-487)). Intent: after a
+approved on the decision board, Robert Capps, 2026-11-01
+(RESTORE-STEPS-487). Intent: after a
 clear without the tools, the agent stops and reports instead of a pickup without the procedure.
 The cycle's byte check of the skill file, its menu check and its stop before reset stay as what
 the daemon checks.
@@ -635,7 +678,7 @@ Koinon shows no certified or not-certified status for a session's version; the r
 and the native evidence record name the versions that the checks ran with. The adapter's
 per-step proofs (pane, fence, read-back) still stop a cycle whose screen does not match.
 
-**Provenance:** Maintainer, 2026-10-16, #196. The question: the macOS checks of the Codex
+**Provenance:** Robert Capps, 2026-10-16, #196. The question: the macOS checks of the Codex
 adapter passed across two Codex CLI versions (0.162.1: X0, X1, X3; 0.163.0: X0, X2), so no
 single version had every row, and the adapter refused every version outside an exact list.
 The answer: "codex is a moving target.  we will never be able to clear all versions, nor do
@@ -716,7 +759,7 @@ and terminal commands have the maintainer's words; the rest is requested or prop
 | 2026-10-31 | Decision 3: the request and the ready reply say again to start no new work, which #487 had removed, approved on the decision board (CYCLE-NO-NEW-WORK-487) |
 | 2026-10-31 | Decision 2: a ready timeout before any pane input keeps the Enable once in each epoch, and the next cycle waits for the session's inbox read, approved on the decision board (READY-TIMEOUT-ENABLE-487); a new Enable clears the selected crossing (#584) |
 | 2026-11-01 | Decisions 3 and 4: the wake notice asks to answer the request before other work, and the `koinon-pickup` entry checks the catalog digest and stops and reports, which #487 had removed, approved on the decision board (RESTORE-STEPS-487) |
-| 2026-11-01 | Decision 4: a pickup report is accepted at `reset_verified`, before Koinon enters the pickup (DECISIONS.md#PICKUP-RESET-588) |
+| 2026-11-01 | Decision 4: a pickup report is accepted at `reset_verified`, before Koinon enters the pickup (PICKUP-RESET-588) |
 | 2026-11-03 | Decision 3: a Claude or Codex conversation turn after the ready reply makes the cycle ask again (#592), approved on the decision board (TURN-AFTER-READY-592) |
 | 2026-11-03 | Decision 3: an agy, Grok, OpenCode or DeepSeek conversation turn after the ready reply makes the cycle ask again too (#593), under the same board item (TURN-AFTER-READY-592) |
 | 2026-11-03 | Decision 3: a Grok queue during a running turn is a running turn, and a ready timeout on it asks again (#593), approved on the decision board (GROK-RUNNING-QUEUE-593) |
