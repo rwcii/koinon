@@ -19,7 +19,8 @@ managed cycle of an idle OpenCode session finds its composer again. The state sc
 - `koinon install` completes the status line of a Claude, agy or Grok family that an earlier
   setup configured, when it is missing or Koinon's unedited entry is out of date, and `koinon
   install --plan` names `koinon setup FAMILY --binary BINARY` for it (#631; AGY-STATUSLINE-631 in
-  PDR 003, Decision 4). An entry that you removed or edited stays. Before, an agy setup from
+  PDR 003, Decision 4). When that family's settings file cannot be read, the plan stops with
+  `agent_unreadable` and the cause. An entry that you removed or edited stays. Before, an agy setup from
   before the agy status line kept giving no context or activity, and the plan said current.
   An agy entry without a command and without a type, as Antigravity CLI 1.5.1 keeps it, now gets
   `"stack_with_default": true`, so agy's own status line stays; before, it went.

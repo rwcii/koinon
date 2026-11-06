@@ -80,4 +80,17 @@ func TestPlanNamesStatusLineCompletion(t *testing.T) {
 			t.Fatalf("state %q: plan %q", state, steps)
 		}
 	}
+	// A status line that cannot be read is an unfinished check: an error, never current.
+	inspect := e.o.Inspect
+	e.o.Inspect = func(ctx context.Context, o setup.Options) setup.Inspection {
+		in := inspect(ctx, o)
+		if o.Family == "agy" {
+			in.StatusLine, in.StatusLineError = "", "settings_invalid: the Antigravity settings are not valid JSON; not changed (/synthetic/settings.json)"
+		}
+		return in
+	}
+	steps, err := Plan(context.Background(), e.o)
+	if err == nil || !strings.Contains(err.Error(), "agent_unreadable: agy status line: settings_invalid") || len(steps) != 0 {
+		t.Fatalf("unreadable status line: %q %v", steps, err)
+	}
 }

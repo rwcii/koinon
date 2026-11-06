@@ -274,7 +274,7 @@ and Decision 6 gives what it then reports.
 **Status-line completion (AGY-STATUSLINE-631, #631):**
 
 - **Decided by:** Robert Capps, 2026-11-06. On the decision board, card AGY-STATUSLINE-631,
-  revision 2, "approved", with no note; he then ran `koinon setup agy` on his machine. In a
+  revision 2, "approved", with no note; Robert Capps then ran `koinon setup agy` on the machine. In a
   Claude Code terminal session the same day: "these issues need to make it in to 0.10, don't
   release without it" (typos corrected).
 - **Context:** the dashboard showed no context or activity for a live agy session ("I note that
@@ -289,7 +289,8 @@ and Decision 6 gives what it then reports.
   entry is out of date. It changes only the status line, asks nothing, and leaves an entry that
   the person removed (`--remove-status-line`) or edited. A settings file that cannot be read is
   reported in the family's `agents` entry, and the install goes on. `koinon install --plan` names
-  `koinon setup FAMILY --binary BINARY` for such a family. An earlier entry without a command
+  `koinon setup FAMILY --binary BINARY` for such a family, and stops with `agent_unreadable`
+  and the cause when the family's settings file cannot be read. An earlier entry without a command
   and without a type counts as no entry, so agy's wrapper gets `"stack_with_default": true`; a
   `stack_with_default` that the entry has is kept, and removal restores the exact entry. An
   explicit `koinon setup FAMILY` sets the status line up again also after a removal.

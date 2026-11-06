@@ -112,6 +112,9 @@ func Plan(ctx context.Context, o Options) ([]string, error) {
 		switch {
 		case in.Error != "":
 			return nil, fmt.Errorf("agent_unreadable: %s", in.Error)
+		case in.StatusLineError != "":
+			// A status line whose state is not known is an unfinished check, never current (#631).
+			return nil, fmt.Errorf("agent_unreadable: %s status line: %s", family, in.StatusLineError)
 		case in.CLI != "" && !in.Configured, in.Configured && in.StatusLine == setup.StatusLineNeeded:
 			// Setup configures the running binary unless --binary names the installed one. A
 			// configured family whose status line is missing or out of date gets it there (#631).
