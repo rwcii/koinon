@@ -515,7 +515,7 @@ Not yet verified: macOS. A session with `refresh_interval` set is in "Grok idle 
 ## Grok idle status line (#568)
 
 Grok Build 1.0.50 in its Linux development container, 2026-10-29, with a binary built from
-branch head 1448548 (GROK-IDLE-568 in PDR 006, Decision 1, What 6). The container's `config.toml` was
+branch head 1448548 (GROK-IDLE-568 in PDR 006, Decision 1, the Grok live check). The container's `config.toml` was
 backed up first, and a daemon ran with a fresh `XDG_STATE_HOME`.
 
 - Setup. `koinon setup grok --binary ...` printed `set_up`; the file had no earlier

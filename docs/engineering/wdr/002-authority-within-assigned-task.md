@@ -267,7 +267,7 @@ review and CI) with no further maintainer approval."
 the gates. The maintainer has used them: Robert Capps, 2026-10-12 (#254 comment 6116403605, #145
 comment 6116403867): "gate A approved, and enable carries over as you recommend, gate b 145
 approved.  the rest come after"; Robert Capps, 2026-10-12 (#254 comment 6118290944): "your  Gate
-B for Grok #254 recomendation is approved."; Robert Capps, 2026-10-11 (#283 comment 6114547663):
+B for Grok #254 recommendation is approved."; Robert Capps, 2026-10-11 (#283 comment 6114547663):
 "yes", answering "Do you approve the #283 plan for building?".
 
 ### Alternatives Considered

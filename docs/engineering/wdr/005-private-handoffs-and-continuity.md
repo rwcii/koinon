@@ -118,9 +118,9 @@ stage, commit or push a handoff. Native session IDs and tmux values recorded in 
 stay only in that ignored file.
 
 **Provenance:** Robert Capps, 2026-09-24, session transcript: "fix the handoff to use the
-gitignored _handoff directory as you were told to use." and "maybe the skill needs to be specifc
-in that the _handoff directory in the main checkou/repo directory is where all _handoffs belong,
-nver in the worktree since they get purged." Shipped in PR #130 (merge commit 2fe8c28).
+gitignored _handoff directory as you were told to use." and "maybe the skill needs to be specific
+in that the _handoff directory in the main checkout/repo directory is where all _handoffs belong,
+never in the worktree since they get purged." Shipped in PR #130 (merge commit 2fe8c28).
 
 ### Alternatives Considered
 

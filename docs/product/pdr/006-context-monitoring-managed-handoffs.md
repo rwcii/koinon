@@ -205,7 +205,7 @@ earlier integer of 1 to 30, the restart of Grok after setup, and, for a record s
 interval was owned, the interval in the file at the upgrade as the one that removal restores. Context: Grok's documentation says that an idle session does not re-run the status-line script,
 so an idle Grok session's reading got older than two minutes (#568). Reason: with the timer,
 each 30-second run is a new reading from Grok.
-The Grok live check of the card (What 6) was done on 2026-10-29 with Grok Build 1.0.50 on Linux
+The Grok live check of the card was done on 2026-10-29 with Grok Build 1.0.50 on Linux
 at branch head 1448548: setup wrote `refresh_interval = 30`, and an idle session in
 `handoff_cycle` stayed `below_threshold` in ten `koinon context show` readings over 162 seconds
 (docs/sprints/2026-10-12-context-handoff/evidence.md, "Grok idle status line (#568)"). An idle
@@ -597,11 +597,16 @@ report, or name the expected stage). Robert Capps, 2026-11-01, in a Claude Code 
 decision board, 2026-11-01
 (PICKUP-RESET-588): accept the report at
 `reset_verified`, and name the stage in the refusal at an earlier stage. Context: after a clear, a
-session started its own pickup and reported it while the cycle was at `reset_verified`; Koinon
-accepted a report only at `waiting_pickup` and refused it with `cycle_changed`, so the cycle
-failed at its deadline and turned the Enable off (#588). The other option: keep the refusal and
-only name the stage. Reason: the session restored its handoff, which is the purpose of the
-cycle.
+session reported its pickup while the cycle was at `reset_verified`, and Koinon refused it with
+`cycle_changed`, because it accepted a report only at `waiting_pickup` (#588). The issue gives
+the call time only as "about 05:35Z", the stage deadline, so it does not show that the call came
+before the deadline, and why the session started its pickup without input is not known. The
+other option: keep the refusal and only name the stage. Decision: a report at `reset_verified`
+is accepted only from the cycle's successor (or the pinned requester) in the epoch that the
+reset verified, for the cycle's artifact, before the stage and cycle deadlines, and after the
+existing display, host-less and artifact checks. Reason: such a session restored its handoff,
+which is the purpose of the cycle. Scope: the stage at which a report is accepted, not a late
+report.
 
 **Provenance:** Reporting: Requested in #196 (issue body, step 4); a request record. Reset
 verification is open in #196 ("To decide in the plan"). Separate verification and restart

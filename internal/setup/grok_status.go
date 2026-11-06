@@ -739,7 +739,8 @@ func withField(entry json.RawMessage, key string, value json.RawMessage) json.Ra
 // legacyView adapts a legacy record to the file c: the entry to compare with the record,
 // without refresh_interval, which the record did not own, and the record's original with the
 // interval that the file has now, which becomes the baseline that removal restores, with its
-// spelling (GROK-IDLE-568 in PDR 006, Decision 1, rule 3).
+// spelling (GROK-IDLE-568 in PDR 006, Decision 1: for a record saved before the interval was
+// owned, the interval in the file at the upgrade is the one that removal restores).
 func (g grokStatusFile) legacyView(r statusRecord, c grokConfig) (now, original json.RawMessage, raw map[string]string) {
 	fields, _ := objectFields(c.entry)
 	interval := lookup(fields, grokRefreshKey)

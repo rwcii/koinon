@@ -113,7 +113,7 @@ catalog's `pickup` wherever it was adopted, are unchanged by it.
 **Provenance:** The library: Requested in #145 (issue body, requirements 1–3); a request
 record. The three team skills: requested by an adopting project in #145 comment 6052782627;
 a request record. Handling startup prompts: Robert Capps, 2026-10-12: "in fact, an agent will
-need to interact with a newly lauched agent when invoked, as there will be permissions and
+need to interact with a newly launched agent when invoked, as there will be permissions and
 other alerts that need to be cleared before a new agent can interact." (#145 comment
 6117336800). Single source, embedding and sidecars: Robert Capps, 2026-10-12: "gate b 145
 approved" (#145 comment 6116403867), approving the plan document at 9055630 on

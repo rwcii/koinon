@@ -184,7 +184,7 @@ read back a dialog's selected option before Enter. Koinon's runtime does not typ
 agent's input today; the planned daemon-driven cycle is PDR 006.
 
 **Provenance:** Robert Capps, 2026-10-12: "in fact, an agent will need to interact with a newly
-lauched agent when invoked, as there will be permissions and other alerts that need to be
+launched agent when invoked, as there will be permissions and other alerts that need to be
 cleared before a new agent can interact." (#145 comment 6117336800). Robert Capps, 2026-10-12:
 "it also needs to enter commands in the tmux session for context management handoffs." (#196
 comment 6117338153). The earlier rules against accepting another session's permission dialog

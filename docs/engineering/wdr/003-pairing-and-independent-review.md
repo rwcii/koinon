@@ -109,7 +109,7 @@ in its own scratch location. The `pair` skill describes the steps.
 **Provenance:** Robert Capps, 2026-10-06, session transcript: "work in a pair programming
 framework. share the checkout, with one driving, and one observing.  trade off from time to
 time." Shipped in PR #177 (merge commit 0d0caed). An earlier statement, 2026-09-18: "you are
-both active in the same directory, so you need to negotiate who has write access. i woudl
+both active in the same directory, so you need to negotiate who has write access. i would
 suggest delegating a driver and an observer role." (memory copy only; original not located).
 
 ### Alternatives Considered

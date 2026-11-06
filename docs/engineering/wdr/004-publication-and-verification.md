@@ -180,8 +180,8 @@ contains the latest `origin/develop`", and a pushed branch "is not rewritten"; "
 was never pushed may rebase."
 
 **Provenance:** One open pull request: Robert Capps, 2026-10-08, session transcript: "I dont
-approve any new prs to develoo until the existing PRs are mergable and merge. stop stacking PRs
-based off develop, causing each stacked pr to be unmergable as soon as the prior merges." and
+approve any new prs to develop until the existing PRs are mergeable and merge. stop stacking PRs
+based off develop, causing each stacked pr to be unmergeable as soon as the prior merges." and
 "I don't understand why opening an additional pr when one or more are already open against the
 target branch... ie stacking where the first pr to merge causes all the others to fail merge."
 An earlier 2026-10-08 statement, "you keep stacking up prs ... this is wasteful.", is a memory
@@ -233,7 +233,7 @@ private-content scan.
 **Before #487:** the `check` skill ran these checks "Before a push".
 
 **Provenance:** macOS support and the macOS CI runner shipped in PR #8 (merge commit 4456efe);
-Robert Capps, 2026-09-18: "MacOS Suport is not optional" (memory copy only; original not
+Robert Capps, 2026-09-18: "MacOS Support is not optional" (memory copy only; original not
 located). The Go and native lifecycle checks shipped in PR #207 (merge commit 10ea1e4) and the
 `peer-review` status in PR #262 (merge commit ce75054). The `peer-review` status as a required
 check: Robert Capps, 2026-10-26, kept it (493-5 in WDR 001, Decision 6,
@@ -304,11 +304,13 @@ facts use squash auto-merge for every pull request into `develop`.
 Koinon commits are currently signed (`git commit -S`), carry a DCO `Signed-off-by` line
 (`-s`), and are authored under the maintainer's GitHub identity with the GitHub no-reply
 address. Commits and pull requests carry no co-author trailer, tool signature or model name.
-Git-related prose and internal documents refer to Robert as "the maintainer", not by name or
-as "the user".
+Git-related prose and internal documents refer to Robert as "the maintainer", not as "the
+user". A decision record names the person who decided by name, Robert Capps (WDR 001, Decision 7;
+Robert Capps, 2026-11-05: decisions "should clearly indicate who made the decision (name of the
+author, not 'maintainer' or 'owner')").
 
 **Provenance:** Robert Capps, 2026-09-22, session transcript: "you will also commit only under my
-github username, never claude." and "I DO NOT TOLLERATE ANTHROPIC SPAM". Robert Capps,
+github username, never claude." and "I DO NOT TOLERATE ANTHROPIC SPAM". Robert Capps,
 2026-10-07, session transcript: "please stop using the term "user" when referring to me.  I am
 the "maintainer"" and "this goes for all git related prose, and internal docs" (shipped in PR
 #201, merge commit 5121d87). Signing and the no-reply address: Robert Capps, 2026-09-18: "this is

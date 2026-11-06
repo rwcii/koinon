@@ -215,7 +215,7 @@ refusal of Grok sub-agent calls (#254 chunk 02).
 **Provenance:** Shipped in PR #263 (merge commit fec77b1) and PR #266 (merge commit 1eaa7e0);
 no maintainer decision found. The plan states it as acceptance criterion 1 after a live check
 found that each Codex sub-agent registered as its own session. Grok: Robert Capps, 2026-10-12:
-"your  Gate B for Grok #254 recomendation is approved." (#254 comment 6118290944), approving
+"your Gate B for Grok #254 recommendation is approved." (#254 comment 6118290944), approving
 parent-scoped attribution with no default sub-agent ban. Codex sub-agents: Robert Capps,
 2026-10-12: "a, next item", keeping the own peer name with no participant over counting the
 sub-agent's calls as its parent's ([#306 comment 6118909834](https://github.com/rwcii/koinon/issues/306#issuecomment-6118909834)).
