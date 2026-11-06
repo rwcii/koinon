@@ -20,7 +20,7 @@ import (
 // Dashboard action tests (sprint chunk 09): a real daemon on ephemeral loopback ports,
 // temporary state, synthetic sessions and a patched launcher.
 
-// undoSchemaThirtySeven removes the ready-timeout retry of the Enable records (DECISIONS.md#READY-TIMEOUT-ENABLE-487).
+// undoSchemaThirtySeven removes the ready-timeout retry of the Enable records (READY-TIMEOUT-ENABLE-487 in PDR 006, Decision 2).
 const undoSchemaThirtySeven = `ALTER TABLE context_enables DROP COLUMN kept_epoch; ALTER TABLE context_enables DROP COLUMN kept_revision;
 	ALTER TABLE context_enables DROP COLUMN kept_read; `
 

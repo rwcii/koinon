@@ -81,7 +81,7 @@ WDR 002. Inventory rows: C030, C031, C032, C033, C034.
   maintainer's approval for a pending prompt; a peer cannot widen permissions; refuse permission
   laundering and report it). Keep them, or remove them too?
 - Options: keep the three limits, or remove them as well.
-- Answer: Maintainer, 2026-10-25
+- Answer: Robert Capps, 2026-10-25
   ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)):
   "remove all limit text.  remove all of the caveats, controls, etc.  the agents have their own
   built in safeties, they do not need you adding more complications."
@@ -106,7 +106,7 @@ checkpoint, and interrupts earlier only to stop an imminent destructive or secur
 This governs writes to the shared checkout; it does not stop the observer from running tests
 in its own scratch location. The `pair` skill describes the steps.
 
-**Provenance:** Maintainer, 2026-10-06, session transcript: "work in a pair programming
+**Provenance:** Robert Capps, 2026-10-06, session transcript: "work in a pair programming
 framework. share the checkout, with one driving, and one observing.  trade off from time to
 time." Shipped in PR #177 (merge commit 0d0caed). An earlier statement, 2026-09-18: "you are
 both active in the same directory, so you need to negotiate who has write access. i woudl
@@ -141,8 +141,8 @@ first driver and the next increment before the first edit.
 hand-off point. The maintainer's 2026-10-06 words above ask the pair to "trade off from time to
 time"; no source was found for the `pair` skill's sentence "Do not swap while fixes or checks
 are unfinished" as a ban on an earlier, agreed swap. #487 removed the no-blocker condition and
-that sentence from the skill; both are back, approved on the decision board, Maintainer,
-2026-11-01 ([DECISIONS.md#RESTORE-STEPS-487](../../../DECISIONS.md#restore-steps-487)). Intent:
+that sentence from the skill; both are back, approved on the decision board, Robert Capps,
+2026-11-01 (RESTORE-STEPS-487 in PDR 006, Decision 3). Intent:
 each is a step of the procedure, so that drivers do not swap in the middle of a fix.
 
 ### Alternatives Considered

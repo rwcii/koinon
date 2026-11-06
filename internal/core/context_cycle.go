@@ -1152,7 +1152,7 @@ func compactionKeepsEnable(c cycleRow, reason string) bool {
 // through carry. Any other end turns the session's Enable off, except for a compaction that
 // ended before its input or under another epoch (#509), and a ready timeout
 // (waiting_ready_timeout) before any input, once in each epoch
-// (DECISIONS.md#READY-TIMEOUT-ENABLE-487).
+// (READY-TIMEOUT-ENABLE-487 in PDR 006, Decision 2).
 func (s *Store) endCycleTx(ctx context.Context, tx *writeTx, c *cycleRow, outcome, reason string, carry func() error) error {
 	now := s.now().UnixMilli()
 	if outcome != cycleComplete && cycleUnproven(ctx, tx, *c) {

@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// Idle compaction (DECISIONS.md#IDLE-COMPACT-564): in native_compaction, a reading older than
+// Idle compaction (IDLE-COMPACT-564 in PDR 006, Decision 1): in native_compaction, a reading older than
 // the source age counts when its newest confirmation is caught up; the input then needs a
 // confirmation of the same mark received after the compaction's choice.
 
@@ -74,7 +74,7 @@ func TestIdleCompactionThroughCaughtUpRead(t *testing.T) {
 }
 
 // Without a caught-up mark, with an old confirmation or below the threshold, an old reading
-// admits nothing. The handoff cycle accepts the mark too (DECISIONS.md#PULLED-IDLE-569).
+// admits nothing. The handoff cycle accepts the mark too (PULLED-IDLE-569 in PDR 006, Decision 1).
 func TestIdleCompactionAdmitsOnlyCaughtUpReadings(t *testing.T) {
 	cases := map[string]func(f *compactFixture, old time.Time){
 		// A busy session, a batch-bounded or partial read and a read failure all report no mark.

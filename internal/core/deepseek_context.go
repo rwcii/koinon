@@ -239,7 +239,7 @@ func (c *deepSeekClient) read(ctx context.Context, method string, request, value
 // incoherent or unreadable reading is an error, never a fallback to an older one. The reading
 // is current when the cycle adapter's quiet-point check then passes and the projections are
 // read again at the same log position: the session is idle, and its newest usage, with no model
-// or context change after it, is the reading's (DECISIONS.md#PULLED-IDLE-569).
+// or context change after it, is the reading's (PULLED-IDLE-569 in PDR 006, Decision 1).
 func deepSeekContext(ctx context.Context, target wakeTarget, id string) (model, usage *ObservedValue, seq int64, current bool, err error) {
 	ctx, cancel := context.WithTimeout(ctx, deepSeekContextScan)
 	defer cancel()

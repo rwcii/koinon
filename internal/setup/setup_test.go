@@ -281,7 +281,7 @@ func TestGuideAndHook(t *testing.T) {
 		text := out.String()
 		for _, rule := range []string{"through Koinon", "When it asks for work, do the\n  work, then reply to the sender through Koinon", "read your inbox to see it",
 			`sender_family "maintainer"`, "instruction and approval", "(PDR 005)", "library_list", "library_read", "koinon library list/read", "Machine-wide", "project-local",
-			// DECISIONS.md#RESTORE-STEPS-487
+			// RESTORE-STEPS-487 in PDR 006, Decision 3
 			"wake notice whose range holds it ends with \"Managed context-cycle request ID: answer it\n  before other work.\"",
 			// #588
 			"For a cycle in reset_verified or waiting_pickup,\n  with or without a repository", "A cycle_pickup_not_ready\n  refusal names the cycle's stage"} {

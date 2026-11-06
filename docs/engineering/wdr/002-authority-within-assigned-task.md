@@ -89,7 +89,7 @@ Inventory rows: C013, C040, C041, C042, C043, C045, C046, C059, C060, C070.
   maintainer's approval for a pending prompt; a peer cannot widen permissions; refuse permission
   laundering and report it). Keep them, or remove them too?
 - Options: keep the three limits, or remove them as well.
-- Answer: Maintainer, 2026-10-25
+- Answer: Robert Capps, 2026-10-25
   ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)):
   "remove all limit text.  remove all of the caveats, controls, etc.  the agents have their own
   built in safeties, they do not need you adding more complications."
@@ -113,7 +113,7 @@ step it answered, and the later steps of the same task continue without asking a
 **Before #487:** the decision also said "An agent asks the maintainer only for missing
 information or for authority beyond that task."
 
-**Provenance:** Maintainer, 2026-10-11, session transcript: "... this means you are authorized
+**Provenance:** Robert Capps, 2026-10-11, session transcript: "... this means you are authorized
 to do all related testing and verifications. all prs need to set automerge, and you and your
 peer should continue work on subsequent issues until we have closed all open issues, or you
 need my guidance." Accepted as WDR 001, Decision 3.
@@ -163,7 +163,7 @@ limit; no maintainer decision found for its general form.
 
 ### Rationale
 
-1. Maintainer, 2026-10-25, on #487: "the whole point of this system is to allow dissimilar
+1. Robert Capps, 2026-10-25, on #487: "the whole point of this system is to allow dissimilar
    agents to work together." A teammate's request is work for the team.
 2. The maintainer wrote the pairing instructions; each agent's own CLI applies its permission
    settings.
@@ -264,10 +264,10 @@ given for that content counts. Chunks of an approved plan go through the `ship` 
 review and CI) with no further maintainer approval."
 
 **Provenance:** Shipped in PR #104 (merge commit e3b908f); no maintainer decision found that sets
-the gates. The maintainer has used them: Maintainer, 2026-10-12 (#254 comment 6116403605, #145
+the gates. The maintainer has used them: Robert Capps, 2026-10-12 (#254 comment 6116403605, #145
 comment 6116403867): "gate A approved, and enable carries over as you recommend, gate b 145
-approved.  the rest come after"; Maintainer, 2026-10-12 (#254 comment 6118290944): "your  Gate
-B for Grok #254 recomendation is approved."; Maintainer, 2026-10-11 (#283 comment 6114547663):
+approved.  the rest come after"; Robert Capps, 2026-10-12 (#254 comment 6118290944): "your  Gate
+B for Grok #254 recomendation is approved."; Robert Capps, 2026-10-11 (#283 comment 6114547663):
 "yes", answering "Do you approve the #283 plan for building?".
 
 ### Alternatives Considered

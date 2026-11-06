@@ -18,7 +18,7 @@ type FactValues struct {
 
 // retiredFacts are the headings that a skill no longer declares but that a facts file written
 // for an earlier catalog can still hold. Such a heading stays valid, and its value is ignored.
-// ship's Decision record chose a record mode for DECISIONS.md, which Koinon no longer writes
+// ship's Decision record chose a record mode for a record file, which Koinon no longer writes
 // (#623).
 var retiredFacts = map[string][]string{"ship": {"Decision record"}}
 

@@ -71,9 +71,9 @@ type statusLine struct {
 	hook, record, missing string
 	defaults              []field
 	// refresh is the most seconds between two runs of the status line while the session is
-	// idle (Claude Code's refreshInterval, DECISIONS.md#CLAUDE-IDLE-566), or 0 for none.
+	// idle (Claude Code's refreshInterval, CLAUDE-IDLE-566 in PDR 006, Decision 1), or 0 for none.
 	// refreshKey names the member, "refreshInterval" when empty, and refreshInteger keeps only
-	// an integer value (Grok's refresh_interval, DECISIONS.md#GROK-IDLE-568).
+	// an integer value (Grok's refresh_interval, GROK-IDLE-568 in PDR 006, Decision 1).
 	refresh        int
 	refreshKey     string
 	refreshInteger bool

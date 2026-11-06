@@ -66,7 +66,7 @@ front of a running session, and some of those ways cannot confirm that the model
 
 The Go sprint plan stated "Nothing types into a terminal" in its wake decision. Later agents
 read that sentence as a product ban and refused to clear a new agent's startup prompts or to
-enter context-handoff commands. The maintainer, 2026-10-12, said of it: "this is not a fucking
+enter context-handoff commands. Robert Capps, 2026-10-12, said of it: "this is not a fucking
 rule, you made this up." and "items like this ... serve to only cause agents to refuse
 legitimate work." (PR #305).
 
@@ -183,16 +183,16 @@ describes the steps: verify the target pane, read the screen before and after ea
 read back a dialog's selected option before Enter. Koinon's runtime does not type into an
 agent's input today; the planned daemon-driven cycle is PDR 006.
 
-**Provenance:** Maintainer, 2026-10-12: "in fact, an agent will need to interact with a newly
+**Provenance:** Robert Capps, 2026-10-12: "in fact, an agent will need to interact with a newly
 lauched agent when invoked, as there will be permissions and other alerts that need to be
-cleared before a new agent can interact." (#145 comment 6117336800). Maintainer, 2026-10-12:
+cleared before a new agent can interact." (#145 comment 6117336800). Robert Capps, 2026-10-12:
 "it also needs to enter commands in the tmux session for context management handoffs." (#196
 comment 6117338153). The earlier rules against accepting another session's permission dialog
 were removed in PR #251 (merge commit 27c5f56). Before #487 this decision called the terminal
 input "expected work within the task, not an exception to a rule", and Decision 3 called its
 naming rule "not a limit on an agent operating a peer's terminal within its task". The #487
 review listed three limits and proposed to keep them; the question was whether to keep them or
-to remove them too. Maintainer, 2026-10-25: "remove all limit text.  remove all of the caveats,
+to remove them too. Robert Capps, 2026-10-25: "remove all limit text.  remove all of the caveats,
 controls, etc.  the agents have their own built in safeties, they do not need you adding more
 complications." ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
 Reason: limit text with no source makes agents of different families refuse each other's work.
@@ -266,7 +266,7 @@ the same tmux pane can also succeed the holder once the old host has ended, so a
 supported recovery path. The runbook reports that Codex `/new` starts a separate session with
 its own sandbox and asks where to run it.
 
-**Provenance:** Maintainer, 2026-10-12: "it also needs to enter commands in the tmux session
+**Provenance:** Robert Capps, 2026-10-12: "it also needs to enter commands in the tmux session
 for context management handoffs." (#196 comment 6117338153). On sending the command alone:
 "$handoff is sufficient" and "you need to read and validate the agent is taking the action
 requested" (2026-09-24, memory copy only; original not located). No maintainer decision found

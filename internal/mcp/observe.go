@@ -225,7 +225,7 @@ func (s *server) observeOnce(ctx context.Context) {
 // unmarked is the caller's last delivered context without its caught-up mark, while that
 // delivered context carried one, or nil. A rollout that failed, cannot be read or names
 // another thread gives no reading; this report ends the daemon's caught-up state at once, and
-// is sent again at each look until the daemon accepts it (DECISIONS.md#IDLE-COMPACT-564).
+// is sent again at each look until the daemon accepts it (IDLE-COMPACT-564 in PDR 006, Decision 1).
 func (s *server) unmarked(caller core.Key) *core.ObservedValue {
 	s.obs.mu.Lock()
 	defer s.obs.mu.Unlock()
@@ -400,7 +400,7 @@ func (s *server) codexRollout(thread string) (model, context, activity *core.Obs
 	}
 	// The rollout's first record proved its thread, which is the context's native epoch. A
 	// read that caught up while the last turn had ended marks the reading as current, though
-	// an idle rollout records no new one (DECISIONS.md#IDLE-COMPACT-564).
+	// an idle rollout records no new one (IDLE-COMPACT-564 in PDR 006, Decision 1).
 	context = r.context
 	if context != nil {
 		value := *context

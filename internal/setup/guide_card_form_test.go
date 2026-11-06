@@ -7,7 +7,7 @@ import (
 )
 
 // The card form gives the labels after Fast or complete in their order, each only when it
-// has relevant data (#582, DECISIONS.md#CARD-LABELS-582).
+// has relevant data (#582, CARD-LABELS-582 in PDR 007, Decision 1).
 func TestGuideCardFormLabels(t *testing.T) {
 	labels := []string{"**Corrections from the peer:**", "**Open disagreements:**", "**Other options:**",
 		"**A separate choice, which you can add to any option:**", "Then each open point with how to handle it."}

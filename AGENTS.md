@@ -12,10 +12,11 @@ keep migration and storage provenance; they do not describe current commands.
 ## Decision records
 
 Each significant decision has one record with its source, scope and status. Other text cites
-the record, for example "see WDR 004" (WDR 001). A verdict on the decision board goes into the
-record that it changes, with the maintainer's words, and is named by its card reference, never
-by its verdict ID (WDR 001, Decision 7). Entries already in `DECISIONS.md` are cited as
-`DECISIONS.md#REFERENCE`.
+the record, for example "see WDR 004" (WDR 001). A decision, from the decision board or given
+directly, goes into the record that it changes, in the pull request that does the work, with
+the decider's name, the date, the context, the decision, the reason and scope, and the
+condition for its review when one is known (WDR 001, Decision 7). A board decision is named by
+its card reference, never by its verdict ID.
 
 - [ADRs](docs/architecture/adr/README.md): how Koinon is built: native caller identity, the
   loopback daemon and its private store, content-free wakes, dashboard checks, the Python-era

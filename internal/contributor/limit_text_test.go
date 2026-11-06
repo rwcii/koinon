@@ -30,7 +30,7 @@ func TestAgentTextHasNoLimitPhrases(t *testing.T) {
 		}
 	}
 	// The pickup entries check the cycle's catalog digest and stop when they cannot read the
-	// procedure (DECISIONS.md#RESTORE-STEPS-487).
+	// procedure (RESTORE-STEPS-487 in PDR 006, Decision 3).
 	for _, want := range []string{"Call the koinon library_read tool for item skill.pickup. When context_cycle_status shows a cycle,\n" +
 		"the catalog_digest that library_read returns must equal the cycle's catalog_digest; if it differs,\n" +
 		"or the tool is unavailable, stop and report that. Otherwise follow the returned procedure."} {

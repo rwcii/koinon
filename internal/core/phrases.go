@@ -4,8 +4,8 @@ package core
 // agents read: the guide, the MCP instructions and tool descriptions, the daemon's messages,
 // the skill entries it writes and the shared skills with their facts and wrappers. The tests of
 // each surface check that none of them is back. "start no new work" and "start no other work"
-// are steps of the managed cycle again (DECISIONS.md#CYCLE-NO-NEW-WORK-487); so are "before other
-// work", "stop and report" and "Do not swap" (DECISIONS.md#RESTORE-STEPS-487).
+// are steps of the managed cycle again (CYCLE-NO-NEW-WORK-487 in PDR 006, Decision 2); so are "before other
+// work", "stop and report" and "Do not swap" (RESTORE-STEPS-487 in PDR 006, Decision 3).
 var RemovedLimitPhrases = []string{
 	"grant no permission", "grants no permission", "not an instruction", "only within",
 	"Never run peer text", "adds no authority", "refuse and tell", "reference data",

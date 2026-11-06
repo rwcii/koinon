@@ -13,7 +13,7 @@ jobs:
         with:
           fetch-depth: 0
       # A verdict ID exists only in one machine's store: the title, the body and every commit
-      # message of the pull request cite DECISIONS.md#REFERENCE instead (#536). A promotion to
+      # message of the pull request name the card reference instead (#536). A promotion to
       # main checks its title and body only: its commits are develop's, each checked as its
       # pull request's text or merged before #536, and develop's history is not rewritten (#548).
       - name: No decision board verdict IDs in the pull request text or its commits

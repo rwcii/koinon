@@ -13,7 +13,7 @@ import (
 	"github.com/rwcii/koinon/internal/core"
 )
 
-// The caught-up mark (DECISIONS.md#IDLE-COMPACT-564): a Codex context reading carries End only
+// The caught-up mark (IDLE-COMPACT-564 in PDR 006, Decision 1): a Codex context reading carries End only
 // when the read reached the end of the rollout after a complete record, within its batch,
 // while the last turn had ended. Losing the mark is a change, so the daemon learns it at once.
 

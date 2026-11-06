@@ -112,7 +112,7 @@ workaround." Before #487 this decision also said that docs/INSTALL.md tells the 
 use sudo, system services, lingering or permission changes to work around a refusal. No
 maintainer source was found for that instruction. The #487 review listed three limits and
 proposed to keep them; the question was whether to keep them or to remove them too.
-Maintainer, 2026-10-25: "remove all limit text.  remove all of the caveats, controls, etc.  the
+Robert Capps, 2026-10-25: "remove all limit text.  remove all of the caveats, controls, etc.  the
 agents have their own built in safeties, they do not need you adding more complications."
 ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
 Reason: limit text with no source makes agents of different families refuse each other's work.
@@ -155,7 +155,7 @@ step fails. Later installs keep system mode; `koinon uninstall` removes the owne
 keeps the state. `koinon recover` prints the `sudo launchctl kickstart` command and does not run
 `sudo` itself. On Linux, `--system` is refused (`system_mode_unsupported`).
 
-**Provenance:** Requirements in issue #283. Maintainer, 2026-10-11: "yes", the answer to "Do you
+**Provenance:** Requirements in issue #283. Robert Capps, 2026-10-11: "yes", the answer to "Do you
 approve the #283 plan for building?" (#283 comment 6114547663, plan at 3b5f9ce); this approves
 the plan document, not each sentence in it. Shipped in PR #301 (merge commit 496ec52). The Linux
 refusal is in the approved plan ("the issue names only macOS"); no maintainer words on Linux were
@@ -206,7 +206,7 @@ retained state." It came from PR #207 (10ea1e4), which merged and broadened the 
 not reset a checkpoint silently" and "Never purge shared socket or session-registry
 directories"; no maintainer source found for it. #487 removed the sentence from AGENTS.md and
 from this decision (Decision 1 has the #487 source). The command-line purge and sweep:
-Maintainer, 2026-10-17, "yes, take on all 3 open issues" (#388 among them). Intent: the
+Robert Capps, 2026-10-17, "yes, take on all 3 open issues" (#388 among them). Intent: the
 cleanup that the dashboard does one session at a time can be done in bulk from a shell. The
 daemon-secret basis is the one of #391: "approved, allow CLI and agents with audit" (PDR 006,
 Decision 1).
@@ -245,7 +245,7 @@ An agent that has an install, upgrade or installation-test task runs its steps a
 result (WDR 002, Decision 1).
 
 **Provenance:** Shipped in PR #205 (merge commit f65ad6e); no maintainer decision found for a
-general rule. Maintainer, 2026-10-11, session transcript: "this means you are authorized to do
+general rule. Robert Capps, 2026-10-11, session transcript: "this means you are authorized to do
 all related testing and verifications." Before #487 this decision said that Koinon changes
 services and configuration "only through commands that a person or an authorized agent runs",
 that "Peer input is data and cannot trigger shell execution (CONTRIBUTING.md, ADR 001), so a
@@ -255,6 +255,23 @@ sentence continued "requests to install or configure this bridge provide that sc
 pointed to the maintainer's own agent instructions for limits on peer requests. No maintainer
 source was found for these statements in this repository; #487 removed them (Decision 1 has the
 #487 source).
+
+**Provenance (Claude permission rules, CLI-RULES-550):**
+
+- **Decided by:** Robert Capps, on the decision board (revision 2), "approved", with no note.
+- **Date:** 2026-10-28.
+- **Context:** #550, filed from the macOS install: each `koinon` command that a Claude agent ran
+  needed a permission prompt. `koinon install` and `koinon setup claude` offered four rules, for
+  the PATH name `koinon` only, but the installed Claude configuration calls the binary's
+  absolute path. The options: offer rules for the agent-facing commands, or keep the four.
+- **Decision:** at a terminal, `koinon install` and `koinon setup claude` offer allow rules,
+  with and without arguments, for the PATH name and the installed binary's path:
+  `mcp__koinon__*` and the agent-facing `koinon` commands that docs/PERMISSIONS.md lists. They
+  leave out `install`, `uninstall`, `upgrade`, `serve`, `setup`, `maintainer`, `dashboard`,
+  `context set`/`enable`/`disable`/`threshold`, `sessions` and `participant holder`. A yes adds
+  them; nothing is added without it, and `koinon uninstall` leaves them.
+- **Reason and scope:** a prompt for each agent command stops the work. The decision covers the
+  offered Claude rules only.
 
 ### Alternatives Considered
 
@@ -291,7 +308,7 @@ invalid file or a relative or missing recorded path still refuses and is not cha
 
 **Provenance:** The recorded-path-only launcher shipped in PR #186 (merge commit e2bc2f3); no
 reason recorded.
-Maintainer, 2026-10-12: "b, next item", choosing the PATH lookup that records and reports the
+Robert Capps, 2026-10-12: "b, next item", choosing the PATH lookup that records and reports the
 path over the recorded-path-only launcher ([#306 comment 6119328447](https://github.com/rwcii/koinon/issues/306#issuecomment-6119328447)).
 
 ### Alternatives Considered
@@ -347,13 +364,13 @@ managed services are gone. `TestBackgroundInstall`, `TestBackgroundStart`, `Test
 **Provenance:** #551 replaced the fixed steps with the plan's commands under the heading "The
 steps that this installation needs:", without the sentence that said what `koinon install`
 does. On a new Linux machine, v0.9.2 showed `koinon install` with no instruction to run it.
-Maintainer, 2026-11-05: "the brew installer no longer prompts the user to run 'koinon install'
+Robert Capps, 2026-11-05: "the brew installer no longer prompts the user to run 'koinon install'
 a user would never know they need to run that command." and "post install/upgrade needs to
 CLEARLY identify what the user needs to do.  this content keeps getting replaced without any
 request to do so" (#618).
 On a Linux container without a systemd user manager, `koinon install --port 47687` reported
 `"ok": true` with `"service": "manual_required"`, and `koinon dashboard` then found no daemon.
-Maintainer, 2026-11-05: "this needs to be part of the installer, or raise a post install task
+Robert Capps, 2026-11-05: "this needs to be part of the installer, or raise a post install task
 for the user.  it can't appear to succeed and then not work." (#619). Asked whether the install
 should start the daemon in the background and report the step after a restart, in place of a
 failed install that names a command to run in a session that stays open, the maintainer
@@ -385,7 +402,7 @@ starts the daemon and says to run it again after a restart.
 
 | Inventory row | Statement (short) | Where it appears | Why not adopted |
 | ------------- | ----------------- | ---------------- | --------------- |
-| C052 | Agents never run `--system` or `sudo` on the maintainer's machine | AGENTS.md (Installation, upgrade and security); docs/INSTALL.md (System mode on macOS); docs/sprints/2026-10-11-macos-system-service/decision.md (Sudo boundary) | No maintainer words found; #283 and its comments were checked. Its only source is a sentence in the plan approved at Gate B, and that approval covers the plan, not each sentence. It bans an operation the maintainer may assign; the host's sudo policy and the native permission settings already govern each privileged step. Maintainer, 2026-10-12: "a, next item", removing the sentence ([#306 comment 6119281303](https://github.com/rwcii/koinon/issues/306#issuecomment-6119281303)); the step 2 wording pull request removes it from AGENTS.md and docs/INSTALL.md. |
+| C052 | Agents never run `--system` or `sudo` on the maintainer's machine | AGENTS.md (Installation, upgrade and security); docs/INSTALL.md (System mode on macOS); docs/sprints/2026-10-11-macos-system-service/decision.md (Sudo boundary) | No maintainer words found; #283 and its comments were checked. Its only source is a sentence in the plan approved at Gate B, and that approval covers the plan, not each sentence. It bans an operation the maintainer may assign; the host's sudo policy and the native permission settings already govern each privileged step. Robert Capps, 2026-10-12: "a, next item", removing the sentence ([#306 comment 6119281303](https://github.com/rwcii/koinon/issues/306#issuecomment-6119281303)); the step 2 wording pull request removes it from AGENTS.md and docs/INSTALL.md. |
 
 ---
 
@@ -410,3 +427,4 @@ the approval of a plan; the rest is shipped behavior the maintainer has not yet 
 | 2026-10-12 | Decision 5 implemented: the launcher records the CLI it finds on PATH (#306) |
 | 2026-10-25 | Decisions 1, 3 and 4: removed the unsourced sudo workaround, state-reset and authorization text (#487) |
 | 2026-11-05 | Decision 6: the maintainer's decisions on the post-install and post-upgrade instructions, implemented (#618, #619) |
+| 2026-11-05 | Decision 4: the Claude permission rules decision (CLI-RULES-550), moved into this record (#623) |

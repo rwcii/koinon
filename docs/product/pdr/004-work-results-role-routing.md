@@ -108,7 +108,7 @@ generation. Existing consumer proposals and claims keep v1 behavior.
 
 **Provenance:** Requested in #140 (issue body, gap 1 and acceptance criteria); a request
 record, no maintainer quote found. The `proposed_role` mechanism: Proposed in
-the #140 plan (chunk 01); approved at Gate B. Maintainer, 2026-10-12: "approved as
+the #140 plan (chunk 01); approved at Gate B. Robert Capps, 2026-10-12: "approved as
 recommended.", answering "Do you approve Gate B for #140?"
 ([#140 comment 6127384411](https://github.com/rwcii/koinon/issues/140#issuecomment-6127384411)).
 
@@ -153,15 +153,15 @@ Gate B (#140 comment 6127384411).
 Before #487 this decision also said "The verdict is same-user reported data and grants no
 authority.", and the requirements held #140's criterion 7. No maintainer source was found for
 either. The #487 review listed three limits and proposed to keep them; the question was whether
-to keep them or to remove them too. Maintainer, 2026-10-25: "remove all limit text.  remove all
+to keep them or to remove them too. Robert Capps, 2026-10-25: "remove all limit text.  remove all
 of the caveats, controls, etc.  the agents have their own built in safeties, they do not need
 you adding more complications." ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
 Reason: limit text with no source makes agents of different families refuse each other's work.
 Scope: agent-facing text, skills, setup blocks and the docs and records that restate them. The #487 audit lists the code
 refusals for a separate decision (#493). The verdict rule of Decision 3 keeps its source and stays.
 
-Early removal of finished items: Maintainer, 2026-10-27, decision board item WORK-LIMIT-529
-(revision 1), [DECISIONS.md#WORK-LIMIT-529](../../../DECISIONS.md#work-limit-529), "approved". The question: "Let new work items replace old finished
+Early removal of finished items: Robert Capps, 2026-10-27, decision board item WORK-LIMIT-529
+(revision 1), "approved". The question: "Let new work items replace old finished
 items when a store is full? (#529)". The card said that the koinon store held 128 items (116
 finished), so `work_create` was refused with `capacity` until the first finished item reached
 30 days on 2026-11-05, and recommended: "When a new item would go past the limit, Koinon
@@ -206,7 +206,7 @@ participant is not adopted. The explanation given before the maintainer chose wa
 verdict is a second look by a session other than the one that did the work; otherwise
 "accepted" means only that the worker says it is done.
 
-**Provenance:** Requested in #140 (owner cannot verdict its own reported item). Maintainer,
+**Provenance:** Requested in #140 (owner cannot verdict its own reported item). Robert Capps,
 2026-10-12: "a, next item", choosing the #140 rule over the plan's logical-participant
 exclusion and over no rule, after asking "why is any agent refusing to accept the work of a
 peer session?" ([#306 comment 6119167156](https://github.com/rwcii/koinon/issues/306#issuecomment-6119167156)).
