@@ -36,8 +36,9 @@ while read -r id runner steps; do
 		rerun=no
 		continue
 	fi
-	messages=$(gh api --paginate "repos/$REPO/check-runs/$id/annotations?per_page=100" --jq '.[].message')
-	if printf '%s\n' "$messages" | grep -Fqx "$unacquired"; then
+	# One line for each page: true when a whole annotation message equals the sentence.
+	found=$(gh api --paginate "repos/$REPO/check-runs/$id/annotations?per_page=100" --jq "any(.[]; .message == \"$unacquired\")")
+	if printf '%s\n' "$found" | grep -qx true; then
 		echo "job $id: no runner acquired it"
 	else
 		echo "job $id failed without a runner and without the unacquired annotation; not rerun"

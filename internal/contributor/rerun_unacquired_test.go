@@ -88,6 +88,8 @@ func TestRerunUnacquired(t *testing.T) {
 			"annotations-5.json": unacquired, "run.json": failed}, false, false},
 		{"annotation that only contains the text", "1", map[string]string{"jobs.json": `{"jobs":[` + waiting + `]}`,
 			"annotations-2.json": `[{"message":"Note: The job was not acquired by Runner of type hosted even after multiple attempts, then it ran"}]`, "run.json": failed}, false, false},
+		{"multi-line annotation with the sentence as one line", "1", map[string]string{"jobs.json": `{"jobs":[` + waiting + `]}`,
+			"annotations-2.json": `[{"message":"prefix\nThe job was not acquired by Runner of type hosted even after multiple attempts\nsuffix"}]`, "run.json": failed}, false, false},
 		{"another annotation", "1", map[string]string{"jobs.json": `{"jobs":[` + waiting + `]}`, "annotations-2.json": other, "run.json": failed}, false, false},
 		{"annotation on the second page", "1", map[string]string{"jobs.json": `{"jobs":[` + waiting + `]}`, "annotations-2.json": other,
 			"annotations-2-2.json": unacquired, "run.json": failed}, true, false},
