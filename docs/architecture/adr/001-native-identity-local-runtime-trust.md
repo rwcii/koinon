@@ -212,6 +212,11 @@ the daemon log and status. No secret means no network bind; status gives the sec
 steps. A secret removed while running refuses network requests immediately. State and private
 key files keep this decision's existing ownership checks; the certificate and key are one
 private PEM file, reused on restart and replaced for a changed identity or expired certificate.
+IPv6 link-local TCP binds need an interface zone, which this setting does not carry. Such
+addresses are refused at installation instead of saving a bind that cannot start; IPv4
+link-local and routable IPv6 addresses remain supported. A saved-setting refusal names its file
+and the replacement/removal commands for the same state directory, retaining the private-file
+ownership, mode and link checks.
 
 ### Alternatives Considered
 

@@ -40,7 +40,13 @@ func (a DashboardAddress) Address() string { return net.JoinHostPort(a.Host, str
 func (a DashboardAddress) Bind() string    { return net.JoinHostPort(a.IP, strconv.Itoa(a.Port)) }
 
 func dashboardIP(ip net.IP) bool {
-	return ip != nil && !ip.IsUnspecified() && !ip.IsLoopback() && !ip.IsMulticast()
+	return ip != nil && !ip.IsUnspecified() && !ip.IsLoopback() && !ip.IsMulticast() && !dashboardZoneRequired(ip)
+}
+
+// IPv6 link-local TCP binds require an interface zone. The saved setting has no zone;
+// IPv4 link-local and routable IPv6 addresses do not need one.
+func dashboardZoneRequired(ip net.IP) bool {
+	return ip != nil && ip.To4() == nil && ip.IsLinkLocalUnicast()
 }
 
 func dashboardName(host string) bool {
@@ -75,6 +81,7 @@ func ResolveDashboardAddress(ctx context.Context, address string) (DashboardAddr
 
 func resolveDashboardAddress(ctx context.Context, address string, interfaces func() ([]net.Addr, error), lookup func(context.Context, string) ([]net.IPAddr, error)) (DashboardAddress, error) {
 	invalid := Refusal{"dashboard_address_invalid", "use a non-loopback IP of this host or an FQDN that resolves to it, with a port from 1 to 65535"}
+	zoneRequired := Refusal{"dashboard_address_invalid", "an IPv6 link-local address needs an interface zone, which this setting does not carry; choose a local IPv4 or routable IPv6 address"}
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {
 		return DashboardAddress{}, invalid
@@ -86,6 +93,9 @@ func resolveDashboardAddress(ctx context.Context, address string, interfaces fun
 	host = strings.TrimSuffix(strings.ToLower(host), ".")
 	var candidates []net.IPAddr
 	if ip := net.ParseIP(host); ip != nil {
+		if dashboardZoneRequired(ip) {
+			return DashboardAddress{}, zoneRequired
+		}
 		if !dashboardIP(ip) {
 			return DashboardAddress{}, invalid
 		}
@@ -106,7 +116,12 @@ func resolveDashboardAddress(ctx context.Context, address string, interfaces fun
 		return DashboardAddress{}, err
 	}
 	var matches []string
+	needsZone := false
 	for _, candidate := range candidates {
+		if dashboardZoneRequired(candidate.IP) {
+			needsZone = true
+			continue
+		}
 		if !dashboardIP(candidate.IP) {
 			continue
 		}
@@ -119,6 +134,9 @@ func resolveDashboardAddress(ctx context.Context, address string, interfaces fun
 		}
 	}
 	if len(matches) == 0 {
+		if needsZone {
+			return DashboardAddress{}, zoneRequired
+		}
 		return DashboardAddress{}, Refusal{"dashboard_address_unavailable", "the dashboard address is not an address of this host"}
 	}
 	slices.Sort(matches)
@@ -128,21 +146,31 @@ func resolveDashboardAddress(ctx context.Context, address string, interfaces fun
 // ReadDashboardAddress reads only an owner-checked private file. An absent file means the
 // optional listener is off; malformed or unsafe files are reported, rather than enabled.
 func ReadDashboardAddress(root string) (*DashboardAddress, error) {
-	f, err := platform.OpenPrivate(filepath.Join(root, "dashboard-address.json"), os.O_RDONLY)
+	path := filepath.Join(root, "dashboard-address.json")
+	f, err := platform.OpenPrivate(path, os.O_RDONLY)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("dashboard_configuration_invalid: %w", err)
+		return nil, dashboardConfigurationError(path, err, true)
 	}
 	defer f.Close()
 	var a DashboardAddress
 	d := json.NewDecoder(io.LimitReader(f, 4097))
 	d.DisallowUnknownFields()
 	if d.Decode(&a) != nil || d.Decode(new(any)) != io.EOF || !a.valid() {
-		return nil, errors.New("dashboard_configuration_invalid: invalid dashboard address file")
+		return nil, dashboardConfigurationError(path, errors.New("invalid JSON or dashboard address"), false)
 	}
 	return &a, nil
+}
+
+func dashboardConfigurationError(path string, err error, unsafe bool) error {
+	command := "koinon install --state-dir " + ShellWord(filepath.Dir(path))
+	first := ""
+	if unsafe {
+		first = "Correct the file's ownership, mode 0600, regular-file type and single-link count first. "
+	}
+	return fmt.Errorf("dashboard_configuration_invalid: %s: %w. %sTo replace the setting, run %s --dashboard-address HOST:PORT; to remove it, run %s --dashboard-address none", path, err, first, command, command)
 }
 
 // WriteDashboardAddress records the explicit installation choice. Nil removes it. The
@@ -161,7 +189,7 @@ func WriteDashboardAddress(root string, a *DashboardAddress) error {
 	if err == nil {
 		f.Close()
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
+		return dashboardConfigurationError(path, err, true)
 	}
 	if a == nil {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {

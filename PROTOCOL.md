@@ -21,8 +21,13 @@ An optional separate dashboard HTTPS listener is configured by `koinon install
 --dashboard-address HOST:PORT`, or removed by `--dashboard-address none` (#624;
 DASHBOARD-LAN-624 in ADR 001, Decisions 2 and 4). The private `dashboard-address.json` file
 contains `host`, the selected local `ip`, and `port`. A literal IP must belong to this host
-and be non-loopback, non-wildcard and non-multicast. An FQDN must resolve to a local address;
-several local answers choose one in canonical sorted order. Installation resolves it again;
+and be non-loopback, non-wildcard and non-multicast. An FQDN must resolve to a local address.
+IPv6 link-local addresses need an interface zone, which this setting does not carry, and
+are refused with `dashboard_address_invalid`, also when they are an FQDN's only local answers.
+IPv4 link-local addresses and routable IPv6 addresses remain supported. With an invalid saved
+setting, the refusal names `dashboard-address.json` and gives a replacement or removal command
+for the same state directory; unsafe ownership, mode or links must be corrected first.
+Several local answers choose one in canonical sorted order. Installation resolves it again;
 daemon starts use the saved IP and requests use no DNS. Invalid input is
 `dashboard_address_invalid`, unresolved or unavailable addresses are
 `dashboard_address_unavailable`, and an invalid private setting is

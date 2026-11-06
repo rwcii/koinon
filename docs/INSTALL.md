@@ -266,7 +266,11 @@ koinon dashboard --no-open
 Use your host's non-loopback IP or an FQDN that resolves to it. The installer selects one local
 address and saves it in the private state directory. It refuses wildcard addresses, loopback
 addresses and names that resolve only elsewhere. All service modes and background startup read
-the same setting through `--state-dir`. A later install or upgrade keeps it; a later install
+the same setting through `--state-dir`. IPv6 link-local addresses require an interface zone,
+which this setting does not carry; use a local IPv4 or routable IPv6 address instead. A damaged
+saved setting's refusal names `dashboard-address.json` and the commands to replace or remove
+it, retaining the same state directory. Correct unsafe file ownership, mode 0600 or links first.
+A later install or upgrade keeps the setting; a later install
 resolves a saved FQDN again. `koinon install --dashboard-address none` removes it. With
 `--no-start`, the setting waits for the next daemon start.
 
