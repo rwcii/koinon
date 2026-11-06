@@ -5,6 +5,16 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-11-06 — A network dashboard over HTTPS, install network questions, and no DECISIONS.md
+
+This release can open the dashboard also on one network address of the host, over HTTPS, with
+a login by the maintainer secret, while the agent API stays on loopback. At a terminal, the
+first `koinon install` asks where the dashboard opens and can set the secret. Decisions live
+only in the ADR, PDR and WDR records: Koinon writes no `DECISIONS.md`, and `decision_record` is
+removed. An install without a user service manager starts the daemon in the background, and the
+Homebrew text starts with the action to take. A managed cycle of an idle OpenCode session finds
+its composer again. The state schema stays at 37.
+
 - `koinon install --dashboard-address HOST:PORT` adds an optional dashboard-only HTTPS listener
   on one local IP or an FQDN that resolves to it (#624, part 1; DASHBOARD-LAN-624 in ADR 001,
   Decisions 2 and 4). It needs the maintainer secret, leaves the agent API on loopback, and
@@ -71,6 +81,24 @@ into a dated release section when promoted to `main`.
   call during the holder's guard still return `stale_holder`, and now add `details` with the
   succession reason, the holder's peer name and the remaining `retry_after_ms`. Before, only the
   session's own `peers` row showed the wait, and the refusal read as a permanent loss.
+
+Upgrade from v0.9.2 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and rewrites the skill entries; the state schema stays at 37. The
+restart ends current dashboard logins: log in again with the maintainer secret, or run `koinon
+dashboard` for a one-time link. Homebrew then shows the steps that `koinon install --plan`
+finds; run them, and run `koinon install --plan` again to check. A running `koinon mcp` server
+runs the new release without a session restart.
+
+Upgrade notes:
+
+- The dashboard stays on loopback until you choose a network address. The next `koinon install`
+  at a terminal asks once; Enter keeps it on this computer. To choose without the question, run
+  `koinon install --dashboard-address HOST:PORT` or `--dashboard-address none` (#624).
+- An agent that calls `decision_record` or `koinon decision record` gets an unknown-tool or
+  usage refusal. Record a verdict in the ADR, PDR, WDR or sprint document that holds the rule,
+  from the record form that `decision_get` gives (#623).
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
 
 ## 2026-11-04 — Goal-first handoffs, board-checked waits, and OpenCode slash commands
 
