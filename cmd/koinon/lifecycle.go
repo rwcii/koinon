@@ -115,9 +115,11 @@ func lifecycleCommand(ctx context.Context, args []string, in io.Reader, out io.W
 	var noStart, system, plan, fromPython, verify, status *bool
 	var from, pythonPrefix, python *string
 	var port *int
+	var dashboardAddress *string
 	switch args[0] {
 	case "install":
 		port = flags.Int("port", 0, "loopback port of the daemon and dashboard; kept by later installs")
+		dashboardAddress = flags.String("dashboard-address", "", "optional dashboard HTTPS HOST:PORT, or none; kept by later installs")
 		noStart = flags.Bool("no-start", false, "write the service without starting it")
 		system = flags.Bool("system", false, "macOS: run the daemon as a LaunchDaemon that survives logout; asks sudo")
 		plan = flags.Bool("plan", false, "print the commands that this installation still needs; change nothing")
@@ -147,7 +149,7 @@ func lifecycleCommand(ctx context.Context, args []string, in io.Reader, out io.W
 			if other {
 				return usageError{"invalid_request", "--plan takes only --prefix and --state-dir"}
 			}
-			o := install.Options{Prefix: *prefix, StateDir: *state}
+			o := install.Options{Prefix: *prefix, StateDir: *state, Version: version}
 			flags.Visit(func(f *flag.Flag) {
 				o.PlanPrefix = o.PlanPrefix || f.Name == "prefix"
 				o.PlanState = o.PlanState || f.Name == "state-dir"
@@ -157,14 +159,25 @@ func lifecycleCommand(ctx context.Context, args []string, in io.Reader, out io.W
 		if given && !core.ValidPort(*port) {
 			return usageError{"invalid_request", "--port takes a port from 1 to 65535"}
 		}
+		var dashboardGiven bool
+		flags.Visit(func(f *flag.Flag) { dashboardGiven = dashboardGiven || f.Name == "dashboard-address" })
+		if dashboardGiven && *dashboardAddress == "" {
+			return usageError{"dashboard_address_invalid", "--dashboard-address takes HOST:PORT or none"}
+		}
 		// The report shows what was done also when a later step failed.
-		o := install.Options{Prefix: *prefix, StateDir: *state, Port: *port, Agents: agents, NoStart: *noStart, System: *system}
-		// At a terminal, install reviews the families and asks what to set up (#449).
-		if o.Ask = terminalAsk(in, os.Stderr); o.Ask != nil {
-			o.Tell = os.Stderr
+		o := install.Options{Prefix: *prefix, StateDir: *state, Port: *port, Agents: agents, NoStart: *noStart, System: *system, Version: version}
+		o.DashboardAddress = *dashboardAddress
+		// At a terminal, install reviews the families and asks what to set up (#449), and a
+		// first install asks where the dashboard opens (#624). One reader serves them all.
+		if t := openTerminal(ctx, in, os.Stderr); t != nil {
+			o.Ask, o.Line, o.NewSecret, o.Tell = ask(t.in, os.Stderr), t.line, t.newSecret, os.Stderr
 		}
 		r, err := install.Install(ctx, o)
 		printJSON(out, r)
+		// The step after a restart is also on the terminal, outside the report (#619).
+		if r.RestartStep != "" {
+			fmt.Fprintln(os.Stderr, "ACTION REQUIRED after a restart: "+r.RestartStep)
+		}
 		return coded(err)
 	case "uninstall":
 		r, err := install.Uninstall(ctx, install.Options{Prefix: *prefix, StateDir: *state, Agents: agents})

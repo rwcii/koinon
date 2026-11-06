@@ -117,7 +117,7 @@ type DecisionPending struct {
 	Revision     int64  `json:"revision"`
 	At           int64  `json:"at"`
 	SupersededAt int64  `json:"superseded_at,omitempty"`
-	// Entry is the verdict's DECISIONS.md entry, for each verdict that is recorded (#536).
+	// Entry is the verdict and its card text, for each verdict that is recorded (#536, #623).
 	Entry string `json:"entry,omitempty"`
 }
 
@@ -151,8 +151,8 @@ func verdictState(verdict string) string {
 	return "archived"
 }
 
-// recordedVerdict reports whether DECISIONS.md records a verdict (#536, #537): an fyi item
-// holds no decision, so its acknowledgement and an old dismissal are not recorded.
+// recordedVerdict reports whether a verdict read carries the record instruction (#536, #537,
+// #623): an fyi item holds no decision, so its acknowledgement and an old dismissal carry none.
 func recordedVerdict(verdict string) bool {
 	return verdict != "acknowledged" && verdict != "dismissed"
 }
@@ -160,26 +160,26 @@ func recordedVerdict(verdict string) bool {
 func verdictNoticeBody(reference, verdict string, id int64) string {
 	switch verdict {
 	case "acknowledged":
-		return fmt.Sprintf("Fyi item %s was acknowledged (%d). Read it with decision_get; nothing is recorded in DECISIONS.md.", reference, id)
+		return fmt.Sprintf("Fyi item %s was acknowledged (%d). Read it with decision_get; it holds no decision to record.", reference, id)
 	case "feedback":
-		return fmt.Sprintf("Item %s has the maintainer's feedback (%d) and is returned to its author. Read it with decision_get, call decision_record with this reference, then change the item into a new revision with decision_edit or withdraw it with decision_withdraw.", reference, id)
+		return fmt.Sprintf("Item %s has the maintainer's feedback (%d) and is returned to its author. Read it with decision_get, then change the item into a new revision with decision_edit or withdraw it with decision_withdraw.", reference, id)
 	}
-	return fmt.Sprintf("Decision %s has a verdict (%d). Read it with decision_get, then call decision_record with this reference: it applies "+
-		"this repository's Decision record fact and says what goes into the repository.", reference, id)
+	return fmt.Sprintf("Decision %s has a verdict (%d). Read it with decision_get; its record field says how to record the decision in the repository.", reference, id)
 }
 
-// verdictMessageBody is the verdict message: the notice, then the verdict's entry when it has
-// one (#536). The entry is the card text that the maintainer saw; the repository's record
-// mode decides what of it is recorded (#589). An entry that does not fit in a message, which
-// only stored hidden commands can cause, is left out, and the body says where to read it.
+// verdictMessageBody is the verdict message: the notice, then, for a verdict with an entry, the
+// record instruction and the verdict and card text that the maintainer saw (#536, #623). An entry
+// that does not fit in a message, which only stored hidden commands can cause, is left out, and
+// the body says where to read it.
 func verdictMessageBody(reference, verdict string, id int64, entry string) string {
 	notice := verdictNoticeBody(reference, verdict, id)
 	if entry == "" {
 		return notice
 	}
+	notice += "\n\n" + decisionRecordInstruction
 	body := notice + "\n\nVerdict and card text:\n" + entry
 	if len(body) > maxBody {
-		return notice + " The entry is larger than a message; decision_get and decision_pending give it."
+		return notice + "\n\nThe verdict and card text are larger than a message; decision_get and decision_pending give them."
 	}
 	return body
 }
@@ -322,7 +322,7 @@ func (s *Store) DecisionVerdict(ctx context.Context, reference string, revision 
 	}
 	entry := ""
 	if recordedVerdict(verdict) {
-		entry = DecisionRecordEntry(reference, item.Where, result)
+		entry = DecisionVerdictText(item.Where, result)
 	}
 	for i, name := range names {
 		d, err := s.deliverVerdict(ctx, tx, now, verdictID, i, name, reference, verdict, entry)
@@ -521,7 +521,7 @@ func (s *Store) DecisionPending(ctx context.Context, caller Key, after int64, li
 	page := DecisionPendingPage{Deliveries: []DecisionPending{}}
 	largest := int64(math.MaxInt64)
 	envelope, _ := json.Marshal(map[string]any{"ok": true, "result": DecisionPendingPage{Deliveries: []DecisionPending{}, More: true, NextAfter: &largest,
-		Record: &DecisionRecord{Path: DecisionRecordFile, Instruction: decisionRecordInstruction}}})
+		Record: &DecisionRecord{Instruction: decisionRecordInstruction}}})
 	used := len(envelope) + 1
 	for i, id := range ids {
 		var p DecisionPending
@@ -537,7 +537,7 @@ func (s *Store) DecisionPending(ctx context.Context, caller Key, after int64, li
 				return DecisionPendingPage{}, workError("decision_unavailable", "a stored snapshot is invalid")
 			}
 			v.Revision, v.Verdict, v.At = p.Revision, p.Verdict, p.At
-			p.Entry = DecisionRecordEntry(p.Reference, where, v)
+			p.Entry = DecisionVerdictText(where, v)
 		}
 		data, _ := json.Marshal(p)
 		size := len(data) + 1
@@ -549,7 +549,7 @@ func (s *Store) DecisionPending(ctx context.Context, caller Key, after int64, li
 		used += size
 		page.Deliveries = append(page.Deliveries, p)
 		if recordedVerdict(p.Verdict) {
-			page.Record = &DecisionRecord{Path: DecisionRecordFile, Instruction: decisionRecordInstruction}
+			page.Record = &DecisionRecord{Instruction: decisionRecordInstruction}
 		}
 	}
 	return page, nil

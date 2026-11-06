@@ -435,12 +435,17 @@ func TestHomebrewFormula(t *testing.T) {
 	}
 	// The caveats give each command on its own line, and the --system step only on macOS (#483).
 	// They show koinon install --plan, run with the person's PATH, or the fixed steps when it
-	// fails (#551).
+	// fails (#551). The plan's steps and the fixed steps alike come after the action line, and
+	// a koinon install step says what it does (PDR 003, Decision 6; #618).
 	caveats, _, _ := strings.Cut(formula[strings.Index(formula, "  def caveats\n"):], "\n  end\n")
 	general, mac, _ := strings.Cut(caveats, "      if OS.mac?\n")
 	for _, want := range []string{`ENV.fetch("HOMEBREW_PATH", ENV.fetch("PATH", ""))`, `"#{opt_bin}/koinon", "install", "--plan")`,
 		"out if status.success? && !out.strip.empty?", "rescue StandardError",
-		"\n          #{opt_bin}/koinon install\n", "\n          #{opt_bin}/koinon maintainer secret set\n",
+		"\n    action = \"ACTION REQUIRED: to finish the Koinon installation, run these commands, in order:\\n\"\n",
+		"\n    about = \"koinon install starts the daemon; at a terminal it offers to set up each agent it finds.\\n\"\n",
+		"\n      steps = action + plan.lines.map { |line| \"  #{line}\" }.join\n" +
+			"      steps += about if plan.lines.any? { |line| line.split[1] == \"install\" }\n",
+		"\n      fixed = action + <<~EOS.gsub(/^/, \"  \")\n        #{opt_bin}/koinon install\n        #{opt_bin}/koinon maintainer secret set\n      EOS\n      fixed += about + <<~EOS\n",
 		"\n          #{opt_bin}/koinon install --agent claude\n          #{opt_bin}/koinon install --agent codex\n" +
 			"          #{opt_bin}/koinon install --agent agy\n          #{opt_bin}/koinon install --agent opencode\n" +
 			"          #{opt_bin}/koinon install --agent grok\n"} {
@@ -449,15 +454,17 @@ func TestHomebrewFormula(t *testing.T) {
 		}
 	}
 	// The recheck follows the plan's steps and the fixed steps alike; a current installation,
-	// in the sentence that koinon install --plan prints, shows that sentence alone (#561).
-	for _, want := range []string{"\n    unless done\n      text += <<~EOS\n        Check again after these steps:\n          #{opt_bin}/koinon install --plan\n",
+	// in the sentence that koinon install --plan prints, shows that sentence and that no action
+	// is required (#561, #618).
+	for _, want := range []string{"\n    unless done\n      text += <<~EOS\n        Then make sure that no step is left:\n          #{opt_bin}/koinon install --plan\n",
+		"\n      To upgrade Koinon later:\n",
 		"\n        brew update\n        brew upgrade koinon\n        koinon version\n",
 		"restarts\n      on the newly linked binary", "ends the dashboard login", "\n        koinon dashboard\n"} {
 		if !strings.Contains(mac, want) {
 			t.Errorf("caveats lack %q after the fixed steps", want)
 		}
 	}
-	for _, want := range []string{"\n    current = " + strconv.Quote(install.Current) + "\n    done = plan&.strip == current\n    text = if done\n      \"#{current}\\n\"\n    elsif plan\n"} {
+	for _, want := range []string{"\n    current = " + strconv.Quote(install.Current) + "\n    done = plan&.strip == current\n    text = if done\n      \"#{current} No action is required.\\n\"\n    elsif plan\n"} {
 		if !strings.Contains(general, want) {
 			t.Errorf("caveats lack %q", want)
 		}

@@ -271,23 +271,23 @@ item with `decision_close` (`koinon decision close --reference REF --if-revision
 --deadline UNIX_SECONDS`), which archives it. An agent edit of a decided item reopens it for a
 new verdict; `decision_history` pages every verdict with its snapshot.
 
-The agent that handles a verdict records it, except an fyi acknowledgement, which holds no
-decision: `decision_record` (`koinon decision record --reference REF`) applies the repository's
-record mode, the first word of the `Decision record` fact in `.koinon/skills/ship.md` (#589):
+The agent that handles a verdict records the decision, except an fyi acknowledgement, which
+holds no decision (#623). It puts the decision into the ADR, PDR, WDR or sprint document that
+holds the rule, in the pull request that does the work, in this form:
 
-- `none`, the default: nothing is written. The agent puts the changed rule into the document
-  that holds it, in the pull request that does the work, with the question, the chosen option,
-  the reason and your words with their date.
-- `short`: the verdict, the title, the recommendation's heading and your note are appended to
-  `DECISIONS.md` at the root of the checkout.
-- `full`: also the card text that you saw.
+- Decided by: your name, not a role.
+- Date: the date of the verdict.
+- Context: the question and the options that were on the table.
+- Decision: what was chosen, with your words quoted.
+- Reason and scope: why, and what the decision covers and does not cover.
+- Review when: a known condition that calls for a review of the decision, when there is one.
 
-In `short` and `full` the file is appended after its existing text, in any format, and the
-agent commits it with the work. The agent corrects the spelling and typing errors in your
-words, and names the decision by its reference, never by verdict ID, which exists only in this
-machine's store. How a project cites its decisions is that project's own rule. An item is
-recorded only in the repository it was created in. Recorded text is public, so agents write
-every card as public text.
+A declined decision goes into the record's Alternatives Considered. Koinon writes no record
+file. The agent writes the decision succinctly, corrects the spelling and typing errors in your
+words, and names the decision by its card reference, never by verdict ID, which exists only in
+this machine's store. How a project cites its decisions is that project's own rule. A decision
+is recorded only in the repository that its item was created in. Recorded text is public, so
+agents write every card as public text.
 
 `koinon decision export PATH` writes every item, with its verdicts, snapshots and notes, live
 and deep-archived, as JSON lines to a new private file outside a Git work tree. A person or CI
@@ -482,7 +482,7 @@ session; the page names the reason (for example a session that is not in its lau
 or a missing `koinon-pickup` skill, with the `koinon install` step that installs it). Disabling always works. A stored mode or threshold that is not valid
 keeps the family default, and the Settings page names the error.
 
-The Settings page also turns on the spoken alert (#553, DECISIONS.md#SPEAK-SCOPE-553). While it
+The Settings page also turns on the spoken alert (#553, SPEAK-SCOPE-553 in PDR 007, Decision 1). While it
 is on and a dashboard page is open, the browser says each decision or task that starts to wait
 for you, with its repository: "koinon: a decision waits for you", or "koinon: 2 items wait for
 you" for several at once. An item that a new revision returns to waiting is new again. The
@@ -500,17 +500,18 @@ page says so). The **Test** button speaks a sample sentence.
 Claude sessions report their context through the status line that `koinon setup claude`
 installs. Koinon's status-line entry runs every 30 seconds (Claude Code's `refreshInterval`),
 also while the session is idle, so an idle Claude session at its threshold gets its handoff
-cycle without a new turn (#566, DECISIONS.md#CLAUDE-IDLE-566). This needs Claude Code 2.1.97 or
+cycle without a new turn (#566, CLAUDE-IDLE-566 in PDR 006, Decision 1). This needs Claude Code 2.1.97 or
 later. An interval of 1 to 30 seconds that your entry already had stays. After an upgrade, run
 `koinon setup claude` again to add the interval. If you edited Koinon's status-line entry, setup
 keeps it and reports `statusline_changed`: add `"refreshInterval": 30` to the entry yourself.
 The status-line command then runs every 30 seconds in each Claude session; it calls no model.
 
 agy sessions report their context and activity through the status line that `koinon setup agy`
-installs, so the Sessions page shows their readings. The agy family default stays `observe`.
+installs, so the Sessions page shows their readings. An agy setup from before Koinon had this
+status line gets it at the next `koinon install`, and `koinon install --plan` names the step. The agy family default stays `observe`.
 Antigravity CLI runs the status line when its state changes, not while the session is idle, so
 in `handoff_cycle` an idle agy session above its threshold gets its cycle at its next turn and
-runs that turn with its full context (DECISIONS.md#AGY-IDLE-568,
+runs that turn with its full context (AGY-IDLE-568 in PDR 006, Decision 1,
 [#571](https://github.com/rwcii/koinon/issues/571)). Koinon has no verified
 status-line timer for Antigravity CLI 1.4.7 (the inspected binary showed no timer setting, and
 idle timer behavior is not live-checked), its hook reports are not retried, and it has no
@@ -521,7 +522,7 @@ reply and its model's context limit. A direct `opencode` start shows none. The O
 default stays `observe`. In `handoff_cycle` an idle OpenCode, DeepSeek or Codex session above
 its threshold gets its cycle without a new turn: an older reading counts while the daemon's
 newest confirmation shows that the session is idle with nothing after the reading (#569,
-DECISIONS.md#PULLED-IDLE-569). The DeepSeek case is not yet checked against a live harness.
+PULLED-IDLE-569 in PDR 006, Decision 1). The DeepSeek case is not yet checked against a live harness.
 DeepSeek sessions registered with `koinon register` show their model and context too: the
 daemon reads them every 15 seconds from the session's own harness, with the wake's credential,
 from the token meter's newest usage and the model's context window. Its family default stays
@@ -532,7 +533,7 @@ current tokens and its size. An input without both counts leaves the last readin
 Its family default stays `observe`. Koinon's `[ui.status_line]` table has `refresh_interval =
 30`, so Grok runs the status line every 30 seconds, also while the session is idle, and an idle
 Grok session at its threshold gets its handoff cycle without a new turn (#568,
-DECISIONS.md#GROK-IDLE-568). An interval of 1 to 30 seconds that your table already had stays.
+GROK-IDLE-568 in PDR 006, Decision 1). An interval of 1 to 30 seconds that your table already had stays.
 After an upgrade, run `koinon setup grok` again, then start Grok again: Grok reads its
 configuration at startup. If you edited Koinon's status-line command, setup keeps it and reports
 `statusline_changed`: add `refresh_interval = 30` to the table yourself, then start Grok again.
@@ -687,6 +688,27 @@ To reach another computer's dashboard, forward a local port to its daemon, for e
 link with your local port, `http://127.0.0.1:47670/...`. Use `127.0.0.1` or `[::1]`, not
 `localhost`. Each port keeps its own login, so a local daemon and a tunnel can both be open
 under `127.0.0.1`.
+
+### Open the dashboard on the network
+
+At a terminal, the first `koinon install` asks whether the dashboard opens only on this
+computer (the default) or also on a network address, lists this host's addresses, and offers
+to set or generate the maintainer secret when none is set
+([installation](INSTALL.md#network-dashboard)). Without those questions, on the daemon's host,
+set a maintainer secret, then run
+`koinon install --dashboard-address HOST:PORT`. HOST is that computer's non-loopback IP, or an
+FQDN that resolves to it, for example `board.example.test:8443`. `koinon dashboard --no-open`
+prints the network HTTPS URL and its certificate's SHA-256 fingerprint. Compare that value
+with the certificate shown by the browser before accepting the self-signed certificate, then
+sign in with the maintainer secret. One-time links continue to work on loopback only.
+
+The choice persists across restarts and upgrades. A later install resolves a saved FQDN again;
+daemon starts bind the selected IP. `koinon install --dashboard-address none` removes the
+network choice. The agent API and agent MCP transport stay on their existing local paths.
+If the secret is missing or the selected IP is unavailable, loopback remains available and
+install/status name the reason and the next step. After setting a missing secret, run
+`koinon install` to start the network listener. Clearing the secret refuses network requests
+immediately. See [installation](INSTALL.md#network-dashboard) for state and certificate files.
 
 ### Log in with a maintainer secret
 

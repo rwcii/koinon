@@ -112,15 +112,15 @@ catalog's `pickup` wherever it was adopted, are unchanged by it.
 
 **Provenance:** The library: Requested in #145 (issue body, requirements 1–3); a request
 record. The three team skills: requested by an adopting project in #145 comment 6052782627;
-a request record. Handling startup prompts: Maintainer, 2026-10-12: "in fact, an agent will
-need to interact with a newly lauched agent when invoked, as there will be permissions and
+a request record. Handling startup prompts: Robert Capps, 2026-10-12: "in fact, an agent will
+need to interact with a newly launched agent when invoked, as there will be permissions and
 other alerts that need to be cleared before a new agent can interact." (#145 comment
-6117336800). Single source, embedding and sidecars: Maintainer, 2026-10-12: "gate b 145
+6117336800). Single source, embedding and sidecars: Robert Capps, 2026-10-12: "gate b 145
 approved" (#145 comment 6116403867), approving the plan document at 9055630 on
 feature/skills-library-catalog; delivered by PR #320.
 The plan's review.md says the maintainer asked for all 13 skills as machine candidates with
 sidecars at this path; that is agent-written and the original words were not located.
-The `koinon-pickup` skill: Maintainer, 2026-10-19: "your recommendation seems fair. that koinon
+The `koinon-pickup` skill: Robert Capps, 2026-10-19: "your recommendation seems fair. that koinon
 specific skill should be installed for the user, instead of in the repo." and "that way only a
 single copy needs to be managed" (#406 comments
 [6276165765](https://github.com/rwcii/koinon/issues/406#issuecomment-6276165765) and
@@ -177,14 +177,14 @@ stays as it is. An entry that is a symbolic link, or that is in a linked directo
 reported as `kept`. Adopting the catalog item itself follows this decision.
 
 **Provenance:** Requested in #145 (issue body, requirements 5–7); a request record. Machine
-default plus approved project-local target: Maintainer, 2026-10-12, session transcript:
+default plus approved project-local target: Robert Capps, 2026-10-12, session transcript:
 "Machine-wide and approved project-local", the answer to the plan's choice of adoption target.
 It decides that choice only. Covered by the Gate B
 approval of the #145 plan (9055630 on feature/skills-library-catalog) (#145 comment 6116403867).
 Chunk 03 implements its state/decision interfaces and agent procedure; it installs no host item.
 
-Team skill entries: Maintainer, 2026-10-22, decision board item `fleet-skills-koinon` revision
-2, approved in the dashboard (a card of the Unify project, not recorded in this repository); its step 2: "You amend PDR 008 Decision 2. `koinon
+Team skill entries: Robert Capps, 2026-10-22, decision board item `fleet-skills-koinon` revision
+2, approved in the dashboard (a card of another project, not recorded in this repository); its step 2: "You amend PDR 008 Decision 2. `koinon
 install` places the six fleet skills at the user level for Claude and Codex, the same as
 `koinon-pickup`. The runnable steps (launch, first-run prompts, peer lookup, the handoff, clear
 and pickup cycle) go into the installed guide, because the guide ships with the binary and
@@ -197,7 +197,7 @@ procedure and its commands, and each project supplies only its facts. The `koino
 and the loading entries, with the pickup skill served by `koinon-pickup`, are the design that
 #453 proposes; no maintainer decision on them found.
 
-All skills, all installed agent families: Maintainer, 2026-10-23: "open an issue to deploy the
+All skills, all installed agent families: Robert Capps, 2026-10-23: "open an issue to deploy the
 skills to all installed agents." ([#461](https://github.com/rwcii/koinon/issues/461)), after the
 answer that only the five team skills had user-level entries, and only for Claude Code and
 Codex; then "start 461". The intent: every agent family on the computer runs the same Koinon
@@ -213,7 +213,7 @@ adoption", and that the machine-wide and project-local targets are "each approve
 No maintainer source was found for the approval step: #145 is a request record, and the
 maintainer's "Machine-wide and approved project-local" answered the choice of target. The #487
 review listed three limits and proposed to keep them; the question was whether to keep them or
-to remove them too. Maintainer, 2026-10-25: "remove all limit text.  remove all of the caveats,
+to remove them too. Robert Capps, 2026-10-25: "remove all limit text.  remove all of the caveats,
 controls, etc.  the agents have their own built in safeties, they do not need you adding more
 complications."
 ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).

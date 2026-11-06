@@ -131,9 +131,18 @@ func TestInstallSystemRefusals(t *testing.T) {
 // A system-mode daemon keeps a copy that brew cannot replace, also over an earlier
 // user-mode link to a Homebrew keg (#397).
 func TestInstallSystemModeCopiesAHomebrewKeg(t *testing.T) {
-	e, _ := systemEnv(t)
+	e, f := systemEnv(t)
 	e.o.Source = homebrewKeg(t, filepath.Join(t.TempDir(), "brew"), "0.3.1", "release 0.3.1")
+	// The modeled user launchctl cannot reach gui/<uid>, so the install waits, without a
+	// manager, for the loaded agent to exit for its new binary; launchd starts it again (#619).
+	status := e.o.Status
+	e.o.Status = func(ctx context.Context, address, secret string) (json.RawMessage, error) {
+		data, err := status(ctx, address, secret)
+		f.AgentPID = 78
+		return data, err
+	}
 	r, err := Install(context.Background(), e.o)
+	e.o.Status = status
 	if err != nil || r.BinaryResult != "linked" {
 		t.Fatalf("user-mode install %+v %v", r, err)
 	}

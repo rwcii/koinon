@@ -9,7 +9,7 @@ import (
 
 // Koinon's Grok status line runs every 30 seconds, also while the session is idle; an earlier
 // integer from 1 to 30 stays, and removal restores the earlier table exactly
-// (DECISIONS.md#GROK-IDLE-568).
+// (GROK-IDLE-568 in PDR 006, Decision 1).
 
 const grokUserTable = "[ui.status_line]\ntype = \"command\"\ncommand = \"~/bin/line\"\n"
 

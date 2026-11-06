@@ -111,7 +111,7 @@ func openCodeGet(ctx context.Context, client *http.Client, target LaunchTarget, 
 // openCodeContext reads the model and context of one OpenCode session. Without a finished
 // assistant message it returns nothing. A newest finished message that cannot be read is an
 // error, never a fallback to an older one. last is that message's ID when it is also the
-// session's newest message, by its creation time, and "" otherwise (DECISIONS.md#PULLED-IDLE-569).
+// session's newest message, by its creation time, and "" otherwise (PULLED-IDLE-569 in PDR 006, Decision 1).
 func openCodeContext(ctx context.Context, target LaunchTarget, id string) (model, usage *ObservedValue, last string, err error) {
 	client, close := httpClient()
 	defer close()
@@ -196,7 +196,7 @@ func newestMessage(messages []openCodeMessage, i int) string {
 type openCodeSent struct {
 	model, usage ObservedValue
 	mark         int64 // the source's own position of the reading, such as a usage event's seq, or 0
-	current      bool  // the reading's proof (DECISIONS.md#PULLED-IDLE-569)
+	current      bool  // the reading's proof (PULLED-IDLE-569 in PDR 006, Decision 1)
 	at           time.Time
 }
 
@@ -253,7 +253,7 @@ func (s *Store) openCodeContextRound(ctx context.Context) {
 
 // readOpenCodeContext reads one session's context. The reading is current when its message is
 // the session's newest, `GET /session/status` then shows that exact session idle, and a second
-// read gives the same reading and newest message (DECISIONS.md#PULLED-IDLE-569).
+// read gives the same reading and newest message (PULLED-IDLE-569 in PDR 006, Decision 1).
 func (s *Store) readOpenCodeContext(ctx context.Context, k Key, launch string) {
 	target, err := s.openCodeTarget(ctx, launch)
 	if err != nil {
@@ -281,7 +281,7 @@ func (s *Store) readOpenCodeContext(ctx context.Context, k Key, launch string) {
 // recordReading records a polled reading when it changed, and an unchanged one again once
 // confirm passed (#513, #514). An unchanged reading keeps its source time. mark is the
 // reading's position in its source: a new mark is a new reading even with the same values.
-// current is the reading's proof; a change of it is recorded at once (DECISIONS.md#PULLED-IDLE-569).
+// current is the reading's proof; a change of it is recorded at once (PULLED-IDLE-569 in PDR 006, Decision 1).
 func (s *Store) recordReading(ctx context.Context, state *openCodeContextState, k Key, model, usage *ObservedValue, mark int64, current bool, confirm time.Duration) {
 	now := s.now()
 	state.mu.Lock()
@@ -317,7 +317,7 @@ func (s *Store) holdsReading(k Key, reading ObservedValue) bool {
 }
 
 // dropReading forgets the last recorded reading of k, so that the next one is recorded, and
-// ends the stored reading's proof at once (DECISIONS.md#PULLED-IDLE-569).
+// ends the stored reading's proof at once (PULLED-IDLE-569 in PDR 006, Decision 1).
 func (s *Store) dropReading(state *openCodeContextState, k Key) {
 	state.mu.Lock()
 	delete(state.sent, k)

@@ -581,7 +581,7 @@ func (s *Store) stepCompaction(ctx context.Context, c cycleRow, t CycleTarget, a
 	// A reading older than the source age counts only through its caught-up mark: the input
 	// then needs a confirmation of the same mark received after this choice, and the adapter
 	// reads the rollout at its first key and needs it unchanged since the mark, whatever the
-	// reports said (DECISIONS.md#IDLE-COMPACT-564).
+	// reports said (IDLE-COMPACT-564 in PDR 006, Decision 1).
 	if now-e.SourceAt > contextSourceMaxAge.Milliseconds() {
 		if e.End == nil || !s.compactChoices.confirmed(c.ID, e, now) {
 			s.paneSeen.set(c.ID, "confirmation_pending")

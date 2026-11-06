@@ -119,34 +119,53 @@ Open disagreements, Other options and A separate choice, which you can add to an
 
 **Provenance:** Requested in #206 (issue body, requirements 1, 2, 5, 6, 8, 10, 11, 12 and
 the settled point on rows); a request record. Agent withdrawal: requested in #504 (issue body,
-2026-10-26: stale cards "pile up", and "The maintainer had to sort them by hand"); Maintainer,
+2026-10-26: stale cards "pile up", and "The maintainer had to sort them by hand"); Robert Capps,
 2026-10-26: "resolve 504 and 505". Intent: the board shows only what still needs the
 maintainer, and an agent removes a card it no longer needs without moving that work back to
-the maintainer. Kinds and actions: Maintainer, 2026-10-27: "the decision board needs an option to approve, decline, or 'provide feedback'. provide feedback providing guidance where approve or decline would be misleading. the FYI also is not very useful as it stands. I get tasks placed here, where I have to 'dismiss' is the only option to close or acknowledge an issue. valid options should be acknowledge. tasks should be in the waiting category with, completed, decline, or 'provide feedback' as options." ([#537](https://github.com/rwcii/koinon/issues/537));
+the maintainer. Kinds and actions: Robert Capps, 2026-10-27: "the decision board needs an option to approve, decline, or 'provide feedback'. provide feedback providing guidance where approve or decline would be misleading. the FYI also is not very useful as it stands. I get tasks placed here, where I have to 'dismiss' is the only option to close or acknowledge an issue. valid options should be acknowledge. tasks should be in the waiting category with, completed, decline, or 'provide feedback' as options." ([#537](https://github.com/rwcii/koinon/issues/537));
 the design, with the answers to its four questions, approved on the decision board
-([DECISIONS.md#BOARD-VERDICTS-537](../../../DECISIONS.md#board-verdicts-537)). Intent: each
+(BOARD-VERDICTS-537). The answers: feedback returns the card to its author ("agreed, your
+recommendation is correct"); a task kind replaces the "ACTION FOR YOU" prefix ("I agree");
+Acknowledge on an fyi tells the author ("yes"); the other uses keep their current behavior, and
+the full design goes on one card ("agreed"). Intent: each
 action says what the maintainer means; work for the maintainer waits as a task with its own
 actions, and an fyi item is acknowledged, not dismissed. Using the existing board's UI design:
 #206 comment 6065771626, 2026-10-08: "let's also apply the current decision board skill UI
 design to the dashboard." (posted from the maintainer's account without agent framing;
-authorship not otherwise verified). Card text: Maintainer, 2026-10-12: "card comments should be
+authorship not otherwise verified). Card text: Robert Capps, 2026-10-12: "card comments should be
 formattable in markdown. code should be displayed in code blocks so it's readable, and all
-prose should be in asd-ste100" (#206 comment 6119203856). Card form: Maintainer, 2026-10-29,
-relayed by claude-unify: "we need to add some guidance to agents using koinon, not leave it up
+prose should be in asd-ste100" (#206 comment 6119203856). Card form: Robert Capps, 2026-10-29,
+relayed by a session of another project: "we need to add some guidance to agents using koinon, not leave it up
 to the agent to make it up." (#562); the form, with its guide text, approved on the decision
-board ([DECISIONS.md#CARD-FORM-562](../../../DECISIONS.md#card-form-562)). Intent: every agent
+board (CARD-FORM-562). Context: the guide gave no card form, and the cards of another
+project changed their headings and sentence form between revisions. The other option, a catalog
+skill for the form, was not chosen: a second copy can drift. Intent: every agent
 writes a card in the same form, so the maintainer reads each card the same way. Labels after
-Fast or complete: approved on the decision board, Maintainer, 2026-10-31, with the note "add
+Fast or complete: approved on the decision board, Robert Capps, 2026-10-31, with the note "add
 them as standard options, but they don't all need to be present in ALL cards if there is no
-relevant data." ([DECISIONS.md#CARD-LABELS-582](../../../DECISIONS.md#card-labels-582), #582).
+relevant data." (CARD-LABELS-582, #582).
 Intent: each card gives these parts under the same labels, and a card leaves out a label that
-has nothing to say. The `ACTION FOR YOU` marker: Proposed in the #206 plan; approved with the plan at Gate B (#206 comment 6150911355); retired by #537. Lifecycle: Maintainer, 2026-10-13:
+has nothing to say. The `ACTION FOR YOU` marker: Proposed in the #206 plan; approved with the plan at Gate B (#206 comment 6150911355); retired by #537. Lifecycle: Robert Capps, 2026-10-13:
 "we don't build systems that fail at some arbitrary limit. closed items should be archived.
 after 30 days, archived items should be moved to a log file in case an old decision needs to
 be resurrected. nothing gets deleted, but the lifecycle becomes active > in progress >
 archive > deep archive" (#206 comment 6150321526); the meaning of each state was confirmed
 in #206 comment 6150362521. Intent: the board keeps working as it grows, and no decision is
 lost.
+
+**Provenance (spoken alert, SPEAK-SCOPE-553):**
+
+- **Decided by:** Robert Capps, on the decision board (revision 1), "approved".
+- **Date:** 2026-10-28.
+- **Context:** #553. Robert Capps asked: "can we make it distinct per project?", and chose that
+  the speech runs in the browser. The alert speaks when a decision or task starts to wait, and
+  names its repository. The question: one switch for all repositories, or one for each.
+- **Decision:** one switch on the Settings page for every repository on that Koinon instance;
+  the browser keeps it. The note: "One switch for all repositories running on that Koinon
+  instance. We may change this later, but let's keep it simple for now."
+- **Reason and scope:** each alert names its repository, so it is distinct for each project; a
+  switch for each repository adds a list to maintain. The decision covers the switch only.
+- **Review when:** Robert Capps wants to mute one repository.
 
 ### Alternatives Considered
 
@@ -191,15 +210,15 @@ covers the maintainer's verdicts on this board, not agent-to-agent work verdicts
 **Provenance:** Requested in #206 (issue body, requirements 3 and 4, and the settled point
 on verdict writes); a request record, original words not located. The concurrent-edit
 guarantee: Proposed in the #206 plan (criterion 4); approved with the plan at Gate B (#206 comment 6150911355).
-Text changes after a verdict: Maintainer, 2026-10-13, on the statement "A decision's text
+Text changes after a verdict: Robert Capps, 2026-10-13, on the statement "A decision's text
 can't change after your verdict.": "it can, if the facts surrounding the decision dictate a
 change.  but in general use, they do not." Asked whether the item then reopens for a new
 verdict: "yes, reopen it for a new verdict.  history of decisions is carried on the record."
 (#206 comments 6148016252 and 6148194337). Intent: a verdict always matches the text the
 maintainer saw, and the history stays on the record. The verdicts of each kind and the return
-of an item with feedback: Maintainer, 2026-10-27, on #537 (quoted in Decision 1), and the
+of an item with feedback: Robert Capps, 2026-10-27, on #537 (quoted in Decision 1), and the
 answer "agreed, your recommendation is correct" on the state after feedback
-([DECISIONS.md#BOARD-VERDICTS-537](../../../DECISIONS.md#board-verdicts-537)). Intent:
+(BOARD-VERDICTS-537). Intent:
 feedback hands the item back to its author for a revision; it is not a verdict that closes the
 question.
 
@@ -210,7 +229,7 @@ question.
 | Agents relay verdicts | A peer writes the verdict it was told | #206: the record is the authority, not a peer's relay |
 | A separate human-identity check | Extra authentication beyond the dashboard login | #206 settled point: no further check under the same-user model |
 | Editable after verdict, verdict kept | Update the item and keep the verdict | The verdict would no longer match the text the human saw |
-| Frozen after verdict | New facts need a new item | Maintainer, 2026-10-13: the text can change when the facts change |
+| Frozen after verdict | New facts need a new item | Robert Capps, 2026-10-13: the text can change when the facts change |
 
 ### Rationale
 
@@ -238,7 +257,7 @@ the human pastes what they see. The plan rejects such commands on write, hides t
 does not let a hidden command be approved as displayed. A valid command that needs non-ASCII
 text cannot be shown in a command box under this rule.
 
-**Provenance:** Requested in #206 (issue body, requirement 7). Maintainer, 2026-10-12: "yes,
+**Provenance:** Requested in #206 (issue body, requirement 7). Robert Capps, 2026-10-12: "yes,
 next item", keeping the printable-ASCII check for code blocks that the maintainer copies into a
 terminal ([#306 comment 6119251724](https://github.com/rwcii/koinon/issues/306#issuecomment-6119251724)). Reject on write and hide on read: Proposed in the #206 plan (criterion 6); approved with the plan at Gate B (#206 comment 6150911355).
 
@@ -272,18 +291,20 @@ crash, and the receiver ignores an ID it has handled. Each agent reads the verdi
 itself through an interface every family can use. The records are stored data that agents
 query in bounded pages through Koinon; agents get decision status from those queries, not
 by reading or parsing the dashboard HTML. A reopen does not cancel an unacknowledged delivery.
-A read of a decided item, the pending list and the verdict notice also tell the agent to record
-the verdict, other than an `fyi` acknowledgement, with `decision_record`, which applies the
-repository's record mode: none (the default), short or full (#536, #589; WDR 001, Decision 7).
-The item read gives the full entry. `koinon decision export PATH` writes every item, live and
-deep-archived, as JSON lines to a new private file outside a Git work tree, which a person or
-CI can read without the daemon (#589). Repository text names a decision by its reference, never by its
-verdict ID, which exists only in this machine's store. How a project cites its decisions is
-that project's own rule; Koinon's own repository follows WDR 001, Decision 7 (#580).
+A read of a decided item, the pending list and the verdict notice also tell the agent how to
+record the decision, other than an `fyi` acknowledgement: in the ADR, PDR, WDR or sprint
+document that holds the rule, in the pull request that does the work, with the decider's name,
+the date, the context, the decision, the reason and scope, and the condition for a review
+(#623; WDR 001, Decision 7). Koinon writes no record file. The item read gives the verdict with
+its card text. `koinon decision export PATH` writes every item, live and deep-archived, as JSON
+lines to a new private file outside a Git work tree, which a person or CI can read without the
+daemon (#589). Repository text names a decision by its reference, never by its verdict ID,
+which exists only in this machine's store. How a project cites its decisions is that project's
+own rule; Koinon's own repository follows WDR 001, Decision 7 (#580).
 
 **Provenance:** Requested in #206 (issue body, requirement 9 and the settled point on
 delivery); a request record. Stored, queryable
-records: Maintainer, 2026-10-13: "are agents reading the HTML, or are the decision records a
+records: Robert Capps, 2026-10-13: "are agents reading the HTML, or are the decision records a
 dataset they can query efficiently?  I ask, because this was an issue in the original
 incarnation, the page grew unbounded and each agent had to pull down a full html file and parse
 it to get status of decisions." (#206 comment 6148016252). Intent: an agent's cost to read
@@ -293,7 +314,7 @@ Before #487 this decision also said "Delivery or acknowledgement does not show t
 was done.", from the plan's criterion 8 ("Not proof that an action was performed"), which Gate B
 approved with the plan (#206 comment 6150911355); no maintainer words on it were found. The
 #487 review listed three limits and proposed to keep them; the question was whether to keep
-them or to remove them too. Maintainer, 2026-10-25: "remove all limit text.  remove all of the
+them or to remove them too. Robert Capps, 2026-10-25: "remove all limit text.  remove all of the
 caveats, controls, etc.  the agents have their own built in safeties, they do not need you
 adding more complications."
 ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
@@ -339,9 +360,11 @@ blocks, which the maintainer copies into a terminal, hold printable ASCII only. 
 | 2026-10-25 | Decision 4: removed the unsourced "does not show that an action was done" caveat (#487) |
 | 2026-10-26 | Decision 2, requirement 6, Rationale and User Impact: a maintainer client also records a verdict, with its `via`, as accepted PDR 009 Decisions 3 and 4 decide (#470) |
 | 2026-10-26 | Decision 1: agents withdraw active items with a reason, and a restore reopens them (#504) |
-| 2026-10-28 | Decision 4: a verdict read asks the agent to record the verdict in `DECISIONS.md` (#536; WDR 001, Decision 7) |
-| 2026-10-28 | Decisions 1, 2 and 4, requirement 7: the task kind, feedback that returns an item to its author, and Acknowledge on an `fyi` item, delivered to the recipients; the `ACTION FOR YOU` marker is retired (#537; [DECISIONS.md#BOARD-VERDICTS-537](../../../DECISIONS.md#board-verdicts-537)) |
-| 2026-10-29 | Decision 1: the card form in the guide's Decisions section (#562; [DECISIONS.md#CARD-FORM-562](../../../DECISIONS.md#card-form-562)) |
-| 2026-10-31 | Decision 1: the card form's labels after Fast or complete (#582; [DECISIONS.md#CARD-LABELS-582](../../../DECISIONS.md#card-labels-582)) |
+| 2026-10-28 | Decision 4: a verdict read asks the agent to record the verdict in the repository's record file (#536; WDR 001, Decision 7) |
+| 2026-10-28 | Decisions 1, 2 and 4, requirement 7: the task kind, feedback that returns an item to its author, and Acknowledge on an `fyi` item, delivered to the recipients; the `ACTION FOR YOU` marker is retired (#537; BOARD-VERDICTS-537) |
+| 2026-10-29 | Decision 1: the card form in the guide's Decisions section (#562; CARD-FORM-562) |
+| 2026-10-31 | Decision 1: the card form's labels after Fast or complete (#582; CARD-LABELS-582) |
 | 2026-10-31 | Decision 4: the product text names a decision by its reference and leaves the citation rule to the project (#580) |
 | 2026-11-03 | Decision 4: `decision_record` applies the repository's record mode, and the board has an export (#589, RECORD-MODE-589; WDR 001, Decision 7) |
+| 2026-11-05 | Decision 4: a verdict read gives the record form; Koinon writes no record file, and `decision_record` is removed (#623; WDR 001, Decision 7) |
+| 2026-11-05 | Decision 1: the spoken-alert decision (SPEAK-SCOPE-553), moved into this record (#623) |

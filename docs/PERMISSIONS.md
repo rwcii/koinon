@@ -84,7 +84,6 @@ State-changing tools send messages, advance acknowledgements or write shared wor
 | `decision_close` | Close an approved item in progress when its work is done. |
 | `decision_withdraw` | Withdraw a waiting or open fyi item that no longer needs the maintainer, with a reason. |
 | `decision_restore` | Bring a deep-archived decision item back into the archive, or reopen a withdrawn item. |
-| `decision_record` | Record a decision-board item's verdicts as the checkout's Decision record fact says: nothing in mode `none`, or an append to `DECISIONS.md` at the root of a checkout of this repository in modes `short` and `full`; it commits nothing. |
 | `work_create` | Record a proposed work item's scope. |
 | `work_propose` | Record an assignee proposal without transferring a claim. |
 | `work_edit` | Revise a work item's recorded scope. |
@@ -154,7 +153,7 @@ In `~/.claude/settings.json` (`$CLAUDE_CONFIG_DIR/settings.json` when overridden
 
 The first rule covers the configured `koinon` server; an individual rule is, for example,
 `mcp__koinon__inbox`. The Bash entries permit, with and without their arguments, the commands
-that agents run ([DECISIONS.md#CLI-RULES-550](../DECISIONS.md#cli-rules-550)): `guide`,
+that agents run (CLI-RULES-550 in PDR 003, Decision 4): `guide`,
 `status`, `context show`, `peers`, `peer-status`, `inbox`, `ack`, `send`, `cycle-status`,
 `cycle-ready`, `cycle-pickup`, `decision`, `work`, `claim renew`, `memory`, `room list`,
 `room members`, `room post`, `room read` and `library`. They leave out `install`, `uninstall`,

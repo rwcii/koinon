@@ -5,6 +5,114 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-11-06 — A network dashboard over HTTPS, install network questions, and no DECISIONS.md
+
+This release can open the dashboard also on one network address of the host, over HTTPS, with
+a login by the maintainer secret, while the agent API stays on loopback. At a terminal, the
+first `koinon install` asks where the dashboard opens and can set the secret. Decisions live
+only in the ADR, PDR and WDR records: Koinon writes no `DECISIONS.md`, and `decision_record` is
+removed. An install without a user service manager starts the daemon in the background, and the
+Homebrew text starts with the action to take. An older Claude, agy or Grok setup gets its
+current status line at the next install, so an agy session reports context and activity. A
+managed cycle of an idle OpenCode session finds its composer again. The state schema stays at 37.
+
+- `koinon install` completes the status line of a Claude, agy or Grok family that an earlier
+  setup configured, when it is missing or Koinon's unedited entry is out of date, and `koinon
+  install --plan` names `koinon setup FAMILY --binary BINARY` for it (#631; AGY-STATUSLINE-631 in
+  PDR 003, Decision 4). When that family's settings file cannot be read, the plan stops with
+  `agent_unreadable` and the cause. An entry that you removed or edited stays. Before, an agy setup from
+  before the agy status line kept giving no context or activity, and the plan said current.
+  An agy entry without a command and without a type, as Antigravity CLI 1.5.1 keeps it, now gets
+  `"stack_with_default": true`, so agy's own status line stays; before, it went.
+- `koinon install --dashboard-address HOST:PORT` adds an optional dashboard-only HTTPS listener
+  on one local IP or an FQDN that resolves to it (#624, part 1; DASHBOARD-LAN-624 in ADR 001,
+  Decisions 2 and 4). It needs the maintainer secret, leaves the agent API on loopback, and
+  keeps one-time login links local. `koinon dashboard` prints its URL and certificate SHA-256
+  fingerprint. The setting and private certificate survive restarts and upgrades;
+  `--dashboard-address none` removes the setting. Install/status explain a missing secret or
+  unavailable address while loopback remains available.
+- At a terminal, the first `koinon install` asks whether the dashboard opens only on this
+  computer (the default) or also on a network address (#624, part 2; DASHBOARD-LAN-624 in ADR
+  001, Decision 2). It lists this host's addresses, takes a number or an FQDN and a port
+  (default 8443), shows a refused answer with its reason and asks again. Without a maintainer
+  secret, it offers to type or generate one, restarts the daemon once and shows the URL and the
+  certificate fingerprint, or `dashboard_restart_failed` with its step. The local answer is
+  saved, so a later install asks nothing. No questions without a terminal, with
+  `--dashboard-address`, in `koinon upgrade` or with `--plan`.
+- `DECISIONS.md` is removed (#623; WDR 001, Decision 7). Each of its 25 decisions is in the
+  ADR, PDR or WDR that holds its rule, and documents and code comments cite that record and the
+  card reference, for example "READY-TIMEOUT-ENABLE-487 in PDR 006, Decision 2". The records name
+  the decider, Robert Capps, in place of "Maintainer". A contributor test checks that no tracked
+  file names the removed file outside the changelog, WDR 001 and the tests that refuse it, and
+  that each card reference is in a record.
+- Koinon writes no `DECISIONS.md` (#623; WDR 001, Decision 7). The `decision_record` tool,
+  `koinon decision record` and the `short` and `full` record modes are removed. `decision_get`,
+  `decision_pending` and the verdict message give the verdict, the card text and the record form:
+  record the decision in the ADR, PDR, WDR or sprint document that holds the rule, with the
+  decider's name, the date, the context, the decision, the reason and scope, and the condition
+  for a review. Before, each read named `DECISIONS.md` as the record and gave an entry in its
+  format, also in mode `none`. A `Decision record` fact in `.koinon/skills/ship.md` stays
+  valid, and Koinon ignores its value.
+- A same-host session succession keeps the managed-handoff Enable and its threshold when the
+  pane and participant stay the same (#621). An MCP-server restart previously left Enable on
+  the retired session, so the successor stopped getting cycles. Retry state follows Enable;
+  an interrupted cycle ends normally and the successor needs its own fresh context reading.
+- Without a user service manager, for example in a container without a systemd user bus,
+  `koinon install` starts the daemon in the background and waits until a daemon of its version
+  answers (#619; PDR 003, Decision 6). The report says `"service": "background"` with `daemon_log` and `restart_step`,
+  which the install also prints: after a restart or `brew upgrade koinon`, run the `koinon
+  install` that it names, and `koinon install --plan` names it too. A daemon that does not start or answer fails the
+  install with `daemon_not_started`, and `koinon uninstall` stops the background daemon. Before,
+  the install reported `"ok": true` with `"service": "manual_required"`, and the next command
+  found no daemon.
+- After `brew install` and `brew upgrade`, the Homebrew text starts with "ACTION REQUIRED: to
+  finish the Koinon installation, run these commands, in order:" when steps remain, and says
+  what `koinon install` does (#618; PDR 003, Decision 6). Before, a new installation showed
+  `koinon install` under "The steps that this installation needs:", with no instruction to run
+  it. A current installation now shows "The Koinon installation is current. No action is
+  required."
+- Each `decision_list` summary names its item's `author_repository`, as `decision_get` does, when
+  the item has one (#612). The board lists the cards of every repository; `pickup` now keeps the
+  cards of its own repository by that field, without a `decision_get` of each card.
+- `pickup` reads the session's inbox and, when it holds a participant, the participant's inbox
+  after their acknowledged cursors, before the decision board (#611). A message created after both
+  the handoff and the progress note wins over them where it changes the goal, a blocker, a task or
+  a next step; an older unacknowledged message is reconciled with both and the maintainer's dated
+  directions. The pickup report lists them. Before, a pickup could miss the messages that held a
+  peer's open questions.
+
+- A managed cycle of an idle OpenCode session finds its composer in every pane (#613). The cycle
+  read the pane with its rows joined; when tmux marked the screen rows as wrapped, the composer
+  was not found, each ready stage ended with `not_idle.input_line_not_found` and the cycle asked
+  for the handoff again until it timed out. The pane is now read row by row.
+- A participant call from a session that waits to succeed the holder says so (#610). An inbox
+  read with `participant_after`, a participant acknowledgement and a participant memory or work
+  call during the holder's guard still return `stale_holder`, and now add `details` with the
+  succession reason, the holder's peer name and the remaining `retry_after_ms`. Before, only the
+  session's own `peers` row showed the wait, and the refusal read as a permanent loss.
+
+Upgrade from v0.9.2 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and rewrites the skill entries; the state schema stays at 37. The
+restart ends current dashboard logins: log in again with the maintainer secret, or run `koinon
+dashboard` for a one-time link. Homebrew then shows the steps that `koinon install --plan`
+finds; run them, and run `koinon install --plan` again to check. A running `koinon mcp` server
+runs the new release without a session restart.
+
+Upgrade notes:
+
+- The dashboard stays on loopback until you choose a network address. The next `koinon install`
+  at a terminal asks once; Enter keeps it on this computer. To choose without the question, run
+  `koinon install --dashboard-address HOST:PORT` or `--dashboard-address none` (#624).
+- After `brew upgrade koinon`, the Homebrew text names `koinon setup agy --binary ...` (or
+  `claude` or `grok`) when that family's status line is missing or out of date; run it, or run
+  `koinon install`. An agy session that is already open can need a restart before it runs
+  the new status line (#631).
+- An agent that calls `decision_record` or `koinon decision record` gets an unknown-tool or
+  usage refusal. Record a verdict in the ADR, PDR, WDR or sprint document that holds the rule,
+  from the record form that `decision_get` gives (#623).
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+
 ## 2026-11-04 — Goal-first handoffs, board-checked waits, and OpenCode slash commands
 
 This release makes a handoff carry the work's goal: the goal with its source and success

@@ -3,12 +3,16 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -79,5 +83,48 @@ func TestDashboardCommand(t *testing.T) {
 	var out2 bytes.Buffer
 	if err := run(context.Background(), []string{"dashboard", "--state-dir", root, "--address", address, "extra"}, nil, &out2); err == nil {
 		t.Fatal("extra argument accepted")
+	}
+}
+
+func TestDashboardCommandNetworkDetails(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "state")
+	if err := os.Mkdir(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	secret := strings.Repeat("ab", 32)
+	if err := os.WriteFile(filepath.Join(root, "secret"), []byte(secret), 0600); err != nil {
+		t.Fatal(err)
+	}
+	fingerprint := strings.Repeat("A", 64)
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" || r.URL.Path != "/v1/dashboard/links" || r.Header.Get("Authorization") != "Bearer "+secret {
+			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		network := core.DashboardNetworkStatus{URL: "https://board.example.test:8443/dashboard/", Code: "running", Fingerprint: fingerprint}
+		if requests.Add(1) > 1 {
+			network.Code = "dashboard_address_unavailable"
+			network.Error = "synthetic bind failure"
+			network.Step = "Run koinon install to retry."
+		}
+		json.NewEncoder(w).Encode(map[string]any{"path": "/dashboard/login?token=" + strings.Repeat("cd", 32), "expires_in": 60,
+			"dashboard_network": network})
+	}))
+	defer server.Close()
+	var out bytes.Buffer
+	if err := run(context.Background(), []string{"dashboard", "--state-dir", root, "--address", strings.TrimPrefix(server.URL, "http://"), "--no-open"}, nil, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{server.URL + "/dashboard/login?token=", "Network dashboard: https://board.example.test:8443/dashboard/", "Certificate SHA-256: " + fingerprint, "Sign in there with the maintainer secret."} {
+		if !strings.Contains(out.String(), want) {
+			t.Fatalf("missing %q: %s", want, out.String())
+		}
+	}
+	out.Reset()
+	if err := run(context.Background(), []string{"dashboard", "--state-dir", root, "--address", strings.TrimPrefix(server.URL, "http://"), "--no-open"}, nil, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "synthetic bind failure") || !strings.Contains(out.String(), "Run koinon install to retry.") || strings.Contains(out.String(), "Sign in there") {
+		t.Fatalf("inactive network instructions: %s", out.String())
 	}
 }

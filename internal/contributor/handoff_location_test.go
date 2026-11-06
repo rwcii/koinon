@@ -195,6 +195,8 @@ func TestHandoffWaitsNameBoardItems(t *testing.T) {
 		{"pickup", pickup, "an active item of kind `decision` or `task` at a newer revision than the claim names was\n     reopened or edited"},
 		{"pickup", pickup, "it is the previous session's own proposal only when the handoff says so,\n     and without a source, report the source as unknown."},
 		{"pickup", pickup, "leave the claim unverified: report it with the\nerror, not as none and not as a wait, and continue the other steps."},
+		// The board lists every repository's cards; each summary names its repository (#612).
+		{"pickup", pickup, "Each summary's `author_repository` names its repository:\nkeep the cards whose value is the `repository` of your own row in `peers`"},
 		{"pickup", pickup, "- The next steps, corrected for the differences; the first one that still applies is the next\n  action. A claim that the board read did not confirm adds no wait for the maintainer to it."},
 		{"pickup", pickup, "- Decisions waiting for the maintainer, only from the board read of step 4, with each reference\n  and revision; each claim that the read did not confirm, as drift or as unverified."},
 	} {
@@ -214,6 +216,33 @@ func TestHandoffWaitsNameBoardItems(t *testing.T) {
 	board := strings.Index(pickup, "Then check the decision board")
 	if board < strings.Index(pickup, "## 4. Reconnect to the daemon") || board > strings.Index(pickup, "## 5. Orient, then continue") {
 		t.Errorf("pickup reads the board outside step 4")
+	}
+}
+
+// pickup reads the session inbox and the held participant's inbox after their acknowledged
+// cursors, in step 4 before the board; it orders the messages by created_at against the
+// handoff and the note, reports a refused read with its error, and lists the messages in its report (#611).
+// The checks are of the skill text.
+func TestPickupReadsInboxes(t *testing.T) {
+	pickup := read(t, filepath.Join("agents", "skills", "pickup", "SKILL.md"))
+	for _, want := range []string{
+		"Then read this session's inbox and, when it holds a participant, the participant's inbox, each\nafter its acknowledged cursor and page by page to its end",
+		"An unacknowledged message is not always newer than the saved sources: compare\neach message's `created_at` with the handoff's timestamp, its file name in UTC, and with the\nprogress note's modification time.",
+		"A message created after both can change the goal, a blocker,\na task or a next step: it wins over them",
+		"reconcile it with the sections and the maintainer's dated directions\nof both, and report it when neither covers it.",
+		"A read that is refused, such as `stale_holder` while the succession waits, or an\nunavailable daemon leaves the inbox unread: report it with the error",
+		"- The inbox messages of step 4: each one created after the handoff and the note, with its\n  sender and what it changes, and each older one that neither covers; or that the inbox was not\n  read, and why.",
+	} {
+		if !strings.Contains(pickup, want) {
+			t.Errorf("pickup lacks %q", want)
+		}
+	}
+	inbox, board := strings.Index(pickup, "Then read this session's inbox"), strings.Index(pickup, "Then check the decision board")
+	if inbox < strings.Index(pickup, "## 4. Reconnect to the daemon") || inbox < strings.Index(pickup, "Report identity changes, succession or refusal") || inbox > board {
+		t.Errorf("pickup reads the inboxes outside step 4, after the succession report and before the board")
+	}
+	if report := strings.Index(pickup, "- The inbox messages of step 4"); report < strings.Index(pickup, "## 5. Orient, then continue") {
+		t.Errorf("the inbox messages are not in the step 5 report")
 	}
 }
 

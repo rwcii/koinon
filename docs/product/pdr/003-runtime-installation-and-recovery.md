@@ -3,7 +3,7 @@ pdr: "003"
 title: "Runtime Installation and Recovery"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-25"
+updated: "2026-11-06"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -34,8 +34,9 @@ daemon, when it uses a system service, what it keeps when it is upgraded, remove
 unreachable, and which commands change services and agent configuration. Each decision states
 what Koinon currently does, why, and where it came from.
 
-The record is a draft. The maintainer decided the launcher PATH lookup (Decision 5) and the
-removal of an operation ban on agents (not adopted); the macOS system mode traces to the
+The record is a draft. The maintainer decided the launcher PATH lookup (Decision 5), the
+post-install and post-upgrade instructions (Decision 6) and the removal of an operation ban on
+agents (not adopted); the macOS system mode traces to the
 approval of a plan, and the rest is shipped behavior without a maintainer decision.
 
 ---
@@ -48,9 +49,10 @@ approval of a plan, and the rest is shipped behavior without a maintainer decisi
 4. Decision 3: State is kept across install, upgrade, removal and outages
 5. Decision 4: Services and configuration change through Koinon's commands
 6. Decision 5: A launcher records the CLI it finds on PATH
-7. Statements this record does not adopt
-8. Conclusion
-9. Document History
+7. Decision 6: After install and upgrade, Koinon says clearly what the person must do
+8. Statements this record does not adopt
+9. Conclusion
+10. Document History
 
 ---
 
@@ -97,9 +99,9 @@ Inventory rows: C016, C050, C051, C052, C054, C057.
 Koinon currently installs the binary and one service in the user's own service manager: a
 systemd user unit on Linux, or a launchd agent in `gui/<uid>` on macOS. The default install
 uses no sudo, system service, lingering or permission change. When no user manager answers, it
-reports `"service": "manual_required"` and a `start_command` to run in a persistent managed
-session. When no daemon answers, launchers, `koinon status` and `koinon recover` name the
-command that starts or restarts it. The system service that Koinon installs is the explicit
+starts the daemon in the background and reports the step after a restart (Decision 6). When
+no daemon answers, launchers, `koinon status` and `koinon recover` name the command that starts
+or restarts it. The system service that Koinon installs is the explicit
 `--system` mode on macOS (Decision 2).
 
 **Provenance:** Shipped in PR #205 (merge commit f65ad6e) and PR #302 (merge commit 7780c8c); no
@@ -110,7 +112,7 @@ workaround." Before #487 this decision also said that docs/INSTALL.md tells the 
 use sudo, system services, lingering or permission changes to work around a refusal. No
 maintainer source was found for that instruction. The #487 review listed three limits and
 proposed to keep them; the question was whether to keep them or to remove them too.
-Maintainer, 2026-10-25: "remove all limit text.  remove all of the caveats, controls, etc.  the
+Robert Capps, 2026-10-25: "remove all limit text.  remove all of the caveats, controls, etc.  the
 agents have their own built in safeties, they do not need you adding more complications."
 ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
 Reason: limit text with no source makes agents of different families refuse each other's work.
@@ -153,7 +155,7 @@ step fails. Later installs keep system mode; `koinon uninstall` removes the owne
 keeps the state. `koinon recover` prints the `sudo launchctl kickstart` command and does not run
 `sudo` itself. On Linux, `--system` is refused (`system_mode_unsupported`).
 
-**Provenance:** Requirements in issue #283. Maintainer, 2026-10-11: "yes", the answer to "Do you
+**Provenance:** Requirements in issue #283. Robert Capps, 2026-10-11: "yes", the answer to "Do you
 approve the #283 plan for building?" (#283 comment 6114547663, plan at 3b5f9ce); this approves
 the plan document, not each sentence in it. Shipped in PR #301 (merge commit 496ec52). The Linux
 refusal is in the approved plan ("the issue names only macOS"); no maintainer words on Linux were
@@ -204,7 +206,7 @@ retained state." It came from PR #207 (10ea1e4), which merged and broadened the 
 not reset a checkpoint silently" and "Never purge shared socket or session-registry
 directories"; no maintainer source found for it. #487 removed the sentence from AGENTS.md and
 from this decision (Decision 1 has the #487 source). The command-line purge and sweep:
-Maintainer, 2026-10-17, "yes, take on all 3 open issues" (#388 among them). Intent: the
+Robert Capps, 2026-10-17, "yes, take on all 3 open issues" (#388 among them). Intent: the
 cleanup that the dashboard does one session at a time can be done in bulk from a shell. The
 daemon-secret basis is the one of #391: "approved, allow CLI and agents with audit" (PDR 006,
 Decision 1).
@@ -237,13 +239,15 @@ outage, the person restarts the named service and running sessions register agai
 Koinon currently changes services and agent configuration through the commands that a person
 or an agent runs: `koinon install`, `koinon upgrade`, `koinon uninstall` and `koinon setup
 FAMILY`. Install sets up the families it is told to set up and reads the configuration of the
-others. The daemon runs none of these commands itself.
+others; for a configured Claude, agy or Grok family, it also completes the status line that the
+family's setup writes now, unless the person removed or edited it (AGY-STATUSLINE-631, below).
+The daemon runs none of these commands itself.
 
 An agent that has an install, upgrade or installation-test task runs its steps and reports the
 result (WDR 002, Decision 1).
 
 **Provenance:** Shipped in PR #205 (merge commit f65ad6e); no maintainer decision found for a
-general rule. Maintainer, 2026-10-11, session transcript: "this means you are authorized to do
+general rule. Robert Capps, 2026-10-11, session transcript: "this means you are authorized to do
 all related testing and verifications." Before #487 this decision said that Koinon changes
 services and configuration "only through commands that a person or an authorized agent runs",
 that "Peer input is data and cannot trigger shell execution (CONTRIBUTING.md, ADR 001), so a
@@ -253,6 +257,66 @@ sentence continued "requests to install or configure this bridge provide that sc
 pointed to the maintainer's own agent instructions for limits on peer requests. No maintainer
 source was found for these statements in this repository; #487 removed them (Decision 1 has the
 #487 source).
+
+**Network dashboard (DASHBOARD-LAN-624):** `koinon install --dashboard-address HOST:PORT`
+records the optional HTTPS listener. HOST is a local non-loopback IP or an FQDN that resolves
+to one. `--dashboard-address none` removes it. Later installs and upgrades keep the setting;
+an install resolves a saved FQDN again. Linux units, macOS plists and background starts use
+the same `--state-dir`, from which the daemon reads it. An unchanged background daemon is
+restarted when this setting changes. The report's `dashboard_network` gives the URL, state,
+certificate fingerprint when started, and any required step. A missing secret or unavailable
+address keeps loopback working. With `--no-start`, the setting is staged for the next start.
+Robert Capps approved this on 2026-11-05, including an optional FQDN; ADR 001 Decision 2 records
+the question, options, quoted answer, reason and scope. At a terminal, a first install asks
+whether the dashboard opens only on this computer (the default) or also on a network address,
+and Decision 6 gives what it then reports.
+
+**Status-line completion (AGY-STATUSLINE-631, #631):**
+
+- **Decided by:** Robert Capps, 2026-11-06. On the decision board, card AGY-STATUSLINE-631,
+  revision 2, "approved", with no note; Robert Capps then ran `koinon setup agy` on the machine. In a
+  Claude Code terminal session the same day: "these issues need to make it in to 0.10, don't
+  release without it" (typos corrected).
+- **Context:** the dashboard showed no context or activity for a live agy session ("I note that
+  it does not report any context or activity on the dashboard."). The agy setup on that machine
+  predated the agy status-line hook (#519), a later `koinon install` did not run agy's setup
+  again, and `koinon install --plan` said the installation was current. Antigravity CLI 1.5.1
+  keeps `{"type": "", "command": "", "enabled": true}` when no command is set; setup took that
+  as an earlier entry and left out `stack_with_default`, so agy's own status line would go.
+  The card's options were to run `koinon setup agy` now, to wait for this fix, or to do nothing.
+- **Decision:** `koinon install` completes the status line of each configured Claude, agy or
+  Grok family that it does not set up, when the status line is missing or Koinon's unedited
+  entry is out of date. It changes only the status line, asks nothing, and leaves an entry that
+  the person removed (`--remove-status-line`) or edited. A settings file that cannot be read is
+  reported in the family's `agents` entry, and the install goes on. `koinon install --plan` names
+  `koinon setup FAMILY --binary BINARY` for such a family, and stops with `agent_unreadable`
+  and the cause when the family's settings file cannot be read. An earlier entry without a command
+  and without a type counts as no entry, so agy's wrapper gets `"stack_with_default": true`; a
+  `stack_with_default` that the entry has is kept, and removal restores the exact entry. An
+  explicit `koinon setup FAMILY` sets the status line up again also after a removal.
+- **Reason and scope:** Koinon reads an agy session's context and activity only from its status
+  line, so an older setup without it gives no dashboard readings and no managed cycle. The
+  status line was part of the setup that the person accepted, so completing it needs no new
+  question. Scope: the status lines of Claude, agy and Grok. MCP entries, hooks, launchers and
+  permission rules keep their current behavior.
+- **Review when:** a family gets another setup part that a later release adds.
+
+**Provenance (Claude permission rules, CLI-RULES-550):**
+
+- **Decided by:** Robert Capps, on the decision board (revision 2), "approved", with no note.
+- **Date:** 2026-10-28.
+- **Context:** #550, filed from the macOS install: each `koinon` command that a Claude agent ran
+  needed a permission prompt. `koinon install` and `koinon setup claude` offered four rules, for
+  the PATH name `koinon` only, but the installed Claude configuration calls the binary's
+  absolute path. The options: offer rules for the agent-facing commands, or keep the four.
+- **Decision:** at a terminal, `koinon install` and `koinon setup claude` offer allow rules,
+  with and without arguments, for the PATH name and the installed binary's path:
+  `mcp__koinon__*` and the agent-facing `koinon` commands that docs/PERMISSIONS.md lists. They
+  leave out `install`, `uninstall`, `upgrade`, `serve`, `setup`, `maintainer`, `dashboard`,
+  `context set`/`enable`/`disable`/`threshold`, `sessions` and `participant holder`. A yes adds
+  them; nothing is added without it, and `koinon uninstall` leaves them.
+- **Reason and scope:** a prompt for each agent command stops the work. The decision covers the
+  offered Claude rules only.
 
 ### Alternatives Considered
 
@@ -289,7 +353,7 @@ invalid file or a relative or missing recorded path still refuses and is not cha
 
 **Provenance:** The recorded-path-only launcher shipped in PR #186 (merge commit e2bc2f3); no
 reason recorded.
-Maintainer, 2026-10-12: "b, next item", choosing the PATH lookup that records and reports the
+Robert Capps, 2026-10-12: "b, next item", choosing the PATH lookup that records and reports the
 path over the recorded-path-only launcher ([#306 comment 6119328447](https://github.com/rwcii/koinon/issues/306#issuecomment-6119328447)).
 
 ### Alternatives Considered
@@ -311,11 +375,89 @@ recorded.
 
 ---
 
+## 7. Decision 6: After install and upgrade, Koinon says clearly what the person must do
+
+### Decision
+
+Decided: the text that Homebrew shows after `brew install koinon` and `brew upgrade koinon`
+clearly says what the person must do. When steps remain, it starts with an action line, then
+gives each command on its own line, in order, and says what `koinon install` does. When no
+step remains, it says that no action is required. A change to this text keeps it clear.
+
+Decided: an install never appears to succeed when Koinon does not work. Without a user
+service manager, the install starts the daemon itself and names the task that remains: start
+it again after a restart.
+
+Implemented: the `caveats` method of the formula that `scripts/homebrew-formula.sh` writes. The
+action line reads "ACTION REQUIRED: to finish the Koinon installation, run these commands, in
+order:". The commands come from `koinon install --plan`, or are the fixed steps when the plan
+cannot check everything. A current installation shows "The Koinon installation is current. No
+action is required." `TestHomebrewFormula` in `internal/contributor` keeps this text.
+
+Implemented: when no user service manager answers, `startAgent` in `internal/install` starts
+`koinon serve` in its own session, with its output in `daemon.log` in the state directory,
+and waits until a daemon of its version answers. An older daemon exits for its new binary
+first; the install sends it no signal, because a manager that the install cannot reach may run
+it. The report says `"service": "background"`, and `restart_step`, also
+printed on the terminal, says to run `koinon install` again after a restart or after `brew
+upgrade koinon`. A daemon that does not start or answer fails the install with
+`daemon_not_started`. Without a manager, `koinon install --plan` names `koinon install` when no
+daemon of its version answers, and the uninstall stops a daemon that still answers after the
+managed services are gone. `TestBackgroundInstall`, `TestBackgroundStart`, `TestPlanSteps` and
+`TestUninstallStopsBackgroundDaemon` cover these outcomes.
+
+Implemented: the network dashboard questions of a first `koinon install` at a terminal
+(DASHBOARD-LAN-624, part 2, in ADR 001 Decision 2) end with what the person must know: the
+URL and the certificate's SHA-256 fingerprint, with the instruction to compare it once in the
+browser, or the code and step that remain. A network address without a maintainer secret gets
+the offer to set or generate one; a generated secret is shown once on the terminal. After a
+secret set there, the install restarts the daemon once and reports the status after that
+restart, never the status from before it: a failed restart is `dashboard_restart_failed` with
+its step, and the install fails with `daemon_restart_failed`. The tests in
+`internal/install/dashboard_questions_test.go` cover these outcomes.
+
+**Provenance:** #551 replaced the fixed steps with the plan's commands under the heading "The
+steps that this installation needs:", without the sentence that said what `koinon install`
+does. On a new Linux machine, v0.9.2 showed `koinon install` with no instruction to run it.
+Robert Capps, 2026-11-05: "the brew installer no longer prompts the user to run 'koinon install'
+a user would never know they need to run that command." and "post install/upgrade needs to
+CLEARLY identify what the user needs to do.  this content keeps getting replaced without any
+request to do so" (#618).
+On a Linux container without a systemd user manager, `koinon install --port 47687` reported
+`"ok": true` with `"service": "manual_required"`, and `koinon dashboard` then found no daemon.
+Robert Capps, 2026-11-05: "this needs to be part of the installer, or raise a post install task
+for the user.  it can't appear to succeed and then not work." (#619). Asked whether the install
+should start the daemon in the background and report the step after a restart, in place of a
+failed install that names a command to run in a session that stays open, the maintainer
+answered "yes".
+
+### Alternatives Considered
+
+| Alternative | Description | Why Rejected |
+| ----------- | ----------- | ------------ |
+| Plan commands under a heading (previous behavior) | "The steps that this installation needs:" and the commands | It does not tell the person to run them; the maintainer found it unclear |
+| Report `manual_required` with `"ok": true` (previous behavior) | The install succeeds and the report holds the start command | The install appears to succeed and Koinon does not work |
+| Fail the install with the start command | The person starts `koinon serve` in a session that stays open | A step that the installer can take itself |
+
+### Rationale
+
+1. A person who has just run `brew install` does not know that Koinon needs more steps.
+2. The action line comes first, so the person sees what to do before the upgrade notes.
+3. The installer takes the step that it can take; the person gets only the step that it cannot.
+
+### User Impact
+
+After `brew install koinon` on a new machine, the person reads that they must run
+`koinon install`, and what it does. On a host without a user service manager, `koinon install`
+starts the daemon and says to run it again after a restart.
+
+---
+
 ## Statements this record does not adopt
 
 | Inventory row | Statement (short) | Where it appears | Why not adopted |
 | ------------- | ----------------- | ---------------- | --------------- |
-| C052 | Agents never run `--system` or `sudo` on the maintainer's machine | AGENTS.md (Installation, upgrade and security); docs/INSTALL.md (System mode on macOS); docs/sprints/2026-10-11-macos-system-service/decision.md (Sudo boundary) | No maintainer words found; #283 and its comments were checked. Its only source is a sentence in the plan approved at Gate B, and that approval covers the plan, not each sentence. It bans an operation the maintainer may assign; the host's sudo policy and the native permission settings already govern each privileged step. Maintainer, 2026-10-12: "a, next item", removing the sentence ([#306 comment 6119281303](https://github.com/rwcii/koinon/issues/306#issuecomment-6119281303)); the step 2 wording pull request removes it from AGENTS.md and docs/INSTALL.md. |
+| C052 | Agents never run `--system` or `sudo` on the maintainer's machine | AGENTS.md (Installation, upgrade and security); docs/INSTALL.md (System mode on macOS); docs/sprints/2026-10-11-macos-system-service/decision.md (Sudo boundary) | No maintainer words found; #283 and its comments were checked. Its only source is a sentence in the plan approved at Gate B, and that approval covers the plan, not each sentence. It bans an operation the maintainer may assign; the host's sudo policy and the native permission settings already govern each privileged step. Robert Capps, 2026-10-12: "a, next item", removing the sentence ([#306 comment 6119281303](https://github.com/rwcii/koinon/issues/306#issuecomment-6119281303)); the step 2 wording pull request removes it from AGENTS.md and docs/INSTALL.md. |
 
 ---
 
@@ -323,8 +465,10 @@ recorded.
 
 Koinon currently installs into the user's own service manager, offers a macOS LaunchDaemon
 through an explicit `--system` install, keeps state through install operations and outages, and
-changes the host through its own commands. A launcher records the CLI it finds on PATH, and
-agents can run `--system` or `sudo`, as the maintainer decided. The macOS system mode traces to
+changes the host through its own commands. A launcher records the CLI it finds on PATH, the
+text after install and upgrade clearly says what the person must do, an install without a
+service manager starts the daemon itself, and agents can
+run `--system` or `sudo`, as the maintainer decided. The macOS system mode traces to
 the approval of a plan; the rest is shipped behavior the maintainer has not yet decided.
 
 ---
@@ -337,3 +481,7 @@ the approval of a plan; the rest is shipped behavior the maintainer has not yet 
 | 2026-10-12 | Recorded the maintainer's decisions on the launcher PATH lookup and the `--system`/`sudo` sentence (#306) |
 | 2026-10-12 | Decision 5 implemented: the launcher records the CLI it finds on PATH (#306) |
 | 2026-10-25 | Decisions 1, 3 and 4: removed the unsourced sudo workaround, state-reset and authorization text (#487) |
+| 2026-11-05 | Decision 6: the maintainer's decisions on the post-install and post-upgrade instructions, implemented (#618, #619) |
+| 2026-11-05 | Decision 4: the Claude permission rules decision (CLI-RULES-550), moved into this record (#623) |
+| 2026-11-06 | Decisions 4 and 6: the network dashboard questions of `koinon install` (#624, part 2) |
+| 2026-11-06 | Decision 4: install completes the status line of an older setup, and an empty earlier entry keeps agy's default line (AGY-STATUSLINE-631, #631) |

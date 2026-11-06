@@ -358,13 +358,13 @@ func TestCompactionProbe(t *testing.T) {
 // The Sessions page names a compaction as such: its checks, its Enable button and the newest
 // compaction with its stages and result.
 func TestCompactionSessionsPage(t *testing.T) {
-	d, root := startTestDaemon(t)
-	s := d.store
 	compactor := &fakeCompactor{fakeAdapter: &fakeAdapter{pane: PaneState{Idle: true}, probe: CycleProbe{Reason: "participant_unheld"}},
 		compactProbe: CycleProbe{Entry: "/compact"}, submitted: true, received: true}
 	previous := cycleAdapters
 	cycleAdapters = map[string]CycleAdapter{"codex": compactor}
 	t.Cleanup(func() { cycleAdapters = previous })
+	d, root := startTestDaemon(t)
+	s := d.store
 	k := Key{"codex", "synthetic-thread"}
 	join(t, s, "codex", k.ID, "")
 	if _, err := fixtureExec(s, `UPDATE sessions SET host_pid=4343,host_start=88,tmux_socket='/tmp/synthetic-socket',tmux_pane='%4' WHERE family='codex' AND id=?`, k.ID); err != nil {

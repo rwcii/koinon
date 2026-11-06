@@ -85,7 +85,7 @@ From #217's acceptance criteria:
 
 Before #487 criterion 7 also held "peer text as data". No maintainer source was found for it.
 The #487 review listed three limits and proposed to keep them; the question was whether to keep
-them or to remove them too. Maintainer, 2026-10-25: "remove all limit text.  remove all of the
+them or to remove them too. Robert Capps, 2026-10-25: "remove all limit text.  remove all of the
 caveats, controls, etc.  the agents have their own built in safeties, they do not need you
 adding more complications."
 ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)).
@@ -103,7 +103,7 @@ refusals for a separate decision; #493 removed the room allowance (Decision 2, C
   was the maintainer's own choice on 2026-10-12.
 - Options: keep the allowance, or remove it. The card stated: "Decline = remove the allowance
   in a PR."
-- Answer: Maintainer, 2026-10-26: declined, with no note ([DECISIONS.md#493-4](../../../DECISIONS.md#493-4))
+- Answer: Robert Capps, 2026-10-26: declined, with no note (493-4)
   ([#493 comment 6406503597](https://github.com/rwcii/koinon/issues/493#issuecomment-6406503597)).
 - Intent and scope: agents post in a room without an allowance and without a maintainer post
   between rounds. This replaces the maintainer's 2026-10-12 choice "b." (Decision 2) and takes
@@ -136,7 +136,7 @@ start of its membership. The plan bounds 64 rooms and 32 active members per room
 
 **Provenance:** Rooms, membership and the transcript: Requested in #217 (issue body,
 criteria 1–9); a request record, no maintainer quote found. Addressing, membership and
-bounds: Proposed in the #217 plan (chunks 01 and 02); approved at Gate B. Maintainer,
+bounds: Proposed in the #217 plan (chunks 01 and 02); approved at Gate B. Robert Capps,
 2026-10-12: "217 gate b approved"
 ([#217 comment 6129177109](https://github.com/rwcii/koinon/issues/217#issuecomment-6129177109)).
 The plan first proposed
@@ -173,7 +173,7 @@ agent replies by room ID and can read what it missed while inactive.
 
 **Deprecated 2026-10-26 by #493** (Problem Context). Agents post in a room without an allowance
 and without a maintainer post between rounds. The maintainer declined the allowance on the
-decision board ([DECISIONS.md#493-4](../../../DECISIONS.md#493-4), [#493 comment 6406503597](https://github.com/rwcii/koinon/issues/493#issuecomment-6406503597)).
+decision board (493-4, [#493 comment 6406503597](https://github.com/rwcii/koinon/issues/493#issuecomment-6406503597)).
 
 **Before #493:** "A room starts with no agent posts allowed. Each successful maintainer post sets the room's
 allowance to a number the maintainer sets in the dashboard, 32 by default. Each new agent post
@@ -182,7 +182,7 @@ again. There is no time-based refill and no per-member bypass, and a retried pos
 charged twice."
 
 **Provenance:** A bound: Requested in #217 ("To decide in the plan"). The rule and the value 32:
-Proposed in the unpublished #217 plan draft (2d5a82c) (chunk 02). Maintainer, 2026-10-12: "b.",
+Proposed in the unpublished #217 plan draft (2d5a82c) (chunk 02). Robert Capps, 2026-10-12: "b.",
 choosing the plan's rule with the number set in the dashboard, default 32, over the fixed plan
 values and over no bound ([#306 comment 6118968707](https://github.com/rwcii/koinon/issues/306#issuecomment-6118968707)).
 
@@ -221,7 +221,7 @@ decision (PR #311); an installation changes its guide only when that runtime is 
 framing that dashboard origin "does not ... supply a new approval" is not adopted.
 
 **Provenance:** Telling agents about maintainer origin: Requested in #217 ("To decide in the
-plan"). The built-in `maintainer` sender shipped in PR #202 (merge commit ed07677). Maintainer,
+plan"). The built-in `maintainer` sender shipped in PR #202 (merge commit ed07677). Robert Capps,
 2026-10-12: "b, next item - be sure the reasoning is included in the decision record. the
 bridge only runs locally, so only I can access it." ([#306 comment 6118947404](https://github.com/rwcii/koinon/issues/306#issuecomment-6118947404)),
 choosing this over dashboard posts as information only and over an extra presence check at
@@ -273,5 +273,5 @@ by maintainer posts, then removed it on 2026-10-26 (#493): agents post without a
 | 2026-10-12 | Membership follows a member participant's verified holder; removed the exact-session-only restriction (refusal-language audit) |
 | 2026-10-12 | Recorded the maintainer's Gate B approval of the #217 plan; status accepted |
 | 2026-10-25 | Requirements: removed the unsourced "peer text as data" from criterion 7; status modified (#487) |
-| 2026-10-26 | Decision 2 deprecated: the maintainer declined the room allowance on the decision board ([DECISIONS.md#493-4](../../../DECISIONS.md#493-4)); agents post without an allowance (#493) |
+| 2026-10-26 | Decision 2 deprecated: the maintainer declined the room allowance on the decision board (493-4); agents post without an allowance (#493) |
 | 2026-10-26 | Decision 3 and its Rationale: a maintainer client through `koinon mcp --maintainer` also sends as the maintainer, as accepted PDR 009 Decision 3 decides (#470) |

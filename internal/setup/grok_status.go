@@ -19,7 +19,7 @@ import (
 // The Grok status line (#515) follows the rules of the Claude and agy status lines in Grok's
 // config.toml: setup owns only the `type`, `command` and `refresh_interval` keys of the
 // [ui.status_line] table. refresh_interval runs the status line every 30 seconds, also while
-// the session is idle; an earlier integer from 1 to 30 stays (DECISIONS.md#GROK-IDLE-568).
+// the session is idle; an earlier integer from 1 to 30 stays (GROK-IDLE-568 in PDR 006, Decision 1).
 // The edit is a text edit of those keys; setup parses the file before and after it and
 // refuses an edit whose meaning differs anywhere else. The text editor supports a plain
 // [ui.status_line] table only: an inline table, a dotted key or any other shape that it
@@ -739,7 +739,8 @@ func withField(entry json.RawMessage, key string, value json.RawMessage) json.Ra
 // legacyView adapts a legacy record to the file c: the entry to compare with the record,
 // without refresh_interval, which the record did not own, and the record's original with the
 // interval that the file has now, which becomes the baseline that removal restores, with its
-// spelling (DECISIONS.md#GROK-IDLE-568, rule 3).
+// spelling (GROK-IDLE-568 in PDR 006, Decision 1: for a record saved before the interval was
+// owned, the interval in the file at the upgrade is the one that removal restores).
 func (g grokStatusFile) legacyView(r statusRecord, c grokConfig) (now, original json.RawMessage, raw map[string]string) {
 	fields, _ := objectFields(c.entry)
 	interval := lookup(fields, grokRefreshKey)
@@ -808,7 +809,14 @@ func (g grokStatusFile) setUp() (StatusLineResult, error) {
 	entry := g.wrapperEntry(original)
 	if grokEqual(entry, now) {
 		result.Outcome = "unchanged"
+		if g.dry {
+			return result, nil
+		}
 		return result, g.save(statusRecord{State: "enabled", Original: original, Wrapper: now, TableAdded: added, RawValues: raw})
+	}
+	if g.dry {
+		result.Outcome = "set_up"
+		return result, nil
 	}
 	// Save the original before the file changes, so a crash can never lose it.
 	if err := g.save(statusRecord{State: "pending", Original: original, Wrapper: entry, TableAdded: added, RawValues: raw}); err != nil {

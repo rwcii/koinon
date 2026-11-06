@@ -87,7 +87,8 @@ ${bottle}  on_macos do
     bin.install Dir["koinon-*"].first => "koinon"
   end
 
-  # Each command has its own line: the expanded opt_bin path would break a wrapped sentence.
+  # The caveats say first what the person must do, in the action line, then each command on
+  # its own line: the expanded opt_bin path would break a wrapped sentence (PDR 003, Decision 6).
   # koinon install --plan reads this machine and prints only the steps that it still needs;
   # it changes nothing (#551). Homebrew keeps the person's PATH, where the agents' CLIs are,
   # in HOMEBREW_PATH. When the plan cannot run or check everything, the fixed steps show. A
@@ -101,19 +102,23 @@ ${bottle}  on_macos do
     rescue StandardError
       nil
     end
+    action = "ACTION REQUIRED: to finish the Koinon installation, run these commands, in order:\n"
+    about = "koinon install starts the daemon; at a terminal it offers to set up each agent it finds.\n"
     current = "The Koinon installation is current."
     done = plan&.strip == current
     text = if done
-      "#{current}\n"
+      "#{current} No action is required.\n"
     elsif plan
-      "The steps that this installation needs:\n#{plan.lines.map { |line| "  #{line}" }.join}"
+      steps = action + plan.lines.map { |line| "  #{line}" }.join
+      steps += about if plan.lines.any? { |line| line.split[1] == "install" }
+      steps
     else
-      fixed = <<~EOS
-        Install the daemon; at a terminal it offers to set up each agent it finds:
-          #{opt_bin}/koinon install
-        Set the maintainer secret for the dashboard login:
-          #{opt_bin}/koinon maintainer secret set
-        Set up an agent family later with its command:
+      fixed = action + <<~EOS.gsub(/^/, "  ")
+        #{opt_bin}/koinon install
+        #{opt_bin}/koinon maintainer secret set
+      EOS
+      fixed += about + <<~EOS
+        To set up an agent family later, run its command:
           #{opt_bin}/koinon install --agent claude
           #{opt_bin}/koinon install --agent codex
           #{opt_bin}/koinon install --agent agy
@@ -130,13 +135,13 @@ ${bottle}  on_macos do
     end
     unless done
       text += <<~EOS
-        Check again after these steps:
+        Then make sure that no step is left:
           #{opt_bin}/koinon install --plan
       EOS
     end
     text + <<~EOS
 
-      To upgrade:
+      To upgrade Koinon later:
         brew update
         brew upgrade koinon
         koinon version

@@ -4,7 +4,7 @@
 
 The Go daemon is the Koinon runtime. Its HTTP API uses a
 private user secret from the selected Go state root, passed in `Authorization: Bearer SECRET`.
-No API endpoint is anonymous. Each listener must be a literal loopback address; foreign
+No API endpoint is anonymous. Each agent API listener must be a literal loopback address; foreign
 browser origins and non-loopback Host headers are refused. The API accepts no browser cookies.
 The daemon listens on `127.0.0.1` and `[::1]` at the port that the state root's `port` file
 records, 47671 when there is none; `koinon install --port N` writes that file, one decimal
@@ -16,6 +16,40 @@ with `port_invalid` (docs/INSTALL.md). A launcher sets `KOINON_DAEMON_ADDRESS` f
 only when the launch address is not the state root's installed address, and `koinon mcp`
 without `--address` resolves the address for each daemon call, so both follow a new recorded
 port.
+
+An optional separate dashboard HTTPS listener is configured by `koinon install
+--dashboard-address HOST:PORT`, or removed by `--dashboard-address none` (#624;
+DASHBOARD-LAN-624 in ADR 001, Decisions 2 and 4). The private `dashboard-address.json` file
+contains `host`, the selected local `ip`, and `port`. A literal IP must belong to this host
+and be non-loopback, non-wildcard and non-multicast. An FQDN must resolve to a local address.
+IPv6 link-local addresses need an interface zone, which this setting does not carry, and
+are refused with `dashboard_address_invalid`, also when they are an FQDN's only local answers.
+IPv4 link-local addresses and routable IPv6 addresses remain supported. With an invalid saved
+setting, the refusal names `dashboard-address.json` and gives a replacement or removal command
+for the same state directory; unsafe ownership, mode or links must be corrected first.
+Several local answers choose one in canonical sorted order. Installation resolves it again;
+daemon starts use the saved IP and requests use no DNS. Invalid input is
+`dashboard_address_invalid`, unresolved or unavailable addresses are
+`dashboard_address_unavailable`, and an invalid private setting is
+`dashboard_configuration_invalid`. At a terminal, a first install asks for the setting; its
+local-only answer, and `--dashboard-address none`, are saved in the private, owner-checked
+`dashboard-local.json` (`{"choice":"local"}`), which only the installer reads. After a secret
+set at those questions, the install restarts the daemon once; a failed restart reports
+`dashboard_network.code` `dashboard_restart_failed` with its step, and the install fails with
+`daemon_restart_failed`.
+
+The network listener has no agent API or MCP routes. It uses TLS 1.2 or later and a self-signed
+certificate with the selected IP and configured FQDN in its SAN. The private
+`dashboard-tls.pem` contains its certificate and key, mode 0600 and owner-checked; starts reuse
+it, and a changed identity or expired certificate generates a replacement. A missing secret
+skips the bind with `dashboard_secret_required`. Status gives the secret/start steps; once the
+secret is set, `dashboard_restart_required` names `koinon install` as the next step. A failed
+bind or unavailable pinned IP leaves loopback available, with the address and error in the
+daemon log. The loopback status and login-link reply include nullable `dashboard_network`:
+`address`, `bind`, `url`, `sha256_fingerprint` when known, `code`, and optional `error` and `step`.
+Status reads also check that a running listener's pinned IP still belongs to this host; if it
+went away, only the network server closes and the loss is logged once. An install retries a
+previously failed network listener even when its binary and saved address did not change.
 The secret and state files are user-owned regular files, mode 0600; the state root is private.
 Secrets, runtime session identifiers and response bodies stay in the state directory, outside
 repositories.
@@ -180,6 +214,13 @@ only the maintainer's dashboard choice removes its fence. A holder defaults to t
 participant consumer for memory and work. Every participant call validates the current
 native holder, family and repository, including explicit consumer keys, read paths and
 stored retries, before returning a replay or writing. Refusals use `stale_holder` (409).
+While the caller's last succession result is refused with a wait (`holder_active` or
+`cycle_receipt_pending`), an inbox read with `participant_after`, a participant
+acknowledgement and a participant memory or work call return `stale_holder` with `details`
+`{succession, holder, retry_after_ms}`: the reason, the holder's peer name and the remaining
+wait. The first tool call after that wait tries the succession again with the current checks:
+it takes the participant, or it is refused again, for example with a new wait when the holder
+was active during this one (#610).
 Split memory/work calls serialize against holder changes, and each write transaction checks
 its native caller again. The successor continues participant inbox acknowledgements, memory
 cursors and live claims with their existing generations and deadlines.
@@ -266,9 +307,9 @@ percentage of a positive limit (equality and use above the limit included), the 
 source is at most 120 seconds old and its last confirmation at most 90 seconds old, and the
 observation's native epoch has not been selected already. In `native_compaction` an older
 source also counts when the newest confirmation carries the reader's caught-up mark (#564,
-DECISIONS.md#IDLE-COMPACT-564). In `handoff_cycle` an older source counts when the newest
+IDLE-COMPACT-564 in PDR 006, Decision 1). In `handoff_cycle` an older source counts when the newest
 confirmation carries that mark or the daemon reader's proof that an `opencode_server` or
-`dsh_projections` reading is current (#569, DECISIONS.md#PULLED-IDLE-569; see "Session
+`dsh_projections` reading is current (#569, PULLED-IDLE-569 in PDR 006, Decision 1; see "Session
 observations"). A source or confirmation time later
 than the daemon's clock is `observation_future`. Otherwise it names one reason:
 `session_inactive`, `mode_observe`, `not_enabled`,
@@ -468,7 +509,7 @@ the cycle in their own transaction. A cycle that ends after an input whose effec
 proven (an intent, or `clear_received` without a proven reset) is `uncertain`, with the
 reason of whatever ended it. Failed, cancelled and uncertain cycles end the session's Enable; a
 later cycle needs a new Enable and a new handoff. One exception
-(DECISIONS.md#READY-TIMEOUT-ENABLE-487): a cycle that fails at its ready deadline
+(READY-TIMEOUT-ENABLE-487 in PDR 006, Decision 2): a cycle that fails at its ready deadline
 (`waiting_ready_timeout`), with no input event at any stage, keeps the Enable once for each
 epoch and Enable revision; the lifetime deadline (`cycle_timeout`) keeps the rule above. The
 session's Enable record holds the retry (schema 37: `kept_epoch`, `kept_revision`,
@@ -1094,7 +1135,7 @@ return `invalid_request`.
 
 Schema 37 adds `kept_epoch` (text), `kept_revision` and `kept_read` (0 or 1) to
 `context_enables`, all with defaults, for the ready-timeout retry
-(DECISIONS.md#READY-TIMEOUT-ENABLE-487). A schema 36 binary refuses the upgraded store.
+(READY-TIMEOUT-ENABLE-487 in PDR 006, Decision 2). A schema 36 binary refuses the upgraded store.
 
 Schema 36 rebuilds `decision_items` and `decision_verdicts` (#537), because SQLite cannot widen
 a CHECK in place: `kind` adds `task`, `state` adds `returned`, and `verdict` adds `feedback`,
@@ -2037,8 +2078,9 @@ of items. Reads move no inbox read or acknowledgement marker and no memory curso
   `limit` (1–100, default 100). Items come in item ID order, keyset-paged: a page holds at
   most `limit` summaries and stops before the summary that would take the serialized reply,
   with its envelope and JSON escaping, past 64 KiB; it always holds at least one. It returns
-  `items` (`reference`, `title`, `kind`, `state`, `revision`, `order`, and `verdict` when
-  the item has a current one), `more` and
+  `items` (`reference`, `title`, `kind`, `state`, `revision`, `order`, `verdict` when
+  the item has a current one, and `author_repository` as `decision_get` gives it, when the
+  item has one (#612)), `more` and
   `next_after`. An item does not appear twice in a walk; an item that matches during the
   whole walk appears once; an item whose match changes during the walk appears at most once.
 - `POST /v1/decisions/get` takes `caller` and `reference` and returns every field with
@@ -2096,14 +2138,13 @@ participant inbox, read by its current holder also after a holder change; to an 
 peer it is `queued` with one message in that session's inbox. Otherwise it is `skipped`
 with `reason` `unknown_name`, `maintainer` or `recipient_inactive`. The message comes from
 `maintainer` with `system_kind` `decision_verdict`, the typed `decision_verdict` ID and a
-body that holds the reference, the ID and, for a recorded verdict, its entry (see Repository
-record); it holds no other card text. The body starts with `Decision REF has a verdict (ID).`
-and the instruction to read it with `decision_get` and then call `decision_record`, which
-applies the repository's Decision record fact (#589); for `feedback`, with `Item REF has the
-maintainer's feedback (ID) and is returned to its author.` and the instruction to call
-`decision_record` and then edit or withdraw the item;
-for `acknowledged`, with `Fyi item REF was acknowledged (ID).` and the note that nothing is
-recorded. A wake whose range
+body that holds the reference, the ID and, for a verdict other than an fyi acknowledgement or
+dismissal, the record instruction and the verdict with its card text (see Repository record);
+it holds no other card text. The body starts with `Decision REF has a verdict (ID).` and the
+instruction to read it with `decision_get`, whose `record` says how to record the decision; for
+`feedback`, with `Item REF has the maintainer's feedback (ID) and is returned to its author.`
+and the instruction to edit or withdraw the item; for `acknowledged`, with `Fyi item REF was
+acknowledged (ID).` and the note that it holds no decision to record. A wake whose range
 holds such messages ends its notice with ` Decision verdicts ID, ID.`: at most 8 IDs in
 sequence order, then ` +N more`; target selection, coalescing, retries and inbox reads and
 acknowledgements do not change.
@@ -2209,48 +2250,29 @@ with `reference_in_use`.
   link, is `export_in_worktree`. Pages that read different versions start the export again, up
   to four attempts. The result gives `path`, `records` and `version`.
 
-**Repository record (#536, #589).** A decided item read (`decision_get`, the lookup) with a
-current verdict that is not an fyi acknowledgement or dismissal carries `record`: `path`
-(`DECISIONS.md`, the file of the short and full modes), `instruction`, which asks to call
-`decision_record`, and `entry`, the current verdict's full entry. A pending page with a delivery that is not an fyi acknowledgement or dismissal
-carries `record` with `path` and `instruction`, and each such delivery carries `entry`; a page
+**Repository record (#536, #623).** Koinon writes no record file. A decided item read
+(`decision_get`, the lookup) with a current verdict that is not an fyi acknowledgement or
+dismissal carries `record`: `instruction`, the record form, and `entry`, the current verdict
+with its card text. A pending page with a delivery that is not an fyi acknowledgement or
+dismissal carries `record` with `instruction`, and each such delivery carries `entry`; a page
 stops before the delivery that would take the serialized reply past 512 KiB and always holds
-one, which the largest entry fits. The verdict message of such a verdict holds the notice, then
-`Verdict and card text:` with the full entry. An entry that would take the message past 64
-KiB, which only stored hidden commands can cause, is left out, and the message says that
-`decision_get` and `decision_pending` give it. An item read carries
-`author_repository`, the repository of the participant that the item stored for its author at
-create; a plain peer's item has none. A snapshot stores the item's `where` since #536; an
-older snapshot has none.
-
-`decision_record` (`reference`, optional `directory`) and `koinon decision record --reference
-REF [--directory DIR]` record in the checkout of the MCP working directory or of `directory`,
-which must share its Git common directory (else `repo_unresolved`). They first read the
-checkout's record mode: the first word, without trailing `,.;:`, of the `Decision record` fact
-in its `.koinon/skills/ship.md`, parsed with the ship skill's facts schema. An absent file or
-fact is `none`; another word or an invalid facts file is `decision_record_mode_invalid`. Then
-they read the item and its history through these routes. The item's `author_repository` must
-be that Git common directory: another is `decision_other_repository`, none is
-`decision_repository_unknown`. Mode `none` opens no file: the result gives `mode`, an empty
-`appended` and an `instruction` that puts the changed rule, with the question, the chosen
-option, the reason and the maintainer's words, into the document that holds it. Modes `short`
-and `full` append to `DECISIONS.md` at the checkout root. The file starts with the Koinon
-header when it is created; a file in another format keeps its text, and the entries follow it.
-A symbolic link, a non-regular file or a file over 64 MiB is `decision_record_invalid`.
-Nothing is written on a refusal. Under an exclusive lock on the
-file, each verdict that is not an fyi acknowledgement or dismissal and whose marker line is
-absent is appended, in
-verdict order: the reference's anchor (`<a id="ref"></a>`, the reference in lower case, as GitHub writes its
-anchors) before its first entry, then a
-`## REF` heading, the marker `<!-- koinon-decision REF revision N VERDICT MS -->`, the verdict,
-revision and UTC time, the title and where, and the context, recommendation and note (labeled
-`Feedback` for a feedback verdict) as block quotes, with the commands as an indented code block. A
-short entry has the heading, marker, verdict line and title, then `- Recommendation:` with the
-recommendation's first line (without `## Recommendation:`) when it has one, and the note or
-feedback as a block quote; the shared marker keeps a mode change from adding a verdict twice.
-The result gives `mode`, `path`, `reference` and the verdict IDs `appended`, `present` and
-`skipped`, and an `instruction` when it appended. An item with no recordable verdict creates no
-file.
+one, which the largest entry fits. The verdict message of such a verdict holds the notice, the
+instruction, then `Verdict and card text:` with the entry. An entry that would take the message
+past 64 KiB, which only stored hidden commands can cause, is left out, and the message says
+that `decision_get` and `decision_pending` give it. The entry starts with the verdict word,
+the revision and the UTC time, then the title and where, and the context, recommendation and
+note (labeled `Feedback` for a feedback verdict) as block quotes, with the commands as an
+indented code block; card text keeps its words inside its quotes. The instruction asks the
+agent, when the verdict decides how the project works, to record the decision in the
+repository that the item was created in, in the pull request that does the work, in the ADR,
+PDR, WDR or sprint document that holds the rule, with Decided by (the person's name, not a
+role), Date, Context, Decision, Reason and scope, and Review when; a declined decision goes
+into Alternatives Considered; the decision is named by its card reference, never by verdict
+ID. An item read carries `author_repository`, the repository of the participant that the item
+stored for its author at create; a plain peer's item has none. A snapshot stores the item's
+`where` since #536; an older snapshot has none. The `decision_record` tool and `koinon
+decision record` are removed (#623). The ship skill no longer declares the `Decision record`
+fact: a `.koinon/skills/ship.md` that holds it stays valid, and Koinon ignores its value.
 
 ### MCP server
 
@@ -2275,8 +2297,7 @@ decisions and bounded reads in that same native client.
 room routes.
 `decision_create`, `decision_edit`, `decision_list`, `decision_get`, `decision_history`,
 `decision_pending`, `decision_ack`, `decision_close`, `decision_withdraw` and `decision_restore` take the fields of the
-decision routes, refuse any other argument by name and call those routes. `decision_record`
-writes the repository record as described above.
+decision routes, refuse any other argument by name and call those routes.
 They take no model-supplied consumer or caller identity. A tool
 error is a result with `isError` and a JSON text `{"ok": false, "code": ...}`: the daemon's code,
 `daemon_unavailable`, `identity_unavailable`, `grok_leader_mode`, `invalid_arguments` or `unknown_tool`, with the
@@ -2372,7 +2393,8 @@ and removes the settings file; successful jobs retain the file. Koinon owns `--b
 
 ### Dashboard and session observations
 
-The daemon serves a dashboard under `/dashboard/` on its loopback listeners. Pages are
+The daemon serves a dashboard under `/dashboard/` on its loopback listeners and, when configured,
+its separate network HTTPS listener. Pages are
 rendered on the server and their CSS and script are embedded in the binary; nothing is fetched
 from elsewhere. Peer message bodies appear here, escaped, and nowhere else outside the inboxes.
 
@@ -2502,7 +2524,7 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   `maintainer_token_expired`, the server writes the reply of a request in progress, writes the
   code to standard error and exits with status 1, also while standard input is open and idle.
   A poll that no daemon answers is tried again after 1 second, doubling to at most 30 seconds.
-- **Request protection.** Every dashboard request must name a literal loopback IP with a port in
+- **Request protection.** Every loopback dashboard request must name a literal loopback IP with a port in
   `Host` (`127.0.0.1:PORT` or `[::1]:PORT`; `localhost` and other names are refused). PORT may
   differ from the listener's, as through an SSH tunnel from another local port (ADR 001,
   Decision 4). An `Origin`, when present, must be `http://` plus that host. A request other
@@ -2516,6 +2538,14 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   `Origin: null` with a same-origin `POST`, which the origin check refuses), `Cache-Control: no-store`
   and `Cross-Origin-Opener-Policy: same-origin`. The dashboard cookie never authorizes `/v1/`, and
   the bearer secret never authorizes `/dashboard/`.
+  On the optional network listener the authority must be exactly the configured IP:port or
+  FQDN:port, and the origin must be `https://` plus that authority. Its cookie also has `Secure`.
+  Host case and default port 443 normalize as HTTP specifies, so an omitted default port
+  denotes the configured port 443; this adds no other host or port.
+  The login form requires the maintainer secret; a one-time link is refused without consuming
+  it. Removing the secret immediately refuses network requests. Routes outside `/dashboard/`
+  are absent, including `/v1/` and MCP. `koinon dashboard` also prints the network URL,
+  certificate SHA-256 fingerprint and any required step; it opens the loopback one-time link.
 - **Views.** `sessions` (100 per page, with the counts of active, expired and retired
   sessions; names, family, repository and working directory, state and times, the
   observations below with their source and time, and the live claims held under the session
@@ -2602,7 +2632,7 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   "more": BOOL}`, at most 200 items. `version` is the `decisions` change version, which each
   decision write moves; `repository` is the base name of the author participant's repository,
   empty for a plain peer's item. A bad `after` is 400. The Settings page's switch (#553,
-  DECISIONS.md#SPEAK-SCOPE-553) is browser state: `speak.js` reads page 1, stops when `version`
+  SPEAK-SCOPE-553 in PDR 007, Decision 1) is browser state: `speak.js` reads page 1, stops when `version`
   equals the stored one, otherwise reads every page and starts again when a page's `version`
   differs. It compares the items' `reference@revision` with the stored set; new ones become
   sentences in the same stored value, which the browser speaks one at a time under the Web Lock
@@ -2742,7 +2772,7 @@ values are confirmed at least every 30 seconds while Koinon's status-line entry 
 it; a Grok session's likewise, while Koinon's `[ui.status_line]` table has its
 `refresh_interval` and Grok was started after it was set (#568). In `handoff_cycle` an idle agy
 session above its threshold therefore gets its cycle at its next turn, not while it is idle
-(DECISIONS.md#AGY-IDLE-568, [#571](https://github.com/rwcii/koinon/issues/571)): Koinon has no verified
+(AGY-IDLE-568 in PDR 006, Decision 1, [#571](https://github.com/rwcii/koinon/issues/571)): Koinon has no verified
 status-line timer for Antigravity CLI 1.4.7 (the inspected binary showed no timer setting, and
 idle timer behavior is not live-checked), its hook reports are not retried, and it has no verified native record that
 shows the session idle with nothing after the reading. A session that is not active shows `unknown` with `session_expired` or
@@ -2896,7 +2926,7 @@ prints the model's display name without one, and reports the model and context o
 `session_id`. `koinon setup claude` makes it the `statusLine` entry, keeping the entry's other
 fields and wrapping its previous command. The entry gets `"refreshInterval": 30`, so Claude Code
 runs it at least every 30 seconds, also while the session is idle (#566,
-DECISIONS.md#CLAUDE-IDLE-566; Claude Code 2.1.97 or later, not checked). A previous interval
+CLAUDE-IDLE-566 in PDR 006, Decision 1; Claude Code 2.1.97 or later, not checked). A previous interval
 that is a number from 1 to 30 stays as it was; no interval, a longer one or one that Claude Code
 does not accept (below 1, or not a number) becomes 30. The saved previous entry keeps its own
 interval or none. The previous entry is saved once, before the settings
@@ -2947,7 +2977,7 @@ session's reading becomes stale after 30 minutes. `koinon setup
 grok` makes `'BINARY' hook grok-status` the `command` of a `[ui.status_line]` table with
 `type = "command"` in Grok's `config.toml` (`--grok-home`, else `$GROK_HOME`, else `~/.grok`).
 Setup owns only the table's `type`, `command` and `refresh_interval` (#568,
-DECISIONS.md#GROK-IDLE-568): `refresh_interval = 30` runs the status line every 30 seconds, also
+GROK-IDLE-568 in PDR 006, Decision 1): `refresh_interval = 30` runs the status line every 30 seconds, also
 while the session is idle, so the reading stays inside the trigger's clocks; an earlier integer
 from 1 to 30 stays, and any other value or none becomes 30. That rule is Koinon's choice: Grok's
 documentation gives no range and no first version for the key. Grok reads `config.toml` at
@@ -2984,8 +3014,11 @@ rules of docs/PERMISSIONS.md: `family`, `settings_file`, `outcome` and, by outco
 `different` (the file sets a rule's key to another value; nothing is added), `unreadable` or
 `manual` (Grok, DeepSeek). Only a yes at a terminal adds rules, with the same refusals as the
 status line. `koinon install` at a terminal also reports `review`, one entry per family with
-`family`, `cli` and `configured` before its questions, and `permissions` for each family that
-is set up. For a family that got the permission question, its `review` and `agents` entries
+`family`, `cli` and `configured` before its questions, `status_line` for a configured Claude,
+agy or Grok family (`current`, `needed`, `declined`, `changed` or `skipped`; when it cannot be
+read, `status_line_error` says why), and `permissions` for each family that is set up. A family
+whose `status_line` is `needed` and that the install does not set up gets its status line set
+up, and an `agents` entry with `status_line` and `changed` (#631). For a family that got the permission question, its `review` and `agents` entries
 report `permissions` after the question, as `koinon setup` does, and a yes also lists the rules
 in its `agents` entry's `changed`.
 

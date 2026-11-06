@@ -129,19 +129,16 @@ named recipient as an inbox message and a wake that name its verdict ID: read it
 decision_get, handle it, then decision_ack. decision_pending lists unacknowledged verdicts,
 also after the message aged out; a superseded one means the item was reopened. Editing a
 decided item reopens it for a new verdict.
-Record each verdict that you handle, except an fyi acknowledgement: call decision_record with
-the reference in your checkout (directory names another checkout of the same repository). It
-applies the Decision record fact of the checkout's .koinon/skills/ship.md, whose first word is
-none (the default), short or full (#589). With none it writes nothing: put the changed rule
-into the document that holds it, in the pull request that does the work, with the question,
-the chosen option, the reason and the maintainer's words with their date. With short it
-appends the verdict, the title, the recommendation's heading and the maintainer's note to
-DECISIONS.md at the checkout root, once per verdict; with full, also the card text that the
-maintainer saw. Commit the file with the work. decision_get, decision_pending and the verdict
-message show the full entry. Correct the spelling and typing errors in the maintainer's words
-wherever you put them into the repository (notes, feedback and quotes), and keep their meaning
-and wording. Name a decision by its reference (a link's target in DECISIONS.md is the
-reference in lower case), never by verdict ID: a verdict ID exists only in this machine's
+Record each decision that you handle, except an fyi acknowledgement, in the repository that the
+item was created in, in the pull request that does the work: in the ADR, PDR, WDR or sprint
+document that holds the rule (#623). Koinon writes no record file. Write the decision
+succinctly, with these parts: Decided by (the person's name, not a role), Date, Context (the
+question and the options), Decision, Reason and scope, and Review when (a known condition that
+calls for a review of the decision; leave it out when there is none). Put a declined decision
+into the record's Alternatives Considered. decision_get, decision_pending and the verdict
+message give the verdict, the card text and this instruction. Correct the spelling and typing
+errors in quoted words (notes, feedback and quotes), and keep their meaning and wording. Name a
+decision by its card reference, never by verdict ID: a verdict ID exists only in this machine's
 store. How a project cites its decisions is that project's own rule. Recorded text is public
 repository text, so write every card as public text (#536). koinon decision export PATH writes
 every item, live and deep-archived, as JSON lines to a new private file outside a Git work
@@ -169,7 +166,9 @@ once the former host is proven ended. Unknown evidence refuses succession. Read 
 succession result in its own (self) row of peers: succeeded reports same_host, host_cleared or same_pane; refused reports no_host,
 host_running, other_pane, subagent, holder_active, fenced or other_participant.
 holder_active returns the daemon's remaining retry_after_ms; MCP retries at the first native
-tool call after that wait. Renewals and observation timers do not count as activity or retry.
+tool call after that wait. A participant call during the wait, such as an inbox read with
+participant_after, is refused with stale_holder whose details give succession, holder and
+retry_after_ms: call again after that wait. Renewals and observation timers do not count as activity or retry.
 A daemon restart counts as activity for one guard period. Other refusals have no scheduled
 retry; the maintainer's holder choice settles them. no_host against a
 launched predecessor without a host record resolves
@@ -482,7 +481,6 @@ DeepSeek uses the command path until its MCP support is verified, with this sess
   koinon decision close --as deepseek:$DSH_SESSION_ID --reference REF --if-revision REVISION --key KEY --deadline UNIX_SECONDS
   koinon decision restore --as deepseek:$DSH_SESSION_ID --reference REF
   koinon decision withdraw --as deepseek:$DSH_SESSION_ID --reference REF --if-revision REVISION --reason 'reason' --key KEY --deadline UNIX_SECONDS
-  koinon decision record --as deepseek:$DSH_SESSION_ID --reference REF
   koinon decision export --as deepseek:$DSH_SESSION_ID PATH
   koinon peer-status --as deepseek:$DSH_SESSION_ID NAME
   koinon send --as deepseek:$DSH_SESSION_ID NAME 'message'

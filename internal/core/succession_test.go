@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -251,6 +254,49 @@ func TestSuccessionHolderActive(t *testing.T) {
 	renew(t, s, sessionOf(t, s, "codex", "thread-1"))
 	next = arrive(t, s, arrival{family: "codex", id: "thread-2", repo: repo, pid: 100, toolCall: true})
 	wantSuccession(t, next, "succeeded", "same_host", held.Name)
+}
+
+// A participant call from a successor that waits for the holder's guard is refused with
+// stale_holder, and the refusal gives the wait and the holder (#610). After the wait, the
+// plain refusal stays until the session registers again.
+func TestSuccessionWaitRefusal(t *testing.T) {
+	s, h, advance := successionStore(t)
+	repo := namedRepo(t, "koinon")
+	h.set(100, 7)
+	held := arrive(t, s, arrival{family: "codex", id: "thread-1", repo: repo, pid: 100, toolCall: true})
+	advance(10 * time.Second)
+	arrive(t, s, arrival{family: "codex", id: "thread-2", repo: repo, pid: 100, toolCall: true})
+	advance(5 * time.Second)
+	ctx, next, zero := context.Background(), Key{"codex", "thread-2"}, int64(0)
+	_, readErr := s.ReadInboxes(ctx, next, 0, &zero, 10)
+	_, _, ackErr := s.AckParticipant(ctx, next, 0)
+	for _, err := range []error{readErr, ackErr} {
+		var wait HolderWait
+		if !errors.As(err, &wait) || !errors.Is(err, ErrStaleHolder) || errorCode(err) != "stale_holder" ||
+			wait != (HolderWait{Reason: "holder_active", Holder: held.Name, RetryAfterMS: 15_000}) {
+			t.Fatalf("waiting refusal: %#v", err)
+		}
+	}
+	w := httptest.NewRecorder()
+	failure(w, readErr)
+	var body struct {
+		Code    string         `json:"code"`
+		Error   string         `json:"error"`
+		Details map[string]any `json:"details"`
+	}
+	if json.Unmarshal(w.Body.Bytes(), &body) != nil || w.Code != http.StatusConflict || body.Code != "stale_holder" ||
+		body.Details["succession"] != "holder_active" || body.Details["holder"] != held.Name || body.Details["retry_after_ms"] != float64(15_000) ||
+		!strings.Contains(body.Error, "retry_after_ms") {
+		t.Fatalf("wire: %d %s", w.Code, w.Body)
+	}
+	advance(16 * time.Second)
+	if _, err := s.ReadInboxes(ctx, next, 0, &zero, 10); err != ErrStaleHolder {
+		t.Fatalf("after the wait: %#v", err)
+	}
+	// The holder reads its participant inbox.
+	if _, err := s.ReadInboxes(ctx, Key{"codex", "thread-1"}, 0, &zero, 10); err != nil {
+		t.Fatalf("holder: %v", err)
+	}
 }
 
 // The renewal timer never registers, and a registration that no tool call caused never

@@ -5,12 +5,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/rwcii/koinon/internal/core"
 	"github.com/rwcii/koinon/internal/platform"
@@ -54,8 +58,15 @@ type env struct {
 	setups   []string
 	removals []string
 	adopts   []string
+	// completions lists the families that install asked to complete their status line.
+	completions []string
 	// adopted lists the families whose fake earlier setup Adopt finds.
 	adopted map[string]bool
+	// backgrounds lists the daemons that a fake background start started; no test starts a
+	// real process (#619).
+	backgrounds []string
+	// stops lists the process IDs that a fake stop was given; no test signals a process.
+	stops []int
 }
 
 func newEnv(t *testing.T, backend string) *env {
@@ -86,11 +97,31 @@ func newEnv(t *testing.T, backend string) *env {
 			e.adopts = append(e.adopts, o.Family+" "+o.Binary+" "+o.StateDir)
 			return setup.Report{OK: true, Family: o.Family, Changed: []string{o.Family + " CLI in launchers.json"}}, e.adopted[o.Family], nil
 		},
+		// No test runs an agent CLI from PATH to complete a status line (#631).
+		CompleteStatusLine: func(_ context.Context, o setup.Options) (setup.Report, bool, error) {
+			e.completions = append(e.completions, o.Family+" "+o.Binary)
+			return setup.Report{OK: true, Family: o.Family}, false, nil
+		},
 		Remove: func(_ context.Context, o setup.Options) (setup.Report, error) {
 			e.removals = append(e.removals, o.Family+" "+o.Binary)
 			return setup.Report{OK: true, Family: o.Family}, nil
 		},
-		Status: func(context.Context, string, string) (json.RawMessage, error) { return json.RawMessage(`{}`), nil },
+		// The managed daemon answers while its service file exists, as after its start and
+		// until its removal.
+		Status: func(context.Context, string, string) (json.RawMessage, error) {
+			if _, err := os.Stat(e.o.Services.DaemonArtifact()); err != nil {
+				return nil, errors.New("connection refused")
+			}
+			return json.RawMessage(`{}`), nil
+		},
+		Background: func(binary, state, log string) (Started, error) {
+			e.backgrounds = append(e.backgrounds, binary+" "+state+" "+log)
+			return Started{PID: 9000 + len(e.backgrounds), Abort: func() error { return nil }, Release: func() error { return nil }}, nil
+		},
+		Stop: func(pid int) error {
+			e.stops = append(e.stops, pid)
+			return nil
+		},
 	}
 	return e
 }
@@ -452,7 +483,7 @@ func TestInstallSharedEntryKeepsAdoptedCopy(t *testing.T) {
 	}
 	codex := core.CodexSkillPath(e.o.Services.Home, guide.Name)
 	claude := core.ClaudeSkillPath(e.o.ClaudeConfig, guide.Name)
-	// The entry as v0.5.0 to v0.8.0 wrote it, before DECISIONS.md#RESTORE-STEPS-487.
+	// The entry as v0.5.0 to v0.8.0 wrote it, before RESTORE-STEPS-487 in PDR 006, Decision 3.
 	older := strings.Replace(string(guide.Content), "Repository facts section says. If the\ntool is unavailable, stop and report that.\n",
 		"Repository facts section says.\n", 1)
 	if older == string(guide.Content) {
@@ -590,12 +621,15 @@ func TestInstallRefusals(t *testing.T) {
 		t.Fatalf("python present: %v", err)
 	}
 	e.o.Upgrade = true
-	// Without a reachable manager the install reports the start command.
+	// Without a reachable manager the install starts the daemon in the background; the
+	// background tests below cover it (#619).
 	e.r.fail = func(argv []string) bool { return argv[0] == "systemctl" }
-	r, err := Install(context.Background(), e.o)
-	if err != nil || r.Service != "manual_required" || r.StartCommand != r.Binary+" serve --state-dir "+e.o.StateDir {
+	newDaemon(e, "v2")
+	if r, err := Install(context.Background(), e.o); err != nil || r.Service != "background" {
 		t.Fatalf("manual %+v %v", r, err)
 	}
+	e.o.Status = func(context.Context, string, string) (json.RawMessage, error) { return json.RawMessage(`{}`), nil }
+	e.o.Wait = 0
 	// --no-start stages without any manager call.
 	e.r.calls = nil
 	e.o.NoStart = true
@@ -1053,5 +1087,242 @@ func TestInstallOpenCodeCommandFailure(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "opencode_command_failed: "+core.OpenCodeCommandPath(e.o.Opencode, commands[0].Name)) ||
 		r.OK || len(r.TeamSkills) == 0 {
 		t.Fatalf("install %+v %v", r, err)
+	}
+}
+
+// The background start runs serve in its own session, so it stays when the install's terminal
+// closes, and appends its output to the log (#619).
+func TestBackgroundStart(t *testing.T) {
+	dir := t.TempDir()
+	binary, pidFile := filepath.Join(dir, "koinon"), filepath.Join(dir, "pid")
+	script := "#!/bin/sh\necho \"$@\"\necho $$ > " + pidFile + ".tmp && mv " + pidFile + ".tmp " + pidFile + "\nsleep 10\n"
+	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	log := filepath.Join(dir, "daemon.log")
+	os.WriteFile(log, []byte("earlier\n"), 0o600)
+	started, err := background(binary, filepath.Join(dir, "state"), log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer started.Release()
+	var pid int
+	for deadline := time.Now().Add(5 * time.Second); pid == 0 && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if data, err := os.ReadFile(pidFile); err == nil {
+			fmt.Sscan(string(data), &pid)
+		}
+	}
+	if pid == 0 || pid != started.PID {
+		t.Fatalf("the background start ran %d, reported %d", pid, started.PID)
+	}
+	defer syscall.Kill(pid, syscall.SIGKILL)
+	// A new session's leader leads its own process group.
+	if group, err := syscall.Getpgid(pid); err != nil || group != pid {
+		t.Fatalf("process group %d of %d: %v", group, pid, err)
+	}
+	if data, _ := os.ReadFile(log); string(data) != "earlier\nserve --state-dir "+filepath.Join(dir, "state")+" --lock-wait "+platform.LockWait+"\n" {
+		t.Fatalf("log %q", data)
+	}
+}
+
+// fakeDaemon models the daemons on one state directory without a service manager: the one
+// that answers, the starts that Background makes and the stops that Stop sends (#619).
+type fakeDaemon struct {
+	running   bool
+	pid       int
+	version   string
+	answers   bool   // whether a start answers
+	start     string // the version that a start runs
+	starts    []int
+	stops     []int
+	aborts    []int
+	unstopped bool // whether the answering daemon ignores its stop
+	// exitAfter, when above zero, is how many more answers the running daemon gives before it
+	// exits for its new binary; replace makes its manager start a daemon of start in its place.
+	exitAfter int
+	replace   bool
+	// binary, when set, is the installed binary whose content the running daemon started
+	// from: once the content changes, its manager has started a daemon of start in its place.
+	binary, content string
+}
+
+// newDaemon gives e a fake daemon whose starts run version and answer, with no daemon running.
+func newDaemon(e *env, version string) *fakeDaemon {
+	d := &fakeDaemon{answers: true, start: version}
+	e.o.Version, e.o.Wait = version, 500*time.Millisecond
+	e.o.Status = func(context.Context, string, string) (json.RawMessage, error) {
+		if d.binary != "" {
+			if data, _ := os.ReadFile(d.binary); string(data) != d.content {
+				d.binary, d.running, d.pid, d.version = "", true, d.pid+100, d.start
+			}
+		}
+		if !d.running {
+			return nil, errors.New("connection refused")
+		}
+		if d.exitAfter > 0 {
+			if d.exitAfter--; d.exitAfter == 0 {
+				d.running = false
+				if d.replace {
+					d.running, d.pid, d.version = true, d.pid+100, d.start
+				}
+			}
+		}
+		return json.RawMessage(fmt.Sprintf(`{"pid":%d,"version":%q}`, d.pid, d.version)), nil
+	}
+	e.o.Background = func(string, string, string) (Started, error) {
+		pid := 5000 + len(d.starts)
+		d.starts = append(d.starts, pid)
+		if d.answers {
+			d.running, d.pid, d.version = true, pid, d.start
+		}
+		abort := func() error {
+			d.aborts = append(d.aborts, pid)
+			return nil
+		}
+		return Started{PID: pid, Abort: abort, Release: func() error { return nil }}, nil
+	}
+	e.o.Stop = func(pid int) error {
+		d.stops = append(d.stops, pid)
+		if pid == d.pid && !d.unstopped {
+			d.running = false
+		}
+		return nil
+	}
+	return d
+}
+
+// Without a reachable manager the install starts the daemon in the background, waits for a
+// daemon of its version and names the step after a restart, with this installation's prefix
+// and state directory (#619).
+func TestBackgroundInstall(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t, "systemd")
+	e.r.fail = func(argv []string) bool { return argv[0] == "systemctl" }
+	d := newDaemon(e, "v2")
+	log := filepath.Join(e.o.StateDir, "daemon.log")
+	r, err := Install(ctx, e.o)
+	restart := r.Binary + " install --prefix " + e.o.Prefix + " --state-dir " + e.o.StateDir
+	if err != nil || !r.OK || r.Service != "background" || r.DaemonLog != log || r.StartCommand != r.Binary+" serve --state-dir "+e.o.StateDir ||
+		!strings.HasSuffix(r.RestartStep, "After this machine or container restarts, or after brew upgrade koinon, start it again with: "+restart) ||
+		len(d.starts) != 1 || len(d.stops) != 0 {
+		t.Fatalf("background %+v %v %+v", r, err, d)
+	}
+	// A repeated install keeps the answering daemon of its version: no start waits behind it.
+	if r, err := Install(ctx, e.o); err != nil || !r.OK || r.Service != "background" || len(d.starts) != 1 || len(d.stops) != 0 {
+		t.Fatalf("repeat %+v %v %+v", r, err, d)
+	}
+	// A daemon of another version exits for its new binary; the install waits for that, sends
+	// no signal, and then starts the new one.
+	d.version, d.exitAfter = "v1", 3
+	if r, err := Install(ctx, e.o); err != nil || !r.OK || len(d.starts) != 2 || len(d.stops) != 0 || d.version != "v2" {
+		t.Fatalf("upgrade %+v %v %+v", r, err, d)
+	}
+	// A manager that starts the new daemon in the old one's place leaves nothing to start.
+	d.version, d.exitAfter, d.replace = "v1", 3, true
+	if r, err := Install(ctx, e.o); err != nil || !r.OK || len(d.starts) != 2 || len(d.stops) != 0 || d.version != "v2" {
+		t.Fatalf("replaced by its manager %+v %v %+v", r, err, d)
+	}
+	d.replace = false
+	// A manager that replaces the old daemon as soon as the binary changes, before the
+	// install reads the status again: the new daemon of this version qualifies at once.
+	content, _ := os.ReadFile(Binary(e.o.Prefix))
+	d.version, d.binary, d.content = "v1", Binary(e.o.Prefix), string(content)
+	os.WriteFile(e.o.Source, []byte("synthetic binary, replaced by its manager"), 0700)
+	old := d.pid
+	if r, err := Install(ctx, e.o); err != nil || !r.OK || r.BinaryResult != "replaced" || len(d.starts) != 2 || len(d.stops) != 0 || d.version != "v2" || d.pid == old {
+		t.Fatalf("replaced at the binary change %+v %v %+v", r, err, d)
+	}
+	// A manager that starts the daemon as the binary changes, when none answered before:
+	// it qualifies at once too.
+	content, _ = os.ReadFile(Binary(e.o.Prefix))
+	d.running, d.binary, d.content = false, Binary(e.o.Prefix), string(content)
+	os.WriteFile(e.o.Source, []byte("synthetic binary, started by its manager"), 0700)
+	if r, err := Install(ctx, e.o); err != nil || !r.OK || r.BinaryResult != "replaced" || len(d.starts) != 2 || len(d.stops) != 0 || !d.running || d.version != "v2" {
+		t.Fatalf("started at the binary change %+v %v %+v", r, err, d)
+	}
+	// A changed binary also waits for a daemon of the same version to exit.
+	os.WriteFile(e.o.Source, []byte("synthetic binary, rebuilt"), 0700)
+	d.exitAfter = 3
+	if r, err := Install(ctx, e.o); err != nil || !r.OK || r.BinaryResult != "replaced" || len(d.starts) != 3 || len(d.stops) != 0 {
+		t.Fatalf("changed binary %+v %v %+v", r, err, d)
+	}
+	// An old daemon that keeps answering fails the install before any start.
+	d.version = "v1"
+	if r, err := Install(ctx, e.o); err == nil || r.OK || !strings.Contains(err.Error(), "the daemon of version v1 (process "+strconv.Itoa(d.pid)+") still answers") ||
+		len(d.starts) != 3 || len(d.stops) != 0 {
+		t.Fatalf("old daemon stays %+v %v %+v", r, err, d)
+	}
+	// An old daemon's answer never counts for a start that does not answer; that start ends
+	// before the failure, so it cannot take the state directory later.
+	d.exitAfter, d.answers = 3, false
+	r, err = Install(ctx, e.o)
+	if err == nil || r.OK || !strings.HasPrefix(err.Error(), "daemon_not_started: ") || !strings.Contains(err.Error(), "its log is "+log) ||
+		len(d.starts) != 4 || len(d.stops) != 0 || !reflect.DeepEqual(d.aborts, []int{d.starts[3]}) {
+		t.Fatalf("old daemon answers %+v %v %+v", r, err, d)
+	}
+	d.running = false
+	// A start that fails fails the install.
+	e.o.Background = func(string, string, string) (Started, error) { return Started{}, errors.New("exec format error") }
+	if r, err := Install(ctx, e.o); err == nil || r.OK || !strings.Contains(err.Error(), "did not start in the background: exec format error") {
+		t.Fatalf("start failure %+v %v", r, err)
+	}
+}
+
+// The uninstall stops a daemon that still answers after the managed services are gone: one
+// that the install started without a manager, also when the manager answers again (#619).
+func TestUninstallStopsBackgroundDaemon(t *testing.T) {
+	for _, manager := range []bool{false, true} {
+		e := newEnv(t, "systemd")
+		e.r.fail = func(argv []string) bool { return argv[0] == "systemctl" }
+		d := newDaemon(e, "v2")
+		if r, err := Install(context.Background(), e.o); err != nil || r.Service != "background" {
+			t.Fatalf("install %+v %v", r, err)
+		}
+		if manager {
+			e.r.fail = nil
+		}
+		pid := d.pid
+		r, err := Uninstall(context.Background(), e.o)
+		if err != nil || !r.OK || r.Service != "removed" || !reflect.DeepEqual(d.stops, []int{pid}) || d.running {
+			t.Fatalf("manager %v: uninstall %+v %v %+v", manager, r, err, d)
+		}
+	}
+	// A daemon that still answers after its stop fails the uninstall.
+	e := newEnv(t, "systemd")
+	e.r.fail = func(argv []string) bool { return argv[0] == "systemctl" }
+	d := newDaemon(e, "v2")
+	Install(context.Background(), e.o)
+	d.unstopped = true
+	if r, err := Uninstall(context.Background(), e.o); err == nil || r.OK || !strings.Contains(err.Error(), "service_stop_failed: the background daemon "+strconv.Itoa(d.pid)+" still answers") {
+		t.Fatalf("daemon that stays %+v %v", r, err)
+	}
+}
+
+// Aborting a start ends it, with SIGKILL when it ignores SIGTERM, and reaps it before it
+// returns (#619).
+func TestBackgroundAbort(t *testing.T) {
+	defer func(wait time.Duration) { abortWait = wait }(abortWait)
+	abortWait = 300 * time.Millisecond
+	for _, script := range []string{"exec sleep 30\n", "trap '' TERM\nsleep 30 &\nwait\nsleep 30\n"} {
+		dir := t.TempDir()
+		binary := filepath.Join(dir, "koinon")
+		if err := os.WriteFile(binary, []byte("#!/bin/sh\n"+script), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		started, err := background(binary, filepath.Join(dir, "state"), filepath.Join(dir, "daemon.log"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(100 * time.Millisecond)
+		if err := started.Abort(); err != nil {
+			t.Fatalf("%q: abort: %v", script, err)
+		}
+		// A reaped process is gone, also as a zombie.
+		if err := syscall.Kill(started.PID, 0); !errors.Is(err, syscall.ESRCH) {
+			syscall.Kill(-started.PID, syscall.SIGKILL)
+			t.Fatalf("%q: process %d after the abort: %v", script, started.PID, err)
+		}
+		// The trapped script's own sleep is in the start's process group.
+		syscall.Kill(-started.PID, syscall.SIGKILL)
 	}
 }

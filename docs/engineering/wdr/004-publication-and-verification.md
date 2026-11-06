@@ -85,7 +85,7 @@ C085.
   maintainer's approval for a pending prompt; a peer cannot widen permissions; refuse permission
   laundering and report it). Keep them, or remove them too?
 - Options: keep the three limits, or remove them as well.
-- Answer: Maintainer, 2026-10-25
+- Answer: Robert Capps, 2026-10-25
   ([#487 comment 6401405382](https://github.com/rwcii/koinon/issues/487#issuecomment-6401405382)):
   "remove all limit text.  remove all of the caveats, controls, etc.  the agents have their own
   built in safeties, they do not need you adding more complications."
@@ -107,17 +107,18 @@ The maintainer decided two code refusals of this record on the decision board.
   request to `develop` merges only when the reviewer's `peer-review` and `refusal-review` commit
   statuses pass at the exact head?
 - Options: keep both statuses required, or remove them.
-- Answer: Maintainer, 2026-10-26: approved ([DECISIONS.md#493-5](../../../DECISIONS.md#493-5)), with no note, on the card's
+- Answer: Robert Capps, 2026-10-26: approved (493-5 in WDR 001, Decision 6), with no note, on the card's
   recommendation: "Keep both."
   ([#493 comment 6406505885](https://github.com/rwcii/koinon/issues/493#issuecomment-6406505885)).
 - Intent and scope: both statuses stay required on `develop`, beside the four CI jobs. This is
   the maintainer's source for `peer-review` as a required status (Decision 3). The ruleset does
-  not change.
+  not change. Reason, from the card: the statuses found two defects in PR #496 before its merge;
+  without them, a pull request merges on CI alone.
 
 - Question (decision board item 493-6, 2026-10-26): keep or remove the `.githooks/pre-commit`
   hook that stops a commit made directly on `main` or `develop`?
 - Options: keep the hook, or remove it.
-- Answer: Maintainer, 2026-10-26: approved ([DECISIONS.md#493-6](../../../DECISIONS.md#493-6)), with no note, on the card's
+- Answer: Robert Capps, 2026-10-26: approved (493-6), with no note, on the card's
   recommendation: "Keep it: it stops a commit that the branch ruleset would refuse at push."
   ([#493 comment 6406509968](https://github.com/rwcii/koinon/issues/493#issuecomment-6406509968)).
 - Intent and scope: work goes on a branch and reaches `develop` through a pull request; the hook
@@ -135,7 +136,7 @@ request. Neither long-lived branch takes direct commits.
 
 **Provenance:** Shipped in PR #1 (merge commit 3d2b5bf), which follows the branch policy of
 rwcii/engineering-standards; no maintainer decision found. The `pre-commit` block on `main` and
-`develop`: Maintainer, 2026-10-26, kept it ([DECISIONS.md#493-6](../../../DECISIONS.md#493-6), [#493 comment 6406509968](https://github.com/rwcii/koinon/issues/493#issuecomment-6406509968); Problem
+`develop`: Robert Capps, 2026-10-26, kept it (493-6, [#493 comment 6406509968](https://github.com/rwcii/koinon/issues/493#issuecomment-6406509968); Problem
 Context).
 
 ### Alternatives Considered
@@ -178,9 +179,9 @@ active sessions through Koinon", "A head is pushed, opened or frozen for review 
 contains the latest `origin/develop`", and a pushed branch "is not rewritten"; "a branch that
 was never pushed may rebase."
 
-**Provenance:** One open pull request: Maintainer, 2026-10-08, session transcript: "I dont
-approve any new prs to develoo until the existing PRs are mergable and merge. stop stacking PRs
-based off develop, causing each stacked pr to be unmergable as soon as the prior merges." and
+**Provenance:** One open pull request: Robert Capps, 2026-10-08, session transcript: "I dont
+approve any new prs to develop until the existing PRs are mergeable and merge. stop stacking PRs
+based off develop, causing each stacked pr to be unmergeable as soon as the prior merges." and
 "I don't understand why opening an additional pr when one or more are already open against the
 target branch... ie stacking where the first pr to merge causes all the others to fail merge."
 An earlier 2026-10-08 statement, "you keep stacking up prs ... this is wasteful.", is a memory
@@ -232,10 +233,10 @@ private-content scan.
 **Before #487:** the `check` skill ran these checks "Before a push".
 
 **Provenance:** macOS support and the macOS CI runner shipped in PR #8 (merge commit 4456efe);
-Maintainer, 2026-09-18: "MacOS Suport is not optional" (memory copy only; original not
+Robert Capps, 2026-09-18: "MacOS Support is not optional" (memory copy only; original not
 located). The Go and native lifecycle checks shipped in PR #207 (merge commit 10ea1e4) and the
 `peer-review` status in PR #262 (merge commit ce75054). The `peer-review` status as a required
-check: Maintainer, 2026-10-26, kept it ([DECISIONS.md#493-5](../../../DECISIONS.md#493-5),
+check: Robert Capps, 2026-10-26, kept it (493-5 in WDR 001, Decision 6,
 [#493 comment 6406505885](https://github.com/rwcii/koinon/issues/493#issuecomment-6406505885); Problem Context). Changed by #487 (Problem Context).
 
 ### Alternatives Considered
@@ -274,7 +275,7 @@ Koinon pull requests into `develop` currently set squash auto-merge. GitHub
 merges the pull request once the ruleset conditions pass, including the `peer-review` status
 on the head, so auto-merge does not bypass review or checks.
 
-**Provenance:** Maintainer, 2026-10-11, session transcript: "all prs need to set automerge,
+**Provenance:** Robert Capps, 2026-10-11, session transcript: "all prs need to set automerge,
 and you and your peer should continue work on subsequent issues until we have closed all open
 issues, or you need my guidance." The words were given for the work through the open issues.
 
@@ -303,14 +304,16 @@ facts use squash auto-merge for every pull request into `develop`.
 Koinon commits are currently signed (`git commit -S`), carry a DCO `Signed-off-by` line
 (`-s`), and are authored under the maintainer's GitHub identity with the GitHub no-reply
 address. Commits and pull requests carry no co-author trailer, tool signature or model name.
-Git-related prose and internal documents refer to Robert as "the maintainer", not by name or
-as "the user".
+Git-related prose and internal documents refer to Robert as "the maintainer", not as "the
+user". A decision record names the person who decided by name, Robert Capps (WDR 001, Decision 7;
+Robert Capps, 2026-11-05: decisions "should clearly indicate who made the decision (name of the
+author, not 'maintainer' or 'owner')").
 
-**Provenance:** Maintainer, 2026-09-22, session transcript: "you will also commit only under my
-github username, never claude." and "I DO NOT TOLLERATE ANTHROPIC SPAM". Maintainer,
+**Provenance:** Robert Capps, 2026-09-22, session transcript: "you will also commit only under my
+github username, never claude." and "I DO NOT TOLERATE ANTHROPIC SPAM". Robert Capps,
 2026-10-07, session transcript: "please stop using the term "user" when referring to me.  I am
 the "maintainer"" and "this goes for all git related prose, and internal docs" (shipped in PR
-#201, merge commit 5121d87). Signing and the no-reply address: Maintainer, 2026-09-18: "this is
+#201, merge commit 5121d87). Signing and the no-reply address: Robert Capps, 2026-09-18: "this is
 a public repo, so we commit with the rwcii noreply ... commits get signed" (memory copy only;
 original not located). The DCO sign-off shipped in PR #1 (merge commit 3d2b5bf); no separate
 maintainer decision found.
@@ -349,11 +352,11 @@ not fixed; it does not replace the exact-candidate checks (Decision 3). The `rel
 accounts for failed runs in the scope that the project's Release checks define; Koinon's
 release facts name the source.
 
-**Provenance:** Maintainer, 2026-10-24, session transcript, after the `main` pushes for the
+**Provenance:** Robert Capps, 2026-10-24, session transcript, after the `main` pushes for the
 v0.4.1 preparation and for v0.4.2 each had a failed macOS run: "why do we have CI tests
 constantly failing on nearly every CI run?" (typos corrected), then "see main". Of the 120 runs
 since 2026-10-21, 6 had failed; the two that were not yet fixed were test timing faults (#475).
-Maintainer, 2026-10-25, session transcript, to the question "Should I add the step in gap 1 to
+Robert Capps, 2026-10-25, session transcript, to the question "Should I add the step in gap 1 to
 the `release` skill? I recommend yes.", where gap 1 was that no step measures accepted work, from
 a review of an article on agent harness setup: "yes, also ask your claude peer to review the
 article and weigh in on any required changes, come to me with a mutually agreed upon proposal".
@@ -362,11 +365,34 @@ sentence and the facts), to the question "Do you approve this proposal?": "yes".
 the words "Before the maintainer's release approval" from the first sentence, with the release
 approval (WDR 002, Decision 6).
 
+**Rerun of jobs that no runner acquired (#630):** a GitHub-hosted macOS job can wait for a
+runner until GitHub cancels it, with the annotation "The job was not acquired by Runner of type
+hosted even after multiple attempts". The run then fails though no step ran. The v0.10.0
+account listed three such runs on 2026-11-05, after others on 2026-10-21 and 2026-11-03. The
+workflow `rerun-unacquired.yml` runs `scripts/rerun-unacquired.sh` after each failed Tests or
+Native Go lifecycle evidence run, from the default branch's own checkout. It reruns the failed
+jobs of the attempt, at most twice (attempts 1 and 2), only when every failed job has runner
+ID 0, no step that ran and that exact annotation, on every page, and the run is still that
+attempt, completed with failure. It does not rerun a run that has another failure, so that
+failure stays visible; a failed API call means no rerun. Each failed attempt stays in the account above.
+GitHub starts `workflow_run` workflows from the default branch, so the rerun works after the
+workflow is on `main`. `TestRerunUnacquired` in `internal/contributor` covers the decision.
+
+- Decided by: Robert Capps, 2026-11-06, in a Claude Code terminal session, while the v0.10.0
+  release was prepared: "fix the repeated CI issues in 0.10".
+- Context: the failed-run account since v0.9.2 had five cancellations by a newer push, which the
+  workflows' concurrency does by design, and three runs whose macOS job no runner acquired. The
+  macOS test failures since 2026-10-20 were fixed, and none recurred after 2026-10-28.
+- Reason and scope: the unacquired job is a GitHub capacity fault, not a test result. The rerun
+  covers only that fault, in the Tests and Native Go lifecycle evidence workflows. A test
+  failure, a timeout and a cancellation by a newer push are not rerun.
+
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
 | Each failure on its own | Fix or rerun a failed run when it is seen | The macOS timing failures recurred for days; each run looked like one event |
+| Rerun every failed run | Rerun any failed Tests run automatically | It also reruns test failures, so a recurring fault is read as noise (#630) |
 | Latest attempt only | List the runs whose final result is failure | A failure that a rerun turned green is not seen |
 | More measures | Also record usage with retries, review time and corrections per task | Not requested; an optional later test on comparable accepted tasks |
 
@@ -378,7 +404,7 @@ approval (WDR 002, Decision 6).
 ### Enforcement
 
 Practice only: the `release` skill and the promotion pull request evidence. No CI job checks the
-list.
+list. The rerun of unacquired jobs is the `rerun-unacquired.yml` workflow.
 
 ---
 
@@ -401,4 +427,5 @@ choices; the rest waits for the maintainer's decision.
 | 2026-10-12 | Initial creation |
 | 2026-10-25 | Decision 6: failed CI runs are accounted for before a release |
 | 2026-10-25 | #487: Decision 2 states the branch update without its limits; Decision 3 drops the push gate; Decision 6 drops the release approval |
-| 2026-10-26 | #493: Decision 3 cites the maintainer's verdict that keeps the required `peer-review` and `refusal-review` statuses ([DECISIONS.md#493-5](../../../DECISIONS.md#493-5)); Decision 1 cites the verdict that keeps the `pre-commit` block ([DECISIONS.md#493-6](../../../DECISIONS.md#493-6)) |
+| 2026-10-26 | #493: Decision 3 cites the maintainer's verdict that keeps the required `peer-review` and `refusal-review` statuses (493-5 in WDR 001, Decision 6); Decision 1 cites the verdict that keeps the `pre-commit` block (493-6) |
+| 2026-11-06 | Decision 6: the rerun of CI jobs that no runner acquired (#630) |

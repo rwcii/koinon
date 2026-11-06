@@ -16,6 +16,12 @@ type FactValues struct {
 	Fields  map[string]string
 }
 
+// retiredFacts are the headings that a skill no longer declares but that a facts file written
+// for an earlier catalog can still hold. Such a heading stays valid, and its value is ignored.
+// ship's Decision record chose a record mode for a record file, which Koinon no longer writes
+// (#623).
+var retiredFacts = map[string][]string{"ship": {"Decision record"}}
+
 func ParseFactValues(data []byte, name string, schema *Facts) (FactValues, error) {
 	if schema == nil || len(data) == 0 || len(data) > MaxItemBytes || !utf8.Valid(data) {
 		return FactValues{}, errors.New("invalid or oversized fact file")
@@ -75,6 +81,9 @@ func ParseFactValues(data []byte, name string, schema *Facts) (FactValues, error
 		}
 		values.Fields[field.Heading] = value
 		delete(headings, field.Heading)
+	}
+	for _, heading := range retiredFacts[name] {
+		delete(headings, heading)
 	}
 	if len(headings) != 0 {
 		return FactValues{}, errors.New("undeclared fact heading")

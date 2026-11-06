@@ -9,7 +9,7 @@ import (
 // A ready timeout before any input keeps the Enable once in each epoch and Enable revision.
 // The next cycle waits for the session's own inbox read after the timeout, also across a
 // restart; a second timeout ends the Enable; a new Enable gives one more retry, and a repeated
-// Enable changes nothing (DECISIONS.md#READY-TIMEOUT-ENABLE-487, #584).
+// Enable changes nothing (READY-TIMEOUT-ENABLE-487 in PDR 006, Decision 2, #584).
 func TestReadyTimeoutKeepsTheEnableOncePerEpoch(t *testing.T) {
 	ctx := context.Background()
 	f := newCycleFixture(t)

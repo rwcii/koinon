@@ -145,6 +145,20 @@ and cursors from before participant ownership keep their old owners, and other h
 stay theirs until they expire or are released. Report identity changes, succession or refusal,
 and pending leases; private values stay in the ignored handoff.
 
+Then read this session's inbox and, when it holds a participant, the participant's inbox, each
+after its acknowledged cursor and page by page to its end, with the installed guide's inbox tool
+or command (#611). An unacknowledged message is not always newer than the saved sources: compare
+each message's `created_at` with the handoff's timestamp, its file name in UTC, and with the
+progress note's modification time. A message created after both can change the goal, a blocker,
+a task or a next step: it wins over them, and the report names it as a difference. A message
+created before either one can be one that the handoff or the note already handled, or that a
+later direction replaced: reconcile it with the sections and the maintainer's dated directions
+of both, and report it when neither covers it. A message from the maintainer is the maintainer's
+instruction; of two directions, the later one applies. Handle each message, and acknowledge it as
+the guide says. A read that is refused, such as `stale_holder` while the succession waits, or an
+unavailable daemon leaves the inbox unread: report it with the error, read it again after the
+wait, and continue the other steps.
+
 Then check the decision board, with the installed guide's decision tools or its command path
 (WDR 005, Decision 5):
 
@@ -173,7 +187,9 @@ Then check the decision board, with the installed guide's decision tools or its 
    handled again.
 
 The report lists the waiting items of the work that you resume; the cards of other
-repositories are not part of it. A read that is refused, an unavailable daemon or tool, an older runtime without
+repositories are not part of it. Each summary's `author_repository` names its repository:
+keep the cards whose value is the `repository` of your own row in `peers`, and the cards
+without one that the note or the handoff names. A read that is refused, an unavailable daemon or tool, an older runtime without
 these tools and a page you could not finish leave the claim unverified: report it with the
 error, not as none and not as a wait, and continue the other steps.
 
@@ -190,6 +206,9 @@ Report briefly, the goal's hierarchy first:
 - The next steps, corrected for the differences; the first one that still applies is the next
   action. A claim that the board read did not confirm adds no wait for the maintainer to it.
 - Where things stand now, with each difference from the note and the handoff named.
+- The inbox messages of step 4: each one created after the handoff and the note, with its
+  sender and what it changes, and each older one that neither covers; or that the inbox was not
+  read, and why.
 - Open work that the handoff does not name.
 - Each subagent that the handoff lists as running: its result, or that it has not arrived
   (WDR 005, Decision 4).

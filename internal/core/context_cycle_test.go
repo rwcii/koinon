@@ -610,7 +610,7 @@ func TestContextCycleDeadlinesAndIntentRecovery(t *testing.T) {
 	if v := f.status(t, f.k); v.State != cycleFailed || v.Reason != "waiting_ready_timeout.unread" {
 		t.Fatalf("ready timeout: %+v", v)
 	}
-	// A first ready timeout before any input keeps the Enable (DECISIONS.md#READY-TIMEOUT-ENABLE-487).
+	// A first ready timeout before any input keeps the Enable (READY-TIMEOUT-ENABLE-487 in PDR 006, Decision 2).
 	if e, _ := f.s.contextEnables(context.Background()); !e[f.k].Enabled {
 		t.Fatal("a first ready timeout ended the Enable")
 	}
@@ -971,12 +971,12 @@ func TestContextCycleControlsAtSaturation(t *testing.T) {
 // The Sessions page shows the cycle's stage, deadline and history without a native ID,
 // epoch, pane, socket or report; the own-cycle API refuses unknown fields.
 func TestContextCycleDashboardAndRoutes(t *testing.T) {
-	d, root := startTestDaemon(t)
-	s := d.store
 	adapter := &fakeAdapter{pane: PaneState{Idle: true}, probe: CycleProbe{Entry: "koinon-pickup"}}
 	previous := cycleAdapters
 	cycleAdapters = map[string]CycleAdapter{"claude": adapter}
 	t.Cleanup(func() { cycleAdapters = previous })
+	d, root := startTestDaemon(t)
+	s := d.store
 	repo := namedRepo(t, "cycle-dashboard")
 	a := join(t, s, "claude", "synthetic-dashboard-a", repo)
 	fixtureExec(s, `UPDATE sessions SET host_pid=4242,host_start=77,tmux_socket='/tmp/synthetic-private-socket',tmux_pane='%3' WHERE family='claude' AND id=?`, a.ID)

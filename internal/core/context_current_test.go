@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// Current readings (DECISIONS.md#PULLED-IDLE-569): in handoff_cycle, a reading older than the
+// Current readings (PULLED-IDLE-569 in PDR 006, Decision 1): in handoff_cycle, a reading older than the
 // source age counts when its newest confirmation shows that no newer context exists: a Codex
 // caught-up mark, or the proof of the daemon's OpenCode or DeepSeek reader.
 

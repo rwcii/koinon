@@ -19,7 +19,7 @@ import (
 )
 
 // ClaudeCommands are the agent-facing koinon commands that the recommended Claude rules
-// allow, each with and without its arguments (DECISIONS.md#CLI-RULES-550). install, uninstall,
+// allow, each with and without its arguments (CLI-RULES-550 in PDR 003, Decision 4). install, uninstall,
 // upgrade, serve, setup, maintainer, dashboard, the context changes, sessions and participant
 // holder stay out.
 var ClaudeCommands = []string{"guide", "status", "context show", "peers", "peer-status", "inbox", "ack", "send",
@@ -386,6 +386,11 @@ type Inspection struct {
 	CLI         string             `json:"cli,omitempty"`
 	Configured  bool               `json:"configured"`
 	Permissions *PermissionsResult `json:"permissions,omitempty"`
+	// StatusLine is the state of a configured claude, agy or grok family's status line for an
+	// install that does not set the family up: current, needed, declined, changed or skipped
+	// (#631). It is empty when the state is not known; StatusLineError then says why.
+	StatusLine      string `json:"status_line,omitempty"`
+	StatusLineError string `json:"status_line_error,omitempty"`
 	// Error is set when the CLI's own read failed, so Configured is not known (#551).
 	Error string `json:"error,omitempty"`
 }
@@ -423,6 +428,13 @@ func Inspect(ctx context.Context, o Options) Inspection {
 	}
 	if result, err := Permissions(o, false); err == nil {
 		in.Permissions = &result
+	}
+	if in.Configured && statusLineFamilies[o.Family] {
+		if state, err := StatusLineState(o); err != nil {
+			in.StatusLineError = err.Error()
+		} else {
+			in.StatusLine = state
+		}
 	}
 	return in
 }

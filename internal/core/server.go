@@ -33,21 +33,27 @@ type Config struct {
 }
 
 type Daemon struct {
-	release   string
-	store     *Store
-	secret    string
-	catalog   library.Catalog
-	auth      *dashboardAuth
-	dashboard http.Handler
-	started   time.Time
-	lock      *os.File
-	listeners []net.Listener
-	servers   []*http.Server
-	wg        sync.WaitGroup
-	closeOnce sync.Once
-	closeErr  error
-	errors    chan error
-	stop      chan struct{}
+	release           string
+	store             *Store
+	secret            string
+	catalog           library.Catalog
+	auth              *dashboardAuth
+	dashboard         http.Handler
+	started           time.Time
+	lock              *os.File
+	listeners         []net.Listener
+	networkAddress    *DashboardAddress
+	networkMu         sync.RWMutex
+	networkInterfaces func() ([]net.Addr, error)
+	networkServer     *http.Server
+	networkStatus     *DashboardNetworkStatus
+	networkListener   net.Listener
+	servers           []*http.Server
+	wg                sync.WaitGroup
+	closeOnce         sync.Once
+	closeErr          error
+	errors            chan error
+	stop              chan struct{}
 	// root is the private state directory; launch runs the launcher for a dashboard start
 	// (sprint chunk 09), replaced in tests.
 	root   string
@@ -98,7 +104,7 @@ func Start(c Config) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
-	d := &Daemon{release: c.Release, lock: lock, errors: make(chan error, 2), stop: make(chan struct{}), root: root, launch: runLauncher, catalog: catalog, workNoticeSignal: make(chan struct{}, 1)}
+	d := &Daemon{release: c.Release, lock: lock, errors: make(chan error, 3), stop: make(chan struct{}), root: root, launch: runLauncher, catalog: catalog, workNoticeSignal: make(chan struct{}, 1)}
 	d.logEvent = c.LogEvent
 	defer func() {
 		if err != nil {
@@ -157,6 +163,7 @@ func Start(c Config) (*Daemon, error) {
 	go d.maintainOpenCodeContext()
 	d.wg.Add(1)
 	go d.maintainDeepSeekContext()
+	d.startDashboardNetwork(net.InterfaceAddrs, net.Listen)
 	for _, listener := range d.listeners {
 		server := &http.Server{Handler: d.handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
 		d.servers = append(d.servers, server)
@@ -193,6 +200,9 @@ func (d *Daemon) Close() error {
 		}
 		for _, l := range d.listeners {
 			l.Close()
+		}
+		if d.networkListener != nil {
+			d.networkListener.Close()
 		}
 		d.wg.Wait()
 		if d.store != nil {
@@ -250,6 +260,13 @@ func failure(w http.ResponseWriter, err error) {
 			"error": "the recipient session is expired or retired", "details": map[string]string{"reason": inactive.Reason}})
 		return
 	}
+	var wait HolderWait
+	if errors.As(err, &wait) {
+		respond(w, http.StatusConflict, map[string]any{"ok": false, "code": ErrStaleHolder.Code,
+			"error":   "this session does not hold that participant yet: its succession waits (details.succession); call again after details.retry_after_ms",
+			"details": map[string]any{"succession": wait.Reason, "holder": wait.Holder, "retry_after_ms": wait.RetryAfterMS}})
+		return
+	}
 	var refusal Refusal
 	if errors.As(err, &refusal) {
 		status := http.StatusConflict
@@ -279,6 +296,9 @@ func errorCode(err error) string {
 	var work WorkRefusal
 	if errors.As(err, &work) {
 		return work.Code
+	}
+	if errors.As(err, new(HolderWait)) {
+		return ErrStaleHolder.Code
 	}
 	var refusal Refusal
 	if errors.As(err, &refusal) {
@@ -370,7 +390,7 @@ func (d *Daemon) handler() http.Handler {
 			return
 		}
 		respond(w, 200, map[string]any{"ok": true, "daemon": "running", "version": d.release, "pid": os.Getpid(), "listeners": d.Addresses(), "sessions": counts,
-			"schema": schemaVersion, "storage": storage, "wake": wake, "retention": retention, "maintainer_secret_set": secretSet})
+			"schema": schemaVersion, "storage": storage, "wake": wake, "retention": retention, "maintainer_secret_set": secretSet, "dashboard_network": d.dashboardNetworkStatus(r.Context())})
 	})
 	mux.HandleFunc("GET /v1/sessions", func(w http.ResponseWriter, r *http.Request) {
 		items, truncated, err := d.store.List(r.Context())
@@ -478,7 +498,7 @@ func (d *Daemon) handler() http.Handler {
 			failure(w, err)
 			return
 		}
-		respond(w, 200, map[string]any{"ok": true, "path": "/dashboard/login?token=" + token, "expires_in": int(linkLifetime.Seconds())})
+		respond(w, 200, map[string]any{"ok": true, "path": "/dashboard/login?token=" + token, "expires_in": int(linkLifetime.Seconds()), "dashboard_network": d.dashboardNetworkStatus(r.Context())})
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// The dashboard has its own login, host, origin and CSRF checks; a dashboard cookie

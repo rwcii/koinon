@@ -51,8 +51,9 @@ func dashboardCommand(ctx context.Context, args []string, out io.Writer) error {
 		return err
 	}
 	var reply struct {
-		Path      string `json:"path"`
-		ExpiresIn int    `json:"expires_in"`
+		Path      string                       `json:"path"`
+		ExpiresIn int                          `json:"expires_in"`
+		Network   *core.DashboardNetworkStatus `json:"dashboard_network"`
 	}
 	if err := json.Unmarshal(data, &reply); err != nil || reply.Path == "" {
 		return errors.New("invalid daemon response")
@@ -60,6 +61,31 @@ func dashboardCommand(ctx context.Context, args []string, out io.Writer) error {
 	link := "http://" + *address + reply.Path
 	if _, err := fmt.Fprintf(out, "%s\nThis link works once, within %d seconds.\n", link, reply.ExpiresIn); err != nil {
 		return err
+	}
+	if reply.Network != nil {
+		if _, err := fmt.Fprintf(out, "Network dashboard: %s\nStatus: %s\n", reply.Network.URL, reply.Network.Code); err != nil {
+			return err
+		}
+		if reply.Network.Fingerprint != "" {
+			if _, err := fmt.Fprintf(out, "Certificate SHA-256: %s\n", reply.Network.Fingerprint); err != nil {
+				return err
+			}
+		}
+		if reply.Network.Code == "running" {
+			if _, err := fmt.Fprintln(out, "Sign in there with the maintainer secret."); err != nil {
+				return err
+			}
+		}
+		if reply.Network.Error != "" {
+			if _, err := fmt.Fprintln(out, reply.Network.Error); err != nil {
+				return err
+			}
+		}
+		if reply.Network.Step != "" {
+			if _, err := fmt.Fprintln(out, reply.Network.Step); err != nil {
+				return err
+			}
+		}
 	}
 	if *noOpen {
 		return nil

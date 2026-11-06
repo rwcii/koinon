@@ -36,7 +36,7 @@ In short:
 
 Run `scripts/setup-repo.sh` to apply the local guards and GitHub settings. The `commit-msg`
 hook refuses a commit message that cites a decision board verdict by its ID; name the card
-reference instead, or `DECISIONS.md#REFERENCE` for an entry in that file (WDR 001, Decision 7). Server-side
+reference instead (WDR 001, Decision 7). Server-side
 rulesets depend on the account's support for private-repository protection; the script
 reports any unavailable enforcement explicitly. This follows the branch policy in
 [rwcii/engineering-standards](https://github.com/rwcii/engineering-standards) and the
@@ -81,7 +81,8 @@ and `git diff --check`. Runtime and
 installation changes also need the four `CGO_ENABLED=0` builds for linux/amd64, linux/arm64, darwin/amd64
 and darwin/arm64. Go tests live beside packages; operating-system differences belong in
 `internal/platform`. For changed shell tooling, run `bash -n scripts/setup-repo.sh`,
-`sh -n .githooks/pre-commit`, `sh -n .githooks/commit-msg` and `sh -n scripts/decision-citations.sh`.
+`sh -n .githooks/pre-commit`, `sh -n .githooks/commit-msg`, `sh -n scripts/decision-citations.sh` and
+`sh -n scripts/rerun-unacquired.sh`.
 
 Tests use synthetic peers and temporary state/configuration, ephemeral loopback ports and
 private tmux servers, so they do not reach the person's services, terminals or agent

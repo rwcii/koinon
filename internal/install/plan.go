@@ -18,7 +18,8 @@ import (
 )
 
 // Current is what `koinon install --plan` prints for an installation that needs nothing. The
-// Homebrew caveats show it alone, without the steps heading and the recheck (#561).
+// Homebrew caveats show it with "No action is required.", without the action line and the
+// recheck (#561, #618).
 const Current = "The Koinon installation is current."
 
 // Plan returns the commands that this machine's installation still needs, in order, and
@@ -89,6 +90,11 @@ func Plan(ctx context.Context, o Options) ([]string, error) {
 			return []string{install}, nil
 		}
 	}
+	// Without a service manager nothing starts the daemon after a restart or after brew
+	// upgrade; the install starts it again (#619).
+	if !system.Present && !o.Services.Available(ctx) && !answersNow(ctx, o) {
+		return []string{install}, nil
+	}
 	var steps []string
 	set, err := secretSet(ctx, o)
 	if err != nil {
@@ -98,15 +104,20 @@ func Plan(ctx context.Context, o Options) ([]string, error) {
 		steps = append(steps, b+" maintainer secret set"+state)
 	}
 	for _, family := range setupFamilies {
-		in := o.Inspect(ctx, setup.Options{Family: family, Binary: binary, StateDir: o.StateDir, ClaudeConfig: o.ClaudeConfig})
+		in := o.Inspect(ctx, setup.Options{Family: family, Binary: binary, StateDir: o.StateDir, ClaudeConfig: o.ClaudeConfig,
+			AgyRoot: o.AgyRoot, GrokHome: o.GrokHome})
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("plan_timeout: the checks did not finish in %s", o.PlanWait)
 		}
 		switch {
 		case in.Error != "":
 			return nil, fmt.Errorf("agent_unreadable: %s", in.Error)
-		case in.CLI != "" && !in.Configured:
-			// Setup configures the running binary unless --binary names the installed one.
+		case in.StatusLineError != "":
+			// A status line whose state is not known is an unfinished check, never current (#631).
+			return nil, fmt.Errorf("agent_unreadable: %s status line: %s", family, in.StatusLineError)
+		case in.CLI != "" && !in.Configured, in.Configured && in.StatusLine == setup.StatusLineNeeded:
+			// Setup configures the running binary unless --binary names the installed one. A
+			// configured family whose status line is missing or out of date gets it there (#631).
 			steps = append(steps, b+" setup "+family+" --binary "+setup.ShellWord(binary)+state)
 		}
 	}
@@ -155,6 +166,33 @@ func notLinked(binary, opt string) (bool, error) {
 		return false, fmt.Errorf("binary_unreadable: %v", err)
 	}
 	return target != opt, nil
+}
+
+// answersNow reports whether a daemon answers on the state directory, with one try, and runs
+// o.Version when it is given.
+func answersNow(ctx context.Context, o Options) bool {
+	port, err := core.RecordedPort(o.StateDir)
+	if err != nil {
+		return false
+	}
+	address := o.Address
+	if address == "" {
+		address = core.Listeners(port)[0]
+	}
+	secret, err := core.ReadSecret(o.StateDir)
+	if err != nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	data, err := o.Status(ctx, address, secret)
+	if err != nil {
+		return false
+	}
+	var status struct {
+		Version string `json:"version"`
+	}
+	return o.Version == "" || json.Unmarshal(data, &status) == nil && status.Version == o.Version
 }
 
 // secretSet asks the daemon whether a maintainer secret is set. The daemon holds its store

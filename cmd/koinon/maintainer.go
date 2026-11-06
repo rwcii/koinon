@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -81,7 +82,13 @@ func readNewSecret(in io.Reader, tell *os.File) (string, error) {
 	if !ok || !platform.IsTerminal(int(file.Fd())) {
 		return core.ReadSecretLine(in)
 	}
-	restore, err := platform.NoEcho(int(file.Fd()))
+	return readNewSecretFrom(int(file.Fd()), file, tell)
+}
+
+// readNewSecretFrom reads the two entries from in, the reader of the terminal fd, with echo
+// off on fd. in can be the buffered reader that the command's other questions share.
+func readNewSecretFrom(fd int, in io.Reader, tell *os.File) (string, error) {
+	restore, err := platform.NoEcho(fd)
 	if err != nil {
 		return "", err
 	}
@@ -107,12 +114,15 @@ func readNewSecret(in io.Reader, tell *os.File) (string, error) {
 	var entries [2]string
 	for i, prompt := range []string{"New maintainer secret: ", "Repeat it: "} {
 		fmt.Fprint(tell, prompt)
-		entries[i], err = core.ReadSecretLine(file)
+		entries[i], err = core.ReadSecretLine(in)
 		fmt.Fprintln(tell)
 		if err != nil {
-			// The rest of a refused line can stay in the terminal's input; discard it, so that
-			// the next program does not get it.
-			platform.FlushInput(int(file.Fd()))
+			// The rest of a refused line can stay in the terminal's input or in the shared
+			// buffer; discard it, so that the next question or program does not get it.
+			platform.FlushInput(fd)
+			if b, ok := in.(*bufio.Reader); ok {
+				b.Discard(b.Buffered())
+			}
 			return "", err
 		}
 	}

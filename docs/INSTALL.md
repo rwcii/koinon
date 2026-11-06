@@ -45,10 +45,12 @@ koinon version
 has passed, and otherwise keeps the formula of the previous release. Within about 15 seconds,
 `koinon status` reports the new `version` and its `schema`.
 
-After `brew install` and `brew upgrade`, Homebrew shows the steps that this machine still
-needs: the formula runs `koinon install --plan` (see Next steps below) and prints its commands,
-or "The Koinon installation is current." when there are none, or, when the plan cannot check
-everything, the fixed list of one-time steps. Homebrew runs it
+After `brew install` and `brew upgrade`, Homebrew shows what this machine still needs (PDR 003,
+Decision 6). When steps remain, the text starts with "ACTION REQUIRED: to finish the Koinon
+installation, run these commands, in order:", then gives the commands of `koinon install --plan`
+(see Next steps below), or, when the plan cannot check everything, the fixed list of one-time
+steps, and says what `koinon install` does. When none remain, it shows "The Koinon installation
+is current. No action is required." Homebrew runs it
 without `XDG_*`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME` and `KOINON_*`, so it checks the default
 locations; with other locations, run `koinon install --plan` yourself.
 
@@ -78,7 +80,7 @@ chmod +x koinon-linux-amd64 && ./koinon-linux-amd64 version
 ./koinon-linux-amd64 install --agent claude --agent codex
 ```
 
-`koinon install [--prefix DIR] [--state-dir DIR] [--port N] [--agent FAMILY]... [--no-start] [--system]`
+`koinon install [--prefix DIR] [--state-dir DIR] [--port N] [--dashboard-address HOST:PORT|none] [--agent FAMILY]... [--no-start] [--system]`
 does this:
 
 1. It copies the running binary to `<prefix>/bin/koinon`. The default prefix is
@@ -172,8 +174,20 @@ does this:
    the rest of the file byte for byte. `retired_instructions` in the install report gives its
    path and `removed`, `unchanged` or `absent` (#487).
 
-When no user service manager answers, the report says `"service": "manual_required"` and gives
-the `start_command` to run in a managed session. The default install never uses sudo, system
+When no user service manager answers, for example in a container without a systemd user bus,
+the install starts the daemon itself in the background, in its own session, with its output in
+`daemon.log` in the state directory, and waits until a daemon of its version answers (PDR 003,
+Decision 6). A daemon of its version that already answers stays when the binary is unchanged;
+another one exits for its new binary, and the install waits for that before it starts the new
+one. The report
+says `"service": "background"` and gives `daemon_log`, the `start_command` and `restart_step`,
+which the install also prints on the terminal: nothing starts the daemon again after the
+machine or container restarts, or after `brew upgrade koinon`, when the daemon exits for its new
+binary; then run the `koinon install` command that it names, with the installation's
+`--prefix` and `--state-dir` when they are not the defaults. `koinon install --plan` names that install when no
+daemon of its version answers. When the daemon does not start or does not answer, or an old
+daemon still answers, the install fails with `daemon_not_started`; a start that does not answer
+is stopped. The default install never uses sudo, system
 services, lingering or permission changes (PDR 003, Decision 1); `--system` on macOS (below) is an
 explicit choice whose privileged steps run through `sudo` under the host's sudo policy.
 `--no-start` writes the binary and the service file and starts nothing. A repeated install replaces the binary in place and restarts the service. The Go state
@@ -238,6 +252,65 @@ restart ended its token. `koinon mcp --address` stays at the address that it nam
 address. Without a recorded port, everything stays at 47671. A session that a launcher of
 v0.6.0 or earlier started keeps the former address in its environment, also after `/clear`;
 start it again after the change.
+
+### Network dashboard
+
+At a terminal, the first `koinon install` asks where the dashboard opens:
+
+```text
+Open the dashboard only on this computer (default), or also on a network address?
+  1. Only on this computer
+  2. Also on a network address, over HTTPS, with a login by the maintainer secret
+Choice [1]:
+```
+
+Enter, or 1, keeps it on this computer and saves that answer in `dashboard-local.json` in the
+private state directory, so a later install asks nothing. 2 lists this host's network
+addresses, numbered; type a number or a fully qualified name of this host, then a port (Enter
+takes 8443). A refused address is shown with its reason, and the question comes again. When no
+maintainer secret is set, the install then offers to type one (twice, with echo off), to
+generate one, which it shows once on the terminal, or not now. After a secret set there, it
+restarts the daemon once and shows the URL and the certificate's SHA-256 fingerprint, which the
+report's `dashboard_network` also has. A failed restart is reported as
+`dashboard_restart_failed` with its step; "not now" saves the address and reports
+`dashboard_secret_required`. Ending the input (Ctrl-D) or Ctrl-C during the choice, address or
+port question saves no answer; at the secret question, they keep the address already saved and
+set no secret, as "not now" does. There are no questions
+without a terminal (Homebrew, scripts, CI), with `--dashboard-address`, in `koinon upgrade` or
+with `--plan`; `--no-start` saves the address and skips the secret and the start.
+
+Without the questions, set a maintainer secret on the daemon's host with `koinon maintainer
+secret set` or `koinon maintainer secret generate`, then run:
+
+```sh
+koinon install --dashboard-address board.example.test:8443
+koinon dashboard --no-open
+```
+
+Use your host's non-loopback IP or an FQDN that resolves to it. The installer selects one local
+address and saves it in the private state directory. It refuses wildcard addresses, loopback
+addresses and names that resolve only elsewhere. All service modes and background startup read
+the same setting through `--state-dir`. IPv6 link-local addresses require an interface zone,
+which this setting does not carry; use a local IPv4 or routable IPv6 address instead. A damaged
+saved setting's refusal names `dashboard-address.json` and the commands to replace or remove
+it, retaining the same state directory. Correct unsafe file ownership, mode 0600 or links first.
+A later install or upgrade keeps the setting; a later install
+resolves a saved FQDN again. `koinon install --dashboard-address none` removes it and saves
+the local-only answer. With `--no-start`, the setting waits for the next daemon start.
+
+Open the printed network HTTPS URL and compare the browser's certificate SHA-256 fingerprint
+with `koinon dashboard`'s output. The certificate is self-signed, so the browser shows a warning
+until you accept it. Sign in with the maintainer secret. One-time links work on loopback only;
+the network listener serves the dashboard and no agent API or MCP routes.
+
+The state directory holds `dashboard-address.json`, `dashboard-local.json` and the owner-checked, mode-0600
+`dashboard-tls.pem` certificate and private key. Restarts reuse the certificate; a changed
+identity or expired certificate replaces it and changes the fingerprint. Keep these files with
+the private state. A missing secret or unavailable selected IP leaves the loopback daemon
+working. Install/status show `dashboard_network` with the reason and next step. Set a missing
+secret, then run `koinon install` to start the listener. If a selected IP went away, run install
+again with an available address; a saved FQDN is resolved again. The daemon log names a failed
+network bind and its address.
 
 ### System mode on macOS
 
@@ -491,6 +564,10 @@ staging files.
 - The service file that carries the marker. It is removed only after the manager reports the
   service stopped. When the manager refuses the stop, or still reports the service running,
   uninstall refuses with `service_stop_failed` and keeps the service file and the binary.
+- A daemon that still answers on the state directory after the managed services are gone, such
+  as one that the install started in the background without a manager, also when the manager
+  answers again: the uninstall sends it SIGTERM and waits until it no longer answers, else it
+  refuses with `service_stop_failed` (#619).
 - In system mode on macOS, the LaunchDaemon plist that carries the marker: `sudo launchctl
   bootout system/<label>`, then `sudo rm`. A plist without the marker is kept, and the error
   gives the commands that remove it (`service_artifact_unowned`).
@@ -597,11 +674,22 @@ an upgrade that changes this hook.
 `~/.gemini/antigravity-cli/settings.json`, so the agy session's model and context use show in
 `peer_status` and the dashboard, and the managed context cycle proves agy's new conversation
 after `/clear` from it ([PROTOCOL.md](../PROTOCOL.md#agy-cycle-adapter)). It wraps an existing
-entry's command and keeps its other fields; without one, it sets `"stack_with_default": true` and agy's own status line stays as it
-was. The previous entry is saved in the Go state directory, and `koinon setup agy
+entry's command and keeps its other fields; without one, or with an entry that has no command
+and no type (Antigravity CLI keeps `{"type": "", "command": "", "enabled": true}`), it sets
+`"stack_with_default": true` and agy's own status line stays as it was. A `stack_with_default`
+that the entry has is kept. The previous entry is saved in the Go state directory, and `koinon setup agy
 --remove-status-line` or `koinon uninstall` restores it while the entry is still Koinon's. It is
 separate from the Claude status line. Setup skips it when the `antigravity-cli` directory does
 not exist.
+
+`koinon install` also completes the status line of a Claude, agy or Grok family that an earlier
+setup configured, when it is missing (a setup from before the family had one) or Koinon's
+unedited entry is out of date. It changes only the status line and asks nothing. An entry that
+you removed with `--remove-status-line`, or that you edited, stays as it is. The family's
+`agents` entry reports the change; a settings file that cannot be read is reported there, and
+the install goes on. `koinon install --plan` names `koinon setup FAMILY --binary BINARY` for such
+a family, so the Homebrew text after `brew upgrade` shows it (AGY-STATUSLINE-631 in PDR 003,
+Decision 4).
 
 `koinon setup grok` also makes `'BINARY' hook grok-status` the `command` of the
 `[ui.status_line]` table in `~/.grok/config.toml` (or `$GROK_HOME/config.toml`), so the Grok
@@ -724,7 +812,8 @@ preserves this state-root configuration along with other retained state.
 The Go default state root is `~/.local/state/koinon/go` (or `$XDG_STATE_HOME/koinon/go`). It
 holds `state.sqlite3`, the private secret and daemon lock, and the `port` file that `koinon
 install --port` writes. Directories are owned by the current UID and private; credentials never
-belong in Git or logs. The daemon binds loopback only. Custom state and address must match
+belong in Git or logs. The agent API binds loopback only; the optional network dashboard uses
+its separate HTTPS listener. Custom state and agent API address must match
 between the daemon, command clients and MCP server; a recorded port matches by itself for every
 client of that state directory.
 The dashboard uses one-time login links, or the maintainer secret (`koinon maintainer secret
