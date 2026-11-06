@@ -3,7 +3,7 @@ adr: "001"
 title: "Native Identity and Local Runtime Trust"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-26"
+updated: "2026-11-06"
 parent_adr: ""
 authors:
   - "Robert Capps"
@@ -32,7 +32,7 @@ tags:
 
 Koinon is one daemon per user that carries messages, memory and work items between that user's
 agent sessions. This record describes how the Go runtime currently decides who a caller is and
-whom it trusts. Identity comes from each agent's own per-call metadata. The daemon serves only
+whom it trusts. Identity comes from each agent's own per-call metadata. The agent API serves only
 loopback callers that hold a private same-user secret, and keeps all state in one store. Wake
 notices carry no peer text, and provider socket paths stay literal. The dashboard has its own
 browser login and request checks. The upgrade from the Python runtime runs that runtime's own
@@ -160,8 +160,9 @@ change. The Grok leader-mode refusal is PDR 001 (Decision 1).
 
 ### Decision
 
-Koinon currently runs one daemon per user. It listens only on literal loopback addresses
-(`127.0.0.1`, `[::1]`) and refuses any other listen address. Every API request needs a bearer
+Koinon currently runs one daemon per user. Its agent API listens on literal loopback addresses
+(`127.0.0.1`, `[::1]`). An optional separate HTTPS listener serves only the dashboard on a
+chosen address of this host (DASHBOARD-LAN-624, below). Every agent API request needs a bearer
 256-bit secret from the state directory, and a request with an `Origin` header or a non-loopback
 `Host` is refused. The state directory is mode 0700 and owned by the user; state files are opened
 without following links, mode 0600 and owner-checked. macOS system mode runs the same daemon as
@@ -180,12 +181,49 @@ ID or message body.
 sprint plan says loopback plus a user-only secret replaces Unix socket permissions; that is
 agent-written plan text.
 
+**Provenance (network dashboard, DASHBOARD-LAN-624):**
+
+- **Decided by:** Robert Capps.
+- **Date:** 2026-11-05, revision 2, "approved".
+- **Context:** with a maintainer secret available, should the dashboard also be reachable on a
+  system address, and should installation guide that setup? The options were a separate HTTPS
+  dashboard listener, plain HTTP, a flag without installation questions, or keeping the SSH
+  tunnel. The request: "can we walk the user through the network setup when running the koinon
+  install command?" ([#624](https://github.com/rwcii/koinon/issues/624#issuecomment-6671597502)).
+- **Decision:** keep loopback for agents and add an optional dashboard-only HTTPS listener on
+  one chosen local IP. The approval note adds: "it should also take in an optional FQDN to bind
+  to" ([record](https://github.com/rwcii/koinon/issues/624#issuecomment-6671638898)). An FQDN is
+  resolved during installation to one address of this host. Its selected address is saved;
+  requests use no DNS. The certificate covers that IP and the configured name. The login needs
+  the maintainer secret, while one-time links remain on loopback. Installation questions follow
+  the listener increment in a second pull request.
+- **Reason and scope:** HTTPS protects the secret and cookie on the network. The separate
+  listener exposes the dashboard while the agent API and MCP remain on their existing paths.
+  The default stays local. Plain HTTP sends credentials in clear text; a listener on every
+  interface exposes interfaces the person did not choose. A self-signed certificate requires
+  the person to compare its SHA-256 fingerprint once in the browser. This decision changes the
+  earlier loopback-only rule for the dashboard, not for the agent API.
+
+Implementation: `install --dashboard-address HOST:PORT` records one local, non-loopback IP or
+FQDN; `none` removes it. A later install resolves a saved FQDN again; daemon starts keep the
+selected IP. Several local DNS answers choose one in canonical sorted order. An unavailable
+address or failed network bind leaves loopback available and names the address and error in
+the daemon log and status. No secret means no network bind; status gives the secret and start
+steps. A secret removed while running refuses network requests immediately. State and private
+key files keep this decision's existing ownership checks; the certificate and key are one
+private PEM file, reused on restart and replaced for a changed identity or expired certificate.
+IPv6 link-local TCP binds need an interface zone, which this setting does not carry. Such
+addresses are refused at installation instead of saving a bind that cannot start; IPv4
+link-local and routable IPv6 addresses remain supported. A saved-setting refusal names its file
+and the replacement/removal commands for the same state directory, retaining the private-file
+ownership, mode and link checks.
+
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
 | Unix sockets | The Python runtime's transport | Sandboxed Codex refused `connect()` on them |
-| Other interfaces or `localhost` | Listen beyond loopback, or bind a name | Exposes state beyond the host; a name can resolve elsewhere |
+| Agent API on other interfaces or `localhost` | Expose the agent API beyond loopback, or bind a name | Exposes state beyond the host; the optional network dashboard is a separate listener with its own checks (#624) |
 | Store per worktree | Key memory by checkout path | Worktrees of one repository would not share memory |
 | Fresh store or second daemon | Start new state where the current one refuses or is unreachable | Its sessions and history are separate, so peers do not see them |
 
@@ -252,12 +290,21 @@ success, or the link's use, sets an
 `HttpOnly`, `SameSite=Strict` cookie scoped to `/dashboard/` and named after the port in
 `Host`, `koinon_dashboard_PORT` (#454); the daemon keeps only hashes in
 memory, so a restart ends every login. A login ends after 24 hours without a request or 7 days
-after it was made, and the cookie's `Max-Age` is those 7 days (#435). A request is refused
-unless `Host` is a literal loopback IP with a port (`127.0.0.1:PORT` or `[::1]:PORT`, not
+after it was made, and the cookie's `Max-Age` is those 7 days (#435). On loopback a request is
+refused unless `Host` is a literal loopback IP with a port (`127.0.0.1:PORT` or `[::1]:PORT`, not
 `localhost`) and any `Origin` is `http://` plus that `Host`. The port need not be the listener's, so an SSH tunnel from another
 local port reaches the dashboard. A request other than `GET` or `HEAD` also needs a CSRF token
 derived from the session. Responses carry a strict content security policy and deny framing.
 Each administrative action writes an audit record.
+
+The optional network listener (DASHBOARD-LAN-624, Decision 2) accepts exactly the selected
+IP:port and configured FQDN:port. HTTPS host case and the default port 443 normalize under
+[RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html#section-4.2.3), including the browser's
+omitted default port. Its origin is `https://` plus that authority. It has the same
+session, secret backoff and CSRF checks, and its cookie also has `Secure`. Login and static
+resources are available to reach the secret form; the board requires a session. A one-time
+login token is refused there without consuming it. Every route outside `/dashboard/` is absent,
+including `/v1/` and MCP routes. Its login page offers the secret form only.
 
 **Provenance:** Shipped in PR #193 (a19bc2b); actions and audit log in PR #202 (ed07677). No
 maintainer decision found. Until #407, `Host` had to be the address of the listener that

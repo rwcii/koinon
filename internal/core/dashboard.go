@@ -57,8 +57,9 @@ var daemonFaultCodes = map[string]bool{"storage_error": true, "storage_blocked":
 	"decision_unavailable": true, "identity_unavailable": true}
 
 type loginData struct {
-	Reason string
-	Form   bool
+	Reason  string
+	Form    bool
+	Network bool
 }
 
 // loginFormLimit bounds a login form: a secret of MaintainerSecretMaxBytes, form-encoded.
@@ -187,7 +188,7 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 	// secret is set (PDR 009, Decision 2).
 	refuse := func(w http.ResponseWriter, r *http.Request, status int, reason string) {
 		form, _ := d.store.maintainerSecretSet(r.Context())
-		render(w, r, status, dashboardPage{View: "login", Title: "Not signed in", Data: loginData{Reason: reason, Form: form}})
+		render(w, r, status, dashboardPage{View: "login", Title: "Not signed in", Data: loginData{Reason: reason, Form: form, Network: networkDashboard(r)}})
 	}
 	// authedLimit requires a live login session and, for a state-changing request, its
 	// CSRF token; it reads a form body of at most limit bytes.
@@ -228,7 +229,7 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 	// login can, so a browser restart keeps it (#435).
 	signedIn := func(w http.ResponseWriter, r *http.Request, id string) {
 		http.SetCookie(w, &http.Cookie{Name: cookieName(r), Value: id, Path: "/dashboard/", MaxAge: int(sessionAbsolute.Seconds()),
-			HttpOnly: true, SameSite: http.SameSiteStrictMode})
+			HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: networkDashboard(r)})
 		http.Redirect(w, r, "/dashboard/sessions", http.StatusSeeOther)
 	}
 	mux.HandleFunc("GET /dashboard/login", func(w http.ResponseWriter, r *http.Request) {
@@ -278,7 +279,7 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 	})
 	mux.HandleFunc("POST /dashboard/logout", authed(func(w http.ResponseWriter, r *http.Request, id string) {
 		d.auth.logout(id)
-		http.SetCookie(w, &http.Cookie{Name: cookieName(r), Value: "", Path: "/dashboard/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode})
+		http.SetCookie(w, &http.Cookie{Name: cookieName(r), Value: "", Path: "/dashboard/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: networkDashboard(r)})
 		refuse(w, r, http.StatusOK, "logout")
 	}))
 	d.dashboardActions(mux, authedLimit)
@@ -313,10 +314,19 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		dashboardHeaders(w)
 		origin := r.Header.Get("Origin")
+		scheme := "http://"
+		expectedHost := r.Host
+		if networkDashboard(r) {
+			scheme = "https://"
+			expectedHost = dashboardHTTPSAuthority(expectedHost)
+			if strings.HasPrefix(origin, "https://") {
+				origin = "https://" + dashboardHTTPSAuthority(strings.TrimPrefix(origin, "https://"))
+			}
+		}
 		switch {
-		case !dashboardHost(r):
+		case !networkDashboard(r) && !dashboardHost(r):
 			http.Error(w, "foreign host", http.StatusForbidden)
-		case origin != "" && origin != "http://"+r.Host:
+		case origin != "" && origin != scheme+expectedHost:
 			http.Error(w, "foreign origin", http.StatusForbidden)
 		case r.Method != http.MethodGet && r.Method != http.MethodHead && origin == "":
 			http.Error(w, "missing origin", http.StatusForbidden)

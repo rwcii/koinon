@@ -80,7 +80,7 @@ chmod +x koinon-linux-amd64 && ./koinon-linux-amd64 version
 ./koinon-linux-amd64 install --agent claude --agent codex
 ```
 
-`koinon install [--prefix DIR] [--state-dir DIR] [--port N] [--agent FAMILY]... [--no-start] [--system]`
+`koinon install [--prefix DIR] [--state-dir DIR] [--port N] [--dashboard-address HOST:PORT|none] [--agent FAMILY]... [--no-start] [--system]`
 does this:
 
 1. It copies the running binary to `<prefix>/bin/koinon`. The default prefix is
@@ -252,6 +252,41 @@ restart ended its token. `koinon mcp --address` stays at the address that it nam
 address. Without a recorded port, everything stays at 47671. A session that a launcher of
 v0.6.0 or earlier started keeps the former address in its environment, also after `/clear`;
 start it again after the change.
+
+### Network dashboard
+
+To reach the dashboard from another computer, set a maintainer secret on the daemon's host
+with `koinon maintainer secret set` or `koinon maintainer secret generate`, then run:
+
+```sh
+koinon install --dashboard-address board.example.test:8443
+koinon dashboard --no-open
+```
+
+Use your host's non-loopback IP or an FQDN that resolves to it. The installer selects one local
+address and saves it in the private state directory. It refuses wildcard addresses, loopback
+addresses and names that resolve only elsewhere. All service modes and background startup read
+the same setting through `--state-dir`. IPv6 link-local addresses require an interface zone,
+which this setting does not carry; use a local IPv4 or routable IPv6 address instead. A damaged
+saved setting's refusal names `dashboard-address.json` and the commands to replace or remove
+it, retaining the same state directory. Correct unsafe file ownership, mode 0600 or links first.
+A later install or upgrade keeps the setting; a later install
+resolves a saved FQDN again. `koinon install --dashboard-address none` removes it. With
+`--no-start`, the setting waits for the next daemon start.
+
+Open the printed network HTTPS URL and compare the browser's certificate SHA-256 fingerprint
+with `koinon dashboard`'s output. The certificate is self-signed, so the browser shows a warning
+until you accept it. Sign in with the maintainer secret. One-time links work on loopback only;
+the network listener serves the dashboard and no agent API or MCP routes.
+
+The state directory holds `dashboard-address.json` and the owner-checked, mode-0600
+`dashboard-tls.pem` certificate and private key. Restarts reuse the certificate; a changed
+identity or expired certificate replaces it and changes the fingerprint. Keep these files with
+the private state. A missing secret or unavailable selected IP leaves the loopback daemon
+working. Install/status show `dashboard_network` with the reason and next step. Set a missing
+secret, then run `koinon install` to start the listener. If a selected IP went away, run install
+again with an available address; a saved FQDN is resolved again. The daemon log names a failed
+network bind and its address. Interactive network questions are the second #624 increment.
 
 ### System mode on macOS
 
@@ -742,7 +777,8 @@ preserves this state-root configuration along with other retained state.
 The Go default state root is `~/.local/state/koinon/go` (or `$XDG_STATE_HOME/koinon/go`). It
 holds `state.sqlite3`, the private secret and daemon lock, and the `port` file that `koinon
 install --port` writes. Directories are owned by the current UID and private; credentials never
-belong in Git or logs. The daemon binds loopback only. Custom state and address must match
+belong in Git or logs. The agent API binds loopback only; the optional network dashboard uses
+its separate HTTPS listener. Custom state and agent API address must match
 between the daemon, command clients and MCP server; a recorded port matches by itself for every
 client of that state directory.
 The dashboard uses one-time login links, or the maintainer secret (`koinon maintainer secret

@@ -1,9 +1,9 @@
 ---
 pdr: "009"
 title: "Maintainer Secret and Maintainer MCP Mode"
-status: accepted
+status: modified
 created: "2026-10-25"
-updated: "2026-10-26"
+updated: "2026-11-06"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -23,7 +23,7 @@ tags:
 # PDR 009: Maintainer Secret and Maintainer MCP Mode
 
 **Date:** 2026-10-25
-**Status:** Accepted
+**Status:** Modified
 **Authors:** Robert Capps
 
 ---
@@ -82,8 +82,8 @@ From #470:
 ### Scope
 
 This record covers the maintainer's credential, the dashboard login and the maintainer MCP
-mode. It does not change how agent sessions are identified or what they can do, and it adds
-no network listener.
+mode, including the optional HTTPS dashboard listener approved in DASHBOARD-LAN-624 (ADR 001,
+Decision 2). Agent identity and agent API transport keep their existing behavior.
 
 ---
 
@@ -161,6 +161,13 @@ Nothing else changes until a secret is set.
   during the wait after failed checks.
 - Logins stay in memory, so a daemon restart still ends them. With a secret, logging in again
   takes one form entry instead of a new link from the host.
+- On the optional network HTTPS listener, the secret is the only login. A one-time link is
+  refused there and remains usable on loopback. A missing secret skips the network bind while
+  keeping loopback, and status names how to set it and start the listener. Clearing it while
+  running refuses network requests immediately. Cookies there have `Secure`; existing backoff,
+  expiry and CSRF checks apply. Robert Capps approved this on 2026-11-05 with the optional FQDN
+  note; ADR 001 Decision 2 records DASHBOARD-LAN-624's context, options, quoted decision, reason
+  and scope, and Decision 4 records the request checks.
 
 **Provenance:** as Decision 1. The maintainer called the one-time link "overkill"; the
 approved draft keeps it as the way in before a secret exists, because removing it would
@@ -203,7 +210,7 @@ tunnel, and logs in with the secret.
   `notifications/resources/updated` with only the URI, and the client reads again
   (ADR 001, Decision 3). A subscription also sends one notice right after its reply, so a
   change between the client's last read and the subscription is read.
-- The agent MCP mode, agent identity and the loopback-only daemon do not change.
+- The agent MCP mode, agent identity and the loopback agent API do not change.
 - A running maintainer-mode process ends when its token ends: at a daemon restart, after 24
   hours without an authenticated request, 7 days after the token started, and when the
   secret is set, generated or cleared. The next tool call answers `maintainer_token_expired`,

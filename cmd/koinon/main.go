@@ -385,7 +385,7 @@ func replacedExecutable(start, now os.FileInfo, err error) bool {
 	return err == nil && now.Mode().IsRegular() && now.Mode().Perm()&0111 != 0 && !os.SameFile(start, now)
 }
 
-const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N] [--agent FAMILY]... [--no-start] [--system]
+const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N] [--dashboard-address HOST:PORT|none] [--agent FAMILY]... [--no-start] [--system]
        koinon install --plan [--prefix DIR] [--state-dir DIR]
        koinon uninstall [--prefix DIR] [--state-dir DIR] [--agent FAMILY]...
        koinon upgrade --from-python [--python-prefix DIR] [--prefix DIR] [--state-dir DIR] [--agent FAMILY]... [--repository KEY=PATH]... [--python PATH]

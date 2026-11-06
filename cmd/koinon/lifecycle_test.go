@@ -86,7 +86,7 @@ func TestImportCommandWithoutPython(t *testing.T) {
 // (#551). The isolated home has no daemon, so the plan is the install.
 func TestInstallPlanCommand(t *testing.T) {
 	dir := t.TempDir()
-	for _, extra := range [][]string{{"--port", "5000"}, {"--agent", "claude"}, {"--no-start"}, {"--system"}} {
+	for _, extra := range [][]string{{"--port", "5000"}, {"--agent", "claude"}, {"--no-start"}, {"--system"}, {"--dashboard-address", "board.example.test:8443"}} {
 		err := run(context.Background(), append([]string{"install", "--plan"}, extra...), nil, &bytes.Buffer{})
 		var usage usageError
 		if !errors.As(err, &usage) || usage.code != "invalid_request" {

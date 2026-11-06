@@ -688,6 +688,23 @@ link with your local port, `http://127.0.0.1:47670/...`. Use `127.0.0.1` or `[::
 `localhost`. Each port keeps its own login, so a local daemon and a tunnel can both be open
 under `127.0.0.1`.
 
+### Open the dashboard on the network
+
+On the daemon's host, set a maintainer secret, then run
+`koinon install --dashboard-address HOST:PORT`. HOST is that computer's non-loopback IP, or an
+FQDN that resolves to it, for example `board.example.test:8443`. `koinon dashboard --no-open`
+prints the network HTTPS URL and its certificate's SHA-256 fingerprint. Compare that value
+with the certificate shown by the browser before accepting the self-signed certificate, then
+sign in with the maintainer secret. One-time links continue to work on loopback only.
+
+The choice persists across restarts and upgrades. A later install resolves a saved FQDN again;
+daemon starts bind the selected IP. `koinon install --dashboard-address none` removes the
+network choice. The agent API and agent MCP transport stay on their existing local paths.
+If the secret is missing or the selected IP is unavailable, loopback remains available and
+install/status name the reason and the next step. After setting a missing secret, run
+`koinon install` to start the network listener. Clearing the secret refuses network requests
+immediately. See [installation](INSTALL.md#network-dashboard) for state and certificate files.
+
 ### Log in with a maintainer secret
 
 With a maintainer secret, the dashboard login page asks for it, so a login needs no link from

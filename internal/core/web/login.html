@@ -3,4 +3,4 @@
 <label>Maintainer secret <input type="password" name="secret" autocomplete="current-password" required autofocus></label>
 <button type="submit">Log in</button>
 </form>
-<p>Or run <code>koinon dashboard</code> on the daemon's host for a one-time login link.</p>{{else}}<p>Run <code>koinon dashboard</code> on the daemon's host to get a one-time login link. To log in with a secret instead, set one there with <code>koinon maintainer secret set</code> or <code>koinon maintainer secret generate</code>.</p>{{end}}{{end}}{{end}}
+{{if not .Network}}<p>Or run <code>koinon dashboard</code> on the daemon's host for a one-time login link.</p>{{end}}{{else}}<p>Run <code>koinon dashboard</code> on the daemon's host to get a one-time login link. To log in with a secret instead, set one there with <code>koinon maintainer secret set</code> or <code>koinon maintainer secret generate</code>.</p>{{end}}{{end}}{{end}}
