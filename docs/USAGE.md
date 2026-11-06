@@ -507,7 +507,8 @@ keeps it and reports `statusline_changed`: add `"refreshInterval": 30` to the en
 The status-line command then runs every 30 seconds in each Claude session; it calls no model.
 
 agy sessions report their context and activity through the status line that `koinon setup agy`
-installs, so the Sessions page shows their readings. The agy family default stays `observe`.
+installs, so the Sessions page shows their readings. An agy setup from before Koinon had this
+status line gets it at the next `koinon install`, and `koinon install --plan` names the step. The agy family default stays `observe`.
 Antigravity CLI runs the status line when its state changes, not while the session is idle, so
 in `handoff_cycle` an idle agy session above its threshold gets its cycle at its next turn and
 runs that turn with its full context (AGY-IDLE-568 in PDR 006, Decision 1,

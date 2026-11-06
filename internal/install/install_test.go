@@ -58,6 +58,8 @@ type env struct {
 	setups   []string
 	removals []string
 	adopts   []string
+	// completions lists the families that install asked to complete their status line.
+	completions []string
 	// adopted lists the families whose fake earlier setup Adopt finds.
 	adopted map[string]bool
 	// backgrounds lists the daemons that a fake background start started; no test starts a
@@ -94,6 +96,11 @@ func newEnv(t *testing.T, backend string) *env {
 		Adopt: func(_ context.Context, o setup.Options) (setup.Report, bool, error) {
 			e.adopts = append(e.adopts, o.Family+" "+o.Binary+" "+o.StateDir)
 			return setup.Report{OK: true, Family: o.Family, Changed: []string{o.Family + " CLI in launchers.json"}}, e.adopted[o.Family], nil
+		},
+		// No test runs an agent CLI from PATH to complete a status line (#631).
+		CompleteStatusLine: func(_ context.Context, o setup.Options) (setup.Report, bool, error) {
+			e.completions = append(e.completions, o.Family+" "+o.Binary)
+			return setup.Report{OK: true, Family: o.Family}, false, nil
 		},
 		Remove: func(_ context.Context, o setup.Options) (setup.Report, error) {
 			e.removals = append(e.removals, o.Family+" "+o.Binary)

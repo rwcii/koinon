@@ -104,15 +104,17 @@ func Plan(ctx context.Context, o Options) ([]string, error) {
 		steps = append(steps, b+" maintainer secret set"+state)
 	}
 	for _, family := range setupFamilies {
-		in := o.Inspect(ctx, setup.Options{Family: family, Binary: binary, StateDir: o.StateDir, ClaudeConfig: o.ClaudeConfig})
+		in := o.Inspect(ctx, setup.Options{Family: family, Binary: binary, StateDir: o.StateDir, ClaudeConfig: o.ClaudeConfig,
+			AgyRoot: o.AgyRoot, GrokHome: o.GrokHome})
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("plan_timeout: the checks did not finish in %s", o.PlanWait)
 		}
 		switch {
 		case in.Error != "":
 			return nil, fmt.Errorf("agent_unreadable: %s", in.Error)
-		case in.CLI != "" && !in.Configured:
-			// Setup configures the running binary unless --binary names the installed one.
+		case in.CLI != "" && !in.Configured, in.Configured && in.StatusLine == setup.StatusLineNeeded:
+			// Setup configures the running binary unless --binary names the installed one. A
+			// configured family whose status line is missing or out of date gets it there (#631).
 			steps = append(steps, b+" setup "+family+" --binary "+setup.ShellWord(binary)+state)
 		}
 	}

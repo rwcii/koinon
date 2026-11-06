@@ -674,11 +674,22 @@ an upgrade that changes this hook.
 `~/.gemini/antigravity-cli/settings.json`, so the agy session's model and context use show in
 `peer_status` and the dashboard, and the managed context cycle proves agy's new conversation
 after `/clear` from it ([PROTOCOL.md](../PROTOCOL.md#agy-cycle-adapter)). It wraps an existing
-entry's command and keeps its other fields; without one, it sets `"stack_with_default": true` and agy's own status line stays as it
-was. The previous entry is saved in the Go state directory, and `koinon setup agy
+entry's command and keeps its other fields; without one, or with an entry that has no command
+and no type (Antigravity CLI keeps `{"type": "", "command": "", "enabled": true}`), it sets
+`"stack_with_default": true` and agy's own status line stays as it was. A `stack_with_default`
+that the entry has is kept. The previous entry is saved in the Go state directory, and `koinon setup agy
 --remove-status-line` or `koinon uninstall` restores it while the entry is still Koinon's. It is
 separate from the Claude status line. Setup skips it when the `antigravity-cli` directory does
 not exist.
+
+`koinon install` also completes the status line of a Claude, agy or Grok family that an earlier
+setup configured, when it is missing (a setup from before the family had one) or Koinon's
+unedited entry is out of date. It changes only the status line and asks nothing. An entry that
+you removed with `--remove-status-line`, or that you edited, stays as it is. The family's
+`agents` entry reports the change; a settings file that cannot be read is reported there, and
+the install goes on. `koinon install --plan` names `koinon setup FAMILY --binary BINARY` for such
+a family, so the Homebrew text after `brew upgrade` shows it (AGY-STATUSLINE-631 in PDR 003,
+Decision 4).
 
 `koinon setup grok` also makes `'BINARY' hook grok-status` the `command` of the
 `[ui.status_line]` table in `~/.grok/config.toml` (or `$GROK_HOME/config.toml`), so the Grok
