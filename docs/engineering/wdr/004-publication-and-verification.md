@@ -354,7 +354,7 @@ release facts name the source.
 
 **Provenance:** Robert Capps, 2026-10-24, session transcript, after the `main` pushes for the
 v0.4.1 preparation and for v0.4.2 each had a failed macOS run: "why do we have CI tests
-constantly failing on nearly every CI run?" (typos corrected), then "see main". Of the 120 runs
+constantly failing on nearly every CI run?", then "see main". Of the 120 runs
 since 2026-10-21, 6 had failed; the two that were not yet fixed were test timing faults (#475).
 Robert Capps, 2026-10-25, session transcript, to the question "Should I add the step in gap 1 to
 the `release` skill? I recommend yes.", where gap 1 was that no step measures accepted work, from

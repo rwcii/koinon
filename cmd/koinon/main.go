@@ -421,6 +421,10 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N]
        koinon room read ROOM_ID --as FAMILY:ID [--after SEQ] [--limit N]
        koinon decision create --as FAMILY:ID --reference REF --title TITLE --kind decision|task|fyi --key KEY --deadline UNIX_SECONDS [--order N] [--where TEXT] [--agent-text TEXT] [--context TEXT] [--recommendation TEXT] [--command CMD]... [--recipient NAME]... [--no-commands] [--no-recipients]
        koinon decision edit --as FAMILY:ID --reference REF --if-revision N [field flags as for create]
+         --title: ` + core.CardTitleForm + `
+         --context: ` + core.CardContextForm + `
+         --recommendation: ` + core.CardRecommendationForm + `
+         ` + core.CardFormReply + `
        koinon decision list --as FAMILY:ID --filter waiting|active|returned|in_progress|archived|mine [--after ID] [--limit N]
        koinon decision get --as FAMILY:ID --reference REF
        koinon decision history --as FAMILY:ID --reference REF [--withdrawals] [--after ID] [--limit N]
