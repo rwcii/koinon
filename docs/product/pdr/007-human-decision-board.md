@@ -116,6 +116,11 @@ date; the recommendation has the heading "Recommendation:", then What, Why and F
 complete, in that order, then, each only when it has relevant data, Corrections from the peer,
 Open disagreements, Other options and A separate choice, which you can add to any option
 (#582). ASD-STE100 applies to the sentences, and the form stays.
+The tool field text and the command usage give the form at each write, and the daemon checks the
+text of each `decision` item that an agent creates or edits. The reply has `form_notes` when the
+context is not a list or is over 2500 characters, when the heading or a label is missing or out
+of order, or when the recommendation is over 3000 characters. A note refuses nothing and changes
+no state; the author corrects the card with `decision_edit` (CARD-FORM-AT-WRITE-635, #635).
 
 **Provenance:** Requested in #206 (issue body, requirements 1, 2, 5, 6, 8, 10, 11, 12 and
 the settled point on rows); a request record. Agent withdrawal: requested in #504 (issue body,
@@ -145,7 +150,25 @@ Fast or complete: approved on the decision board, Robert Capps, 2026-10-31, with
 them as standard options, but they don't all need to be present in ALL cards if there is no
 relevant data." (CARD-LABELS-582, #582).
 Intent: each card gives these parts under the same labels, and a card leaves out a label that
-has nothing to say. The `ACTION FOR YOU` marker: Proposed in the #206 plan; approved with the plan at Gate B (#206 comment 6150911355); retired by #537. Lifecycle: Robert Capps, 2026-10-13:
+has nothing to say. Card form at the write:
+- **Decided by:** Robert Capps, 2026-11-07, on the decision board, card CARD-FORM-AT-WRITE-635,
+  revision 3, "approved", with no note.
+- **Context:** cards had drifted from the form, and the form text had not changed. The form was
+  only in the guide, which a session reads once and can lose at a compaction. Robert Capps: "the
+  point of koinon is to allow agents to run semi-autonomously. I won't be there to prompt it to
+  re-read every time it compacts." The question: how the form reaches an author with no prompt.
+  The card's separate choice, a message after each compaction to read the guide again, was not
+  taken, so its default applies: no message.
+- **Decision:** the form goes into the tool field text and the command usage, and the replies
+  carry `form_notes`.
+- **Reason and scope:** the tool text and the reply come with each write, in each family. The two
+  sizes come from the cards with a list context since 2026-10-31: 75% have a context under 2280
+  characters and a recommendation under 3114. A note does not refuse, under "remove all limit
+  text" (#487), so an agent can leave a note unanswered. Scope: `decision` items; tasks and fyi
+  items get no notes.
+- **Review when:** agents leave notes unanswered and cards drift again.
+
+The `ACTION FOR YOU` marker: Proposed in the #206 plan; approved with the plan at Gate B (#206 comment 6150911355); retired by #537. Lifecycle: Robert Capps, 2026-10-13:
 "we don't build systems that fail at some arbitrary limit. closed items should be archived.
 after 30 days, archived items should be moved to a log file in case an old decision needs to
 be resurrected. nothing gets deleted, but the lifecycle becomes active > in progress >
@@ -368,3 +391,4 @@ blocks, which the maintainer copies into a terminal, hold printable ASCII only. 
 | 2026-11-03 | Decision 4: `decision_record` applies the repository's record mode, and the board has an export (#589, RECORD-MODE-589; WDR 001, Decision 7) |
 | 2026-11-05 | Decision 4: a verdict read gives the record form; Koinon writes no record file, and `decision_record` is removed (#623; WDR 001, Decision 7) |
 | 2026-11-05 | Decision 1: the spoken-alert decision (SPEAK-SCOPE-553), moved into this record (#623) |
+| 2026-11-07 | Decision 1: the card form at each write, and `form_notes` in the replies (#635, CARD-FORM-AT-WRITE-635) |

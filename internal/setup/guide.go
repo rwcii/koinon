@@ -114,6 +114,11 @@ A recommendation that drops or defers a goal that the maintainer set says so in 
 and names it as a limit in Fast or complete. ASD-STE100 applies to the sentences: short active
 sentences, one idea each, and common words. The labels and their order are the form, so a
 correction of style changes the sentences and keeps the form.
+The decision_create and decision_edit field text gives this form at each write, and the reply
+has form_notes when a decision card does not follow it: the context is not a list or is over
+2500 characters, the heading or a label is missing or out of order, or the recommendation is
+over 3000 characters (#635). A note does not refuse the card: correct the card with
+decision_edit.
 An item is active (waiting for a verdict), returned (the maintainer's feedback came back to
 its author: change the item as the feedback says with decision_edit, which makes it wait
 again, or withdraw it), in_progress (approved; do the work, then decision_close), archived

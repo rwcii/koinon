@@ -5,6 +5,8 @@ import (
 	"errors"
 	"sort"
 	"strings"
+
+	"github.com/rwcii/koinon/internal/core"
 )
 
 // Decision tools (#206, chunk 01) forward to POST /v1/decisions/<op>. The daemon checks
@@ -12,11 +14,11 @@ import (
 
 var decisionFieldSchema = map[string]any{
 	"order":          map[string]any{"type": "integer", "description": "Item order on the board; lower first."},
-	"title":          map[string]any{"type": "string", "description": "At most 256 bytes, no control characters."},
+	"title":          map[string]any{"type": "string", "description": core.CardTitleForm + " At most 256 bytes, no control characters."},
 	"where":          map[string]any{"type": "string", "description": "Where the decision applies, at most 256 bytes."},
 	"agent_text":     map[string]any{"type": "string", "description": "Markdown, at most 8 KiB."},
-	"context":        map[string]any{"type": "string", "description": "Markdown, at most 16 KiB."},
-	"recommendation": map[string]any{"type": "string", "description": "Markdown, at most 8 KiB."},
+	"context":        map[string]any{"type": "string", "description": "Markdown, at most 16 KiB. " + core.CardContextForm},
+	"recommendation": map[string]any{"type": "string", "description": "Markdown, at most 8 KiB. " + core.CardRecommendationForm},
 	"kind": map[string]any{"type": "string", "enum": []string{"decision", "task", "fyi"},
 		"description": "decision: the maintainer approves, declines or gives feedback. task: work for the maintainer, which is completed, declined or given feedback. fyi: information, which the maintainer acknowledges."},
 	"commands": map[string]any{"type": "array", "maxItems": 8, "items": text,
@@ -26,9 +28,9 @@ var decisionFieldSchema = map[string]any{
 }
 
 var decisionTools = []map[string]any{
-	{"name": "decision_create", "description": "Create a decision item on the maintainer's decision board: reference, title, kind (decision, task or fyi) and the other fields. Use the card form in koinon guide, Decisions, and write card prose in ASD-STE100 Simplified Technical English. Text in a known key format is refused. key and deadline make a retry return the first result. The maintainer gives the verdict, in the dashboard or a maintainer client.",
+	{"name": "decision_create", "description": "Create a decision item on the maintainer's decision board: reference, title, kind (decision, task or fyi) and the other fields. Use the card form in koinon guide, Decisions, and write card prose in ASD-STE100 Simplified Technical English. Text in a known key format is refused. key and deadline make a retry return the first result. The maintainer gives the verdict, in the dashboard or a maintainer client. " + core.CardFormReply,
 		"inputSchema": decisionSchema(map[string]any{"reference": decisionReferenceSchema, "key": text, "deadline": retryDeadline}, "reference", "title", "kind", "key", "deadline")},
-	{"name": "decision_edit", "description": "Change fields of a decision item at the revision you read (if_revision). A changed item is stale_revision; read it again. A list field replaces the stored list. An edit of a returned, in-progress or archived item makes it active again for a new verdict: after the maintainer's feedback, change the item as the feedback says. Keep the card form in koinon guide, Decisions.",
+	{"name": "decision_edit", "description": "Change fields of a decision item at the revision you read (if_revision). A changed item is stale_revision; read it again. A list field replaces the stored list. An edit of a returned, in-progress or archived item makes it active again for a new verdict: after the maintainer's feedback, change the item as the feedback says. Keep the card form in koinon guide, Decisions. " + core.CardFormReply,
 		"inputSchema": decisionSchema(map[string]any{"reference": decisionReferenceSchema, "if_revision": integer}, "reference", "if_revision")},
 	{"name": "decision_list", "description": "List decision items in bounded pages of summaries (reference, title, kind, state, revision, order, and author_repository, the repository of the author's participant, when the item has one), in item ID order: waiting (active decision items and tasks), active, returned (with the maintainer's feedback, back with the author), in_progress, archived, or mine (items that name this session or the participant it holds). Page with next_after. Reading moves no inbox or memory cursor.",
 		"inputSchema": object(map[string]any{"filter": map[string]any{"type": "string", "enum": []string{"waiting", "active", "returned", "in_progress", "archived", "mine"}},

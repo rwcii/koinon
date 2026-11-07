@@ -2063,14 +2063,16 @@ of items. Reads move no inbox read or acknowledgement marker and no memory curso
   another request is `idempotency_conflict`, a passed deadline `retry_deadline_expired`, and a
   deadline beyond the idempotency period `invalid_request`. A used reference is
   `reference_in_use`. The result has `reference`, `revision`, `state` and the recipients'
-  resolution. Expired retry records are deleted by the maintenance sweep in bounded control
+  resolution, and `form_notes` when the text of a `decision` item does not follow the card form:
+  a list of what to correct, from the request, so a retry gets the same notes. A note refuses
+  nothing and changes no state. Expired retry records are deleted by the maintenance sweep in bounded control
   deletions.
 - `POST /v1/decisions/edit` takes `caller`, `reference`, `if_revision` and at least one
   field to change; a list field replaces the stored list. Another revision is
   `stale_revision` with `current_revision`. An edit of a `returned`, `in_progress` or
   `archived` item reopens it: the item becomes `active`, its current verdict gets `superseded_at`, in the
   same transaction; the verdict's deliveries do not change. The result is the full item at
-  its new revision.
+  its new revision, with `form_notes` for the item's text as on a create.
 - `POST /v1/decisions/list` takes `caller`, `filter` (`waiting`: active `decision` and
   `task` items; `active`, `returned`, `in_progress`, `archived`; or `mine`: items with a recipient name that is now the
   caller's peer name or the participant address it holds, also when the name did not resolve

@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- An agent gets the card form each time it writes a decision card, also after a compaction
+  (#635; CARD-FORM-AT-WRITE-635 in PDR 007, Decision 1). The `decision_create` and
+  `decision_edit` field text and the `koinon decision` usage give the form, and the reply has
+  `form_notes` when a decision card does not follow it: the context is not a list or is over
+  2500 characters, the heading or a label is missing or out of order, or the recommendation is
+  over 3000 characters. A note does not refuse the card. Before, the form was only in the
+  guide, which a session reads once.
+
 ## 2026-11-06 — A network dashboard over HTTPS, install network questions, and no DECISIONS.md
 
 This release can open the dashboard also on one network address of the host, over HTTPS, with

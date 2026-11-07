@@ -276,7 +276,7 @@ and Decision 6 gives what it then reports.
 - **Decided by:** Robert Capps, 2026-11-06. On the decision board, card AGY-STATUSLINE-631,
   revision 2, "approved", with no note; Robert Capps then ran `koinon setup agy` on the machine. In a
   Claude Code terminal session the same day: "these issues need to make it in to 0.10, don't
-  release without it" (typos corrected).
+  release without it".
 - **Context:** the dashboard showed no context or activity for a live agy session ("I note that
   it does not report any context or activity on the dashboard."). The agy setup on that machine
   predated the agy status-line hook (#519), a later `koinon install` did not run agy's setup
