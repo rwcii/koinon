@@ -31,6 +31,16 @@ func TestCardFormNotes(t *testing.T) {
 	if notes := CardFormNotes("decision", "- a", minimal); notes != nil {
 		t.Fatalf("the optional labels are optional: %q", notes)
 	}
+	// An indented list and an indented continuation are a list, as the dashboard renders them.
+	for _, indent := range []string{" ", "  ", "   "} {
+		context := indent + "- A fact.\n" + indent + "  It continues.\n\tSo does this.\n" + indent + "2. Another fact."
+		if rendered := string(renderMarkdown(context)); !strings.Contains(rendered, "<li>") {
+			t.Fatalf("not rendered as a list: %q", rendered)
+		}
+		if notes := CardFormNotes("decision", context, minimal); notes != nil {
+			t.Fatalf("%d-space list: %q", len(indent), notes)
+		}
+	}
 	for _, kind := range []string{"task", "fyi"} {
 		if notes := CardFormNotes(kind, "prose", "prose"); notes != nil {
 			t.Fatalf("%s has notes: %q", kind, notes)
@@ -43,7 +53,8 @@ func TestCardFormNotes(t *testing.T) {
 		{"prose after a list", "- a\nA paragraph.\n", minimal, "list of facts"},
 		{"empty context", "", minimal, "list of facts"},
 		{"blank context", " \n\n", minimal, "list of facts"},
-		{"indented only", "  - a\n", minimal, "list of facts"},
+		{"code block, not a list", "    - a\n", minimal, "list of facts"},
+		{"indented text first", "  text\n- a\n", minimal, "list of facts"},
 		{"no heading", "- a", "Recommendation: x\n**What:** a\n**Why:** b\n**Fast or complete:** c", "## Recommendation:"},
 		{"heading not first", "- a", "Text.\n## Recommendation: x\n**What:** a\n**Why:** b\n**Fast or complete:** c", "## Recommendation:"},
 		{"no What", "- a", "## Recommendation: x\n**Why:** b\n**Fast or complete:** c", "add **What:**"},

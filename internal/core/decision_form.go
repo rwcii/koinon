@@ -2,7 +2,6 @@ package core
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 	"unicode/utf8"
 )
@@ -18,22 +17,30 @@ const (
 	// CardTitleForm, CardContextForm and CardRecommendationForm are the form rules for the
 	// tool field text and the command usage.
 	CardTitleForm   = "The action, in one line."
-	CardContextForm = "On a decision card: a short list of facts, at most 2500 characters. Each list item " +
-		"has one fact, its source (a file and line, a record, a pull request or a report) and the date you " +
-		"checked it. When the card changes an earlier direction of the maintainer, the first item names that " +
-		"direction and what changes."
-	CardRecommendationForm = "On a decision card, at most 3000 characters: the heading \"## Recommendation:\" " +
-		"and the action in one line, then **What:**, **Why:** and **Fast or complete:**, in that order. Then, in " +
-		"this order and each only when it has relevant data: **Corrections from the peer:**, **Open " +
-		"disagreements:**, **Other options:** and **A separate choice, which you can add to any option:**. " +
-		"Write short active sentences in ASD-STE100."
+	CardContextForm = "On a decision card, at most 2500 characters: a short list of facts. Each item has one " +
+		"fact, its source (a file and line, a record, a pull request or a report) and the date you checked it. " +
+		"When the card changes an earlier direction of the maintainer, the first item names that direction and " +
+		"what changes. Quote the maintainer only from the maintainer's own words."
+	CardRecommendationForm = "On a decision card, at most 3000 characters, and one recommendation, not a menu of " +
+		"options: the heading \"## Recommendation:\" and the action in one line, then in this order: **What:** " +
+		"the concrete change, its source and what gets recorded, with numbered steps when there are steps; " +
+		"**Why:** the defect or the goal, from the records (recommend the fix for the defect, not for its " +
+		"symptom); **Fast or complete:** which one it is, each gap or limit that stays, with its source, and the " +
+		"cost in time, money or CI. Then these labels, in this order; give each one only when it has relevant " +
+		"data: **Corrections from the peer:** each correction from a peer who reviewed it; **Open disagreements:** " +
+		"each position that is still open, with whose it is, or \"none\" when a peer reviewed it and no " +
+		"disagreement is open; **Other options:** the real alternatives, a list in which each says what it keeps " +
+		"and what it costs; **A separate choice, which you can add to any option:** a choice that is independent " +
+		"of the options, with its cost, what it does not solve, whether you recommend it, and the default when the " +
+		"maintainer does not take it. Then each open point with how to handle it. A recommendation that drops or " +
+		"defers a goal that the maintainer set says so in its heading, and names it as a limit in Fast or " +
+		"complete. ASD-STE100 applies to the sentences: short active sentences, one idea each, and common words."
 	// CardFormReply tells an author what form_notes in a reply means.
 	CardFormReply = "The reply has form_notes when a decision card does not follow the form: correct the card " +
 		"with decision_edit. A note does not refuse the card."
 )
 
 var (
-	cardListItem = regexp.MustCompile(`^(?:[-*+] |[0-9]+[.)] )`)
 	// cardRequired and cardOptional are the labels in their order after the heading.
 	cardRequired = []string{"**What:**", "**Why:**", "**Fast or complete:**"}
 	cardOptional = []string{"**Corrections from the peer:**", "**Open disagreements:**", "**Other options:**",
@@ -86,18 +93,22 @@ func CardFormNotes(kind, context, recommendation string) []string {
 	return notes
 }
 
-// cardContextIsList reports a context with text in which each line at the left margin is a
-// list item; an indented line continues its item.
+// cardContextIsList reports a context with a list item first in which each later line is a
+// list item that the dashboard renders as one, or an indented line that continues its item.
 func cardContextIsList(context string) bool {
 	found := false
 	for _, line := range strings.Split(context, "\n") {
-		if strings.TrimSpace(line) == "" || line[0] == ' ' || line[0] == '\t' {
+		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		if !cardListItem.MatchString(line) {
+		trimmed := strings.TrimLeft(line, " ")
+		if _, _, _, ok := listItem(trimmed); ok && len(line)-len(trimmed) < 4 {
+			found = true
+			continue
+		}
+		if !found || (line[0] != ' ' && line[0] != '\t') {
 			return false
 		}
-		found = true
 	}
 	return found
 }
