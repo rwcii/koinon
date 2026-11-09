@@ -99,8 +99,20 @@ options can follow at the end, under **Other options:**.
   order: **What:** the concrete change, its source and what gets recorded, with numbered steps
   when there are steps; **Why:** the defect or the goal, from the records (recommend the fix for
   the defect, not for its symptom); **Fast or complete:** which one it is, each gap or limit
-  that stays, with its source, and the cost in time, money or CI. Then these labels, in this
-  order; give each one only when it has relevant data (#582):
+  that stays, with its source, and the cost in time, money or CI; **Fix loop:** "yes" or "no",
+  then the number of fix rounds on this deliverable so far and the references of its earlier
+  cards: "yes" when the card asks for another fix, retry or exception because an earlier fix of
+  the same deliverable did not close it; **On track:** "on track" or "off track", then the
+  current task, goal or deliverable that the work belongs to, and where it was assigned or
+  approved: an issue, a sprint chunk, a work item, a board verdict, or the maintainer's words
+  with the date. "On track" when all of the work in the card is part of that assigned or
+  approved work. "Off track" when the card asks for, or the agent already started, work that
+  nobody assigned or approved: a side task, a scope that the agent added, or a change made
+  "while I am here"; then the card says in plain words what the extra work is, that nobody
+  approved it, and where the agent looked for an approval and found none. Work with no approval
+  source is off track. This label is not about delay. Each answer is the first text after its
+  label, on the label's line (CARD-LOOP-SCOPE). Then these labels, in this order;
+  give each one only when it has relevant data (#582):
   **Corrections from the peer:** each correction from a peer who reviewed it;
   **Open disagreements:** each position that is still open, with whose it is, or "none" when a
   peer reviewed it and no disagreement is open;
@@ -116,8 +128,8 @@ sentences, one idea each, and common words. The labels and their order are the f
 correction of style changes the sentences and keeps the form.
 The decision_create and decision_edit field text gives this form at each write, and the reply
 has form_notes when a decision card does not follow it: the context is not a list or is over
-2500 characters, the heading or a label is missing or out of order, or the recommendation is
-over 3000 characters (#635). A note does not refuse the card: correct the card with
+2500 characters, the heading or a label is missing or out of order, Fix loop or On track does
+not start with one of its answers, or the recommendation is over 3000 characters (#635). A note does not refuse the card: correct the card with
 decision_edit.
 An item is active (waiting for a verdict), returned (the maintainer's feedback came back to
 its author: change the item as the feedback says with decision_edit, which makes it wait

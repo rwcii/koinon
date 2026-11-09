@@ -12,6 +12,12 @@ into a dated release section when promoted to `main`.
   2500 characters, the heading or a label is missing or out of order, or the recommendation is
   over 3000 characters. A note does not refuse the card. Before, the form was only in the
   guide, which a session reads once.
+- A decision card has two more required labels after **Fast or complete:** (#638;
+  CARD-LOOP-SCOPE in PDR 007, Decision 1). **Fix loop:** starts with "yes" or "no" and gives the
+  number of fix rounds on the deliverable and its earlier cards. **On track:** starts with "on
+  track" or "off track" and gives the assigned or approved work that the card belongs to, and
+  where it was assigned or approved; an "off track" card names the work that nobody approved.
+  `form_notes` names a missing label or an answer that is not one of the fixed answers.
 
 ## 2026-11-06 — A network dashboard over HTTPS, install network questions, and no DECISIONS.md
 

@@ -112,14 +112,22 @@ one a task. Card text (context, recommendation and comments) is rendered from
 Markdown, code and commands appear in code blocks, and agents write card prose in ASD-STE100
 Simplified Technical English. Agents use one card form, which the guide's Decisions section
 gives (#562): the title is the action; the context is short facts, each with its source and
-date; the recommendation has the heading "Recommendation:", then What, Why and Fast or
-complete, in that order, then, each only when it has relevant data, Corrections from the peer,
+date; the recommendation has the heading "Recommendation:", then What, Why, Fast or complete,
+Fix loop and On track, in that order, then, each only when it has relevant data, Corrections from the peer,
 Open disagreements, Other options and A separate choice, which you can add to any option
-(#582). ASD-STE100 applies to the sentences, and the form stays.
+(#582). Fix loop starts with "yes" or "no", then the number of fix rounds on the deliverable so
+far and the references of its earlier cards; "yes" when the card asks for another fix, retry or
+exception because an earlier fix of the same deliverable did not close it. On track starts with
+"on track" or "off track", then the task, goal or deliverable that the work belongs to and where
+it was assigned or approved; "off track" when the card asks for, or the agent already started,
+work that nobody assigned or approved, and the card then names that work, says that nobody
+approved it and where the agent looked for an approval. On track is about scope, not delay
+(CARD-LOOP-SCOPE, #638). ASD-STE100 applies to the sentences, and the form stays.
 The tool field text and the command usage give the form at each write, and the daemon checks the
 text of each `decision` item that an agent creates or edits. The reply has `form_notes` when the
 context is not a list or is over 2500 characters, when the heading or a label is missing or out
-of order, or when the recommendation is over 3000 characters. A note refuses nothing and changes
+of order, when Fix loop or On track does not start with one of its answers, or when the
+recommendation is over 3000 characters. A note refuses nothing and changes
 no state; the author corrects the card with `decision_edit` (CARD-FORM-AT-WRITE-635, #635).
 
 **Provenance:** Requested in #206 (issue body, requirements 1, 2, 5, 6, 8, 10, 11, 12 and
@@ -167,6 +175,25 @@ has nothing to say. Card form at the write:
   text" (#487), so an agent can leave a note unanswered. Scope: `decision` items; tasks and fyi
   items get no notes.
 - **Review when:** agents leave notes unanswered and cards drift again.
+
+Fix loop and On track:
+- **Decided by:** Robert Capps, 2026-11-09, on the decision board, card CARD-LOOP-SCOPE,
+  revision 2, "approved", with no note.
+- **Context:** Robert Capps: "I see claude consistently get stuck in an infinite fix loop." Many
+  cards on a local board asked for one more fix, retry or exception after earlier fixes of the
+  same deliverable. On the meaning of on track: "I'm mostly concerned that the agent is working
+  on something that is not on its current set of tasks/goals/deliverables, or if it has decided
+  on its own to take on additional unsanctioned/unapproved work and is trying to justify it
+  through opaquely worded decision records. While I'd love to know if it's delayed in meeting its
+  goals, that's not my intention for the on track question." The question: how a card shows a
+  fix loop and work outside the assigned or approved scope. Not taken: a dashboard highlight of
+  the answers.
+- **Decision:** two required labels after Fast or complete, Fix loop and On track, each starting
+  with a fixed answer, and `form_notes` for a missing label or an answer that is not one of them.
+- **Reason and scope:** each card states both facts in a fixed place, where the maintainer sees
+  them first. The answers are the author's statement: the daemon checks that they are present and
+  in the fixed words, not that they are true. A note refuses nothing. Existing cards do not
+  change. Scope: `decision` items.
 
 The `ACTION FOR YOU` marker: Proposed in the #206 plan; approved with the plan at Gate B (#206 comment 6150911355); retired by #537. Lifecycle: Robert Capps, 2026-10-13:
 "we don't build systems that fail at some arbitrary limit. closed items should be archived.
@@ -392,3 +419,4 @@ blocks, which the maintainer copies into a terminal, hold printable ASCII only. 
 | 2026-11-05 | Decision 4: a verdict read gives the record form; Koinon writes no record file, and `decision_record` is removed (#623; WDR 001, Decision 7) |
 | 2026-11-05 | Decision 1: the spoken-alert decision (SPEAK-SCOPE-553), moved into this record (#623) |
 | 2026-11-07 | Decision 1: the card form at each write, and `form_notes` in the replies (#635, CARD-FORM-AT-WRITE-635) |
+| 2026-11-09 | Decision 1: the card labels Fix loop and On track (#638, CARD-LOOP-SCOPE) |
