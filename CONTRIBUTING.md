@@ -27,8 +27,8 @@ In short:
 - The repository keeps one open pull request per target branch, drafts included. To update
   a branch, merge `origin/develop` into it (WDR 004, Decision 2).
 - The `develop` ruleset requires an up-to-date branch, passing checks, resolved review
-  conversations and `success` commit statuses named `peer-review` and `refusal-review` on the
-  head commit, which the reviewer records with each sign-off (WDR 004, Decision 3; WDR 003,
+  conversations, a passing `decision-citations` check and `success` commit statuses named
+  `peer-review` and `refusal-review` on the head commit, which the reviewer records with each sign-off (WDR 004, Decision 3; WDR 003,
   Decision 3; WDR 001, Decision 6).
 - Pull requests into `develop` set squash auto-merge (WDR 004, Decision 4).
 - Merged working branches are deleted automatically; long-lived branches are protected.

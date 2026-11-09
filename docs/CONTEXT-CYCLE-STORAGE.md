@@ -42,7 +42,7 @@ the rest at its terminal commit.
 
 The sum is 278 pages, with ceil(278 / 819) + 1 = 2 pointer-map pages, **280**. `audit` is an
 `AUTOINCREMENT` table, so each audit insert also rewrites its `sqlite_sequence` row. That table
-holds one row of under 64 bytes for each of the database's four `AUTOINCREMENT` tables, so it
+holds one row of under 64 bytes for each of the database's seven `AUTOINCREMENT` tables, so it
 stays a single page that never splits, and the rewrite allocates nothing.
 
 ## Allocation of a terminal outcome

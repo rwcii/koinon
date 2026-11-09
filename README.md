@@ -1,8 +1,9 @@
 # Koinon
 
 Koinon connects local Claude Code, Codex, Antigravity, OpenCode, Grok Build and DeepSeek sessions through
-one Go daemon. A single binary provides messaging, shared repository memory, advisory work
-claims, launchers and a dashboard. Linux and macOS builds use no cgo. Fresh installation needs
+one Go daemon. A single binary provides messaging, rooms, shared repository memory, advisory
+work claims, a decision board, managed context cycles, a skill catalog, launchers and a
+dashboard. Linux and macOS builds use no cgo. Fresh installation needs
 no Python. The Python runtime has been retired from this checkout; import and upgrade from
 the pinned previous release remain supported.
 
@@ -31,8 +32,9 @@ flowchart LR
 One daemon per user, `koinon serve`, owns all state in one SQLite database. Each agent session
 reaches it through `koinon mcp`, a stdio MCP server that its agent starts. The MCP server takes
 the session's identity from the agent itself, never from the model. DeepSeek uses the `koinon`
-commands instead. The daemon accepts only loopback connections that carry the user's private
-secret.
+commands instead. The agent API accepts only loopback connections that carry the user's private
+secret. The dashboard can also open on one network address of the host, over HTTPS with the
+maintainer secret ([network dashboard](docs/INSTALL.md#network-dashboard)).
 
 A message goes into the recipient's inbox. A wake adapter then sends the recipient a notice that
 names only the inbox and its sequence range: through `codex queue`, a Codex or Grok session's
@@ -156,14 +158,19 @@ with a live owner returns `claim_conflict`. See [work commands](docs/WORK-ITEMS-
 [the contract](docs/WORK-ITEMS-V1.md) and [Go storage proofs](docs/WORK-ITEMS-GO-STORAGE.md).
 
 `koinon dashboard` opens a one-time login link for the loopback dashboard; with a maintainer
-secret (`koinon maintainer secret set`), the login page takes the secret instead. The views show
+secret (`koinon maintainer secret set`), the login page takes the secret instead. At a
+terminal, the first `koinon install` asks whether the dashboard opens only on this computer
+or also on one network address over HTTPS (port 8443 by default);
+`--dashboard-address HOST:PORT|none` sets it without the question, and `koinon dashboard`
+then also prints that URL and its certificate SHA-256 fingerprint. The views show
 sessions, messages, delivery, memory and work. Administrative actions require a login,
 matching Host/Origin and a CSRF token, and write an audit record. The maintainer inbox is
 available through that dashboard. See [usage](docs/USAGE.md) and [protocol](PROTOCOL.md).
 
 ## Security and storage
 
-The daemon accepts loopback connections authenticated with a private same-user secret.
+The agent API accepts loopback connections authenticated with a private same-user secret; the
+optional network dashboard is HTTPS-only and needs the maintainer secret.
 State directories and files enforce ownership and modes. Claude socket credentials verify
 UID/PID on both platforms; literal socket paths remain unchanged for provider key lookup.
 DeepSeek and OpenCode wake credentials stay private and target exact sessions. No peer

@@ -3,7 +3,7 @@ pdr: "007"
 title: "Human Decision Board"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-28"
+updated: "2026-11-09"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -36,8 +36,9 @@ family can read. Issue #206 asks for a
 decision board in the Koinon dashboard: agents create and update decision items, only the
 human records a verdict in the dashboard, and every family reads the verdict record itself.
 
-The board is not built. Its plan (`docs/sprints/2026-10-12-decision-board/`) is reviewed,
-and the maintainer approved it (Gate B) on 2026-10-13 (#206 comment 6150911355). The decisions below are what
+The board is built (#206; PRs #353, #358 and #360). Its plan
+(`docs/sprints/2026-10-12-decision-board/`) was reviewed, and the maintainer approved it (Gate B)
+on 2026-10-13 (#206 comment 6150911355). The decisions below are what
 #206 requests. #206 says its settled points "were settled with the requester"; that sentence
 is agent-written and the requester's original words were not located.
 
@@ -420,3 +421,4 @@ blocks, which the maintainer copies into a terminal, hold printable ASCII only. 
 | 2026-11-05 | Decision 1: the spoken-alert decision (SPEAK-SCOPE-553), moved into this record (#623) |
 | 2026-11-07 | Decision 1: the card form at each write, and `form_notes` in the replies (#635, CARD-FORM-AT-WRITE-635) |
 | 2026-11-09 | Decision 1: the card labels Fix loop and On track (#638, CARD-LOOP-SCOPE) |
+| 2026-11-09 | Executive summary: the board is built (#353, #358, #360) |

@@ -3,7 +3,7 @@ wdr: "004"
 title: "Publication and Verification"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-26"
+updated: "2026-11-09"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -224,7 +224,8 @@ Koinon currently supports Linux and macOS, with operating-system differences in
 `internal/platform`. The `develop` ruleset requires these checks to pass on the head commit, on
 both systems: `go vet ./...`, `go test -race -timeout 30m ./...` and the four `CGO_ENABLED=0` builds
 (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64), the native service lifecycle job under
-systemd and launchd, and the reviewer's `peer-review` commit status. The verdict is a pull
+systemd and launchd, the `decision-citations` check of the pull request text (WDR 001,
+Decision 7), and the reviewer's `peer-review` commit status. The verdict is a pull
 request comment bound to the head commit, because every agent acts under one GitHub account
 and an author cannot approve its own pull request (WDR 003). The `check` skill runs the suite
 locally with `git diff --check`, shell syntax checks for shell edits, the changelog rule and a
@@ -258,11 +259,12 @@ check: Robert Capps, 2026-10-26, kept it (493-5 in WDR 001, Decision 6,
 
 **Gate crossed:** merge-time. `tests.yml` runs the `go` job on `ubuntu-latest` and
 `macos-latest` for every pull request. `native-go-lifecycle.yml` runs `go-lifecycle` with
-`KOINON_NATIVE_JOB=1` on disposable runners; for a pull request that changes only `agents/`,
+`KOINON_NATIVE_JOB=1` on disposable runners; for a pull request that changes only
 `docs/sprints/`, `.claude/`, `.agents/` or `.codex/`, the jobs still report but skip the
 service steps. The `develop` ruleset requires `go (ubuntu-latest)`, `go (macos-latest)`,
 `go-lifecycle (ubuntu-latest, systemd)`, `go-lifecycle (macos-latest, launchd)`,
-`peer-review` and `refusal-review` (WDR 001, Decision 6); `main` requires the first four. `release.yml` builds the four binaries and
+`peer-review`, `refusal-review` (WDR 001, Decision 6) and `decision-citations`, the
+`pr-text.yml` job (WDR 001, Decision 7); `main` requires the first four. `release.yml` builds the four binaries and
 checksums for a version tag.
 
 ---
@@ -411,8 +413,8 @@ list. The rerun of unacquired jobs is the `rerun-unacquired.yml` workflow.
 ## Conclusion
 
 Koinon currently publishes through one squash pull request at a time into `develop`, on a head
-merged with the latest `develop`, with the Linux and macOS checks and a commit-bound
-`peer-review` status required, and auto-merge set; a release lists the failed CI runs since the
+merged with the latest `develop`, with the Linux and macOS checks, the `decision-citations`
+check and a commit-bound `peer-review` status required, and auto-merge set; a release lists the failed CI runs since the
 last one. GitHub rulesets enforce the branch, check and up-to-date rules; one open pull request,
 the merge of `develop` into a published branch, signing and DCO are practice. The pull request
 order, auto-merge, commit identity, naming and the failed-run account are the maintainer's
@@ -429,3 +431,4 @@ choices; the rest waits for the maintainer's decision.
 | 2026-10-25 | #487: Decision 2 states the branch update without its limits; Decision 3 drops the push gate; Decision 6 drops the release approval |
 | 2026-10-26 | #493: Decision 3 cites the maintainer's verdict that keeps the required `peer-review` and `refusal-review` statuses (493-5 in WDR 001, Decision 6); Decision 1 cites the verdict that keeps the `pre-commit` block (493-6) |
 | 2026-11-06 | Decision 6: the rerun of CI jobs that no runner acquired (#630) |
+| 2026-11-09 | Decision 3: the required `decision-citations` check, and the lifecycle exemption without `agents/`, as the ruleset and workflow have them |

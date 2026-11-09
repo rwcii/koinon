@@ -248,8 +248,8 @@ applied at start, and the defaults apply.
 ### Context policy
 
 The managed context handoff (#196, PDR 006) is configured per family and switched on per
-session; chunk 01 adds the policy, the Enable switch and the trigger selection, and no cycle
-runs yet. The `settings` table holds `context_mode_FAMILY` (0 `observe`, 1
+session; chunk 01 added the policy, the Enable switch and the trigger selection, and the
+cycle itself is under Managed context cycles. The `settings` table holds `context_mode_FAMILY` (0 `observe`, 1
 `native_compaction`, 2 `handoff_cycle`) and `context_threshold_FAMILY` (1–100 percent of the
 context limit) for each supported family. Defaults: Claude `handoff_cycle`, Codex
 `native_compaction`, every other family `observe`; threshold 75. `native_compaction` is
@@ -275,7 +275,10 @@ Schema 27 (#391) adds `context_enables.threshold`: a session's own threshold, 1 
 for its family's threshold. The trigger, the admission and the Sessions page use the session's
 threshold while it is set. Changing it keeps the Enable and its revision, so an admitted cycle
 continues; for a session without an Enable row it adds a row that is off, pinned as an Enable
-would be. A verified reset moves the threshold to the successor with the Enable. The dashboard
+would be. A verified reset moves the threshold to the successor with the Enable. A
+`same_host` succession in the same tmux socket and pane, such as an MCP restart, also moves an
+Enable still pinned to the former session's host, pane and participant, with its threshold, to
+the successor; it carries no observation and no unfinished cycle (#621). The dashboard
 action `context-threshold` (`peer`, `threshold` 0 to 100) sets it.
 
 The same changes have `/v1` routes for the command line and MCP (#391). Each runs the
@@ -328,8 +331,9 @@ Chunk 02 adds the durable cycle. A context observation that makes an enabled ses
 admits a cycle when the family has a registered cycle adapter, the session still has the host
 and tmux pane that its Enable pinned, it has no unfinished cycle (nor has its host), and fewer
 than 16 cycles are unfinished. Chunk 03 registers the Claude Code adapter, chunk 04 the Codex
-adapter, #512 the agy adapter, #513 the OpenCode adapter and #514 the DeepSeek adapter; the
-other families have none, so their Enable is refused. Admission is one ordinary transaction: the
+adapter, #512 the agy adapter, #513 the OpenCode adapter, #514 the DeepSeek adapter and #515
+the Grok adapter, so every family has one; each adapter's probe limits it to evidenced
+platforms and versions. Admission is one ordinary transaction: the
 cycle row, its first event `requested admitted`, an audit record and the typed request in the
 session's own inbox. The request's sender is the reserved system identity `overwatch`
 (`sender_family` and `sender_id` `overwatch`, `sender_name` `overwatch`), with `system_kind`
@@ -1354,7 +1358,7 @@ Invalid-input/repository validation remains unchanged. Mutations commit before r
 read the retained record before retrying.
 
 Launch creation takes `family` (`claude`, `codex`, `agy`, `opencode`, `grok`), absolute `directory` and `cli`,
-and positive `host_pid`. Grok may add `session_id`, a canonical lower-case UUID that the
+and positive `host_pid`, and an optional `role` (see Participants and roles). Grok may add `session_id`, a canonical lower-case UUID that the
 launcher passes to Grok as `--session-id`; other families refuse it. OpenCode also requires `address` (literal loopback with a nonzero
 port) and `password` (64 hex characters). Other families refuse those credential fields.
 Optional `background: true` is accepted only for Claude; `job_id` cannot be supplied at
@@ -2300,6 +2304,9 @@ room routes.
 `decision_create`, `decision_edit`, `decision_list`, `decision_get`, `decision_history`,
 `decision_pending`, `decision_ack`, `decision_close`, `decision_withdraw` and `decision_restore` take the fields of the
 decision routes, refuse any other argument by name and call those routes.
+`peer_status`, `context_show`, `context_set`, `context_enable`, `context_threshold`,
+`context_cycle_status`, `context_cycle_ready` and `context_cycle_pickup` are described under
+Context policy, Managed context cycles and Dashboard and session observations.
 They take no model-supplied consumer or caller identity. A tool
 error is a result with `isError` and a JSON text `{"ok": false, "code": ...}`: the daemon's code,
 `daemon_unavailable`, `identity_unavailable`, `grok_leader_mode`, `invalid_arguments` or `unknown_tool`, with the
@@ -2596,7 +2603,8 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   one item with its full scope, checkpoint, progress, references, outcome, frozen report and
   verdict (a reported item offers no edit or finish action, and the dashboard records no
   verdict) and its newest 200
-  events with their writers), `audit` (the audit log, 100 per page) and `health` (start time,
+  events with their writers), `settings` (the session timing and context values; see Session
+  timing settings), `audit` (the audit log, 100 per page) and `health` (start time,
   revision, schema, listeners, session counts, storage and the work maintenance sweep). With
   `fragment=1` a view returns its list alone; the page script fetches it every 5 seconds while the
   page is visible, with the page's own query. The search and recipient filter forms sit outside
@@ -2642,7 +2650,9 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
 - **Actions.** Each action is a `POST` under `/dashboard/actions/` with the request protection
   above, and answers `303` to the view it changed with a fixed `notice` code, so a reload never
   repeats it. Forms are limited to 4 KiB; the send form takes up to 3 × 65,536 + 4,096 bytes of
-  URL-encoded input, and its decoded body must be 1–65,536 bytes of UTF-8.
+  URL-encoded input, and its decoded body must be 1–65,536 bytes of UTF-8. `bulk` takes up to
+  100 × 3 × 515 + 4,096 bytes, and `work-create`, `work-edit` and `work-finish` up to
+  3 × 3 × 8,192 + 4,096 bytes.
   - `participant-holder` (`address`, `family`, `id`, `revision`): chooses the named active
     session as holder of its participant address. A changed session revision returns
     `revision_changed`; an inactive session returns `session_not_active`; a sub-agent or a
