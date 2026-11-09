@@ -26,8 +26,18 @@ const (
 		"the concrete change, its source and what gets recorded, with numbered steps when there are steps; " +
 		"**Why:** the defect or the goal, from the records (recommend the fix for the defect, not for its " +
 		"symptom); **Fast or complete:** which one it is, each gap or limit that stays, with its source, and the " +
-		"cost in time, money or CI. Then these labels, in this order; give each one only when it has relevant " +
-		"data: **Corrections from the peer:** each correction from a peer who reviewed it; **Open disagreements:** " +
+		"cost in time, money or CI; **Fix loop:** \"yes\" or \"no\", then the number of fix rounds on this " +
+		"deliverable so far and the references of its earlier cards: \"yes\" when the card asks for another fix, " +
+		"retry or exception because an earlier fix of the same deliverable did not close it; **On track:** \"on " +
+		"track\" or \"off track\", then the current task, goal or deliverable that the work belongs to, and where it " +
+		"was assigned or approved: an issue, a sprint chunk, a work item, a board verdict, or the maintainer's words " +
+		"with the date. \"On track\" when all of the work in the card is part of that assigned or approved work. " +
+		"\"Off track\" when the card asks for, or the agent already started, work that nobody assigned or approved: " +
+		"a side task, a scope that the agent added, or a change made \"while I am here\"; then the card says in plain " +
+		"words what the extra work is, that nobody approved it, and where the agent looked for an approval and found " +
+		"none. Work with no approval source is off track. This label is not about delay. Each answer is the first text " +
+		"after its label, on the label's line. Then these labels, in " +
+		"this order; give each one only when it has relevant data: **Corrections from the peer:** each correction from a peer who reviewed it; **Open disagreements:** " +
 		"each position that is still open, with whose it is, or \"none\" when a peer reviewed it and no " +
 		"disagreement is open; **Other options:** the real alternatives, a list in which each says what it keeps " +
 		"and what it costs; **A separate choice, which you can add to any option:** a choice that is independent " +
@@ -42,7 +52,9 @@ const (
 
 var (
 	// cardRequired and cardOptional are the labels in their order after the heading.
-	cardRequired = []string{"**What:**", "**Why:**", "**Fast or complete:**"}
+	cardRequired = []string{"**What:**", "**Why:**", "**Fast or complete:**", "**Fix loop:**", "**On track:**"}
+	// cardAnswers are the fixed answers that start the text of a label (CARD-LOOP-SCOPE).
+	cardAnswers  = map[string][]string{"**Fix loop:**": {"yes", "no"}, "**On track:**": {"on track", "off track"}}
 	cardOptional = []string{"**Corrections from the peer:**", "**Open disagreements:**", "**Other options:**",
 		"**A separate choice, which you can add to any option:**"}
 )
@@ -77,8 +89,13 @@ func CardFormNotes(kind, context, recommendation string) []string {
 		last = at
 	}
 	for _, label := range cardRequired {
-		if cardLabelLine(lines, label) < 0 {
+		at := cardLabelLine(lines, label)
+		if at < 0 {
 			notes = append(notes, "recommendation: add "+label)
+			continue
+		}
+		if answers := cardAnswers[label]; answers != nil && !cardAnswered(lines[at], label, answers) {
+			notes = append(notes, "recommendation: start "+label+" with \""+strings.Join(answers, "\" or \"")+"\".")
 		}
 	}
 	if !ordered {
@@ -131,4 +148,17 @@ func cardLabelLine(lines []string, label string) int {
 		}
 	}
 	return -1
+}
+
+// cardAnswered reports a label line whose text after the label starts with one whole answer,
+// in any case, followed by the end of the line, a space or tab, or sentence punctuation.
+func cardAnswered(line, label string, answers []string) bool {
+	text := strings.ToLower(strings.TrimLeft(strings.TrimPrefix(strings.TrimLeft(line, " \t"), label), " \t"))
+	for _, answer := range answers {
+		rest, ok := strings.CutPrefix(text, answer)
+		if ok && (rest == "" || strings.ContainsRune(" \t.,;:!?", rune(rest[0]))) {
+			return true
+		}
+	}
+	return false
 }

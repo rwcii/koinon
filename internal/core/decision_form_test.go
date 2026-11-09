@@ -11,7 +11,7 @@ import (
 const goodCardContext = "- One fact. Source: a file, 2026-11-07.\n  It continues here.\n\n- Another fact. Source: #1, 2026-11-07.\n1. A numbered fact.\n"
 
 const goodCardRecommendation = "## Recommendation: Do the thing\n\n**What:**\n1. A step.\n\n**Why:** The defect.\n\n" +
-	"**Fast or complete:** Complete.\n\n**Corrections from the peer:** One.\n\n**Open disagreements:** none\n\n" +
+	"**Fast or complete:** Complete.\n\n**Fix loop:** No. The first round.\n\n**On track:** On track: #1.\n\n**Corrections from the peer:** One.\n\n**Open disagreements:** none\n\n" +
 	"**Other options:**\n- Another.\n\n**A separate choice, which you can add to any option:** One.\n"
 
 func notesHave(notes []string, part string) bool {
@@ -27,7 +27,7 @@ func TestCardFormNotes(t *testing.T) {
 	if notes := CardFormNotes("decision", goodCardContext, goodCardRecommendation); notes != nil {
 		t.Fatalf("a card in the form has notes: %q", notes)
 	}
-	minimal := "## Recommendation: x\n**What:** a\n**Why:** b\n**Fast or complete:** c"
+	minimal := "## Recommendation: x\n**What:** a\n**Why:** b\n**Fast or complete:** c\n**Fix loop:** no\n**On track:** on track"
 	if notes := CardFormNotes("decision", "- a", minimal); notes != nil {
 		t.Fatalf("the optional labels are optional: %q", notes)
 	}
@@ -59,7 +59,11 @@ func TestCardFormNotes(t *testing.T) {
 		{"heading not first", "- a", "Text.\n## Recommendation: x\n**What:** a\n**Why:** b\n**Fast or complete:** c", "## Recommendation:"},
 		{"no What", "- a", "## Recommendation: x\n**Why:** b\n**Fast or complete:** c", "add **What:**"},
 		{"no Why", "- a", "## Recommendation: x\n**What:** a\n**Fast or complete:** c", "add **Why:**"},
-		{"no Fast", "- a", "## Recommendation: x\n**What:** a\n**Why:** b", "add **Fast or complete:**"},
+		{"no Fast", "- a", "## Recommendation: x\n**What:** a\n**Why:** b\n**Fix loop:** no\n**On track:** on track", "add **Fast or complete:**"},
+		{"no Fix loop", "- a", "## Recommendation: x\n**What:** a\n**Why:** b\n**Fast or complete:** c\n**On track:** on track", "add **Fix loop:**"},
+		{"no On track", "- a", "## Recommendation: x\n**What:** a\n**Why:** b\n**Fast or complete:** c\n**Fix loop:** no", "add **On track:**"},
+		{"On track before Fix loop", "- a", "## Recommendation: x\n**What:** a\n**Why:** b\n**Fast or complete:** c\n**On track:** on track\n**Fix loop:** no", "order"},
+		{"Fix loop before Fast", "- a", "## Recommendation: x\n**What:** a\n**Why:** b\n**Fix loop:** no\n**Fast or complete:** c\n**On track:** on track", "order"},
 		{"a label inside a sentence", "- a", "## Recommendation: x\nSee **What:** a\n**Why:** b\n**Fast or complete:** c", "add **What:**"},
 		{"required out of order", "- a", "## Recommendation: x\n**Why:** b\n**What:** a\n**Fast or complete:** c", "order"},
 		{"optional before required", "- a", "## Recommendation: x\n**Other options:** o\n**What:** a\n**Why:** b\n**Fast or complete:** c", "order"},
@@ -74,9 +78,45 @@ func TestCardFormNotes(t *testing.T) {
 	}
 }
 
+// Fix loop and On track start with one whole fixed answer, in any case, then the end of the
+// line, a space or tab, or sentence punctuation (CARD-LOOP-SCOPE in PDR 007, Decision 1).
+func TestCardFormAnswers(t *testing.T) {
+	card := func(fix, track string) string {
+		return "## Recommendation: x\n**What:** a\n**Why:** b\n**Fast or complete:** c\n**Fix loop:**" + fix + "\n**On track:**" + track
+	}
+	for _, fix := range []string{" no", " yes", " No.", " YES, the third round: A-1, A-2.", "\tno", " no; first", " yes!", " no?",
+		" no:", "  no", "no"} {
+		if notes := CardFormNotes("decision", "- a", card(fix, " on track")); notes != nil {
+			t.Errorf("Fix loop %q: %q", fix, notes)
+		}
+	}
+	for _, track := range []string{" on track", " off track", " On Track.", " OFF TRACK: a side task that nobody approved.",
+		" on track, #1", "\ton track"} {
+		if notes := CardFormNotes("decision", "- a", card(" no", track)); notes != nil {
+			t.Errorf("On track %q: %q", track, notes)
+		}
+	}
+	for _, fix := range []string{"", " ", " nope", " no1", " no_more", " none", " not yet", " maybe", " -no", " (no)", " no-op"} {
+		notes := CardFormNotes("decision", "- a", card(fix, " on track"))
+		if !reflect.DeepEqual(notes, []string{`recommendation: start **Fix loop:** with "yes" or "no".`}) {
+			t.Errorf("Fix loop %q: %q", fix, notes)
+		}
+	}
+	for _, track := range []string{"", " on trackless", " on track1", " on", " track", " ontrack", " on  track", " partly on track", " on track_"} {
+		notes := CardFormNotes("decision", "- a", card(" no", track))
+		if !reflect.DeepEqual(notes, []string{`recommendation: start **On track:** with "on track" or "off track".`}) {
+			t.Errorf("On track %q: %q", track, notes)
+		}
+	}
+	// The answer is on the label line: an answer on the next line is not one.
+	if notes := CardFormNotes("decision", "- a", card("\nno", " on track")); !notesHave(notes, "start **Fix loop:**") {
+		t.Errorf("answer on the next line: %q", notes)
+	}
+}
+
 // The sizes count characters, not bytes, and the size itself passes.
 func TestCardFormNotesSizes(t *testing.T) {
-	minimal := "## Recommendation: x\n**What:** a\n**Why:** b\n**Fast or complete:** c\n"
+	minimal := "## Recommendation: x\n**What:** a\n**Why:** b\n**Fast or complete:** c\n**Fix loop:** no\n**On track:** on track\n"
 	context := "- " + strings.Repeat("é", cardContextRunes-2)
 	if notes := CardFormNotes("decision", context, minimal); notes != nil {
 		t.Fatalf("context at the size: %q", notes)
@@ -129,12 +169,12 @@ func TestDecisionFormNotesInReplies(t *testing.T) {
 	}
 	status, created := post(t, address, secret, "/v1/decisions/create", body)
 	first := notes(created)
-	if status != 200 || len(first) != 5 || created["result"].(map[string]any)["state"] != "active" {
+	if status != 200 || len(first) != 7 || created["result"].(map[string]any)["state"] != "active" {
 		t.Fatalf("create: %d %v", status, created)
 	}
 	status, edited := post(t, address, secret, "/v1/decisions/edit", map[string]any{"caller": caller, "reference": "FORM-1", "if_revision": 1,
 		"context": goodCardContext})
-	if status != 200 || len(notes(edited)) != 4 || edited["result"].(map[string]any)["revision"] != 2.0 {
+	if status != 200 || len(notes(edited)) != 6 || edited["result"].(map[string]any)["revision"] != 2.0 {
 		t.Fatalf("partial edit checks the merged item: %d %v", status, edited)
 	}
 	status, edited = post(t, address, secret, "/v1/decisions/edit", map[string]any{"caller": caller, "reference": "FORM-1", "if_revision": 2,
