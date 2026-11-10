@@ -2,8 +2,11 @@ package mcp
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/rwcii/koinon/internal/core"
 )
 
 // The decision tools take the caller from native identity in every family; unknown and
@@ -126,5 +129,25 @@ func TestDecisionVerdictToolsEveryNativeFamily(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The form reaches an author in the tool text at each write (CARD-FORM-AT-WRITE-635).
+func TestDecisionWriteToolsGiveTheCardForm(t *testing.T) {
+	for _, tool := range decisionTools {
+		name := tool["name"].(string)
+		if name != "decision_create" && name != "decision_edit" {
+			continue
+		}
+		if !strings.Contains(tool["description"].(string), "form_notes") {
+			t.Errorf("%s description: %q", name, tool["description"])
+		}
+		properties := tool["inputSchema"].(map[string]any)["properties"].(map[string]any)
+		for field, want := range map[string]string{"title": core.CardTitleForm, "context": core.CardContextForm, "recommendation": core.CardRecommendationForm} {
+			description, _ := properties[field].(map[string]any)["description"].(string)
+			if !strings.Contains(description, want) {
+				t.Errorf("%s %s: %q", name, field, description)
+			}
+		}
 	}
 }

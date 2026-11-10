@@ -143,3 +143,12 @@ func TestDecisionRecordCommandRemoved(t *testing.T) {
 		t.Fatalf("record: %v", err)
 	}
 }
+
+// The command path gives the same form as the tools (CARD-FORM-AT-WRITE-635).
+func TestDecisionUsageGivesTheCardForm(t *testing.T) {
+	for _, want := range []string{core.CardTitleForm, core.CardContextForm, core.CardRecommendationForm, core.CardFormReply} {
+		if !strings.Contains(usage, want) {
+			t.Errorf("usage has no %q", want)
+		}
+	}
+}

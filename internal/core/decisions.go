@@ -172,8 +172,10 @@ type DecisionItem struct {
 	Commands       []string            `json:"commands"`
 	HiddenCommands int                 `json:"hidden_commands,omitempty"`
 	Recipients     []DecisionRecipient `json:"recipients"`
-	AuthorFamily   string              `json:"author_family"`
-	AuthorName     string              `json:"author_name"`
+	// FormNotes is on an edit's reply only: see CardFormNotes.
+	FormNotes    []string `json:"form_notes,omitempty"`
+	AuthorFamily string   `json:"author_family"`
+	AuthorName   string   `json:"author_name"`
 	// AuthorRepository is the repository of the author\'s participant, where the item is
 	// recorded (#536); a plain peer\'s item has none.
 	AuthorRepository string `json:"author_repository,omitempty"`
@@ -256,6 +258,9 @@ type DecisionCreated struct {
 	State      string              `json:"state"`
 	Recipients []DecisionRecipient `json:"recipients"`
 	Duplicate  bool                `json:"duplicate,omitempty"`
+	// FormNotes checks the created text (CardFormNotes). The route sets it from the request,
+	// which a replay repeats exactly, so a replay gives the first notes.
+	FormNotes []string `json:"form_notes,omitempty"`
 }
 
 func decisionInvalid(field, rule string) error {

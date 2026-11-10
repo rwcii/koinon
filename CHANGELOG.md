@@ -5,6 +5,44 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-11-10 — Decision cards with the form at each write, a fix-loop answer and an on-track answer
+
+This release gives an agent the decision-card form each time it writes a card, also after a
+compaction, and the reply has `form_notes` when the card does not follow the form. A card now
+also answers two questions: whether the agent is in a fix loop, and whether its work is on
+track. A note does not refuse a card. The state schema stays at 37.
+
+- An agent gets the card form each time it writes a decision card, also after a compaction
+  (#635; CARD-FORM-AT-WRITE-635 in PDR 007, Decision 1). The `decision_create` and
+  `decision_edit` field text and the `koinon decision` usage give the form, and the reply has
+  `form_notes` when a decision card does not follow it: the context is not a list or is over
+  2500 characters, the heading or a label is missing or out of order, or the recommendation is
+  over 3000 characters. A note does not refuse the card. Before, the form was only in the
+  guide, which a session reads once.
+- A decision card has two more required labels after **Fast or complete:** (#638;
+  CARD-LOOP-SCOPE in PDR 007, Decision 1). **Fix loop:** starts with "yes" or "no" and gives the
+  number of fix rounds on the deliverable and its earlier cards. **On track:** starts with "on
+  track" or "off track" and gives the assigned or approved work that the card belongs to, and
+  where it was assigned or approved; an "off track" card names the work that nobody approved.
+  `form_notes` names a missing label or an answer that is not one of the fixed answers.
+
+Upgrade from v0.10.0 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and rewrites the skill entries; the state schema stays at 37. The
+restart ends current dashboard logins: log in again with the maintainer secret, or run `koinon
+dashboard` for a one-time link. Homebrew then shows the steps that `koinon install --plan`
+finds; run them, and run `koinon install --plan` again to check. A running `koinon mcp` server
+runs the new release without a session restart.
+
+Upgrade notes:
+
+- A decision card without **Fix loop:** or **On track:**, or with an answer that is not one of
+  the fixed answers, gets `form_notes` in the reply. The card is kept; correct it with
+  `decision_edit` (#638).
+- A client that reads the tool list again after the upgrade shows the new card form in the
+  `decision_create` and `decision_edit` field text (#635).
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+
 ## 2026-11-06 — A network dashboard over HTTPS, install network questions, and no DECISIONS.md
 
 This release can open the dashboard also on one network address of the host, over HTTPS, with

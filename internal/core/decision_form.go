@@ -1,0 +1,164 @@
+package core
+
+import (
+	"fmt"
+	"strings"
+	"unicode/utf8"
+)
+
+// The card form reaches an author at each write (CARD-FORM-AT-WRITE-635 in PDR 007,
+// Decision 1, #635): the tool field text and the command usage hold these rules, and the
+// create and edit replies hold CardFormNotes. A session can lose the guide at a compaction;
+// the tool text and the reply come with each write.
+const (
+	cardContextRunes        = 2500
+	cardRecommendationRunes = 3000
+
+	// CardTitleForm, CardContextForm and CardRecommendationForm are the form rules for the
+	// tool field text and the command usage.
+	CardTitleForm   = "The action, in one line."
+	CardContextForm = "On a decision card, at most 2500 characters: a short list of facts. Each item has one " +
+		"fact, its source (a file and line, a record, a pull request or a report) and the date you checked it. " +
+		"When the card changes an earlier direction of the maintainer, the first item names that direction and " +
+		"what changes. Quote the maintainer only from the maintainer's own words."
+	CardRecommendationForm = "On a decision card, at most 3000 characters, and one recommendation, not a menu of " +
+		"options: the heading \"## Recommendation:\" and the action in one line, then in this order: **What:** " +
+		"the concrete change, its source and what gets recorded, with numbered steps when there are steps; " +
+		"**Why:** the defect or the goal, from the records (recommend the fix for the defect, not for its " +
+		"symptom); **Fast or complete:** which one it is, each gap or limit that stays, with its source, and the " +
+		"cost in time, money or CI; **Fix loop:** \"yes\" or \"no\", then the number of fix rounds on this " +
+		"deliverable so far and the references of its earlier cards: \"yes\" when the card asks for another fix, " +
+		"retry or exception because an earlier fix of the same deliverable did not close it; **On track:** \"on " +
+		"track\" or \"off track\", then the current task, goal or deliverable that the work belongs to, and where it " +
+		"was assigned or approved: an issue, a sprint chunk, a work item, a board verdict, or the maintainer's words " +
+		"with the date. \"On track\" when all of the work in the card is part of that assigned or approved work. " +
+		"\"Off track\" when the card asks for, or the agent already started, work that nobody assigned or approved: " +
+		"a side task, a scope that the agent added, or a change made \"while I am here\"; then the card says in plain " +
+		"words what the extra work is, that nobody approved it, and where the agent looked for an approval and found " +
+		"none. Work with no approval source is off track. This label is not about delay. Each answer is the first text " +
+		"after its label, on the label's line. Then these labels, in " +
+		"this order; give each one only when it has relevant data: **Corrections from the peer:** each correction from a peer who reviewed it; **Open disagreements:** " +
+		"each position that is still open, with whose it is, or \"none\" when a peer reviewed it and no " +
+		"disagreement is open; **Other options:** the real alternatives, a list in which each says what it keeps " +
+		"and what it costs; **A separate choice, which you can add to any option:** a choice that is independent " +
+		"of the options, with its cost, what it does not solve, whether you recommend it, and the default when the " +
+		"maintainer does not take it. Then each open point with how to handle it. A recommendation that drops or " +
+		"defers a goal that the maintainer set says so in its heading, and names it as a limit in Fast or " +
+		"complete. ASD-STE100 applies to the sentences: short active sentences, one idea each, and common words."
+	// CardFormReply tells an author what form_notes in a reply means.
+	CardFormReply = "The reply has form_notes when a decision card does not follow the form: correct the card " +
+		"with decision_edit. A note does not refuse the card."
+)
+
+var (
+	// cardRequired and cardOptional are the labels in their order after the heading.
+	cardRequired = []string{"**What:**", "**Why:**", "**Fast or complete:**", "**Fix loop:**", "**On track:**"}
+	// cardAnswers are the fixed answers that start the text of a label (CARD-LOOP-SCOPE).
+	cardAnswers  = map[string][]string{"**Fix loop:**": {"yes", "no"}, "**On track:**": {"on track", "off track"}}
+	cardOptional = []string{"**Corrections from the peer:**", "**Open disagreements:**", "**Other options:**",
+		"**A separate choice, which you can add to any option:**"}
+)
+
+// CardFormNotes checks the text of a decision card against the card form and says what to
+// correct, or nil. The check is on the text only: a note refuses nothing and changes no
+// state. Only the decision kind has the form.
+func CardFormNotes(kind, context, recommendation string) []string {
+	if kind != "decision" {
+		return nil
+	}
+	notes := []string{}
+	if !cardContextIsList(context) {
+		notes = append(notes, "context: write a short list of facts, with one list item for each fact, its source and its date.")
+	}
+	if n := utf8.RuneCountInString(context); n > cardContextRunes {
+		notes = append(notes, fmt.Sprintf("context: %d characters; keep it to %d or fewer.", n, cardContextRunes))
+	}
+	lines := strings.Split(recommendation, "\n")
+	if !cardHasHeading(lines) {
+		notes = append(notes, "recommendation: start with the heading \"## Recommendation:\" and the action in one line.")
+	}
+	last, ordered := -1, true
+	for _, label := range append(append([]string{}, cardRequired...), cardOptional...) {
+		at := cardLabelLine(lines, label)
+		if at < 0 {
+			continue
+		}
+		if at < last {
+			ordered = false
+		}
+		last = at
+	}
+	for _, label := range cardRequired {
+		at := cardLabelLine(lines, label)
+		if at < 0 {
+			notes = append(notes, "recommendation: add "+label)
+			continue
+		}
+		if answers := cardAnswers[label]; answers != nil && !cardAnswered(lines[at], label, answers) {
+			notes = append(notes, "recommendation: start "+label+" with \""+strings.Join(answers, "\" or \"")+"\".")
+		}
+	}
+	if !ordered {
+		notes = append(notes, "recommendation: put the labels in the order of the card form.")
+	}
+	if n := utf8.RuneCountInString(recommendation); n > cardRecommendationRunes {
+		notes = append(notes, fmt.Sprintf("recommendation: %d characters; keep it to %d or fewer.", n, cardRecommendationRunes))
+	}
+	if len(notes) == 0 {
+		return nil
+	}
+	return notes
+}
+
+// cardContextIsList reports a context with a list item first in which each later line is a
+// list item that the dashboard renders as one, or an indented line that continues its item.
+func cardContextIsList(context string) bool {
+	found := false
+	for _, line := range strings.Split(context, "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		trimmed := strings.TrimLeft(line, " ")
+		if _, _, _, ok := listItem(trimmed); ok && len(line)-len(trimmed) < 4 {
+			found = true
+			continue
+		}
+		if !found || (line[0] != ' ' && line[0] != '\t') {
+			return false
+		}
+	}
+	return found
+}
+
+// cardHasHeading reports a first line with text that starts with the form's heading.
+func cardHasHeading(lines []string) bool {
+	for _, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			return strings.HasPrefix(line, "## Recommendation:")
+		}
+	}
+	return false
+}
+
+// cardLabelLine is the index of the first line that starts with label, or -1.
+func cardLabelLine(lines []string, label string) int {
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimLeft(line, " \t"), label) {
+			return i
+		}
+	}
+	return -1
+}
+
+// cardAnswered reports a label line whose text after the label starts with one whole answer,
+// in any case, followed by the end of the line, a space or tab, or sentence punctuation.
+func cardAnswered(line, label string, answers []string) bool {
+	text := strings.ToLower(strings.TrimLeft(strings.TrimPrefix(strings.TrimLeft(line, " \t"), label), " \t"))
+	for _, answer := range answers {
+		rest, ok := strings.CutPrefix(text, answer)
+		if ok && (rest == "" || strings.ContainsRune(" \t.,;:!?", rune(rest[0]))) {
+			return true
+		}
+	}
+	return false
+}
