@@ -177,7 +177,7 @@ standalone HTML preview before implementation. He rejected a visual redesign and
 approved the revised preview that used Koinon's actual navigation, tables, and
 Settings layout.
 
-**Answer:** “Ok, this is good for now. Implement this UI on this branch.”
+**Answer:** “ok this is good for now implement this UI on this branch .”
 
 **Reason and scope:** The approved preview makes remote setup discoverable inside
 the dashboard while retaining Koinon's interface. It adds a header entry point

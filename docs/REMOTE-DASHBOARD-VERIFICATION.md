@@ -206,7 +206,9 @@ head, and run the required Linux/macOS and native lifecycle CI.
 
 The earlier implementation evidence above describes its frozen source and the
 conditions of that run. It is historical evidence, not the status of a later
-onboarding UI change. The UI follow-up is based on committed remote-dashboard
+onboarding UI change. In particular, its staged/no-commit description is historical;
+the remote-dashboard implementation was subsequently committed locally.
+The UI follow-up is based on committed remote-dashboard
 checkpoint `3b6611ebd80d66dcacf5c7f87f55fc1daa402955`. Its final source, repository
 checks, and independent verdicts must be recorded against the final follow-up
 content before claiming those checks passed.
