@@ -141,7 +141,7 @@
     fetch(target.toString(), { method: "POST", body: body, credentials: "same-origin", cache: "no-store", redirect: "follow", signal: controller.signal })
       .then(function (response) {
         if (response.status === 401) {
-          message(target.pathname === "/dashboard/login" ? "Sign-in failed. Check the maintainer secret and try again." :
+          message(target.pathname === "/dashboard/login" ? "Sign-in failed. Check your Koinon password and try again." :
             "Sign-in required. Open Sign in again, then check the latest state. This action will not be replayed.");
           var link = document.getElementById("sign-in");
           if (link) {

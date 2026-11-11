@@ -81,6 +81,7 @@ type dashboardPage struct {
 	// has none of the view's actions or filters to keep (#507).
 	Reload bool
 	Host   string
+	Remote bool
 }
 
 func dashboardTemplates() (map[string]*template.Template, error) {
@@ -143,7 +144,7 @@ func dashboardTemplates() (map[string]*template.Template, error) {
 		return nil, err
 	}
 	result := map[string]*template.Template{}
-	for _, view := range append([]string{"login", "fault"}, dashboardViews...) {
+	for _, view := range append([]string{"login", "fault", "pair"}, dashboardViews...) {
 		t, err := template.Must(layout.Clone()).ParseFS(webFiles, "web/"+view+".html")
 		if err != nil {
 			return nil, err
@@ -170,6 +171,7 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 		}
 		page.Views, page.Now = dashboardViews, d.store.now()
 		page.Host, _ = os.Hostname()
+		page.Remote = remoteOrigin(r) != ""
 		page.Back = backField(page.View, r.URL.Query())
 		if page.CSRF != "" {
 			page.Notice = notice(r.URL.Query().Get("notice"))
@@ -248,6 +250,7 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 		}
 		http.Redirect(w, r, target, http.StatusSeeOther)
 	}
+	d.dashboardPairRoutes(mux, authed, signedIn, render)
 	mux.HandleFunc("GET /dashboard/login", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			// A HEAD request, such as a link preview, never uses the token.

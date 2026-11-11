@@ -138,7 +138,7 @@ func TestDashboardRemoteSetupReadOnlyApprovalAndReadyStates(t *testing.T) {
 		t.Fatalf("normal read queried approval %d times", queries)
 	}
 	approval := dashboardDo(t, d, "GET", "/dashboard/remote/status?fragment=1&setup=1", client.cookie, nil, nil)
-	if approval.status != 200 || !strings.Contains(approval.body, onboardingApprovalURL) || !strings.Contains(approval.body, "Open Tailscale approval") {
+	if approval.status != 200 || !strings.Contains(approval.body, onboardingApprovalURL) || !strings.Contains(approval.body, "Open Tailscale") {
 		t.Fatalf("approval missing: %d %s", approval.status, approval.body)
 	}
 	if strings.Contains(approval.body, "synthetic private provider prose") || strings.Contains(approval.body, `action="/dashboard/actions/remote-enable"`) {

@@ -1,8 +1,9 @@
 # Private remote dashboard
 
 Use the existing dashboard from a phone away from home through Tailscale Serve. The
-phone and host join the same private Tailscale network; the browser signs in with
-the existing maintainer secret. The host must stay awake, online, and running
+phone and host join the same private Tailscale network. Sign in with a one-time
+QR created from your signed-in dashboard, or enter your Koinon password (the
+existing maintainer secret) when opening the ordinary URL. The host must stay awake, online, and running
 Koinon and Tailscale. This feature does not wake a sleeping host.
 
 The optional LAN HTTPS dashboard configured by `koinon install
@@ -12,29 +13,60 @@ and [PDR 010](product/pdr/010-private-remote-dashboard-access.md).
 
 ## Set up from the dashboard
 
-Open the dashboard for the Koinon computer you want to reach. Select **Go remote**
-from the header, or open **Settings → Remote access**. The section uses the
-existing dashboard layout, sign-in, and controls.
+On the Koinon computer you want to reach, select **Go remote** from the dashboard
+header, or open **Settings → Remote access**. Setup shows the next action for the
+current state; technical status is in details. The **Go remote** header control
+is hidden when you are already using the remote dashboard. This follows the
+actual remote connection, rather than the screen width.
 
-1. Select **Check my setup**. The section shows the computer listener, Tailscale
-   connection, and Serve mapping separately. If Tailscale is missing, use **Get
-   Tailscale** to install it on the computer and phone, then sign in with the same
-   account on both. If the maintainer secret is missing, set it on the computer
-   with `koinon maintainer secret set`.
-2. If **Open Tailscale approval** appears, follow it to the account page in a
-   separate tab. Complete the required HTTPS or Serve account step, return to
-   Koinon, and select **Check again**. Where the installed Tailscale version
-   cannot provide a setup link, the section links to the official HTTPS
-   instructions and reports the next step.
-3. Select **Enable remote access** when setup is ready. Returning from an account
-   page, refreshing, or reconnecting never enables access automatically. Enable
-   uses the same persistent listener and owned mapping as `koinon remote enable`.
-4. Connect Tailscale on the phone. Copy the dashboard link or scan its QR code,
-   then sign in with the existing maintainer secret. The QR contains only the
-   URL, without a password or login token. Keep the link for later visits.
-5. Complete the cellular check described below. The section always labels phone
-   reachability **Unverified**; a ready host does not prove that the phone can
-   reach it.
+1. Follow the displayed setup action. Install Tailscale on the computer and phone
+   if needed, and sign in with the same account on both. If no Koinon password is
+   set, run `koinon maintainer secret set` on the computer. This is the existing
+   maintainer secret, not a second credential.
+2. If Tailscale approval is needed, open its account page, complete the step, then
+   return and use the displayed check action. The section offers official HTTPS
+   instructions when
+   the installed Tailscale version cannot provide an approval link.
+3. Select **Enable remote access** when ready. Account approval, refresh, and
+   reconnect never enable access automatically. This uses the same persistent
+   listener and owned mapping as `koinon remote enable`.
+4. Connect Tailscale on the phone. On the signed-in computer, select **Show
+   sign-in QR**, then scan it on the phone within two minutes. It authorizes one
+   sign-in to this remote dashboard. Treat the displayed QR as a temporary
+   credential; it is not the bookmark for later visits.
+5. Keep the separate dashboard link for later. Opening that copied or bookmarked
+   URL while signed out asks for the Koinon password. Complete the cellular check
+   below separately; host readiness alone cannot verify the phone's network.
+
+### Staying signed in
+
+A remote browser session allows seven days without activity and ends at most
+seven days after sign-in. Browser-cookie loss, logout, remote disable, password
+change, or daemon restart can end access earlier. Local browser and maintainer
+API-token sessions retain their 24-hour idle limit and seven-day maximum.
+
+The QR's two-minute lifetime applies only to starting a sign-in. Once redeemed,
+the remote session has the longer lifetime above. A report of sign-out after
+five minutes is still under investigation; the configured limits do not explain
+that report, and extending idle time is not a verified fix for it.
+
+### Sign-in QR and saved URL
+
+A sign-in QR works once and expires after two minutes. If it expires, has already
+been used, or the browser loses the response, create another QR from the
+signed-in computer or use the password form. A failed redemption is not retried
+automatically. Without JavaScript, use the ordinary password form.
+
+The ticket is in the QR link's URL fragment, not its query. The landing page
+removes that fragment from its address before submitting one redemption request.
+Visiting or previewing the landing page alone does not consume it. Koinon keeps
+only a hash of an outstanding ticket in daemon memory, bound to the configured
+remote origin. Disable, secret change, and daemon restart invalidate pending
+tickets. The ticket is not saved to disk, logs, or the stable dashboard URL.
+
+The command-line QR remains different: it contains only the ordinary dashboard
+URL and needs the password when signed out. **Show sign-in QR** in the browser
+is the explicit action that creates a temporary sign-in credential.
 
 **Turn off remote access** opens a confirmation section before the button that
 stops the listener and removes its owned mapping. If you do this from the remote
@@ -46,7 +78,7 @@ The setup check can ask Tailscale's control plane for feature instructions; it
 neither approves the account step nor changes a Serve mapping. Normal status
 refreshes do not repeat that account query. Setup instructions and enable
 eligibility stay at the last explicit check, labeled separately from refreshed
-host status. Select **Check again** after the account step. If a read fails, the section labels
+host status. Use the displayed check action after the account step. If a read fails, the section labels
 displayed status as potentially stale. The page retains an open confirmation
 section or form while its action is running.
 
@@ -181,6 +213,10 @@ old-key retention and this rename path still need the live platform check.
 
 ## Phone behavior
 
+The remote header omits **Go remote** because this connection is already remote.
+The password form labels the existing maintainer secret **Koinon password**.
+The browser sign-in QR is an alternative to typing it, not a new password.
+
 All existing views and actions use the same daemon state and action handlers:
 agents and session controls, messages and delivery, rooms, decisions and history,
 launch, work, memory, audit, settings, and health. Registration alone does not
@@ -214,6 +250,7 @@ return screen after sign-in, without submitting the prior action.
 | Required root or port is already used | Inspect `tailscale serve status --json`; resolve the reported conflict explicitly. Koinon preserves it. |
 | Saved loopback port is occupied | Free the saved port and repeat enable, or disable successfully then enable to choose an available backend port. The daemon's local API remains available. |
 | Network policy denies the phone | Check the phone's network/account and the tailnet access policy for this host's HTTPS port. Host status cannot prove phone permission. |
+| Sign-in QR expired, was already used, or its result is unknown | Create a new sign-in QR on the signed-in computer, or use the Koinon password at the ordinary dashboard URL. |
 | Host is configured but phone fails | Check host wake state, both Tailscale connections, network policy, and the URL from status. Complete the cellular test separately. |
 
 The [verification record](REMOTE-DASHBOARD-VERIFICATION.md) separates automated,

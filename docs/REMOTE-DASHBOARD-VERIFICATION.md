@@ -241,3 +241,52 @@ For a manual UI check, open the updated dashboard and:
 Record actual platform/browser versions and results separately. This subsection
 adds a checklist; it reports no new test pass, service restart, or live settings
 change.
+
+
+## One-time browser QR amendment — 2026-11-11
+
+Andrew reported: “Ok, I put in secret. It worked on my phone.” This is reported
+phone password sign-in success. The report does not identify a browser version,
+phone OS, cellular network, or host-side message/verdict evidence. It does not
+complete the cellular and device matrix. Andrew then explicitly chose one-time
+browser QR sign-in and ordinary-URL password fallback (PDR 010, Decision 4).
+The earlier URL-only QR evidence remains evidence of that earlier implementation,
+not verification of this authentication change.
+
+The updated flow needs separate automated and real-browser checks:
+
+| Area | Required check |
+| --- | --- |
+| Ticket creation | Requires a signed-in session, expected Origin, and session-bound CSRF; creation returns an in-memory QR credential without changing Serve configuration. |
+| Scope and lifetime | One successful redemption, two-minute expiry, exact configured remote-origin binding; replay, wrong origin, expiry, disable, secret change, and restart reject outstanding tickets. |
+| Landing GET | Opening or previewing `/dashboard/pair` does not consume a ticket. The ticket is a fragment, never a query or log field. |
+| Phone redemption | Script clears the fragment before one POST; the resulting remote cookie has the existing Secure, HttpOnly, Strict and path attributes. Invalid tickets cannot start a local or API session. |
+| Interrupted redemption | Lost response is not retried automatically; create a new QR or use password sign-in. |
+| Ordinary access | Signed-out visits to the copied or bookmarked dashboard URL require the existing password. The CLI QR remains an ordinary URL shortcut. |
+| Remote header | Go remote remains on the local surface at narrow widths, and is absent from the actual remote surface at phone and desktop widths. |
+
+For the device check, connect Tailscale on the phone, create a fresh **sign-in QR**
+from the signed-in computer, scan it, and confirm that it signs in without password
+entry. Test a second scan and an expired code, then verify ordinary URL access in
+a signed-out browser still asks for the Koinon password. Record actual device,
+browser and network details. Run the cellular read/message/verdict test separately
+with Wi-Fi off and verify results on the host.
+
+This subsection records the reported password result and the amended checklist.
+It claims no automated, cellular, ticket-redemption or physical-layout test pass.
+
+
+### Reported short phone session and lifetime refinement
+
+Andrew reported a phone sign-out after about five minutes away and asked for a
+longer session. The prior implementation's configured idle limit was 24 hours,
+with seven days absolute, so five minutes was not its configured expiry. The
+cause remains unknown; this record does not treat the longer limit as a verified
+fix for that report.
+
+The follow-up extends only remote browser idle time to seven days and retains
+the seven-day absolute maximum. Local browser and maintainer API-token idle time
+stays 24 hours. The QR's two-minute expiry limits an unredeemed ticket, not the
+session it opens. Verify these cases separately, including revocation on logout,
+disable, password change and restart. Browser-cookie loss can require a new
+sign-in regardless of the server lifetime. No new test result is claimed here.

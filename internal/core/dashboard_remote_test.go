@@ -130,7 +130,7 @@ func TestRemoteSessionInvalidation(t *testing.T) {
 	id, _ = d.auth.start(dashboardClient(r))
 	r.Header.Del("Cookie")
 	r.AddCookie(&http.Cookie{Name: cookieName(r), Value: id})
-	d.auth.now = func() time.Time { return d.store.now().Add(sessionIdle + time.Second) }
+	d.auth.now = func() time.Time { return d.store.now().Add(remoteSessionIdle + time.Second) }
 	if _, ok := d.auth.session(r); ok {
 		t.Fatal("idle login accepted")
 	}

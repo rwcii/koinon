@@ -7,6 +7,24 @@ cellular or Wi-Fi away from home. The recommended first version uses Tailscale S
 for private HTTPS access and Koinon's existing dashboard login. It runs with the
 existing Go daemon and uses the same state and actions as the local dashboard.
 
+## Approved amendments — 2026-11-11
+
+The original proposal below is retained as design history. PDR 010, Decisions 3
+and 4, and ADR 002 record later approved implementation choices. In particular,
+Andrew explicitly changed the browser QR from the URL-only/password flow to a
+one-time sign-in ticket after reporting successful phone password sign-in.
+
+The browser creates that two-minute, one-use ticket only from a signed-in,
+CSRF-protected action. Its QR carries a fragment for one Origin-checked redemption
+at the configured remote surface. The separately copied stable URL still needs
+the existing password when signed out; the CLI QR remains URL-only. Tickets are
+memory-only, origin-bound, and cleared by disable, secret change, and restart.
+This scoped amendment supersedes the original prohibition on credentials in the
+browser QR, but keeps credentials out of saved URLs, logs, and persistent state.
+The concise remote UI hides **Go remote** on the actual remote surface and keeps
+technical status in details. These amendments do not establish cellular or
+physical-device acceptance evidence.
+
 ## Confirmed scope
 
 Andrew chose dashboard control after comparing dashboard, live terminal and desktop

@@ -8,12 +8,13 @@
 <script src="/dashboard/static/app.js" defer></script>
 <script src="/dashboard/static/speak.js" defer></script>
 {{if eq .View "settings"}}<script src="/dashboard/static/remote.js" defer></script>{{end}}
+{{if eq .View "pair"}}<script src="/dashboard/static/pair.js" defer></script>{{end}}
 </head>
 <body>
 <header>
 <span class="brand">Koinon</span>
 {{if .CSRF}}<nav>{{range .Views}}<a href="/dashboard/{{.}}"{{if eq . $.View}} aria-current="page"{{end}}>{{.}}</a>{{end}}</nav>
-<a class="remote-link" href="/dashboard/settings#remote-access">Go remote</a>
+{{if not .Remote}}<a class="remote-link" href="/dashboard/settings#remote-access">Go remote</a>{{end}}
 <form method="post" action="/dashboard/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Log out</button></form>{{end}}
 </header>
 <main>

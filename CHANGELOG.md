@@ -7,10 +7,20 @@ into a dated release section when promoted to `main`.
 
 - The dashboard header now offers **Go remote**, opening **Settings → Remote
   access** in Koinon's existing interface. Check setup, follow Tailscale's
-  account approval when required, explicitly enable access, copy the stable link
-  or scan its URL-only QR, and turn access off. Host readiness and unverified
-  phone reachability stay separate; returning from approval never submits a
-  write automatically (PDR 010).
+  account approval when required, and explicitly enable access. The concise
+  setup shows one next step, with technical status in details. **Go remote** is
+  hidden on the actual remote dashboard, including phones already using it.
+- **Show sign-in QR** lets a signed-in dashboard authorize one remote sign-in
+  within two minutes. Opening the copied or bookmarked URL while signed out
+  still asks for the Koinon password (the existing maintainer secret). The CLI's
+  printed QR remains a URL shortcut that needs that password. Host readiness
+  and unverified cellular access stay separate (PDR 010, Decision 4).
+
+- Remote browser sign-ins now allow seven days idle, with the existing seven-day
+  absolute maximum. Local browser and maintainer-token idle limits remain 24
+  hours. The sign-in QR still expires after two minutes; that does not expire a
+  session it has already opened. The reported five-minute phone sign-out remains
+  unexplained; this extension is not a verified fix for that report.
 
 - Private remote dashboard access through Tailscale Serve (ADR 002, PDR 010):
   `koinon remote enable`, `status`, and `disable` manage a persistent dashboard-only

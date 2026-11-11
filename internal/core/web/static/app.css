@@ -157,3 +157,7 @@ meter { width: 8em; }
 .remote-qr { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin: 12px 0; }
 .remote-qr img { max-width: 100%; height: auto; }
 #remote-read-status { color: var(--muted); font-size: 12px; }
+
+#remote-ticket-output { margin-top: 12px; }
+#remote-ticket-image { max-width: 100%; height: auto; }
+.remote-panel > details, .remote-link-option { margin: 12px 0; }

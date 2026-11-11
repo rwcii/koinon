@@ -56,8 +56,8 @@ function answer(r,text){r.resolve({ok:true,text:async()=>text})}
  answer(b.requests[2],'fresh measured status');await settle();assert.equal(b.panel.innerHTML,'fresh measured status');assert.equal(b.approval,provider);assert.equal(b.approval.enableAllowed,false);
  b.busy=true;b.event('online');assert.equal(b.requests.length,3);b.busy=false;
  b.event('online');b.focused=true;answer(b.requests[3],'discard while typing');await settle();assert.equal(b.panel.innerHTML,'fresh measured status');b.focused=false;
- b.event('visibilitychange');b.requests[4].reject(new Error('offline'));await settle();assert.match(b.status.textContent,/unavailable.*stale/);assert.equal(b.panel.innerHTML,'fresh measured status');
- b.advance(31000);b.intervals[0]();assert.match(b.status.textContent,/stale/);answer(b.requests[5],'recovered');await settle();assert.equal(b.panel.innerHTML,'recovered');assert.match(b.status.textContent,/Remote status checked/);assert.doesNotMatch(b.status.textContent,/stale/);
+ b.event('visibilitychange');b.requests[4].reject(new Error('offline'));await settle();assert.match(b.status.textContent,/unavailable.*stale/);assert.equal(b.status.hidden,false);assert.equal(b.panel.innerHTML,'fresh measured status');
+ b.advance(31000);b.intervals[0]();assert.match(b.status.textContent,/stale/);answer(b.requests[5],'recovered');await settle();assert.equal(b.panel.innerHTML,'recovered');assert.match(b.status.textContent,/Remote status checked/);assert.doesNotMatch(b.status.textContent,/stale/);assert.equal(b.status.hidden,true);
  assert.equal(b.requests.filter(r=>r.options.method==='POST').length,0);assert.ok(b.requests.every(r=>r.options.cache==='no-store'));
  console.log('remote browser read, approval, single-flight, form preservation and recovery passed');
 })().catch(e=>{console.error(e);process.exit(1)});

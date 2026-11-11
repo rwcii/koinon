@@ -1,7 +1,7 @@
 ---
 adr: "002"
 title: "Private Remote Dashboard Transport"
-status: accepted
+status: modified
 created: "2026-11-11"
 updated: "2026-11-11"
 authors:
@@ -24,7 +24,7 @@ tags:
 
 **Date:** 2026-11-11
 
-**Status:** Accepted
+**Status:** Modified
 
 **Authors:** Andrew
 
@@ -32,7 +32,9 @@ tags:
 
 An optional dashboard-only loopback listener in the existing daemon receives
 private HTTPS traffic through Tailscale Serve. The listener reuses the dashboard
-handlers, requires the existing maintainer secret, and never mounts the agent API.
+handlers and never mounts the agent API. Remote sign-in uses the existing
+maintainer secret or a transient one-use ticket explicitly created by a signed-in
+dashboard, as amended by PDR 010, Decision 4.
 The local agent API and optional LAN HTTPS dashboard retain their existing roles
 under ADR 001. Product behavior is in PDR 010.
 
@@ -94,13 +96,16 @@ The implementation follows these boundaries from the authorized specification:
   and [HTTPS certificate](https://tailscale.com/docs/how-to/set-up-https-certificates)
   naming contracts. This scopes the current external Serve adapter, rather than
   deciding future custom-domain support.
-- Remote login uses the maintainer secret. A local one-time login link or API
-  bearer does not authenticate it. Remote sessions have a distinct cookie name,
+- Remote login uses the maintainer secret or the scoped remote sign-in ticket
+  described in Decision 3 below. A local one-time login link or API bearer does
+  not authenticate it. Remote sessions have a distinct cookie name,
   `Secure`, `HttpOnly`, `SameSite=Strict`, and `Path=/dashboard/`, with no Domain.
   The session is bound to the remote surface and origin, so copying an ID into a
   local cookie does not authorize the local surface, or vice versa. Writes retain
   Origin and session-bound CSRF checks.
-- PDR 009's 24-hour idle and seven-day absolute session limits remain. Restart,
+- Remote browser idle time is seven days, with the existing seven-day absolute
+  maximum (PDR 010, Refinement 5). Local browser and maintainer-token idle time
+  remains 24 hours under PDR 009. Restart,
   secret change, remote disable, and external-origin change end the relevant
   logins. An identity or Serve/Funnel conflict observed at status or the
   30-second reconciliation closes the surface and ends its remote logins.
@@ -204,6 +209,58 @@ malicious process running as the same user or eliminate that ownership window.
 Cleanup failures remain reported and journaled; the next restoration checks the
 saved port and mapping before restoring service.
 
+## 3. Decision: Transient remote sign-in tickets
+
+PDR 010, Decision 4 records Andrew's 2026-11-11 choice between the original
+URL-only browser QR with password entry and a one-time QR sign-in ticket with
+ordinary-URL password fallback. Its context, answer, and product scope are the
+source for this authentication amendment. This changes browser QR sign-in,
+while retaining the private transport, CLI URL-only QR, existing password,
+remote session boundary, and absent agent API. PDR 010, Refinement 5 separately
+extends remote browser idle time to seven days while keeping the seven-day
+absolute limit; local browser and maintainer-token idle time remains 24 hours.
+
+A signed-in browser makes a session-bound CSRF-protected POST to create a random
+remote ticket and a PNG QR. The ticket is hashed in daemon memory, expires after
+two minutes, and is bound to the configured external origin. An atomic redemption
+permits one remote session. Disable, secret change, or daemon restart removes
+outstanding tickets. The two-minute ticket lifetime is separate from the
+established session's seven-day idle and absolute limits. The raw ticket, QR
+credential, and redemption body are not
+persisted in the ownership journal, audit targets, or logs.
+
+The QR carries `/dashboard/pair#ticket=...` at that origin. This differs from the
+stable dashboard URL copied for bookmarks. A GET to the landing page does not
+consume the ticket. The script clears the fragment with the browser history API
+before sending one redemption POST with the expected HTTPS Origin. The ticket
+itself supplies the one-time redemption proof; this unauthenticated redemption
+has no prior browser session from which to derive a CSRF token. It creates the
+existing `Secure`, `HttpOnly`, `SameSite=Strict`, dashboard-path remote cookie and
+cannot create a local or API session. Invalid, expired, used, or wrong-origin
+tickets fail without falling back to proxy identity headers or a local login link.
+
+The browser never retries a redemption after an uncertain response. It offers
+password sign-in or a newly created QR; the ordinary stable URL uses the password
+form when signed out. No-JavaScript clients use that form. Fragment delivery keeps
+the ticket out of the landing request URL; clearing it before redemption limits
+its subsequent browser-address exposure. The displayed QR remains a short-lived
+credential that must be kept private while outstanding.
+
+### Alternatives Considered
+
+| Alternative | Tradeoff |
+| --- | --- |
+| Password after every browser QR scan | Keeps the original design, but does not implement Andrew's explicit one-time QR choice. |
+| Ticket in a query string | Sends the credential in the landing request URL; a fragment permits a non-consuming GET and explicit redemption body. |
+| Permanent pairing or saved credential | Adds a durable credential lifecycle that the one-time sign-in request does not need. |
+
+### Rationale
+
+1. Existing browser authorization can issue a narrowly scoped remote sign-in ticket.
+2. Expiry, atomic one-use redemption, origin binding, and memory-only hashes keep
+   it separate from a permanent login URL.
+3. The existing remote cookie and password fallback preserve the established session boundary.
+
 ## Conclusion
 
 Private remote browser access has a dedicated listener and credential surface,
@@ -217,3 +274,5 @@ Serve mapping and records recoverable lifecycle transitions.
 | 2026-11-11 | Record Andrew's authorized first version and its transport boundary. |
 | 2026-11-11 | Clarify shutdown ownership, reconciliation, native naming scope, and interrupted cleanup after review. |
 | 2026-11-11 | Clarify the shared lifecycle, native setup query, and self-closing browser controls. |
+| 2026-11-11 | Amend remote sign-in with transient origin-bound QR tickets authorized in PDR 010, Decision 4. |
+| 2026-11-11 | Clarify remote-only seven-day idle time and its separation from ticket expiry. |

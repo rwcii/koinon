@@ -34,7 +34,9 @@ tags:
 
 The maintainer can configure private access to the existing dashboard through
 Tailscale Serve and sign in with the existing maintainer secret. Setup provides a
-stable HTTPS URL and a QR containing only that URL. Phone pages retain all
+stable HTTPS URL. The browser can explicitly create a one-time sign-in QR;
+the CLI QR remains a URL-only shortcut. Ordinary URL access while signed out
+uses the existing maintainer secret, labeled Koinon password. Phone pages retain all
 existing actions and distinguish host readiness, displayed-data freshness, and
 unverified phone reachability.
 
@@ -82,7 +84,8 @@ behavioral details below come from the same explicitly authorized
 authentication, and reconnection requirements; the transport quote alone is not
 the source of every detail.
 
-The authorized specification defines the following user-visible behavior:
+The authorized specification defines the following first-version behavior.
+Decision 4 below amends the browser QR sign-in flow; the CLI QR remains URL-only:
 
 | Area | Behavior |
 | --- | --- |
@@ -187,8 +190,9 @@ validation has passed.
 
 The flow checks host prerequisites, gives a Tailscale account approval link when
 available, waits for the person to return and check again, and offers an explicit
-**Enable remote access** action. It then shows the stable URL, URL-only QR, and
-existing maintainer sign-in instructions. A **Turn off remote access** disclosure
+**Enable remote access** action. The original approved version then showed the
+stable URL, URL-only QR, and existing maintainer sign-in instructions; Decision 4
+below amends that browser QR and simplifies the presentation. A **Turn off remote access** disclosure
 explains the loss of phone access before its explicit action. The CLI and browser
 use the same lifecycle and ownership rules.
 
@@ -212,6 +216,95 @@ the host before deciding to retry.
 2. The account step stays with Tailscale, whose prerequisites Koinon can observe.
 3. Explicit enable and disable preserve the existing uncertain-response behavior.
 
+## 4. Decision: One-time QR sign-in and a concise remote view
+
+### Decision
+
+**Decided by:** Andrew.
+
+**Date:** 2026-11-11.
+
+**Context:** The first version's QR opened the ordinary dashboard URL and asked
+for the maintainer secret. After using that password on his phone, Andrew chose
+a one-time QR sign-in ticket instead of retaining the password prompt after a
+browser QR scan. The ordinary copied URL keeps its password fallback. He also
+asked to remove **Go remote** from a dashboard that is already remote.
+
+**Answer:** “Ok, I put in secret. It worked on my phone. Yeah, let's do that so
+the QR code is a one-time sign-in ticket. And then if you reach it through the
+URL I guess it would be password needed. Commit changes when done.”
+
+For the header, Andrew said: “It still says go remote on the mobile version.
+That shouldn't be there ... I'm already remote.”
+
+**Reason and scope:** Scanning a QR created by an already signed-in dashboard
+should complete one remote sign-in without making the person type the same
+password on the phone. This explicitly changes the browser QR from the original
+URL-only design. The separately copied or bookmarked dashboard URL still needs
+the Koinon password when signed out. The CLI QR remains URL-only. Hiding the
+header control depends on the actual remote surface, so a local narrow window
+still has it and a remote desktop window does not.
+
+The setup presents one next step for its current state and keeps technical
+status in details. The password label is **Koinon password**, referring to the
+existing maintainer secret. No additional Koinon credential is introduced.
+
+A signed-in dashboard creates the QR through an explicit CSRF-protected action.
+The ticket permits one sign-in to the configured remote origin. The
+implementation uses a two-minute expiry for this temporary credential. Its use creates the same remote session with the existing cookie
+attributes and lifetime; it does not grant the agent API or create a permanent
+passwordless link. Tickets stay in daemon memory as hashes and are invalidated
+on disable, secret change, or restart. The stable URL never contains the ticket.
+
+Landing-page GETs do not consume tickets. The phone removes the ticket fragment
+from its address before one Origin-checked redemption POST. An expired or used
+ticket, lost response, or unsupported browser leads to a newly created QR or the
+ordinary password form, without automatic redemption retry. ADR 002 records the
+mechanism and browser boundary.
+
+Andrew's phone report establishes reported password sign-in success. It does not
+specify cellular use, device/browser versions, or the remaining acceptance matrix.
+The new ticket flow needs its own verification.
+
+### Alternatives Considered
+
+| Alternative | Why not this change |
+| --- | --- |
+| Keep the browser QR URL-only | Andrew explicitly chose one-time QR sign-in after the phone password test. |
+| Make the saved URL a permanent sign-in link | Andrew retained password-needed access through the ordinary URL. |
+| Hide Go remote only at phone widths | The reason is that the current connection is already remote; viewport width does not establish that. |
+
+### Rationale
+
+1. A signed-in dashboard supplies the authorization for one convenient phone sign-in.
+2. Short-lived, single-use tickets do not turn the stable URL into a credential.
+3. The remote view describes the connection the person is already using.
+
+## 5. Refinement: Longer remote browser sessions
+
+**Requested by:** Andrew, 2026-11-11.
+
+**Context:** After phone sign-in, Andrew reported being signed out after putting
+his phone away for five minutes and asked: “We should make this longer so I don't
+have to put in my password every time. What do you recommend?” The implementation
+previously allowed 24 hours idle and seven days absolute, so a five-minute expiry
+was not the configured behavior. The cause of the report is not established.
+
+**Implementation choice:** In response to the request, the recommended refinement
+extends only remote browser idle time to seven days, retaining the existing
+seven-day absolute maximum. Local browser and maintainer API-token sessions keep
+24 hours idle. This records the recommendation implemented within the requested
+longer-session scope; it does not attribute an explicit choice of seven days to
+Andrew.
+
+**Reason and scope:** The person can return to a phone dashboard without an idle
+expiry during its week-long maximum lifetime. Logout, disable, password change,
+restart, and browser-cookie loss can still require sign-in sooner. The two-minute
+one-time QR expiry only limits the ticket before redemption; it does not shorten
+an established session. The extension is not evidence that the reported
+five-minute sign-out is fixed. Browser details and reproduction remain needed to
+identify that cause.
+
 ## Conclusion
 
 Remote access reuses the dashboard's actions and login while making setup
@@ -225,3 +318,5 @@ unverified connectivity and action outcomes stay labeled as such.
 | 2026-11-11 | Record Andrew's authorized private dashboard scope and mobile behavior. |
 | 2026-11-11 | Clarify the behavior's specification source, reconciliation, and lifecycle recovery after review. |
 | 2026-11-11 | Record Andrew's approval of setup controls in the existing dashboard interface. |
+| 2026-11-11 | Amend browser QR sign-in and remote-view presentation after Andrew's phone test and explicit choice. |
+| 2026-11-11 | Record the requested longer-session refinement and its remote-only scope, without assigning a cause to the phone sign-out report. |
