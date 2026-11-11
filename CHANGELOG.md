@@ -5,6 +5,20 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Private remote dashboard access through Tailscale Serve (ADR 002, PDR 010):
+  `koinon remote enable`, `status`, and `disable` manage a persistent dashboard-only
+  loopback listener and one owned private HTTPS mapping, preserving unrelated
+  Serve configuration. Setup prints a stable URL and a URL-only QR; the phone
+  signs in with the existing maintainer secret. Remote cookies and sessions are
+  separate from local ones, and the agent API is absent from the remote listener.
+- Dashboard phone layouts retain existing actions, wrap long content, and provide
+  touch controls. Host, connection, and refresh-time indicators distinguish stale
+  data from a live read. Foreground/reconnect refresh preserves open forms and
+  unsent input; interrupted submissions report an unknown result and are never
+  replayed automatically. See [setup](docs/REMOTE-DASHBOARD.md) and the
+  [verification matrix](docs/REMOTE-DASHBOARD-VERIFICATION.md) for the separate
+  real proxy, cellular, and device acceptance steps.
+
 ## 2026-11-10 — Decision cards with the form at each write, a fix-loop answer and an on-track answer
 
 This release gives an agent the decision-card form each time it writes a card, also after a

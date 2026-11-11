@@ -172,6 +172,9 @@ func (a *dashboardAuth) prune(now time.Time) {
 // cookies by port, so each board opened under one loopback IP, such as a local daemon and a
 // tunnel to another computer's daemon, keeps its own login (#454).
 func cookieName(r *http.Request) string {
+	if remoteOrigin(r) != "" {
+		return "koinon_remote_dashboard"
+	}
 	_, port, _ := net.SplitHostPort(r.Host)
 	if networkDashboard(r) {
 		if port == "" {
@@ -198,7 +201,7 @@ func (a *dashboardAuth) session(r *http.Request) (string, bool) {
 	now := a.now()
 	a.prune(now)
 	s, found := a.sessions[hash]
-	if !found || s.client != "dashboard" {
+	if !found || s.client != dashboardClient(r) {
 		return "", false
 	}
 	s.used = now
@@ -280,4 +283,23 @@ func dashboardHeaders(w http.ResponseWriter) {
 	h.Set("Referrer-Policy", "same-origin")
 	h.Set("Cache-Control", "no-store")
 	h.Set("Cross-Origin-Opener-Policy", "same-origin")
+}
+
+// A remote login is bound to the configured external origin, even if a cookie value is
+// copied into another surface's cookie. The origin comes only from listener configuration.
+func dashboardClient(r *http.Request) string {
+	if origin := remoteOrigin(r); origin != "" {
+		return "remote:" + origin
+	}
+	return "dashboard"
+}
+
+func (a *dashboardAuth) endRemote() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for hash, s := range a.sessions {
+		if strings.HasPrefix(s.client, "remote:") {
+			delete(a.sessions, hash)
+		}
+	}
 }

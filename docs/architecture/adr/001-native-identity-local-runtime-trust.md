@@ -3,7 +3,7 @@ adr: "001"
 title: "Native Identity and Local Runtime Trust"
 status: draft
 created: "2026-10-12"
-updated: "2026-11-06"
+updated: "2026-11-11"
 parent_adr: ""
 authors:
   - "Robert Capps"
@@ -39,7 +39,9 @@ browser login and request checks. The upgrade from the Python runtime runs that 
 uninstaller.
 
 Every decision here is shipped behavior with no maintainer decision found, so the record is a
-draft: it states what Koinon currently does and why.
+draft: it states what Koinon currently does and why. The separately authorized private
+Tailscale Serve dashboard surface is recorded in [ADR 002](002-private-remote-dashboard-transport.md);
+it retains the loopback agent API boundary and the existing LAN dashboard.
 
 ---
 
@@ -427,3 +429,4 @@ agent.
 | 2026-10-25 | Decision 4: the login form accepts the maintainer secret (PDR 009, #470) |
 | 2026-10-25 | Requirement 3, Decisions 1 and 3: the peer-data and "does not" statements are restated as what the code does (#487) |
 | 2026-10-26 | Decision 1: the maintainer kept the `identity_unavailable` refusal (493-1, #493) |
+| 2026-11-11 | Link the separately authorized private remote surface in ADR 002 and PDR 010. |

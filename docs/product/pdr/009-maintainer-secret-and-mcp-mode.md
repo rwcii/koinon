@@ -3,7 +3,7 @@ pdr: "009"
 title: "Maintainer Secret and Maintainer MCP Mode"
 status: modified
 created: "2026-10-25"
-updated: "2026-11-06"
+updated: "2026-11-11"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -83,7 +83,9 @@ From #470:
 
 This record covers the maintainer's credential, the dashboard login and the maintainer MCP
 mode, including the optional HTTPS dashboard listener approved in DASHBOARD-LAN-624 (ADR 001,
-Decision 2). Agent identity and agent API transport keep their existing behavior.
+Decision 2). Agent identity and agent API transport keep their existing behavior. The private
+Tailscale Serve surface and its distinct remote sessions are specified in ADR 002
+and PDR 010.
 
 ---
 
@@ -292,3 +294,4 @@ use Koinon as intended from acting as the maintainer.
 | 2026-10-25 | Accepted (#470); Decisions 1 and 2 built |
 | 2026-10-26 | Decision 3 built without its change notices, and Decision 4 built (#470, PR 2). Decision 3 records the token's end, the start during the wait and the idle refresh, which the first client requested |
 | 2026-10-26 | Decision 3's change notices built (#470, PR 3). Decision 3 records that each long poll moves the idle limit, so a quiet subscribed client keeps its token, as the first client requested |
+| 2026-11-11 | Link the separately authorized private remote surface in ADR 002 and PDR 010. |

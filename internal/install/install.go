@@ -23,6 +23,7 @@ import (
 	"github.com/rwcii/koinon/internal/core"
 	"github.com/rwcii/koinon/internal/legacy"
 	"github.com/rwcii/koinon/internal/platform"
+	"github.com/rwcii/koinon/internal/remote"
 	"github.com/rwcii/koinon/internal/setup"
 )
 
@@ -31,6 +32,8 @@ var Families = []string{"claude", "codex", "agy", "opencode", "grok", "deepseek"
 
 // Options select the installation. Zero values take the documented defaults.
 type Options struct {
+	// Tailscale is an injectable adapter for uninstall mapping cleanup.
+	Tailscale        remote.Adapter
 	Prefix           string // default $XDG_DATA_HOME/koinon/go
 	StateDir         string // the Go state root; default platform.DefaultStateDir
 	Port             int    // the daemon's loopback port to record (#405); zero keeps the recorded one
@@ -1210,6 +1213,9 @@ func Uninstall(ctx context.Context, o Options) (Report, error) {
 		return r, err
 	} else if stopped {
 		removed = true
+	}
+	if err := core.CleanupRemote(ctx, o.StateDir, o.Tailscale); err != nil {
+		return r, fmt.Errorf("remote cleanup: %w; the daemon is stopped; repeat koinon uninstall to finish", err)
 	}
 	r.Service = map[bool]string{true: "removed", false: "absent"}[removed]
 	for _, skill := range pickupSkillPaths(o) {
