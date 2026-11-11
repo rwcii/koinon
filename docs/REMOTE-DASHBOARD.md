@@ -44,7 +44,9 @@ The local dashboard stays available.
 
 The setup check can ask Tailscale's control plane for feature instructions; it
 neither approves the account step nor changes a Serve mapping. Normal status
-refreshes do not repeat that account query. If a read fails, the section labels
+refreshes do not repeat that account query. Setup instructions and enable
+eligibility stay at the last explicit check, labeled separately from refreshed
+host status. Select **Check again** after the account step. If a read fails, the section labels
 displayed status as potentially stale. The page retains an open confirmation
 section or form while its action is running.
 

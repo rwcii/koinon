@@ -15,14 +15,16 @@
 <div class="remote-url"><code>{{.Status.URL}}</code> <button type="button" class="copy">Copy link</button></div>
 <div class="remote-qr"><img src="/dashboard/remote/qr" width="192" height="192" alt="QR code containing only the dashboard URL"><p><small>No password or sign-in token is in this QR.<br>Keep this link — it stays the same.</small></p></div>
 {{else}}
+<div id="remote-setup">
 <p>Use this dashboard from your phone or another computer, privately through Tailscale. No new Koinon account is needed.</p>
 <ol><li>Install Tailscale on your computer and phone. Sign in with the same account on both devices.</li><li>Approve secure access in Tailscale if prompted.</li><li>Open your private link and sign in with your existing maintainer secret.</li></ol>
 <p><a href="https://tailscale.com/download" target="_blank" rel="noreferrer noopener">Get Tailscale</a></p>
-<div id="remote-approval">{{if .Approval.URL}}<h2>Approve secure access in Tailscale</h2><p>Finish the account step, then return here. Your setup stays on this page.</p><p><a href="{{.Approval.URL}}" target="_blank" rel="noreferrer noopener">Open Tailscale approval</a></p>{{end}}
+{{if .Approval.URL}}<h2>Approve secure access in Tailscale</h2><p>Finish the account step, then return here. Your setup stays on this page.</p><p><a href="{{.Approval.URL}}" target="_blank" rel="noreferrer noopener">Open Tailscale approval</a></p>{{end}}
 {{if .SetupError}}<p class="notice">{{.SetupError}}</p><p><a href="https://tailscale.com/docs/how-to/set-up-https-certificates" target="_blank" rel="noreferrer noopener">Tailscale HTTPS setup instructions</a></p>{{end}}
-</div>
 {{if .Checked}}{{if .Ready}}<form method="post" action="/dashboard/actions/remote-enable"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Enable remote access</button></form>{{else if and .Secret .SetupError}}<form method="post" action="/dashboard/actions/remote-enable"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Try enabling remote access</button></form>{{end}}{{end}}
 <p><a data-remote-check href="/dashboard/remote/status?setup=1#remote-access">{{if .Checked}}Check again{{else}}Check my setup{{end}}</a></p>
+<p><small>Setup and account instructions reflect your last explicit check. After returning from Tailscale, select Check again.</small></p>
+</div>
 {{end}}
 <p><small>Keep this computer awake and Koinon running. This enables private access on your Tailscale network.</small></p>
 {{if or .Status.Configured (eq .Status.Serve "cleanup pending")}}<details><summary>Turn off remote access</summary><p>Your phone will lose access. You can keep using the dashboard on this computer.</p><form method="post" action="/dashboard/actions/remote-disable"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Turn off remote access</button></form></details>{{end}}

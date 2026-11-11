@@ -28,6 +28,10 @@ type dashboardRemoteData struct {
 
 func remoteControlRequest(r *http.Request) bool {
 	switch r.URL.Path {
+	case "/dashboard/settings":
+		// The no-JS status redirect renders these same lifecycle diagnostics.
+		// It can revoke this surface on an observed identity/Serve conflict.
+		return r.URL.Query().Get("remote_status") == "1" || r.URL.Query().Get("remote_setup") == "1"
 	case "/dashboard/remote/status", "/dashboard/remote/qr", "/dashboard/actions/remote-enable", "/dashboard/actions/remote-disable":
 		return true
 	}

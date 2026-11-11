@@ -185,8 +185,8 @@ actionable link to official setup instructions. This is a native provider
 contract within the existing injectable-adapter boundary, not a new transport.
 
 Remote lifecycle controls can close the listener serving their own request.
-Those authenticated control routes release the listener's request read lock
-before reconciliation or shutdown, so they can take its write lock without
+Those authenticated control routes, including the full Settings diagnostic render,
+release the listener's request read lock before reconciliation or shutdown, so they can take its write lock without
 waiting on themselves. Ordinary dashboard requests retain the existing drain
 behavior. A remote disable can close its response connection; the UI keeps the
 same unknown-result and no-replay semantics as other interrupted actions.

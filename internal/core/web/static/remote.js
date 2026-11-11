@@ -25,12 +25,13 @@
         return response.text();
       }).then(function (html) {
         if (busy()) { return; }
-        // Preserve a provider approval link across ordinary status reads without
-        // querying the provider again. All measured status values still update.
-        var approval = !explicit && panel.querySelector("#remote-approval");
+        // Preserve the last explicit setup result, including enable eligibility,
+        // without re-querying account instructions. Only the measured status
+        // updates on ordinary reads. Enabled state removes the setup section.
+        var setup = checked && !explicit && panel.querySelector("#remote-setup");
         panel.innerHTML = html;
-        var replacement = panel.querySelector("#remote-approval");
-        if (approval && replacement) { replacement.replaceWith(approval); }
+        var replacement = panel.querySelector("#remote-setup");
+        if (setup && replacement) { replacement.replaceWith(setup); }
         if (explicit) { checked = true; }
         refreshed = Date.now();
         status.textContent = "Remote status checked " + new Date(refreshed).toLocaleTimeString();

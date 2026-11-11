@@ -10,6 +10,8 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"os/exec"
 	"reflect"
 	"strings"
 	"sync"
@@ -329,5 +331,124 @@ func TestDashboardRemoteSetupDisableFromOwnListenerCompletes(t *testing.T) {
 	}
 	if got := dashboardDo(t, d, "GET", "/dashboard/settings", local.cookie, nil, nil); got.status != 200 {
 		t.Fatal("local dashboard failed after remote disable", got.status)
+	}
+}
+
+// Reconciliation can close the listener serving this request. Run each case in
+// a bounded subprocess: a lock regression must fail without hanging daemon
+// cleanup or the rest of the suite.
+func TestDashboardRemoteSettingsReconciliationCompletes(t *testing.T) {
+	const childVariable = "KOINON_TEST_REMOTE_SETTINGS_RECONCILIATION"
+	if scenario := os.Getenv(childVariable); scenario != "" {
+		parts := strings.Split(scenario, "/")
+		if len(parts) != 2 || (parts[0] != "remote_status" && parts[0] != "remote_setup") || (parts[1] != "identity" && parts[1] != "conflict") {
+			t.Fatal("invalid synthetic settings scenario")
+		}
+		testRemoteSettingsReconciliation(t, parts[0], parts[1])
+		return
+	}
+	for _, query := range []string{"remote_status", "remote_setup"} {
+		for _, failure := range []string{"identity", "conflict"} {
+			t.Run(query+"/"+failure, func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				defer cancel()
+				command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestDashboardRemoteSettingsReconciliationCompletes$", "-test.timeout=10s")
+				command.Env = append(os.Environ(), childVariable+"="+query+"/"+failure)
+				output, err := command.CombinedOutput()
+				if err != nil {
+					t.Fatalf("remote settings reconciliation failed: %v\n%s", err, output)
+				}
+			})
+		}
+	}
+}
+
+func testRemoteSettingsReconciliation(t *testing.T, query, failure string) {
+	t.Helper()
+	d, root, fake := onboardingFixture(t)
+	local := newActionClient(t, d, root)
+	if err := d.remoteEnable(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	config, err := ReadRemoteConfig(root)
+	if err != nil || config == nil {
+		t.Fatal(config, err)
+	}
+	id, err := d.passwordLogin(context.Background(), testSecret, "remote:"+config.Mapping.Origin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake.base.mu.Lock()
+	if failure == "identity" {
+		fake.base.dns = "changed.example.ts.net."
+	} else {
+		web := fake.base.config.Web["host.example.ts.net:443"]
+		web.Handlers["/"] = remote.Handler{Proxy: "http://127.0.0.1:45678"}
+		fake.base.config.Web["host.example.ts.net:443"] = web
+	}
+	foreignBefore, _ := json.Marshal(fake.base.config)
+	mutationsBefore := fake.base.mutations
+	fake.base.mu.Unlock()
+	request, err := http.NewRequest("GET", config.Mapping.Target+"/dashboard/settings?"+query+"=1", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Host = strings.TrimPrefix(config.Mapping.Origin, "https://")
+	request.AddCookie(&http.Cookie{Name: "koinon_remote_dashboard", Value: id, Secure: true})
+	client := &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: 3 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	defer client.CloseIdleConnections()
+	response, requestErr := client.Do(request)
+	if response != nil {
+		io.Copy(io.Discard, response.Body)
+		response.Body.Close()
+		if response.StatusCode != http.StatusOK {
+			t.Fatalf("reconciling settings status %d", response.StatusCode)
+		}
+	}
+	// Closing one's own listener may result in EOF before any response. The next
+	// bounded operation is the evidence that reconciliation released its locks.
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		d.remote.mu.Lock()
+		listening := d.remote.server != nil
+		d.remote.mu.Unlock()
+		if !listening {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("reconciliation left listener active; request error: %v", requestErr)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := dashboardDo(t, d, "GET", "/dashboard/remote/status?fragment=1", local.cookie, nil, nil); got.status != http.StatusOK {
+		t.Fatal("local status unavailable after remote settings reconciliation", got.status)
+	}
+	if got := local.do("remote-disable", url.Values{}); got != "remote_setup_required" {
+		t.Fatal("expected explicit cleanup conflict with foreign configuration preserved", got)
+	}
+	fake.base.mu.Lock()
+	foreignAfter, _ := json.Marshal(fake.base.config)
+	mutationsAfter := fake.base.mutations
+	fake.base.mu.Unlock()
+	if !bytes.Equal(foreignBefore, foreignAfter) || mutationsBefore != mutationsAfter {
+		t.Fatal("status/disable changed conflicting Serve configuration")
+	}
+	// Repair only this synthetic adapter so the ordinary lifecycle can release its
+	// journal and the test daemon can stop; no real Tailscale operation occurs.
+	fake.base.mu.Lock()
+	fake.base.dns = "host.example.ts.net."
+	web := fake.base.config.Web["host.example.ts.net:443"]
+	web.Handlers["/"] = remote.Handler{Proxy: config.Mapping.Target}
+	fake.base.config.Web["host.example.ts.net:443"] = web
+	fake.base.mu.Unlock()
+	if got := local.do("remote-disable", url.Values{}); got != "remote_disabled" {
+		t.Fatal("local disable did not recover after synthetic repair", got)
+	}
+	off, err := ReadRemoteConfig(root)
+	if err != nil || off == nil || off.Enabled || off.Owned {
+		t.Fatalf("cleanup journal not released: %+v %v", off, err)
+	}
+	if got := dashboardDo(t, d, "GET", "/dashboard/settings", local.cookie, nil, nil); got.status != http.StatusOK {
+		t.Fatal("local dashboard lost after reconciliation", got.status)
 	}
 }
