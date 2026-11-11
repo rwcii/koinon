@@ -1,7 +1,7 @@
 ---
 pdr: "010"
 title: "Private Remote Dashboard Access"
-status: accepted
+status: modified
 created: "2026-11-11"
 updated: "2026-11-11"
 authors:
@@ -26,7 +26,7 @@ tags:
 
 **Date:** 2026-11-11
 
-**Status:** Accepted
+**Status:** Modified
 
 **Authors:** Andrew
 
@@ -163,6 +163,55 @@ and writes with host verification, current iOS Safari and Android Chrome,
 write response, lifecycle restoration, and configuration ownership. Synthetic
 tests and static builds are distinct from physical-device evidence.
 
+## 3. Decision: Remote setup in the existing dashboard
+
+### Decision
+
+**Decided by:** Andrew.
+
+**Date:** 2026-11-11.
+
+**Context:** Add a customer-facing setup entry point, or keep remote setup in the
+terminal. Andrew requested a **Go remote** dashboard UI and asked to review a
+standalone HTML preview before implementation. He rejected a visual redesign and
+approved the revised preview that used Koinon's actual navigation, tables, and
+Settings layout.
+
+**Answer:** “Ok, this is good for now. Implement this UI on this branch.”
+
+**Reason and scope:** The approved preview makes remote setup discoverable inside
+the dashboard while retaining Koinon's interface. It adds a header entry point
+and a **Remote access** section in Settings on the existing feature branch. It
+does not authorize a separate dashboard redesign or a claim that physical phone
+validation has passed.
+
+The flow checks host prerequisites, gives a Tailscale account approval link when
+available, waits for the person to return and check again, and offers an explicit
+**Enable remote access** action. It then shows the stable URL, URL-only QR, and
+existing maintainer sign-in instructions. A **Turn off remote access** disclosure
+explains the loss of phone access before its explicit action. The CLI and browser
+use the same lifecycle and ownership rules.
+
+The section distinguishes the computer listener, Tailscale connection, and Serve
+mapping. Phone reachability stays unverified. Normal status reads and foreground
+or reconnect reads do not repeat writes or approve account consent. A lost disable
+response can mean that access was already stopped; the person checks status on
+the host before deciding to retry.
+
+### Alternatives Considered
+
+| Alternative | Why not this change |
+| --- | --- |
+| CLI-only setup | Leaves the requested customer-facing dashboard entry point absent. |
+| A redesigned dashboard | Andrew rejected the first preview because it did not look like Koinon; the revised preview used the existing interface. |
+| Enable when an approval tab returns | Returning does not prove account setup is complete, and connection recovery must not replay writes. |
+
+### Rationale
+
+1. Setup lives alongside the other dashboard settings and uses the existing login.
+2. The account step stays with Tailscale, whose prerequisites Koinon can observe.
+3. Explicit enable and disable preserve the existing uncertain-response behavior.
+
 ## Conclusion
 
 Remote access reuses the dashboard's actions and login while making setup
@@ -175,3 +224,4 @@ unverified connectivity and action outcomes stay labeled as such.
 | --- | --- |
 | 2026-11-11 | Record Andrew's authorized private dashboard scope and mobile behavior. |
 | 2026-11-11 | Clarify the behavior's specification source, reconciliation, and lifecycle recovery after review. |
+| 2026-11-11 | Record Andrew's approval of setup controls in the existing dashboard interface. |

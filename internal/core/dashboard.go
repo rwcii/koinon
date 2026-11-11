@@ -33,6 +33,7 @@ type settingsData struct {
 	// Context is each family's context policy (#196); Modes are the selectable modes.
 	Context []ContextFamilyPolicy
 	Modes   []string
+	Remote  *dashboardRemoteData
 }
 
 // loginData is the login page's reason, and whether it shows the secret form.
@@ -137,7 +138,7 @@ func dashboardTemplates() (map[string]*template.Template, error) {
 			return text
 		},
 	}
-	layout, err := template.New("layout.html").Funcs(funcs).ParseFS(webFiles, "web/layout.html")
+	layout, err := template.New("layout.html").Funcs(funcs).ParseFS(webFiles, "web/layout.html", "web/remote.html")
 	if err != nil {
 		return nil, err
 	}
@@ -298,6 +299,7 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 		refuse(w, r, http.StatusOK, "logout")
 	}))
 	d.dashboardActions(mux, authedLimit)
+	d.dashboardRemoteRoutes(mux, authed, pages)
 	mux.HandleFunc("GET /dashboard/{$}", authed(func(w http.ResponseWriter, r *http.Request, _ string) {
 		http.Redirect(w, r, "/dashboard/sessions", http.StatusSeeOther)
 	}))
@@ -322,6 +324,11 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 			if err != nil {
 				refuse(w, r, http.StatusBadRequest, "request")
 				return
+			}
+			if settings, ok := data.(settingsData); ok && r.URL.Query().Get("fragment") != "1" && (r.URL.Query().Get("remote_status") == "1" || r.URL.Query().Get("remote_setup") == "1") {
+				remoteData := d.dashboardRemoteState(r.Context(), r.URL.Query().Get("remote_setup") == "1", d.auth.csrf(id))
+				settings.Remote = &remoteData
+				data = settings
 			}
 			render(w, r, http.StatusOK, dashboardPage{View: view, Title: strings.ToUpper(view[:1]) + view[1:], CSRF: d.auth.csrf(id), Data: data})
 		}))

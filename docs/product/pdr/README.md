@@ -26,4 +26,4 @@ mechanism, a PDR decides the behavior that mechanism serves. Cross-reference via
 | 007    | [Human Decision Board](007-human-decision-board.md) | Draft |
 | 008    | [Portable Skills and Explicit Adoption](008-portable-skills-explicit-adoption.md) | Draft |
 | 009    | [Maintainer Secret and Maintainer MCP Mode](009-maintainer-secret-and-mcp-mode.md) | Modified |
-| 010    | [Private Remote Dashboard Access](010-private-remote-dashboard-access.md) | Accepted |
+| 010    | [Private Remote Dashboard Access](010-private-remote-dashboard-access.md) | Modified |

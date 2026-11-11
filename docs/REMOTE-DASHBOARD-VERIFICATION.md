@@ -200,3 +200,42 @@ project requires signed DCO commits and commit-bound reviews/statuses; the local
 tree reviews above do not claim those gates passed. After signing is available,
 freeze the commit, have the independent reviewer bind its verdicts to that exact
 head, and run the required Linux/macOS and native lifecycle CI.
+
+
+## Dashboard setup UI follow-up — 2026-11-11
+
+The earlier implementation evidence above describes its frozen source and the
+conditions of that run. It is historical evidence, not the status of a later
+onboarding UI change. The UI follow-up is based on committed remote-dashboard
+checkpoint `3b6611ebd80d66dcacf5c7f87f55fc1daa402955`. Its final source, repository
+checks, and independent verdicts must be recorded against the final follow-up
+content before claiming those checks passed.
+
+The follow-up adds **Go remote** and **Settings → Remote access** using the
+existing dashboard interface. Its automated acceptance covers authenticated
+status and URL-only QR reads, explicit setup/enable/disable, native approval-link
+validation, unchanged Serve ownership, and a remote disable that can close its
+own connection without waiting on its own request lock. Read, foreground, and
+reconnect behavior must retain the no-write-replay rule. Synthetic adapter and
+loopback tests do not establish account approval, real Serve forwarding,
+cellular access, or physical-device layout acceptance.
+
+For a manual UI check, open the updated dashboard and:
+
+1. Select **Go remote** and confirm it opens **Settings → Remote access** in the
+   existing navigation and visual style.
+2. Select **Check my setup**. If the section shows an approval link, complete the
+   Tailscale account step in its tab, return, and select **Check again**. Confirm
+   that returning does not enable access until **Enable remote access** is pressed.
+3. Inspect the enabled URL and scan the QR on a phone connected to the same
+   Tailscale network. Sign in with the existing secret. Turn Wi-Fi off, send a
+   message and verdict, and verify both results on the host.
+4. Interrupt a status read and confirm that unavailable or stale data is labeled.
+   Reconnect and confirm no submitted action is replayed.
+5. Open **Turn off remote access**, read the explanation, then press the button.
+   If the remote connection closes, inspect the local dashboard or run
+   `koinon remote status` to verify shutdown and owned-mapping cleanup.
+
+Record actual platform/browser versions and results separately. This subsection
+adds a checklist; it reports no new test pass, service restart, or live settings
+change.

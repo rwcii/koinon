@@ -146,3 +146,14 @@ meter { width: 8em; }
   th a { display: inline-flex; align-items: center; min-height: 44px; }
   #list > p a, .md a, .card-foot a { display: inline-block; min-height: 44px; padding-top: 10px; padding-bottom: 10px; }
 }
+
+/* Remote access uses the existing dashboard controls and disclosure layout. */
+.remote-link { color: var(--fg); text-decoration: none; padding: 3px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--row); }
+.remote-panel { max-width: 800px; }
+.remote-panel h2 { word-break: normal; }
+.remote-panel li { margin: 6px 0; }
+.remote-panel form { margin: 10px 0; }
+.remote-url { padding: 8px 10px; background: var(--row); border: 1px solid var(--line); border-radius: 4px; }
+.remote-qr { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin: 12px 0; }
+.remote-qr img { max-width: 100%; height: auto; }
+#remote-read-status { color: var(--muted); font-size: 12px; }

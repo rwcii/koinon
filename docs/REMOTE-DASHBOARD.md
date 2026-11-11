@@ -10,7 +10,49 @@ The optional LAN HTTPS dashboard configured by `koinon install
 serves the agent API. See [ADR 002](architecture/adr/002-private-remote-dashboard-transport.md)
 and [PDR 010](product/pdr/010-private-remote-dashboard-access.md).
 
-## Setup
+## Set up from the dashboard
+
+Open the dashboard for the Koinon computer you want to reach. Select **Go remote**
+from the header, or open **Settings → Remote access**. The section uses the
+existing dashboard layout, sign-in, and controls.
+
+1. Select **Check my setup**. The section shows the computer listener, Tailscale
+   connection, and Serve mapping separately. If Tailscale is missing, use **Get
+   Tailscale** to install it on the computer and phone, then sign in with the same
+   account on both. If the maintainer secret is missing, set it on the computer
+   with `koinon maintainer secret set`.
+2. If **Open Tailscale approval** appears, follow it to the account page in a
+   separate tab. Complete the required HTTPS or Serve account step, return to
+   Koinon, and select **Check again**. Where the installed Tailscale version
+   cannot provide a setup link, the section links to the official HTTPS
+   instructions and reports the next step.
+3. Select **Enable remote access** when setup is ready. Returning from an account
+   page, refreshing, or reconnecting never enables access automatically. Enable
+   uses the same persistent listener and owned mapping as `koinon remote enable`.
+4. Connect Tailscale on the phone. Copy the dashboard link or scan its QR code,
+   then sign in with the existing maintainer secret. The QR contains only the
+   URL, without a password or login token. Keep the link for later visits.
+5. Complete the cellular check described below. The section always labels phone
+   reachability **Unverified**; a ready host does not prove that the phone can
+   reach it.
+
+**Turn off remote access** opens a confirmation section before the button that
+stops the listener and removes its owned mapping. If you do this from the remote
+page, the connection can close before the browser receives confirmation. Use the
+local dashboard or `koinon remote status` to check the result before trying again.
+The local dashboard stays available.
+
+The setup check can ask Tailscale's control plane for feature instructions; it
+neither approves the account step nor changes a Serve mapping. Normal status
+refreshes do not repeat that account query. If a read fails, the section labels
+displayed status as potentially stale. The page retains an open confirmation
+section or form while its action is running.
+
+These controls require the daemon version that includes them. Before upgrading a
+shared service, inspect `koinon install --plan` and coordinate its current users.
+The command-line workflow remains available.
+
+## Set up from the command line
 
 1. Install Tailscale on the host and phone using the [platform instructions](https://tailscale.com/download).
    Connect both to the intended private network. Restrict the network's access

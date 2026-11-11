@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The dashboard header now offers **Go remote**, opening **Settings → Remote
+  access** in Koinon's existing interface. Check setup, follow Tailscale's
+  account approval when required, explicitly enable access, copy the stable link
+  or scan its URL-only QR, and turn access off. Host readiness and unverified
+  phone reachability stay separate; returning from approval never submits a
+  write automatically (PDR 010).
+
 - Private remote dashboard access through Tailscale Serve (ADR 002, PDR 010):
   `koinon remote enable`, `status`, and `disable` manage a persistent dashboard-only
   loopback listener and one owned private HTTPS mapping, preserving unrelated

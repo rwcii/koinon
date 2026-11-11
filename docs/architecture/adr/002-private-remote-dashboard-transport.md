@@ -168,6 +168,29 @@ Tailscale CLI. Synthetic tests use temporary state and an injected adapter rathe
 than a person's account. Real macOS/Linux Serve and phone tests are separately
 recorded in the verification record. Static builds do not prove those paths.
 
+The dashboard setup entry point follows PDR 010, Decision 3. Its authenticated
+browser routes call the same daemon lifecycle as the CLI; they do not proxy
+browser requests to `/v1/`. The remote status and QR routes use the existing
+session boundary, and enable/disable retain the existing Origin and CSRF checks.
+
+An explicit setup check can use the installed Tailscale CLI's native feature
+instructions query. The v1.102.3 [client](https://github.com/tailscale/tailscale/blob/v1.102.3/client/local/local.go)
+and [LocalAPI handler](https://github.com/tailscale/tailscale/blob/v1.102.3/ipn/localapi/localapi.go)
+use a read-permitted POST that requests control-plane instructions; it does not
+set Serve configuration or accept account consent. The adapter accepts only the
+native HTTPS Serve approval page on `login.tailscale.com`. That transient account
+URL is separate from the stable dashboard URL and is not placed in a QR, private
+ownership journal, audit target, or diagnostic log. Unsupported versions use an
+actionable link to official setup instructions. This is a native provider
+contract within the existing injectable-adapter boundary, not a new transport.
+
+Remote lifecycle controls can close the listener serving their own request.
+Those authenticated control routes release the listener's request read lock
+before reconciliation or shutdown, so they can take its write lock without
+waiting on themselves. Ordinary dashboard requests retain the existing drain
+behavior. A remote disable can close its response connection; the UI keeps the
+same unknown-result and no-replay semantics as other interrupted actions.
+
 ### Trade-offs Accepted
 
 Both host and phone need Tailscale, suitable network policy, and an online awake
@@ -193,3 +216,4 @@ Serve mapping and records recoverable lifecycle transitions.
 | --- | --- |
 | 2026-11-11 | Record Andrew's authorized first version and its transport boundary. |
 | 2026-11-11 | Clarify shutdown ownership, reconciliation, native naming scope, and interrupted cleanup after review. |
+| 2026-11-11 | Clarify the shared lifecycle, native setup query, and self-closing browser controls. |

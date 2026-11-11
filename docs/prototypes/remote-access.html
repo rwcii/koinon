@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Koinon · Remote access preview</title><style>:root {
+  --bg: #fbfbfa;
+  --fg: #1d1d1b;
+  --muted: #6b6b66;
+  --line: #e2e1dc;
+  --accent: #2f5d8a;
+  --warn: #9a3412;
+  --row: #f3f2ee;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615;
+    --fg: #e9e8e3;
+    --muted: #a3a29b;
+    --line: #34332f;
+    --accent: #8db4dc;
+    --warn: #f0a070;
+    --row: #1f1f1d;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+.brand { font-weight: 600; }
+nav { display: flex; flex-wrap: wrap; gap: 4px 14px; flex: 1; }
+nav a { color: var(--muted); text-decoration: none; text-transform: capitalize; }
+nav a[aria-current="page"] { color: var(--fg); font-weight: 600; }
+header form { margin: 0; }
+button { font: inherit; padding: 3px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--row); color: var(--fg); cursor: pointer; }
+main { padding: 12px 16px 32px; }
+h1 { font-size: 18px; margin: 4px 0 12px; }
+h2 { font-size: 15px; margin: 20px 0 8px; word-break: break-all; }
+#list { overflow-x: auto; }
+#list[data-stale] { opacity: 0.6; }
+#list[data-held]::before { content: "Not refreshed: a form on this page has input that is not sent."; display: block; margin-bottom: 8px; color: var(--muted); }
+table { border-collapse: collapse; width: 100%; }
+th, td { text-align: left; vertical-align: top; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+th { font-weight: 600; color: var(--muted); white-space: nowrap; }
+th a { color: inherit; text-decoration: none; }
+th a:hover, th a:focus-visible { text-decoration: underline; }
+th[aria-sort] { color: var(--fg); }
+tbody tr:nth-child(even) { background: var(--row); }
+tr.state-expired, tr.state-retired { color: var(--muted); }
+small, .empty, .counts { color: var(--muted); }
+code { font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+pre.body { margin: 0; max-width: 60ch; max-height: 16em; overflow: auto; white-space: pre-wrap; word-break: break-word; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+strong { color: var(--warn); }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; }
+dt { color: var(--muted); }
+dd { margin: 0; }
+.filter { margin-bottom: 10px; }
+input { font: inherit; padding: 2px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--fg); }
+.notice { font-size: 15px; }
+.notice, .action-result { margin: 0 0 12px; padding: 6px 10px; border-left: 3px solid var(--accent); background: var(--row); }
+details.action { margin: 0 0 12px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 4px; }
+details.action summary { cursor: pointer; font-weight: 600; }
+details.action form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 14px; margin: 8px 0; }
+details.action label { display: flex; flex-direction: column; gap: 2px; color: var(--muted); }
+details.action label.wide { flex: 1 1 100%; }
+input, select, textarea { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 3px 6px; }
+textarea { width: 100%; resize: vertical; }
+form.inline { display: inline-flex; gap: 6px; margin: 4px 0 0; }
+tr.result-refused { color: var(--warn); }
+.board { max-width: 1180px; }
+.tally { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; padding: 0; margin: 10px 0; }
+.tally a { display: inline-block; padding: 4px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--row); color: var(--muted); text-decoration: none; }
+.tally a:hover, .tally a:focus-visible { border-color: var(--accent); }
+.tally a[aria-current] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); color: var(--fg); font-weight: 600; }
+.tally b { font-size: 16px; color: var(--fg); }
+.scroll { overflow-x: auto; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap: 12px; }
+.card { min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; }
+.card h3 { font-size: 15px; margin: 4px 0 8px; overflow-wrap: anywhere; }
+.card-head, .card-foot { margin: 0; }
+.board h4 { font-size: 13px; margin: 10px 0 4px; color: var(--muted); }
+.tag { display: inline-block; padding: 0 6px; border: 1px solid var(--line); border-radius: 10px; font-size: 12px; color: var(--muted); }
+.tag.state-active { color: var(--accent); border-color: var(--accent); }
+.md { overflow-wrap: anywhere; }
+.md p, .md ul, .md ol { margin: 0 0 6px; }
+.md strong { color: inherit; }
+.md pre, .command pre { margin: 0 0 6px; padding: 6px 8px; background: var(--row); border-radius: 4px; overflow-x: auto; font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.md pre code, .command code { word-break: normal; white-space: pre; }
+.command { display: flex; gap: 6px; align-items: flex-start; }
+.command pre { flex: 1; min-width: 0; }
+.refused { color: var(--warn); }
+.card-notice { margin: 0 0 8px; padding: 4px 8px; border-left: 3px solid var(--accent); background: var(--row); }
+.card-notice.refused { border-left-color: var(--warn); }
+form.verdict { margin: 10px 0 0; }
+form.verdict label { display: flex; flex-direction: column; gap: 2px; color: var(--muted); }
+form.verdict .buttons { display: flex; gap: 8px; margin: 6px 0 0; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+meter { width: 8em; }
+.verdict-record { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line); }
+
+.connection { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 12px; color: var(--muted); }
+.connection b { color: var(--accent); overflow-wrap: anywhere; }
+#connection-state { color: #2f7d49; }
+.connection[data-state="stale"] #connection-state { color: #ae791c; }
+.connection[data-state="unavailable"] #connection-state { color: var(--warn); }
+[hidden] { display: none !important; }
+/* Phone layout only: desktop and terminal typography keep their existing settings. */
+@media (max-width: 700px), (max-width: 950px) and (pointer: coarse) {
+  :root { --bg: #101112; --fg: #e6e9eb; --muted: #a1a9ae; --line: #343a3e; --accent: #71d7e7; --warn: #f2a383; --row: #191d20; color-scheme: dark; }
+  body { overflow-wrap: anywhere; }
+  a { display: inline-block; min-width: 44px; min-height: 44px; padding-top: 10px; padding-bottom: 10px; }
+  header { padding: 8px 12px; gap: 6px 12px; }
+  nav { order: 3; flex-basis: 100%; gap: 0 8px; }
+  nav a { display: inline-flex; align-items: center; min-height: 44px; padding: 4px 8px; }
+  header form { margin-left: auto; }
+  main { min-width: 0; padding: 12px 12px 32px; }
+  button, input, select, textarea { font-size: 16px; min-width: 44px; min-height: 44px; max-width: 100%; }
+  button { padding: 8px 12px; }
+  input[type="checkbox"], input[type="radio"] { width: 44px; height: 44px; min-height: 44px; margin: 0 6px 0 0; vertical-align: middle; }
+  label { min-height: 44px; max-width: 100%; }
+  summary { min-height: 44px; padding: 10px 0; cursor: pointer; }
+  details.action { padding: 0 10px; }
+  details.action label { flex: 1 1 100%; min-width: 0; }
+  details.action label input, details.action label select { width: 100%; }
+  .filter, form.inline, form.verdict .buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+  .filter label, form.inline label { min-width: 0; flex: 1 1 100%; }
+  .filter input, .lookup input { width: 100%; }
+  .tally a { min-height: 44px; padding: 10px; }
+  .connection { gap: 4px 12px; font-size: 13px; }
+  .connection > span:first-child { flex-basis: 100%; }
+  #list { min-width: 0; }
+  #list[data-stale] { opacity: 1; }
+  .cards { grid-template-columns: minmax(0, 1fr); }
+  .card { padding: 10px; }
+  dl { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  dd { margin-bottom: 10px; overflow-wrap: anywhere; }
+  .mobile-cards { display: block; width: 100%; }
+  .mobile-cards thead { display: block; }
+  .mobile-cards thead tr { display: flex; flex-wrap: wrap; gap: 4px; border: 0; padding: 0; }
+  .mobile-cards th { display: none; }
+  .mobile-cards th:has(a) { display: inline-block; padding: 0; white-space: normal; }
+  .mobile-cards th a { padding: 8px; }
+  .mobile-cards tbody { display: block; }
+  .mobile-cards tr { display: block; margin: 0 0 12px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; }
+  .mobile-cards td { display: block; min-width: 0; padding: 4px 2px 8px; border: 0; overflow-wrap: anywhere; }
+  .mobile-cards td::before { content: attr(data-label); display: block; color: var(--muted); font-size: 12px; }
+  .mobile-cards td:first-child { color: var(--accent); }
+  .mobile-cards pre.body { max-width: 100%; max-height: none; }
+  .mobile-cards .inline { display: flex; flex-wrap: wrap; }
+  .mobile-cards .inline label { display: flex; flex-direction: column; }
+  th a { display: inline-flex; align-items: center; min-height: 44px; }
+  #list > p a, .md a, .card-foot a { display: inline-block; min-height: 44px; padding-top: 10px; padding-bottom: 10px; }
+}
+
+/* Preview-only controls. The dashboard stylesheet above is copied verbatim. */
+html:root{--bg:#fbfbfa;--fg:#1d1d1b;--muted:#6b6b66;--line:#e2e1dc;--accent:#2f5d8a;--warn:#9a3412;--row:#f3f2ee;color-scheme:light}
+header .header-actions{display:flex;gap:8px}body{padding-bottom:64px}.preview-bar{position:fixed;bottom:0;left:0;right:0;padding:8px 16px;background:var(--row);border-top:1px solid var(--line);display:flex;gap:8px 16px;align-items:center;flex-wrap:wrap;font-size:12px}.preview-bar strong{color:var(--fg)}.preview-bar button{font-size:12px}.remote-panel{max-width:780px}.remote-panel h2{word-break:normal}.remote-panel p{max-width:78ch}.remote-panel .buttons{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0}.remote-panel ol{padding-left:24px}.remote-panel li{margin:10px 0}.remote-panel li small{display:block}.remote-panel .steps{color:var(--muted);margin:12px 0}.remote-panel .steps b{color:var(--fg)}.remote-panel .url{padding:8px 10px;background:var(--row);border:1px solid var(--line);border-radius:4px;overflow-wrap:anywhere}.remote-panel .qr-row{display:flex;gap:16px;align-items:center;flex-wrap:wrap}.qr-example{width:110px;height:110px;flex-shrink:0;border:1px solid var(--line);background:white}.preview-toast{position:fixed;bottom:75px;left:16px;max-width:calc(100% - 32px);padding:8px 12px;border:1px solid var(--accent);background:var(--bg);z-index:3}.sample-caption{color:var(--muted);font-size:12px;margin:0 0 10px}button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}#settings-content{max-width:1000px}@media(max-width:700px){body{padding-bottom:130px}.preview-bar{padding:6px 12px}.preview-toast{bottom:140px}.header-actions{margin-left:auto}.remote-panel .steps{font-size:12px}}
+</style></head><body>
+<header><span class="brand">Koinon</span><nav aria-label="Dashboard">
+<a href="#sessions" data-view="sessions">Sessions</a><a href="#messages" data-view="messages">Messages</a><a href="#rooms" data-view="rooms">Rooms</a><a href="#decisions" data-view="decisions" aria-current="page">Decisions</a><a href="#memory" data-view="memory">Memory</a><a href="#work" data-view="work">Work</a><a href="#health" data-view="health">Health</a><a href="#settings" data-view="settings">Settings</a><a href="#audit" data-view="audit">Audit</a>
+</nav><div class="header-actions"><button id="go-remote">Go remote</button><button id="logout">Log out</button></div></header>
+<main><h1 id="title">Decisions</h1><section id="decisions-content">
+<form class="filter" id="find-form"><label>Reference <input placeholder="all or part of a reference"></label> <button>Find</button></form>
+<ul class="tally"><li><a href="#" aria-current="page">all</a></li><li><a href="#"><b>0</b> waiting</a></li><li><a href="#"><b>0</b> returned</a></li><li><a href="#"><b>1</b> in progress</a></li><li><a href="#"><b>0</b> open fyi</a></li><li><a href="#"><b>1</b> archived</a></li></ul>
+<h2>Agents</h2><div class="scroll"><table class="mobile-cards"><thead><tr><th>Agent</th><th>Activity</th><th>Claimed work</th><th>Context</th><th>Waiting for acknowledgement</th></tr></thead><tbody id="agent-rows"></tbody></table></div><p class="sample-caption">Synthetic agents and counts for this preview.</p>
+</section><section id="settings-content" hidden>
+<details class="action remote-panel" open><summary>Remote access</summary><div id="remote-flow"></div></details>
+<details class="action"><summary>Spoken alert</summary><p><label><input type="checkbox" disabled> Speak when a decision or task starts to wait</label> <button disabled>Test</button></p></details>
+<details class="action"><summary>Change the session timing</summary><dl><dt>Registration lifetime</dt><dd>600 seconds <small>(sample)</small></dd><dt>Renewal interval</dt><dd>60 seconds <small>(sample)</small></dd><dt>Succession guard</dt><dd>120 seconds <small>(sample)</small></dd></dl></details>
+<details class="action"><summary>Change a family's context handoff</summary><p><small>Existing settings would remain here.</small></p></details>
+</section><p id="other-content" class="empty" hidden>This preview focuses on Decisions and Settings → Remote access. Use Go remote to try the proposed setup.</p></main>
+<div class="preview-bar"><strong>HTML design preview</strong><span>Sample data · No live changes</span><button data-scene="dashboard">Dashboard</button><button data-scene="setup">Setup</button><button data-scene="connected">Enabled</button><button data-scene="offline">Connection lost</button><span id="preview-status" role="status"></span></div><div class="preview-toast" id="toast" role="status" hidden></div>
+<script>
+const flow=document.getElementById('remote-flow'),url='https://your-computer.your-tailnet.ts.net/dashboard/';let stage=0,remoteState='setup',timer;
+const agents=[['claude-demo-01','busy'],['claude-demo-02','idle'],['codex-demo-01','busy'],['codex-demo-02','idle'],['deepseek-demo-01','idle'],['claude-demo-03','busy']];
+document.getElementById('agent-rows').innerHTML=agents.map(([name,activity])=>`<tr><td data-label="Agent">${name}</td><td data-label="Activity">${activity}<br><small>Sample activity</small></td><td data-label="Claimed work"><small>none</small></td><td data-label="Context"><small>unavailable in preview</small></td><td data-label="Waiting for acknowledgement"><small>none</small></td></tr>`).join('');
+function toast(message){const t=document.getElementById('toast');t.textContent=message;t.hidden=false;clearTimeout(timer);timer=setTimeout(()=>t.hidden=true,4500)}
+function view(v){document.getElementById('title').textContent=v[0].toUpperCase()+v.slice(1);document.getElementById('decisions-content').hidden=v!=='decisions';document.getElementById('settings-content').hidden=v!=='settings';document.getElementById('other-content').hidden=['decisions','settings'].includes(v);document.querySelectorAll('nav a').forEach(a=>{if(a.dataset.view===v)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')});if(v==='settings')render()}
+function steps(n){return '<p class="steps">'+['Check setup','Approve access','Open on phone'].map((s,i)=>(i===n-1?'<b>'+String(i+1)+'. '+s+'</b>':String(i+1)+'. '+s)).join(' &nbsp; → &nbsp; ')+'</p>'}
+function render(){document.getElementById('go-remote').textContent=remoteState==='connected'?'Remote access':'Go remote';
+if(remoteState==='connected'){flow.innerHTML='<dl><dt>Status</dt><dd>Enabled <small>(sample)</small></dd><dt>Dashboard URL</dt><dd><code>'+url+'</code></dd><dt>Computer connection</dt><dd>Ready <small>(sample)</small></dd><dt>Remote sign-in</dt><dd>Received <small>(sample; device and network not verified)</small></dd></dl><div class="buttons"><button data-action="copy">Copy link</button><button data-action="phone">Phone sign-in preview</button><button data-action="disable">Turn off remote access</button></div><p><small>Keep this computer awake and Koinon running. Connect Tailscale on your phone before opening the link.</small></p>';return}
+if(remoteState==='offline'){flow.innerHTML='<p class="notice">Connection unavailable. Showing last known data; updates and actions are paused.</p><p>Check that your computer is awake, Koinon is running, and Tailscale is connected on both devices.</p><p><small>Unsent forms stay in place. Writes are never replayed automatically.</small></p><div class="buttons"><button data-action="retry">Try again</button><button data-action="copy">Copy link</button></div>';return}
+if(stage===0){flow.innerHTML='<dl><dt>Status</dt><dd>Off <small>(sample)</small></dd><dt>Access</dt><dd>Private, through Tailscale</dd><dt>Sign-in</dt><dd>Your existing Koinon maintainer secret</dd></dl><p>Use this dashboard from your phone or another computer. Your Koinon computer must stay awake and connected.</p><ol><li>Install Tailscale on your computer and phone.<small>Sign in with the same Tailscale account on both devices.</small></li><li>Approve secure access if Tailscale asks.<small>We’ll guide you through the account step.</small></li><li>Open your private link and sign in to Koinon.<small>No new Koinon account is needed.</small></li></ol><div class="buttons"><button data-action="check">Enable remote access</button><button data-action="install">I need Tailscale</button></div><p><small>Your dashboard stays private to your Tailscale network. This preview changes no settings.</small></p>';return}
+if(stage===1){flow.innerHTML=steps(1)+'<h2>Check your setup</h2><table><tbody><tr><td>Tailscale app</td><td>Installed <small>(sample)</small></td></tr><tr><td>Tailscale connection</td><td>Connected <small>(sample)</small></td></tr><tr><td>Koinon sign-in</td><td>Maintainer secret configured <small>(sample)</small></td></tr><tr><td>Secure remote address</td><td>Needs approval <small>(sample)</small></td></tr></tbody></table><div class="buttons"><button data-action="approve">Continue</button><button data-action="reset">Cancel</button></div><p><small>Customers whose setup is already complete would go directly to their link.</small></p>';return}
+if(stage===2){flow.innerHTML=steps(2)+'<h2>Approve secure access in Tailscale</h2><p>Tailscale needs your approval to create an HTTPS address for this computer. Finish the account step, then return here.</p><div class="buttons"><button data-action="provider">Open Tailscale approval</button><button data-action="approved">I’ve approved it</button></div><p><small>One-time account step when required. Your progress stays on this page.</small></p>';return}
+flow.innerHTML=steps(3)+'<h2>Open Koinon on your phone</h2><ol><li>Connect Tailscale on your phone.</li><li>Open the link below, or scan the QR code.</li><li>Sign in with your existing maintainer secret.</li></ol><p class="url"><code>'+url+'</code></p><div class="qr-row"><svg class="qr-example" viewBox="0 0 100 100" role="img" aria-label="QR placeholder, not scannable"><g stroke="#222" stroke-width="7" fill="none"><path d="M10 10h20v20H10zM70 10h20v20H70zM10 70h20v20H10z"/></g><text x="50" y="49" text-anchor="middle" font-family="system-ui" font-size="8">QR placeholder</text><text x="50" y="61" text-anchor="middle" font-family="system-ui" font-size="7">Not scannable</text></svg><div><button data-action="copy">Copy link</button><p><small>The real QR contains only your dashboard URL.<br>No password or sign-in token.</small></p></div></div><div class="buttons"><button data-action="phone">Preview phone sign-in</button><button data-action="finish">Done</button></div><p><small>Keep this link — it stays the same. Your computer must stay awake and Koinon must keep running.</small></p>'}
+document.addEventListener('click',e=>{const b=e.target.closest('button,a');if(!b)return;e.preventDefault();if(b.dataset.view){view(b.dataset.view);return}if(b.id==='go-remote'){view('settings');return}if(b.id==='logout'){toast('Preview only. No session changed.');return}if(b.dataset.scene){const s=b.dataset.scene;if(s==='dashboard'){view('decisions');return}remoteState=s;stage=0;view('settings');return}switch(b.dataset.action){case'check':stage=1;render();break;case'reset':stage=0;render();break;case'approve':stage=2;render();break;case'provider':toast('Preview: the real flow would open Tailscale’s approval page in another tab.');document.getElementById('preview-status').textContent='Waiting for approval (simulated)';break;case'approved':stage=3;render();document.getElementById('preview-status').textContent='';break;case'copy':toast('Sample URL only. Nothing was copied.');break;case'finish':case'retry':remoteState='connected';render();break;case'install':flow.innerHTML='<h2>Install and connect Tailscale</h2><p>Get the app for this computer and your phone. Sign in with the same account on both, then return here.</p><div class="buttons"><button data-action="download">Get Tailscale</button><button data-action="check">Check again</button><button data-action="reset">Back</button></div>';break;case'download':toast('Preview only: this would open the official Tailscale download page.');break;case'phone':flow.innerHTML='<h2>Phone sign-in preview</h2><p>In the real flow, this page opens on your phone.</p><label>Maintainer secret <input type="password" placeholder="Leave empty for this preview" autocomplete="off"></label><p><small>Do not enter a real secret. This is only a design preview.</small></p><div class="buttons"><button data-action="finish">Simulate sign-in</button><button data-action="approved">Back to link</button></div>';break;case'disable':flow.innerHTML='<h2>Turn off remote access?</h2><p>Your phone will lose access. You can keep using Koinon on this computer.</p><div class="buttons"><button data-action="off">Turn off</button><button data-action="finish">Cancel</button></div>';break;case'off':remoteState='setup';stage=0;render();toast('Preview only. No settings changed.');break}});
+document.getElementById('find-form').addEventListener('submit',e=>{e.preventDefault();toast('Reference search is not connected in this preview.')});
+</script></body></html>

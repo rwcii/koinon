@@ -109,10 +109,18 @@ func (d *Daemon) openRemoteListenerLocked(l net.Listener) error {
 	server := &http.Server{ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
 	server.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rt.surface.RLock()
-		defer rt.surface.RUnlock()
 		if !rt.active {
+			rt.surface.RUnlock()
 			http.Error(w, "remote access disabled", http.StatusServiceUnavailable)
 			return
+		}
+		// These authenticated controls reconcile or close this very listener. They
+		// must not hold its read lock while taking its write lock. All other requests
+		// still drain before a disable; controls retain ordinary session/CSRF checks.
+		if remoteControlRequest(r) {
+			rt.surface.RUnlock()
+		} else {
+			defer rt.surface.RUnlock()
 		}
 		h.ServeHTTP(w, r)
 	})
