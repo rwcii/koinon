@@ -350,9 +350,9 @@ func TestDashboardRemoteSettingsReconciliationCompletes(t *testing.T) {
 	for _, query := range []string{"remote_status", "remote_setup"} {
 		for _, failure := range []string{"identity", "conflict"} {
 			t.Run(query+"/"+failure, func(t *testing.T) {
-				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 				defer cancel()
-				command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestDashboardRemoteSettingsReconciliationCompletes$", "-test.timeout=10s")
+				command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestDashboardRemoteSettingsReconciliationCompletes$", "-test.timeout=60s")
 				command.Env = append(os.Environ(), childVariable+"="+query+"/"+failure)
 				output, err := command.CombinedOutput()
 				if err != nil {
@@ -366,6 +366,11 @@ func TestDashboardRemoteSettingsReconciliationCompletes(t *testing.T) {
 func testRemoteSettingsReconciliation(t *testing.T, query, failure string) {
 	t.Helper()
 	d, root, fake := onboardingFixture(t)
+	// Schema fixture initialization can take more than ten seconds under race
+	// instrumentation and parallel package builds. Bound the reconciliation
+	// phase independently so its deadlock guard does not time database setup.
+	phase := time.AfterFunc(8*time.Second, func() { panic("remote settings reconciliation did not complete") })
+	defer phase.Stop()
 	local := newActionClient(t, d, root)
 	if err := d.remoteEnable(context.Background()); err != nil {
 		t.Fatal(err)
