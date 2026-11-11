@@ -229,6 +229,13 @@ established session's seven-day idle and absolute limits. The raw ticket, QR
 credential, and redemption body are not
 persisted in the ownership journal, audit targets, or logs.
 
+The implementation retains at most eight outstanding tickets and evicts the
+oldest when issuing another, matching the existing local `maxLoginLinks` bounded
+memory policy. Tickets also retain their issuing session's hash: issuer logout,
+idle or absolute expiry, and session eviction revoke its outstanding tickets.
+These are engineering bounds in `dashboard_pair.go` and `dashboard_auth.go`, not
+additional requirements attributed to Andrew.
+
 The QR carries `/dashboard/pair#ticket=...` at that origin. This differs from the
 stable dashboard URL copied for bookmarks. A GET to the landing page does not
 consume the ticket. The script clears the fragment with the browser history API
@@ -245,6 +252,17 @@ form when signed out. No-JavaScript clients use that form. Fragment delivery kee
 the ticket out of the landing request URL; clearing it before redemption limits
 its subsequent browser-address exposure. The displayed QR remains a short-lived
 credential that must be kept private while outstanding.
+
+The shared dashboard CSP permits `blob:` only in `img-src` so the script can
+show the returned PNG through a temporary object URL. This image-source allowance
+applies to all dashboard pages through the common headers; it adds no script
+origin. The QR script accepts only PNG responses, rejects non-positive or greater
+than 300-second lifetime headers, and clears expired object URLs. Ticket creation
+and redemption use ten-second request deadlines. Successful redemption navigation
+is pinned to the read-only, same-origin `/dashboard/sessions` route, without a
+query or fragment. These frontend guardrails bound image lifetime, waiting, and
+navigation; they are implementation choices supporting the authorized flow, not
+human-mandated limits or a change to the server's two-minute ticket lifetime.
 
 ### Alternatives Considered
 

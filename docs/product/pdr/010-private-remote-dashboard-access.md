@@ -225,17 +225,18 @@ the host before deciding to retry.
 **Date:** 2026-11-11.
 
 **Context:** The first version's QR opened the ordinary dashboard URL and asked
-for the maintainer secret. After using that password on his phone, Andrew chose
-a one-time QR sign-in ticket instead of retaining the password prompt after a
-browser QR scan. The ordinary copied URL keeps its password fallback. He also
-asked to remove **Go remote** from a dashboard that is already remote.
+for the maintainer secret. Andrew reported that password sign-in worked on his
+phone. The proposed alternative was a short-lived, one-time QR sign-in ticket,
+with the saved dashboard URL kept separate and requiring the password when
+signed out. Andrew chose that alternative instead of the original URL-only QR.
+He also asked to remove **Go remote** from a dashboard that is already remote.
 
-**Answer:** “Ok, I put in secret. It worked on my phone. Yeah, let's do that so
-the QR code is a one-time sign-in ticket. And then if you reach it through the
-URL I guess it would be password needed. Commit changes when done.”
+**Answer:** “yeah lets do that so the qr code is a one time sign in ticket. and then if you reach it through the URL I guess it would be password needed.”
 
-For the header, Andrew said: “It still says go remote on the mobile version.
-That shouldn't be there ... I'm already remote.”
+This authorization followed the phone report in the same message; the quotation
+above isolates the authentication choice from the reported test result.
+
+For the header, Andrew said: “also it still says go remote on the mobile version. that shouldn't be there lol im already remot! commit changes.”
 
 **Reason and scope:** Scanning a QR created by an already signed-in dashboard
 should complete one remote sign-in without making the person type the same
@@ -245,9 +246,13 @@ the Koinon password when signed out. The CLI QR remains URL-only. Hiding the
 header control depends on the actual remote surface, so a local narrow window
 still has it and a remote desktop window does not.
 
-The setup presents one next step for its current state and keeps technical
-status in details. The password label is **Koinon password**, referring to the
-existing maintainer secret. No additional Koinon credential is introduced.
+For setup clarity, Andrew requested: “there is a lot of unncessary info presetnted throuhghout the setup can u make it easeir for users who maybe don't udnerstand quite everything break it down to be as simple as possible and concise UI wise.”
+
+**Implementation choices in response:** Show one next step for the current
+state, keep technical status in details, and collapse the other Settings
+sections. Label the existing maintainer secret **Koinon password**. These are
+presentation choices responding to the request, not verbatim decisions from
+Andrew or an additional credential.
 
 A signed-in dashboard creates the QR through an explicit CSRF-protected action.
 The ticket permits one sign-in to the configured remote origin. The
@@ -285,8 +290,8 @@ The new ticket flow needs its own verification.
 **Requested by:** Andrew, 2026-11-11.
 
 **Context:** After phone sign-in, Andrew reported being signed out after putting
-his phone away for five minutes and asked: “We should make this longer so I don't
-have to put in my password every time. What do you recommend?” The implementation
+his phone away for five minutes and asked for a longer session and a
+recommendation. The implementation
 previously allowed 24 hours idle and seven days absolute, so a five-minute expiry
 was not the configured behavior. The cause of the report is not established.
 
@@ -302,8 +307,9 @@ expiry during its week-long maximum lifetime. Logout, disable, password change,
 restart, and browser-cookie loss can still require sign-in sooner. The two-minute
 one-time QR expiry only limits the ticket before redemption; it does not shorten
 an established session. The extension is not evidence that the reported
-five-minute sign-out is fixed. Browser details and reproduction remain needed to
-identify that cause.
+five-minute sign-out is fixed. Andrew later reported the password screen in a
+direct Safari/Chrome browser view. Browser versions and a reproduction remain
+needed to identify the cause.
 
 ## Conclusion
 

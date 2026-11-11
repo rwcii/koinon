@@ -245,7 +245,7 @@ change.
 
 ## One-time browser QR amendment — 2026-11-11
 
-Andrew reported: “Ok, I put in secret. It worked on my phone.” This is reported
+Andrew reported that entering the secret worked on his phone. This is reported
 phone password sign-in success. The report does not identify a browser version,
 phone OS, cellular network, or host-side message/verdict evidence. It does not
 complete the cellular and device matrix. Andrew then explicitly chose one-time
@@ -290,3 +290,19 @@ stays 24 hours. The QR's two-minute expiry limits an unredeemed ticket, not the
 session it opens. Verify these cases separately, including revocation on logout,
 disable, password change and restart. Browser-cookie loss can require a new
 sign-in regardless of the server lifetime. No new test result is claimed here.
+
+
+### Scope of synthetic browser evidence
+
+The Node VM browser tests use handwritten DOM, fetch, timer, and history stubs.
+They can check script decisions, one-attempt behavior, expiry handling, and
+expected destinations within those stubs. They do not prove real browser timer
+scheduling, `Set-Cookie` processing through a 303 redirect, fragment/history
+semantics, or a scanned ticket on a phone. The real-phone QR flow remains pending;
+keep it separate from synthetic test results and the earlier reported password
+sign-in.
+
+Andrew later identified a password screen in a direct Safari/Chrome browser view
+for the reported short session. The cause remains unknown. The longer server
+idle limit is not evidence that this browser report is fixed; record a
+reproduction and actual browser versions before assigning a cause.
