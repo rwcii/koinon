@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Pickup also reads the board's approved items in progress of its repository (#640). After a
+  context reset, nothing else showed an approved card again to the session that must finish it.
+  Pickup closes such an item with `decision_close` when its record and merged change exist, and
+  otherwise reports it as approved work that waits.
+
 - On Linux, `brew upgrade koinon` no longer shows "ACTION REQUIRED: ... koinon install" while the
   installation is current (#643). Homebrew runs the plan without `XDG_RUNTIME_DIR`, so
   `systemctl --user` did not reach the user manager, and the plan then compared the version of
