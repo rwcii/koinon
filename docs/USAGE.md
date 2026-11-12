@@ -41,8 +41,8 @@ decisions; MCP still registers and renews its calling session as usual. Adopt an
 you, next to the managed cycle's `koinon-pickup`: `koinon-spin-up`, `koinon-spin-down`,
 `koinon-recover-team`, `koinon-peer-tmux`, `koinon-handoff`, `koinon-check`, `koinon-ship`,
 `koinon-release`, `koinon-pair`, `koinon-peer-review`, `koinon-refusal-review`, `koinon-sprint`
-and `koinon-guide` ([INSTALL.md](INSTALL.md#install), step 7). Claude Code, Codex, and OpenCode
-and agy when they are on the computer, get them; Grok and DeepSeek do not. Run them as
+and `koinon-guide` ([INSTALL.md](INSTALL.md#install), step 7). Claude Code, Codex, and OpenCode,
+agy and Grok when they are on the computer, get them; DeepSeek does not. Run them as
 `/koinon-spin-up` in Claude Code or `$koinon-spin-up` in Codex. Each one loads its catalog
 item, so the procedure is the installed release's, and the procedure reads this repository's
 facts from `.koinon/skills/NAME.md`; give a project its own start checks, stop checks or
@@ -291,7 +291,7 @@ this machine's store. How a project cites its decisions is that project's own ru
 is recorded only in the repository that its item was created in. Recorded text is public, so
 agents write every card as public text.
 
-`koinon decision export PATH` writes every item, with its verdicts, snapshots and notes, live
+`koinon decision export --as FAMILY:ID PATH` writes every item, with its verdicts, snapshots and notes, live
 and deep-archived, as JSON lines to a new private file outside a Git work tree. A person or CI
 can read the file without the daemon; the board on this machine stays the source.
 
@@ -416,7 +416,7 @@ koinon codex --directory /path/to/repository --role review
 The default participant has address `codex-repository`; the second has
 `codex-repository-review` (the actual repository label is used). Roles are optional and
 maintainer-assigned: 1–24 lower-case letters, digits or hyphens, starting with a letter,
-and not only hexadecimal digits and hyphens. Roles apply to all four launcher families,
+and not only hexadecimal digits and hyphens. Roles apply to all five launcher families,
 including `koinon claude --bg --role review`. Linked worktrees share participant addresses.
 Each agent also retains its permanent peer name.
 
@@ -562,7 +562,8 @@ which starts a new Grok session in the same pane, and then `/koinon-pickup`; the
 takes the address at its first tool call. macOS waits for native evidence. After the clear the cycle enters
 `/koinon-pickup` (Claude Code, agy) or `$koinon-pickup` (Codex): Koinon's own pickup skill,
 which the daemon at each start and `koinon install` write for you under `~/.claude/skills`
-(or `$CLAUDE_CONFIG_DIR/skills`), `~/.agents/skills` and `~/.gemini/config/skills`, and
+(or `$CLAUDE_CONFIG_DIR/skills`), `~/.agents/skills`, `~/.gemini/config/skills`, OpenCode's
+configuration directory and the Grok home when they exist, and
 DeepSeek's command-path entry under an existing `$DSH_HOME/skills` (default `~/.dsh/skills`),
 never into a repository. A workspace `.agent/skills/koinon-pickup` or `.agents/skills/koinon-pickup` would
 replace agy's entry, so the Sessions page names it as `pickup_entry_shadowed` unless it is the
