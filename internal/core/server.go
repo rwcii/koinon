@@ -37,6 +37,7 @@ type Config struct {
 
 type Daemon struct {
 	remote            remoteRuntime
+	link              linkRuntime
 	release           string
 	store             *Store
 	secret            string
