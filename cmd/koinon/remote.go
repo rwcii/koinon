@@ -7,6 +7,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"os/exec"
+	"runtime"
+	"strings"
 
 	"github.com/rwcii/koinon/internal/core"
 	"github.com/rwcii/koinon/internal/platform"
@@ -30,7 +34,7 @@ func remoteQR(link string) (string, error) {
 	return qr.ToSmallString(false), nil
 }
 
-func remoteCommand(ctx context.Context, args []string, out io.Writer) error {
+func remoteCommand(ctx context.Context, args []string, in io.Reader, out io.Writer) error {
 	if len(args) == 0 || args[0] != "enable" && args[0] != "status" && args[0] != "disable" {
 		return usageError{"invalid_request", "use koinon remote enable|status|disable"}
 	}
@@ -56,7 +60,18 @@ func remoteCommand(ctx context.Context, args []string, out io.Writer) error {
 	var status core.RemoteStatus
 	if err == nil {
 		if args[0] != "status" {
-			if _, err := core.Call(ctx, *address, bearer, "/v1/remote/"+args[0], struct{}{}); err != nil {
+			call := func() error {
+				_, err := core.Call(ctx, *address, bearer, "/v1/remote/"+args[0], struct{}{})
+				return err
+			}
+			err := call()
+			if err != nil && args[0] == "enable" && !*asJSON {
+				err = grantOperator(ctx, in, err, call)
+			}
+			if err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
 				return remoteCallError(args[0], err)
 			}
 		}
@@ -76,6 +91,61 @@ func remoteCommand(ctx context.Context, args []string, out io.Writer) error {
 		}
 	}
 	return printRemoteStatus(out, status, args[0], *asJSON)
+}
+
+// The operator step's seams: the platform, the account, the terminal and the grant command.
+var (
+	operatorGOOS     = runtime.GOOS
+	operatorAccount  = remote.OperatorAccount
+	operatorTerminal = func(ctx context.Context, in io.Reader) *terminal { return openTerminal(ctx, in, os.Stderr) }
+	operatorRun      = func(cmd *exec.Cmd) error { return cmd.Run() }
+)
+
+// operatorGrant is the one fixed command that makes name the Tailscale operator. It runs
+// without a shell; sudo reads the password from the terminal, and Koinon never sees it. Its
+// output goes to stderr, so stdout keeps only the command's report.
+func operatorGrant(ctx context.Context, t *terminal, name string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "sudo", "tailscale", "set", "--operator="+name)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = t.file, t.tell, t.tell
+	return cmd
+}
+
+// grantOperator answers the daemon's tailscale_operator_required refusal of an enable at a
+// Linux terminal (TAILSCALE-AUTO-656 in PDR 010): it asks once, with no as the default, runs
+// the fixed sudo command on yes and then asks the daemon to enable once more. No, the end of
+// input, a sudo failure, another refusal, another platform, an account without a plain name
+// or no terminal keep the refusal with its manual step.
+func grantOperator(ctx context.Context, in io.Reader, refusal error, enable func() error) error {
+	var refused core.RefusedError
+	if !errors.As(refusal, &refused) || refused.Code != remote.OperatorRequired || operatorGOOS != "linux" {
+		return refusal
+	}
+	name := operatorAccount()
+	if name == "" {
+		return refusal
+	}
+	t := operatorTerminal(ctx, in)
+	if t == nil {
+		return refusal
+	}
+	answer, err := t.line("Grant " + name + " control of this computer's Tailscale settings, including more than Serve, by running sudo tailscale set --operator=" + name + "? [y/N] ")
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return refusal
+	}
+	if a := strings.ToLower(strings.TrimSpace(answer)); a != "y" && a != "yes" {
+		return refusal
+	}
+	if err := operatorRun(operatorGrant(ctx, t, name)); err != nil {
+		fmt.Fprintf(t.tell, "sudo tailscale set --operator=%s did not complete: %v\n", name, err)
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return refusal
+	}
+	return enable()
 }
 
 // remoteCallError keeps the daemon's refusal and its code; any other failure of a call

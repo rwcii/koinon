@@ -122,8 +122,13 @@ steps an upgrade still needs. The command-line workflow remains available.
    ```
 
    On Linux, only root or the Tailscale operator can change Serve, and Koinon runs
-   as your account. Koinon does not change this setting itself (#656 reviews that).
-   When enable or status reports `tailscale_operator_required`, run the command that
+   as your account. When Tailscale refuses this account and `koinon remote enable`
+   runs at a terminal, it asks once whether to grant your account control of this
+   computer's Tailscale settings, which is more than Serve, by running
+   `sudo tailscale set --operator=NAME` (PDR 010, Decision 6). Answer `y` to run it:
+   sudo asks for your password, which Koinon never reads, and enable then continues.
+   The default answer is no. With no, with `--json`, in a script or after a failed
+   sudo, enable and status report `tailscale_operator_required`; run the command that
    it names once, then run `koinon remote enable` again. The command names the
    account that runs Koinon, for example:
 
@@ -274,7 +279,7 @@ return screen after sign-in, without submitting the prior action.
 | Host is stopped, signed out, or offline | Open Tailscale and connect or complete its account prompt. Repeat enable. |
 | No usable `.ts.net` name | Check MagicDNS and the host's name in the Tailscale admin console. |
 | HTTPS is unavailable | Enable HTTPS certificates in the admin console using the linked instructions. |
-| Serve permission is denied | Complete the account permission. On Linux, `tailscale_operator_required` names the command `sudo tailscale set --operator=NAME` with the account that runs Koinon; run it, then repeat enable. The dashboard setup shows the same step. |
+| Serve permission is denied | Complete the account permission. On Linux, `tailscale_operator_required` names the command `sudo tailscale set --operator=NAME` with the account that runs Koinon; `koinon remote enable` at a terminal offers to run it, or run it yourself, then repeat enable. The dashboard setup shows the same step. |
 | Required root or port is already used | Inspect `tailscale serve status --json`; resolve the reported conflict explicitly. Koinon preserves it. |
 | Saved loopback port is occupied | Free the saved port and repeat enable, or disable successfully then enable to choose an available backend port. The daemon's local API remains available. |
 | Network policy denies the phone (the page times out) | The tailnet access policy must allow TCP 443 to this computer's IPv4 and IPv6 Tailscale addresses from the phone. `koinon remote status` shows an example entry with this computer's addresses. Also check the phone's network and account. Host status cannot prove phone permission. |
