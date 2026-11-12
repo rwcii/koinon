@@ -29,7 +29,11 @@ actual remote connection, rather than the screen width.
    the installed Tailscale version cannot provide an approval link.
 3. Select **Enable remote access** when ready. Account approval, refresh, and
    reconnect never enable access automatically. This uses the same persistent
-   listener and owned mapping as `koinon remote enable`.
+   listener and owned mapping as `koinon remote enable`. On Linux, when Tailscale
+   refuses this account, setup shows **Allow Koinon to configure Tailscale** with
+   one command, such as `sudo tailscale set --operator=alice`. Koinon does not run
+   it: run it once in a terminal on this computer, then select **I’ve run it —
+   enable remote access**.
 4. Connect Tailscale on the phone. On the signed-in computer, select **Show
    sign-in QR**, then scan it on the phone within two minutes. It authorizes one
    sign-in to this remote dashboard. Treat the displayed QR as a temporary
@@ -106,9 +110,11 @@ steps an upgrade still needs. The command-line workflow remains available.
    koinon remote enable
    ```
 
-   On Linux, only root or the Tailscale operator can change Serve. When enable or
-   status reports `tailscale_operator_required`, run the command that it names, then
-   repeat enable. The command names the account that runs Koinon, for example:
+   On Linux, only root or the Tailscale operator can change Serve, and Koinon runs
+   as your account. Koinon does not change this setting itself (#656 reviews that).
+   When enable or status reports `tailscale_operator_required`, run the command that
+   it names once, then run `koinon remote enable` again. The command names the
+   account that runs Koinon, for example:
 
    ```sh
    sudo tailscale set --operator=alice
