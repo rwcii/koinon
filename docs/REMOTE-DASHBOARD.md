@@ -94,6 +94,17 @@ steps an upgrade still needs. The command-line workflow remains available.
 1. Install Tailscale on the host and phone using the [platform instructions](https://tailscale.com/download).
    Connect both to the intended private network. Restrict the network's access
    policy to the intended maintainer devices, especially in a network with other people.
+   The policy must allow TCP 443 to this computer's Tailscale addresses, IPv4 and
+   IPv6, or the phone's connection times out. For example, in the policy's `acls`:
+
+   ```json
+   {"action": "accept", "src": ["autogroup:member"], "proto": "tcp", "dst": ["100.64.0.1:443", "[fd7a:115c:a1e0::1]:443"]}
+   ```
+
+   `autogroup:member` is every member of the tailnet; put a user, group or devices
+   there for narrower access. When Serve is ready, `koinon remote status` and the
+   dashboard's connection details show this entry with the computer's own addresses.
+   Koinon cannot read the policy, so it cannot tell whether the entry is there.
 2. Set a maintainer secret on the host, if one is not already set:
 
    ```sh
@@ -266,7 +277,7 @@ return screen after sign-in, without submitting the prior action.
 | Serve permission is denied | Complete the account permission. On Linux, `tailscale_operator_required` names the command `sudo tailscale set --operator=NAME` with the account that runs Koinon; run it, then repeat enable. The dashboard setup shows the same step. |
 | Required root or port is already used | Inspect `tailscale serve status --json`; resolve the reported conflict explicitly. Koinon preserves it. |
 | Saved loopback port is occupied | Free the saved port and repeat enable, or disable successfully then enable to choose an available backend port. The daemon's local API remains available. |
-| Network policy denies the phone | Check the phone's network/account and the tailnet access policy for this host's HTTPS port. Host status cannot prove phone permission. |
+| Network policy denies the phone (the page times out) | The tailnet access policy must allow TCP 443 to this computer's IPv4 and IPv6 Tailscale addresses from the phone. `koinon remote status` shows an example entry with this computer's addresses. Also check the phone's network and account. Host status cannot prove phone permission. |
 | Sign-in QR expired, was already used, or its result is unknown | Create a new sign-in QR on the signed-in computer, or use the Koinon password at the ordinary dashboard URL. |
 | Host is configured but phone fails | Check host wake state, both Tailscale connections, network policy, and the URL from status. Complete the cellular test separately. |
 

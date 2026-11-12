@@ -234,3 +234,56 @@ func TestRemoteOperatorRefusalNamesTheStep(t *testing.T) {
 		t.Fatal(out.String(), err)
 	}
 }
+
+// ipCLIAdapter reports the host's Tailscale addresses, as Tailscale does (#653).
+type ipCLIAdapter struct{ remoteCLIAdapter }
+
+func (a *ipCLIAdapter) Run(ctx context.Context, args ...string) ([]byte, error) {
+	if len(args) == 2 && args[0] == "status" {
+		return []byte(`{"BackendState":"Running","Self":{"Online":true,"DNSName":"board.example.ts.net.","TailscaleIPs":["100.64.0.1","fd7a:115c:a1e0::1"]},"CertDomains":["board.example.ts.net"]}`), nil
+	}
+	return a.remoteCLIAdapter.Run(ctx, args...)
+}
+
+func TestRemoteStatusShowsThePolicyRule(t *testing.T) {
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "state")
+	d, err := core.Start(core.Config{StateDir: root, Listen: []string{"127.0.0.1:0"}, Tailscale: &ipCLIAdapter{}, SecretCost: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	address := d.Addresses()[0]
+	args := func(op string) []string { return []string{"remote", op, "--state-dir", root, "--address", address} }
+	var out bytes.Buffer
+	if err := run(ctx, []string{"maintainer", "secret", "set", "--state-dir", root, "--address", address}, strings.NewReader("synthetic-long-secret\n"), &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(ctx, args("enable"), strings.NewReader(""), &out); err != nil {
+		t.Fatal(err)
+	}
+	const rule = `{"action":"accept","src":["autogroup:member"],"proto":"tcp","dst":["100.64.0.1:443","[fd7a:115c:a1e0::1]:443"]}`
+	out.Reset()
+	if err := run(ctx, args("status"), strings.NewReader(""), &out); err != nil {
+		t.Fatal(err)
+	}
+	if text := out.String(); !strings.Contains(text, "Serve: ready") || !strings.Contains(text, "If the phone times out") || !strings.Contains(text, "  "+rule+"\n") || strings.Contains(text, "Next step") {
+		t.Fatal(text)
+	}
+	out.Reset()
+	if err := run(ctx, append(args("status"), "--json"), strings.NewReader(""), &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		OK         bool   `json:"ok"`
+		Phone      string `json:"phone"`
+		PolicyHint string `json:"policy_hint"`
+		PolicyRule string `json:"policy_rule"`
+		Tailscale  struct {
+			IPs []string `json:"tailscale_ips"`
+		} `json:"tailscale"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil || !status.OK || status.Phone != "unverified" || status.PolicyRule != rule || !strings.Contains(status.PolicyHint, "TCP 443") || len(status.Tailscale.IPs) != 2 {
+		t.Fatal(out.String(), err)
+	}
+}

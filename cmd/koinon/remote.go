@@ -142,6 +142,12 @@ func printRemoteStatus(out io.Writer, status core.RemoteStatus, action string, a
 	if status.Error != "" {
 		fmt.Fprintln(out, "Next step: "+status.Error)
 	}
+	if status.PolicyHint != "" {
+		fmt.Fprintln(out, status.PolicyHint)
+		if status.PolicyRule != "" {
+			fmt.Fprintln(out, "  "+status.PolicyRule)
+		}
+	}
 	if action == "enable" && status.Configured && status.Listener == "ready" && status.Error == "" {
 		qr, err := remoteQR(status.URL)
 		if err != nil {

@@ -64,6 +64,7 @@
 <dt>Phone access</dt><dd>Unverified — try it on your phone with Wi-Fi off</dd>
 </dl>
 {{if .Status.Error}}<p>{{.Status.Error}}</p>{{end}}
+{{if .Status.PolicyHint}}<p>{{.Status.PolicyHint}}</p>{{if .Status.PolicyRule}}<p><code>{{.Status.PolicyRule}}</code></p>{{end}}{{end}}
 {{if .Prerequisite}}<p>{{.Prerequisite}}</p>{{end}}
 {{if .SetupError}}<p>{{.SetupError}}</p>{{end}}
 {{if and .Checked .Secret .SetupError (not .Ready) (not .Operator)}}<form method="post" action="/dashboard/actions/remote-enable"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Try enabling remote access</button></form>{{end}}
