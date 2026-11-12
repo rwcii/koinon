@@ -106,7 +106,18 @@ steps an upgrade still needs. The command-line workflow remains available.
    koinon remote enable
    ```
 
-   Follow any reported account or operating-system step, then repeat enable.
+   On Linux, only root or the Tailscale operator can change Serve. When enable or
+   status reports `tailscale_operator_required`, run the command that it names, then
+   repeat enable. The command names the account that runs Koinon, for example:
+
+   ```sh
+   sudo tailscale set --operator=alice
+   ```
+
+   Type the name; do not use `$USER`, which is `root` in a root shell and then makes
+   root the operator again. `tailscale debug prefs` shows the result as `OperatorUser`.
+
+   Follow any other reported account or operating-system step, then repeat enable.
    Repeating the command preserves a working setup. On macOS the CLI bundled at
    `/Applications/Tailscale.app/Contents/MacOS/Tailscale` is also found when
    `tailscale` is absent from `PATH`.
@@ -246,7 +257,7 @@ return screen after sign-in, without submitting the prior action.
 | Host is stopped, signed out, or offline | Open Tailscale and connect or complete its account prompt. Repeat enable. |
 | No usable `.ts.net` name | Check MagicDNS and the host's name in the Tailscale admin console. |
 | HTTPS is unavailable | Enable HTTPS certificates in the admin console using the linked instructions. |
-| Serve permission is denied | Complete the account permission; on Linux check the Tailscale operator setting. Repeat enable. |
+| Serve permission is denied | Complete the account permission. On Linux, `tailscale_operator_required` names the command `sudo tailscale set --operator=NAME` with the account that runs Koinon; run it, then repeat enable. The dashboard setup shows the same step. |
 | Required root or port is already used | Inspect `tailscale serve status --json`; resolve the reported conflict explicitly. Koinon preserves it. |
 | Saved loopback port is occupied | Free the saved port and repeat enable, or disable successfully then enable to choose an available backend port. The daemon's local API remains available. |
 | Network policy denies the phone | Check the phone's network/account and the tailnet access policy for this host's HTTPS port. Host status cannot prove phone permission. |

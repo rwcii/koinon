@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/rwcii/koinon/internal/remote"
@@ -24,6 +25,11 @@ type dashboardRemoteData struct {
 	Approval     remote.Setup
 	SetupError   string
 	Prerequisite string
+	// Operator is true after Tailscale refused a Serve write from this account
+	// on Linux. OperatorCommand is the exact command, or "" when the account name
+	// is not a plain name; the diagnostic text then says how to find it (#652).
+	Operator        bool
+	OperatorCommand string
 	// OnRemote is true when the page is served on the remote surface, which
 	// cannot issue sign-in codes.
 	OnRemote bool
@@ -65,6 +71,12 @@ func (d *Daemon) dashboardRemoteState(ctx context.Context, checked bool, csrf st
 			} else if !data.Approval.Complete {
 				data.Ready = false
 			}
+		}
+	}
+	for _, text := range []string{data.Status.Error, data.SetupError} {
+		if strings.HasPrefix(text, remote.OperatorRequired+": ") {
+			data.Operator, data.Ready = true, false
+			data.OperatorCommand = remote.OperatorCommand()
 		}
 	}
 	return data

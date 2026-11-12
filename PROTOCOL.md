@@ -110,7 +110,8 @@ uninstall removes its owned mapping after stopping the daemon. See
 
 A refused `enable` or `disable` is 409 `{"ok": false, "code": ..., "error": ...}`. The code is
 `remote_secret_required` when no maintainer secret is set, the Tailscale diagnostic's own code
-(such as `tailscale_disconnected`, `tailscale_identity_changed` or `tailscale_serve_conflict`),
+(such as `tailscale_disconnected`, `tailscale_identity_changed`, `tailscale_serve_conflict` or, on Linux,
+`tailscale_operator_required` with the `sudo tailscale set --operator=NAME` step),
 or `remote_setup_required` for another failure.
 | `POST /v1/maintainer/secret` | Set, generate or clear the maintainer secret (`action`, `secret`); ends every dashboard login and maintainer token. |
 | `POST /v1/maintainer/session` | Exchange the maintainer secret for a maintainer token (`secret`, `client`); see Maintainer mode. |

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/rwcii/koinon/internal/core"
+	"github.com/rwcii/koinon/internal/remote"
 )
 
 type remoteCLIAdapter struct {
@@ -178,5 +179,58 @@ func TestRemoteStoppedDaemonIsUnavailable(t *testing.T) {
 	refused := remoteCallError("enable", core.RefusedError{Code: "remote_secret_required"})
 	if code := errorReport(refused)["code"]; code != "remote_secret_required" {
 		t.Fatal("refusal code lost", code)
+	}
+}
+
+// deniedCLIAdapter refuses each Serve write as tailscaled does on Linux for an
+// account that is neither root nor the Tailscale operator (#652).
+type deniedCLIAdapter struct{ remoteCLIAdapter }
+
+const deniedCLINext = "Tailscale refused this account. Run sudo tailscale set --operator=synthetic-user, then run koinon remote enable"
+
+func (a *deniedCLIAdapter) Run(ctx context.Context, args ...string) ([]byte, error) {
+	if len(args) == 5 && args[3] == "--set-path=/" {
+		return nil, &remote.Diagnostic{Code: remote.OperatorRequired, Next: deniedCLINext}
+	}
+	return a.remoteCLIAdapter.Run(ctx, args...)
+}
+
+func TestRemoteOperatorRefusalNamesTheStep(t *testing.T) {
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "state")
+	d, err := core.Start(core.Config{StateDir: root, Listen: []string{"127.0.0.1:0"}, Tailscale: &deniedCLIAdapter{}, SecretCost: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	address := d.Addresses()[0]
+	args := func(op string) []string { return []string{"remote", op, "--state-dir", root, "--address", address} }
+	var out bytes.Buffer
+	if err := run(ctx, []string{"maintainer", "secret", "set", "--state-dir", root, "--address", address}, strings.NewReader("synthetic-long-secret\n"), &out); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	err = run(ctx, args("enable"), strings.NewReader(""), &out)
+	if err == nil || !strings.Contains(err.Error(), remote.OperatorRequired) || !strings.Contains(err.Error(), deniedCLINext) {
+		t.Fatal(out.String(), err)
+	}
+	out.Reset()
+	if err := run(ctx, args("status"), strings.NewReader(""), &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Serve: missing") || !strings.Contains(out.String(), "Next step: "+remote.OperatorRequired+": "+deniedCLINext) {
+		t.Fatal(out.String())
+	}
+	out.Reset()
+	if err := run(ctx, append(args("status"), "--json"), strings.NewReader(""), &out); err != nil {
+		t.Fatal(err)
+	}
+	var status struct {
+		OK    bool   `json:"ok"`
+		Serve string `json:"serve"`
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil || !status.OK || status.Serve != "missing" || status.Error != remote.OperatorRequired+": "+deniedCLINext {
+		t.Fatal(out.String(), err)
 	}
 }
