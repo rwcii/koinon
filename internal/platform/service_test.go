@@ -250,3 +250,32 @@ func TestServiceRefusesUnsafeLogDirectory(t *testing.T) {
 		t.Fatalf("symlinked log directory: %v", err)
 	}
 }
+
+// A user-manager command without XDG_RUNTIME_DIR, as under Homebrew, gets the user's own
+// runtime directory (#643); a set value, or a directory that is not the user's, stays as is.
+func TestUserRuntimeEnv(t *testing.T) {
+	yes := func(string, int) bool { return true }
+	no := func(string, int) bool { return false }
+	if env := userRuntimeEnv([]string{"PATH=/usr/bin"}, 1000, yes); len(env) != 2 || env[1] != "XDG_RUNTIME_DIR=/run/user/1000" {
+		t.Fatal(env)
+	}
+	if env := userRuntimeEnv([]string{"XDG_RUNTIME_DIR=/run/user/7"}, 1000, yes); env != nil {
+		t.Fatal("a set runtime directory was replaced", env)
+	}
+	if env := userRuntimeEnv([]string{"PATH=/usr/bin"}, 1000, no); env != nil {
+		t.Fatal("a directory that is not the user's was used", env)
+	}
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if !privateDir(dir, os.Geteuid()) || privateDir(dir, os.Geteuid()+1) {
+		t.Fatal("private directory check")
+	}
+	if err := os.Chmod(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if privateDir(dir, os.Geteuid()) {
+		t.Fatal("an open directory counted as private")
+	}
+}

@@ -24,7 +24,7 @@ func TestGuideLeavesDecisionCitationToTheProject(t *testing.T) {
 		for _, want := range []string{"Name a decision by its card reference, never by verdict ID", "a verdict ID exists only in this machine's store",
 			"How a project cites its decisions is that project's own rule.", "in the ADR, PDR, WDR or sprint document that holds the rule",
 			"Koinon writes no record file.", "Decided by (the person's name, not a role), Date, Context (the question and the options), Decision, Reason and scope, and Review when",
-			"Put a declined decision into the record's Alternatives Considered.", "koinon decision export PATH"} {
+			"Put a declined decision into the record's Alternatives Considered.", "koinon decision export --as FAMILY:ID PATH"} {
 			if !strings.Contains(flat, want) {
 				t.Fatalf("%s guide lacks %q", family, want)
 			}

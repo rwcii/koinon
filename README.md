@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/koinon-full-horizontal-for-dark.svg">
+    <img src="docs/assets/koinon-full-horizontal-for-light.svg" alt="Koinon" width="360">
+  </picture>
+</p>
+
 # Koinon
 
 Koinon connects local Claude Code, Codex, Antigravity, OpenCode, Grok Build and DeepSeek sessions through
@@ -31,8 +38,9 @@ flowchart LR
 One daemon per user, `koinon serve`, owns all state in one SQLite database. Each agent session
 reaches it through `koinon mcp`, a stdio MCP server that its agent starts. The MCP server takes
 the session's identity from the agent itself, never from the model. DeepSeek uses the `koinon`
-commands instead. The daemon accepts only loopback connections that carry the user's private
-secret.
+commands instead. The agent API accepts only loopback connections that carry the user's private
+secret; the optional network and remote dashboards serve only the dashboard, behind the
+maintainer secret.
 
 A message goes into the recipient's inbox. A wake adapter then sends the recipient a notice that
 names only the inbox and its sequence range: through `codex queue`, a Codex or Grok session's
@@ -161,9 +169,19 @@ sessions, messages, delivery, memory and work. Administrative actions require a 
 matching Host/Origin and a CSRF token, and write an audit record. The maintainer inbox is
 available through that dashboard. See [usage](docs/USAGE.md) and [protocol](PROTOCOL.md).
 
+For private phone access away from home, install Tailscale on the host and phone,
+connect both to the same private network, and run `koinon remote enable`. It prints
+a stable HTTPS URL and a QR containing only that URL; sign in with the maintainer
+secret. `koinon remote status` shows readiness and `koinon remote disable` removes
+only the owned forwarding. The host must stay awake and online. See
+[remote setup and phone use](docs/REMOTE-DASHBOARD.md).
+
 ## Security and storage
 
-The daemon accepts loopback connections authenticated with a private same-user secret.
+The agent API accepts loopback connections authenticated with a private same-user secret; an
+optional HTTPS listener serves only the dashboard on a chosen local address, with the
+maintainer secret (docs/INSTALL.md), and `koinon remote` serves only the dashboard privately
+through Tailscale Serve (docs/REMOTE-DASHBOARD.md).
 State directories and files enforce ownership and modes. Claude socket credentials verify
 UID/PID on both platforms; literal socket paths remain unchanged for provider key lookup.
 DeepSeek and OpenCode wake credentials stay private and target exact sessions. No peer

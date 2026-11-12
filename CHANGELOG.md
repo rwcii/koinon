@@ -5,6 +5,74 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-11-12 — A private remote dashboard with one-time QR sign-in, the Koinon logo, and approved work after a reset
+
+This release can open the dashboard privately from a phone or another computer through
+Tailscale Serve (`koinon remote`, contributed by Andrew Deugarte, @andyde8). A one-time sign-in
+QR from the dashboard on the host signs the phone in, and the agent API stays on loopback. The
+dashboard and the README show the Koinon logo. Pickup shows approved decision items in progress
+again after a context reset. On Linux, `brew upgrade` no longer names a false install step. The
+documentation, `koinon --help` and the guide match the code again. The state schema stays at 37.
+
+- Pickup also reads the board's approved items in progress of its repository (#640). After a
+  context reset, nothing else showed an approved card again to the session that must finish it.
+  Pickup closes such an item with `decision_close` when its record and merged change exist, and
+  otherwise reports it as approved work that waits.
+
+- On Linux, `brew upgrade koinon` no longer shows "ACTION REQUIRED: ... koinon install" while the
+  installation is current (#643). Homebrew runs the plan without `XDG_RUNTIME_DIR`, so
+  `systemctl --user` did not reach the user manager, and the plan then compared the version of
+  the daemon that had not restarted yet. A `systemctl` or `journalctl` command without
+  `XDG_RUNTIME_DIR` now gets the user's own `/run/user/UID`.
+
+- `koinon --help` names `koinon decision export --as FAMILY:ID PATH` and the launcher's `--role`
+  and the Claude-only `--bg`, and `koinon guide` names Grok and the `work_checkout` and `work_checkout_request`
+  tools. README, PROTOCOL.md, docs/INSTALL.md and docs/USAGE.md now include Grok in the lists of
+  families that get the shared skills, launchers and context cycles, the network dashboard, and
+  the `binary_changed` stop reason.
+
+- The dashboard shows the Koinon icon in its header and browser tab, with a light and a dark
+  variant, and the README opens with the Koinon logo.
+
+- Private remote access to the dashboard through Tailscale Serve (#645, PR 644 by Andrew
+  Deugarte, @andyde8; ADR 002, PDR 010). `koinon remote enable`, `status` and `disable` manage a
+  dashboard-only loopback listener and one owned private HTTPS mapping, and keep other Serve
+  configuration. The agent API is absent from that listener. The dashboard header offers **Go
+  remote**, which opens **Settings, Remote access** with one next step at a time; it is hidden
+  on the remote dashboard itself. Remote access needs a maintainer secret, now labeled
+  **Koinon password** on every login page, whose button now says **Sign in**.
+- On the dashboard of the host, **Show sign-in QR** gives a one-time sign-in code for the phone
+  that works once, for two minutes. A remote session cannot create one. The URL alone still
+  asks for the Koinon password; the QR that `koinon remote enable` prints holds only the URL.
+  A remote login allows 7 days without a request and lasts at most 7 days; local logins keep
+  24 hours without a request.
+- Dashboard pages fit a phone: long content wraps, controls are larger, and the page shows
+  when its data was last read. A refresh keeps open forms and unsent text; an interrupted
+  submission reports an unknown result and is never sent again automatically.
+- `koinon remote` refusals have fixed codes: `invalid_request`, `daemon_unavailable`,
+  `remote_secret_required`, a Tailscale code such as `tailscale_disconnected`, or
+  `remote_setup_required`; `--json` reports `ok`. Disable closes the remote surface also when
+  its record cannot be written.
+- After remote access was enabled, `koinon uninstall` removes Koinon's Serve mapping. When it
+  cannot, the uninstall stops with the Tailscale code and keeps the binary; repeat it after the
+  step that the report names.
+
+Upgrade from v0.10.1 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and rewrites the skill entries; the state schema stays at 37. The
+restart ends current dashboard logins: log in again with the maintainer secret, or run `koinon
+dashboard` for a one-time link. Homebrew then shows the steps that `koinon install --plan`
+finds; run them, and run `koinon install --plan` again to check. A running `koinon mcp` server
+runs the new release without a session restart.
+
+Upgrade notes:
+
+- Remote access stays off until you turn it on with `koinon remote enable` or under Settings,
+  Remote access. It needs Tailscale on the host and the phone, and a maintainer secret
+  (docs/REMOTE-DASHBOARD.md).
+- Login pages call the maintainer secret **Koinon password**. It is the same secret.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+
 ## 2026-11-10 — Decision cards with the form at each write, a fix-loop answer and an on-track answer
 
 This release gives an agent the decision-card form each time it writes a card, also after a

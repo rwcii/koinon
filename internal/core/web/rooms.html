@@ -1,23 +1,23 @@
 {{define "list"}}{{with .Data.Open}}<h2>Room {{.Room.Name}}</h2>
 <p><small>room <code>{{.Room.ID}}</code>, posts up to {{.Transcript.Head}}.</small></p>
 {{if .Transcript.Floor}}<p><small>Posts up to {{.Transcript.Floor}} are no longer retained.</small></p>{{end}}
-{{if .Transcript.Posts}}<table><thead><tr><th>Seq</th><th>From</th><th>Time</th><th>Body</th><th>Recipients</th></tr></thead><tbody>{{range .Transcript.Posts}}<tr>
-<td>{{.Seq}}</td><td>{{.SenderName}} <small>{{if eq .Origin "maintainer"}}maintainer{{else}}{{.SenderFamily}}, member{{end}}</small></td><td>{{ms .CreatedAt}}</td><td><pre class="body">{{.Body}}</pre></td>
-<td>{{range index $.Data.Open.Deliveries .Seq}}<div>{{.Label}} <small>{{.Family}}:
+{{if .Transcript.Posts}}<table class="mobile-cards"><thead><tr><th>Seq</th><th>From</th><th>Time</th><th>Body</th><th>Recipients</th></tr></thead><tbody>{{range .Transcript.Posts}}<tr>
+<td data-label="Seq">{{.Seq}}</td><td data-label="From">{{.SenderName}} <small>{{if eq .Origin "maintainer"}}maintainer{{else}}{{.SenderFamily}}, member{{end}}</small></td><td data-label="Time">{{ms .CreatedAt}}</td><td data-label="Body"><pre class="body">{{.Body}}</pre></td>
+<td data-label="Recipients">{{range index $.Data.Open.Deliveries .Seq}}<div>{{.Label}} <small>{{.Family}}:
 {{if eq .Outcome "skipped"}}skipped ({{.Reason}}){{else if eq .Outcome "not_retained"}}not retained, acknowledgement unknown{{else}}{{.DeliveryState}}, {{if .Acknowledged}}acknowledged by {{.AcknowledgedBy}}{{else}}not acknowledged{{end}}{{end}}</small></div>{{else}}<small>none</small>{{end}}</td>
 </tr>{{end}}</tbody></table>{{else}}<p class="empty">No retained posts on this page.</p>{{end}}
 {{range .Transcript.Gaps}}<p><small>Posts {{.From}} to {{.To}} are no longer retained.</small></p>{{end}}
 <p>{{with .Earlier}}<a href="/dashboard/rooms?room={{$.Data.Open.Room.ID}}&amp;after={{.}}">Earlier posts</a> {{end}}{{with .Later}}<a href="/dashboard/rooms?room={{$.Data.Open.Room.ID}}&amp;after={{.}}">Later posts</a> {{end}}<a href="/dashboard/rooms">All rooms</a></p>{{end}}
 {{if not .Data.Rooms}}<p class="empty">No rooms.</p>{{end}}{{range $room := .Data.Rooms}}<h2><a href="/dashboard/rooms?room={{.ID}}">{{.Name}}</a></h2>
 <p><small>room <code>{{.ID}}</code>, revision {{.Revision}}, created {{ms .CreatedAt}}.</small></p>
-{{if .Members}}<table>
+{{if .Members}}<table class="mobile-cards">
 <thead><tr><th>Member</th><th>Family</th><th>State</th><th>Revision</th><th></th></tr></thead>
 <tbody>{{range .Members}}<tr>
-<td>{{if .Address}}{{.Address}} <small>participant{{with .PeerName}}, held by {{.}}{{end}}</small>{{else}}{{.PeerName}} <small>session</small>{{end}}</td>
-<td>{{.Family}}</td>
-<td>{{.State}}</td>
-<td>{{.Revision}}</td>
-<td>{{if .Current}}<form method="post" action="/dashboard/actions/room-remove" class="inline"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="room_id" value="{{$room.ID}}"><input type="hidden" name="ordinal" value="{{.Ordinal}}"><button type="submit">Remove</button></form>{{end}}</td>
+<td data-label="Member">{{if .Address}}{{.Address}} <small>participant{{with .PeerName}}, held by {{.}}{{end}}</small>{{else}}{{.PeerName}} <small>session</small>{{end}}</td>
+<td data-label="Family">{{.Family}}</td>
+<td data-label="State">{{.State}}</td>
+<td data-label="Revision">{{.Revision}}</td>
+<td data-label="Actions">{{if .Current}}<form method="post" action="/dashboard/actions/room-remove" class="inline"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="room_id" value="{{$room.ID}}"><input type="hidden" name="ordinal" value="{{.Ordinal}}"><button type="submit">Remove</button></form>{{end}}</td>
 </tr>{{end}}</tbody></table>{{else}}<p class="empty">No members.</p>{{end}}{{end}}{{end}}
 {{define "actions"}}{{with .Data.Open}}<details class="action" open><summary>Post to {{.Room.Name}}</summary>
 <form method="post" action="/dashboard/actions/room-post"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="room_id" value="{{.Room.ID}}"><input type="hidden" name="key" value="{{$.Data.Key}}-post"><input type="hidden" name="deadline" value="{{$.Data.Deadline}}">

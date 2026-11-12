@@ -1,15 +1,15 @@
 {{define "filter"}}<form method="get" action="/dashboard/messages" class="filter"><label>Recipient <input name="to" value="{{.Data.Recipient}}" maxlength="128" list="peer-names"></label><input type="hidden" name="sort" value="{{.Data.Sort.Key}}"><input type="hidden" name="dir" value="{{.Data.Sort.Dir}}">{{if .Data.AllPeers}}<input type="hidden" name="peers" value="all">{{end}} <button type="submit">Filter</button></form>{{end}}
-{{define "list"}}{{if not .Data.Messages}}<p class="empty">No messages.</p>{{else}}<table>
+{{define "list"}}{{if not .Data.Messages}}<p class="empty">No messages.</p>{{else}}<table class="mobile-cards">
 <thead><tr>{{template "th" (.Data.Sort.Column "id" "ID")}}{{template "th" (.Data.Sort.Column "to" "To")}}{{template "th" (.Data.Sort.Column "seq" "Seq")}}{{template "th" (.Data.Sort.Column "from" "From")}}{{template "th" (.Data.Sort.Column "sent" "Sent")}}{{template "th" (.Data.Sort.Column "delivery" "Delivery")}}{{template "th" (.Data.Sort.Column "acknowledged" "Acknowledged")}}<th>Body</th></tr></thead>
 <tbody>{{range .Data.Messages}}<tr>
-<td>{{.ID}}</td>
-<td>{{if .RecipientName}}{{.RecipientName}}{{else}}{{.RecipientFamily}}:{{.RecipientID}}{{end}}</td>
-<td>{{.Seq}}</td>
-<td>{{.SenderName}} <small>{{.SenderFamily}}</small></td>
-<td>{{ms .CreatedAt}}</td>
-<td>{{.DeliveryState}}{{if .DeliveryReason}}<br><small>{{.DeliveryReason}}</small>{{end}}{{if .WakeReason}}<br><small>wake: {{.WakeReason}}{{if .Notices}}, notices {{.Notices}}{{end}}</small>{{end}}<br><small>{{ms .UpdatedAt}}</small></td>
-<td>{{if .Acknowledged}}yes<br><small>by {{.AcknowledgedBy}}{{if .AcknowledgedSession}} ({{.AcknowledgedSession}}, {{.AcknowledgedVia}}){{end}}</small>{{else}}no{{end}}</td>
-<td><pre class="body">{{.Body}}</pre></td>
+<td data-label="ID">{{.ID}}</td>
+<td data-label="To">{{if .RecipientName}}{{.RecipientName}}{{else}}{{.RecipientFamily}}:{{.RecipientID}}{{end}}</td>
+<td data-label="Seq">{{.Seq}}</td>
+<td data-label="From">{{.SenderName}} <small>{{.SenderFamily}}</small></td>
+<td data-label="Sent">{{ms .CreatedAt}}</td>
+<td data-label="Delivery">{{.DeliveryState}}{{if .DeliveryReason}}<br><small>{{.DeliveryReason}}</small>{{end}}{{if .WakeReason}}<br><small>wake: {{.WakeReason}}{{if .Notices}}, notices {{.Notices}}{{end}}</small>{{end}}<br><small>{{ms .UpdatedAt}}</small></td>
+<td data-label="Acknowledged">{{if .Acknowledged}}yes<br><small>by {{.AcknowledgedBy}}{{if .AcknowledgedSession}} ({{.AcknowledgedSession}}, {{.AcknowledgedVia}}){{end}}</small>{{else}}no{{end}}</td>
+<td data-label="Body"><pre class="body">{{.Body}}</pre></td>
 </tr>{{end}}</tbody></table>{{end}}
 {{if .Data.Next}}<p><a href="{{.Data.Sort.Next .Data.Next}}">Older messages</a></p>{{end}}{{end}}
 {{define "actions"}}<details class="action" open><summary>Send as maintainer</summary>

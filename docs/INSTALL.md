@@ -253,6 +253,41 @@ address. Without a recorded port, everything stays at 47671. A session that a la
 v0.6.0 or earlier started keeps the former address in its environment, also after `/clear`;
 start it again after the change.
 
+### Private remote dashboard
+
+For phone access away from home, install and connect Tailscale on the host and
+phone, enable its HTTPS certificate permission, and set the existing maintainer
+secret. Then run:
+
+```sh
+koinon remote enable
+koinon remote status
+```
+
+Enable prints a stable private HTTPS dashboard URL and a QR containing only that
+URL. The phone signs in with the maintainer secret. Status distinguishes local
+listener and dependency readiness from phone reachability, which remains
+unverified until checked on the phone. Follow the full
+[remote setup guide](REMOTE-DASHBOARD.md), including its cellular action check.
+The host must be awake and online. Ordinary local use needs no Tailscale.
+
+The optional listener has its own saved loopback port in the private, owner-checked
+`remote-dashboard.json`, and the daemon restores it after restart. Serve uses a
+persistent background mapping. Orderly daemon shutdown removes the owned mapping
+before releasing the backend port, keeping the enabled journal for restoration
+on the next start. A port conflict is reported and its owned forwarding removed
+instead of changing ports. An unavailable dependency leaves the local API
+running. Upgrade retains the setting; restart ends browser sessions, so sign in
+again. The [remote guide](REMOTE-DASHBOARD.md#url-restarts-and-configuration-ownership)
+describes the unresolved loopback ownership window after abrupt termination or
+failed shutdown cleanup.
+
+`koinon remote disable` stops only this listener, ends its logins, and removes
+only its recorded Serve root mapping. Unrelated mappings and the Tailscale login
+stay. A changed mapping is preserved and reported. Cleanup failures retain
+ownership intent for a repeat or restart. This is separate from the LAN HTTPS
+listener below; neither exposes `/v1/`. See ADR 002 and PDR 010.
+
 ### Network dashboard
 
 At a terminal, the first `koinon install` asks where the dashboard opens:
@@ -571,6 +606,12 @@ staging files.
 - In system mode on macOS, the LaunchDaemon plist that carries the marker: `sudo launchctl
   bootout system/<label>`, then `sudo rm`. A plist without the marker is kept, and the error
   gives the commands that remove it (`service_artifact_unowned`).
+- The remote dashboard's recorded Serve mapping, after the daemon is stopped,
+  only while it still matches Koinon's owned target. Unrelated Serve mappings
+  stay. A cleanup failure retains the journal and binary so repeating uninstall
+  can finish it; inspect the reported step before retrying. If Tailscale is missing,
+  install Tailscale again, then repeat the same uninstall command; the saved
+  disabled ownership journal needs no manual edit.
 - The binary.
 - The `~/.local/bin/koinon` link, only when the install created it (`<prefix>/link`) and it still
   points at the installed binary. Any other link or file there is kept (`"link_result": "kept"`).
@@ -819,7 +860,8 @@ client of that state directory.
 The dashboard uses one-time login links, or the maintainer secret (`koinon maintainer secret
 set`, docs/USAGE.md), a login cookie and CSRF-protected actions. A login ends after 24 hours
 without a request, 7 days after it was made, or when the daemon restarts; then log in again
-with the secret, or run `koinon dashboard` for a new link. Schema 29 adds the table that holds
+with the secret, or run `koinon dashboard` for a new link. A login on the private remote
+surface (`koinon remote`, docs/REMOTE-DASHBOARD.md) allows 7 days without a request. Schema 29 adds the table that holds
 the secret's salted key; an upgrade starts with no secret set.
 
 The daemon applies supported Go schema migrations transactionally and refuses an unknown
@@ -851,7 +893,8 @@ the old session, which then stays retired.
 
 The daemon writes one JSON line to standard error for each lifecycle event: `start` (version,
 state directory, listeners), `stop` with its `reason` (`signal` and its name, `canceled`,
-`error` with a fixed code, or `lock_held`), `lock_wait` and `lock_acquired`. The lines hold no
+`error` with a fixed code, `lock_held`, or `binary_changed`, which exits non-zero so that the
+service manager starts the new binary), `lock_wait` and `lock_acquired`. The lines hold no
 secret, message body or session ID. On macOS the launchd agent writes them to
 `~/Library/Logs/koinon/daemon.log` (directory mode 0700). Installation refuses an existing log
 directory that is not private to this user (`service_log_unsafe`) and does not change it. On
@@ -870,3 +913,8 @@ acknowledgement. Work claims are advisory leases. See
 [PROTOCOL.md](../PROTOCOL.md), [the work contract](WORK-ITEMS-V1.md) and
 [Go storage limits](WORK-ITEMS-GO-STORAGE.md). Python-era implementation evidence under
 historically marked documents is retained for migration provenance, not as an active recipe.
+
+For a renamed Tailscale host that retains an old-name Serve root, follow
+[name-change recovery](REMOTE-DASHBOARD.md#name-change-recovery), run remote disable,
+then repeat uninstall. The old network/name may need its account owner; Koinon
+retains the disabled journal until that mapping can be inspected and removed.

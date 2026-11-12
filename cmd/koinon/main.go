@@ -71,6 +71,8 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		if len(args) > 1 && args[1] == "clear" {
 			return cleanupCommand(ctx, "inbox", "clear", args[2:], out)
 		}
+	case "remote":
+		return remoteCommand(ctx, args[1:], out)
 	case "dashboard":
 		return dashboardCommand(ctx, args[1:], out)
 	case "maintainer":
@@ -395,6 +397,7 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N]
        koinon serve [--state-dir DIR] [--listen 127.0.0.1:PORT] [--listen-v6 [::1]:PORT] [--lock-wait 60s]
        koinon register --as deepseek:ID [--directory DIR] [--repository DIR] [--dsh-url URL] [--dsh-credentials FILE] [--state-dir DIR] [--address HOST:PORT]
        koinon status [--state-dir DIR] [--address 127.0.0.1:PORT]
+       koinon remote enable|status|disable [--state-dir DIR] [--address 127.0.0.1:PORT] [--json]
        koinon dashboard [--state-dir DIR] [--address 127.0.0.1:PORT] [--no-open]
        koinon maintainer secret set|generate|clear [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon mcp [--state-dir DIR] [--address 127.0.0.1:PORT]
@@ -433,6 +436,7 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N]
        koinon decision close --as FAMILY:ID --reference REF --if-revision N [--note TEXT] --key KEY --deadline UNIX_SECONDS
        koinon decision withdraw --as FAMILY:ID --reference REF --if-revision N --reason TEXT --key KEY --deadline UNIX_SECONDS
        koinon decision restore --as FAMILY:ID --reference REF [--if-revision N]
+       koinon decision export --as FAMILY:ID PATH
        koinon context show [--json] [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon context set FAMILY --mode observe|native_compaction|handoff_cycle --threshold PERCENT
        koinon context enable|disable NAME
@@ -453,7 +457,8 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N]
        koinon work <get|propose|edit|start|update|release|finish|report|accept|reject> WORK_ID --as FAMILY:ID [--consumer KEY] [options]
        koinon claim renew WORK_ID --as FAMILY:ID --claim-generation N --if-claim-revision N [--lease-seconds S]
        koinon recover [--state-dir DIR] [--address 127.0.0.1:PORT]
-       koinon <claude|codex|agy|opencode|grok> [--state-dir DIR] [--address HOST:PORT] [--cli ABS_PATH] [--directory DIR] [--tmux-session NAME] [--] [CLI arguments...]
+       koinon <claude|codex|agy|opencode|grok> [--state-dir DIR] [--address HOST:PORT] [--cli ABS_PATH] [--directory DIR] [--tmux-session NAME] [--role ROLE] [--] [CLI arguments...]
+       koinon claude --bg [--state-dir DIR] [--address HOST:PORT] [--cli ABS_PATH] [--directory DIR] [--role ROLE] [--] [CLI arguments...]
        koinon peers --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon peer-status --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT] NAME
        koinon send --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT] NAME BODY

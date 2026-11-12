@@ -19,6 +19,7 @@ import (
 
 	"github.com/rwcii/koinon/internal/library"
 	"github.com/rwcii/koinon/internal/platform"
+	"github.com/rwcii/koinon/internal/remote"
 )
 
 type Config struct {
@@ -30,9 +31,12 @@ type Config struct {
 	// SecretCost is the PBKDF2 iteration count of a new maintainer secret key; 0 is the
 	// production count. Tests of other packages lower it.
 	SecretCost int
+	// Tailscale is injectable; nil uses the installed CLI only when remote access is configured.
+	Tailscale remote.Adapter
 }
 
 type Daemon struct {
+	remote            remoteRuntime
 	release           string
 	store             *Store
 	secret            string
@@ -106,6 +110,7 @@ func Start(c Config) (*Daemon, error) {
 	}
 	d := &Daemon{release: c.Release, lock: lock, errors: make(chan error, 3), stop: make(chan struct{}), root: root, launch: runLauncher, catalog: catalog, workNoticeSignal: make(chan struct{}, 1)}
 	d.logEvent = c.LogEvent
+	d.remote.manager = remote.Manager{Adapter: c.Tailscale}
 	defer func() {
 		if err != nil {
 			d.Close()
@@ -164,6 +169,8 @@ func Start(c Config) (*Daemon, error) {
 	d.wg.Add(1)
 	go d.maintainDeepSeekContext()
 	d.startDashboardNetwork(net.InterfaceAddrs, net.Listen)
+	d.wg.Add(1)
+	go d.maintainRemote()
 	for _, listener := range d.listeners {
 		server := &http.Server{Handler: d.handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
 		d.servers = append(d.servers, server)
@@ -191,6 +198,9 @@ func (d *Daemon) Errors() <-chan error { return d.errors }
 func (d *Daemon) Close() error {
 	d.closeOnce.Do(func() {
 		close(d.stop)
+		remoteCtx, remoteCancel := context.WithTimeout(context.Background(), 8*time.Second)
+		d.closeErr = errors.Join(d.closeErr, d.shutdownRemote(remoteCtx))
+		remoteCancel()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		for _, s := range d.servers {
@@ -474,6 +484,7 @@ func (d *Daemon) handler() http.Handler {
 			respond(w, 200, map[string]any{"ok": true, "session": result, "renewal_seconds": d.store.Settings().RenewalSeconds})
 		})
 	}
+	d.remoteRoutes(mux)
 	d.messageRoutes(mux)
 	d.memoryRoutes(mux)
 	d.workRoutes(mux)
