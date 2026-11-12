@@ -15,4 +15,11 @@ codex-koinon reviewed each scope card before it was posted. Its corrections are 
 
 ## Plan review
 
-Pending: codex-koinon peer review of the committed plan.
+codex-koinon reviewed cf907fa on #671: peer review and refusal review, changes requested
+([peer](https://github.com/rwcii/koinon/pull/671#issuecomment-6838002030),
+[refusal](https://github.com/rwcii/koinon/pull/671#issuecomment-6838003395)).
+
+| Finding | Disposition |
+| --- | --- |
+| F1 (P2, also the refusal finding): NAME at most 64 bytes and a 318-byte total refuse existing valid names, for example a 66-byte participant address with a 253-byte COMPUTER | Accepted. NAME accepts every name that a local send accepts (up to 256 bytes); the full address is up to 510 bytes; tests include a name longer than 64 bytes and a 256-byte name, each with a 253-byte COMPUTER |
+| F2 (P2): a cancel of an attempted head before the receiver's commit leaves highWater unchanged, so the next sequence is a permanent gap; chunk 03 defines only `deliver` | Accepted. An ordered `cancel` operation resolves the head's sequence: "cancelled" with no insert at highWater+1, or the stored result at highWater; the sender sends the next head only after that result; tests cover cancel before and after the commit and a lost cancel reply |

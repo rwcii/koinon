@@ -72,9 +72,11 @@ directories and a fake Tailscale adapter; the TLS between them is real.
   COMPUTER with a valid NAME is sent; the other daemon resolves NAME, including a participant
   address to its current holder, and refuses an unknown or unheld name. No forwarding of
   `NAME@OTHER` through a second computer.
-- Address limits: NAME keeps its local rules; COMPUTER has the grammar above; send, peers,
-  peer status, inbox and reply paths and the dashboard field accept a full address of up to
-  64 + 1 + 253 bytes. Tests with a long NAME and a long COMPUTER round trip without truncation.
+- Address limits: NAME accepts every name that a local send accepts today, up to 256 bytes
+  (messages.go); COMPUTER has the grammar above; send, peers, peer status, inbox and reply
+  paths and the dashboard field accept a full address of up to 256 + 1 + 253 = 510 bytes.
+  Tests: an existing valid participant address longer than 64 bytes with a 253-byte COMPUTER,
+  and a 256-byte NAME with a 253-byte COMPUTER, round trip without truncation.
 - `peers` (MCP and CLI) and the dashboard list remote entries as `NAME@COMPUTER`, marked
   remote, with the time seen.
 - Tests: asymmetric names, rename, collision with the default and with a rename, override,
@@ -99,8 +101,14 @@ directories and a fake Tailscale adapter; the TLS between them is real.
      n < highWater is obsolete and gets no insert and no invented result; the sender ignores
      stale responses.
   4. A cancel of a queued, never-sent item removes it before it gets a sequence. A cancel of an
-     attempted head stops attempts and shows "may have been delivered"; its sequence is never
-     reused for another body. Unpair retires the generation.
+     attempted head stops sending its body and resolves its sequence with an ordered `cancel`
+     operation for the same sequence and digest: at highWater+1 the receiver stores the result
+     "cancelled", inserts nothing and advances the mark; at highWater it returns the stored
+     result, so a body that arrived first stays "received there". The sender stores that result
+     and only then sends the next head. Until the cancel is resolved, the head shows "may have
+     been delivered" and later messages to that computer wait. A sequence is never reused for
+     another body. Unpair retires the generation; an unresolved head stays "may have been
+     delivered".
   5. A live generation's highWater, last result and digest survive inbox ack, retention and
      purge at both sides.
 - One accepted cross-node message ID is inserted at most once. Two sends of the same text are two
@@ -120,7 +128,8 @@ directories and a fake Tailscale adapter; the TLS between them is real.
   lost receipt; lost refusal; long disconnection with body ack and retention at the receiver;
   concurrent enqueue; temporary backpressure; head-of-line blocking; cancel of a queued head, a
   middle item and an uncertain head; delayed old frames; gaps and reordered requests; the same
-  sequence with a changed body; Remote disable races and restart; alias changes; unpair during
+  sequence with a changed body; cancel of an attempted head before and after the receiver's
+  commit, with the cancel reply lost; Remote disable races and restart; alias changes; unpair during
   uncertain delivery; a remote message that claims the maintainer origin is refused.
 
 ## Documentation and records

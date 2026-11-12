@@ -18,8 +18,9 @@ Schema: the next free version on develop.
 
 ## Protocol
 
-Link operation `deliver` with sequence, cross-node ID, recipient NAME, sender name, body and
-digest; reply `received`, `refused` (reason) or `retry` (busy, full). The stream rules of the
+Link operations: `deliver` with sequence, cross-node ID, recipient NAME, sender name, body and
+digest, with the reply `received`, `refused` (reason) or `retry` (busy, full); and `cancel`
+with sequence and digest, with the reply `cancelled` or the stored result for that sequence. The stream rules of the
 definition of done apply. A delivery worker per connected pair sends the head; backoff on
 `retry` and on connection loss.
 

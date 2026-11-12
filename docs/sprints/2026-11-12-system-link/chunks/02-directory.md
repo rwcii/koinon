@@ -14,7 +14,7 @@ time in memory.
 ## Addressing
 
 One parser for `NAME@COMPUTER` used by send, peer status and the dashboard: NAME with the local
-name rules, COMPUTER with the advertised-name grammar, total at most 318 bytes. Effective names
+name rules, COMPUTER with the advertised-name grammar, NAME up to 256 bytes as a local send accepts, total at most 510 bytes. Effective names
 of pairs are unique in `link.json`; a collision gets the next free `-N`; a rename is one atomic
 write that never changes another pair.
 
