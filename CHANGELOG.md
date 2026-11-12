@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Pickup also reads the board's approved items in progress of its repository (#640). After a
+  context reset, nothing else showed an approved card again to the session that must finish it.
+  Pickup closes such an item with `decision_close` when its record and merged change exist, and
+  otherwise reports it as approved work that waits.
+
 - Private remote access to the dashboard through Tailscale Serve (#645, PR 644 by Andrew
   Deugarte, @andyde8; ADR 002, PDR 010). `koinon remote enable`, `status` and `disable` manage a
   dashboard-only loopback listener and one owned private HTTPS mapping, and keep other Serve

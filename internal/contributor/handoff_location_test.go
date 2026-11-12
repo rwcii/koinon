@@ -188,7 +188,10 @@ func TestHandoffWaitsNameBoardItems(t *testing.T) {
 		{"handoff", handoff, "When the board cannot be read, write the claim as\nunverified, with the error."},
 		{"handoff", handoff, "this rule adds no item before you act on them (WDR 005, Decision 5)."},
 		{"handoff", handoff, "- Waiting for the maintainer: <decision item references and states as read, or none>"},
-		{"pickup", pickup, "1. Read `decision_list` with the filter `waiting`, and `decision_pending`, each page by page to\n   its end."},
+		{"pickup", pickup, "1. Read `decision_list` with the filters `waiting` and `in_progress`, and `decision_pending`, each\n   page by page to its end."},
+		// An approved item in progress is shown again after a reset, and closed when done (#640).
+		{"pickup", pickup, "5. An approved item in progress of your repository (#640)"},
+		{"pickup", pickup, "close it with\n   `decision_close` and a note that names them."},
 		{"pickup", pickup, "2. Read each decision item that the note or the handoff names with `decision_get`, also one\n   that is not in the waiting list."},
 		{"pickup", pickup, "a claim that names no item, or an item that does not exist, is a difference too: report\n     it as drift, not as a wait, and not as a question for the maintainer."},
 		{"pickup", pickup, "an active item of kind `fyi`, at any revision, is information for the maintainer, not a\n     decision that waits"},
