@@ -136,7 +136,7 @@ func init() {
 	for code, text := range map[string]string{
 		"link_named":        "This computer's name and link port were saved, and the link is open.",
 		"link_joined":       "The computers are paired.",
-		"link_unpaired":     "The computer was unpaired here; the other computer learns it at its next connection.",
+		"link_unpaired":     "The computer was unpaired. The other computer removes the pair when it answers, or shows it as rejected at its next connection.",
 		"link_cancelled":    "The pending pair or the open invitations were cancelled.",
 		"link_renamed":      "The computer's name on this computer was saved.",
 		"link_audit_failed": "The change was made, but its audit record could not be written.",

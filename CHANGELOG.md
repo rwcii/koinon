@@ -5,6 +5,19 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Pair your Koinon computers (#670, first part). With remote access on on both, **Copy
+  invitation** in Settings, Computers on one computer, and **Paste invitation** and **Connect**
+  on the other; or `koinon link invite` and `koinon link join`, which take the maintainer
+  secret from `--secret-file` or the terminal and read the invitation from the terminal or
+  standard input. The invitation works once, for 10 minutes. Each computer advertises a name
+  that you choose once (`koinon link name`, the short host name by default). The daemons talk
+  TLS 1.3 with each other's pinned key through a raw TCP Tailscale Serve mapping on the link
+  port (47672 by default), which remote enable adds and remote disable removes; disable also
+  closes the link and cancels open invitations, and keeps the pairs. `koinon link status`, the
+  Computers section and `koinon remote status` show each paired computer as connected, offline
+  or pending, the link listener and its mapping, and the last refused key. Unpair, Cancel and
+  Rename are in the same places. Messages between computers come in the next parts.
+
 - The first `koinon install` at a terminal now offers a third answer for where the dashboard
   opens: on this computer and your tailnet, through Tailscale Serve, with no network address
   (#665). It asks the Serve HTTPS port, offers the maintainer secret when none is set, and

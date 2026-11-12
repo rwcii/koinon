@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -220,5 +221,81 @@ func TestLinkRefusedKeyIsShown(t *testing.T) {
 	st := b.d.linkStatus(ctx)
 	if st.Rejected == nil || st.Rejected.Fingerprint != idA.Pin || st.Rejected.At == 0 {
 		t.Fatalf("rejected key not shown: %+v", st.Rejected)
+	}
+}
+
+// A live connection ends at Remote disable, and a client that kept a TLS session cache cannot
+// resume into a pair that was removed: the server issues no tickets, so each connection runs
+// the full handshake with its pin check.
+func TestLinkDisableEndsConnectionAndUnpairRefusesResumption(t *testing.T) {
+	n := &linkNet{}
+	a := newLinkHost(t, n, "alpha", "100.64.0.1")
+	b := newLinkHost(t, n, "beta", "100.64.0.2")
+	ctx := context.Background()
+	text, err := b.d.linkInvite(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := a.d.linkJoin(ctx, text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	idA, _ := a.d.linkIdentity()
+	cache := tls.NewLRUClientSessionCache(4)
+	dial := func() (*tls.Conn, error) {
+		raw, err := n.dial(ctx, b.ip+":47672")
+		if err != nil {
+			return nil, err
+		}
+		config := linkClientConfig(idA, p.Pin)
+		config.ClientSessionCache = cache
+		conn := tls.Client(raw, config)
+		if err := conn.HandshakeContext(ctx); err != nil {
+			conn.Close()
+			return nil, err
+		}
+		return conn, nil
+	}
+	conn, err := dial()
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := linkSession{conn: conn}
+	if err := session.call("ping", linkPairID{ID: p.ID}, "pong", nil); err != nil {
+		t.Fatalf("first ping: %v", err)
+	}
+	if err := b.d.remoteDisable(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.call("ping", linkPairID{ID: p.ID}, "pong", nil); err == nil {
+		t.Fatal("a connection stayed open after Remote disable")
+	}
+	conn.Close()
+	if err := b.d.remoteEnable(ctx, 0); err != nil {
+		t.Fatal(err)
+	}
+	conn, err = dial()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The ping reads the stream, where a server that issues tickets would send one.
+	if err := (linkSession{conn: conn}).call("ping", linkPairID{ID: p.ID}, "pong", nil); err != nil {
+		t.Fatalf("ping after re-enable: %v", err)
+	}
+	conn.Close()
+	// beta removes the pair; alpha's cached session gives it nothing.
+	if err := b.d.removeLinkPair(idA.Pin, b.state(t).Pairs[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	conn, err = dial()
+	if err == nil {
+		err = linkSession{conn: conn}.call("ping", linkPairID{ID: p.ID}, "pong", nil)
+		if conn.ConnectionState().DidResume {
+			t.Fatal("the server resumed a TLS session after unpair")
+		}
+		conn.Close()
+	}
+	if !linkKeyRefused(err) {
+		t.Fatalf("the removed key was not refused: %v", err)
 	}
 }

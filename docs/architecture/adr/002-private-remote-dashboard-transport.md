@@ -36,7 +36,9 @@ handlers and never mounts the agent API. Remote sign-in uses the existing
 maintainer secret or a transient one-use ticket explicitly created by a signed-in
 dashboard, as amended by PDR 010, Decision 4.
 The local agent API and optional LAN HTTPS dashboard retain their existing roles
-under ADR 001. Product behavior is in PDR 010.
+under ADR 001. Product behavior is in PDR 010. Decision 4 adds the link between the
+maintainer's Koinon computers to Remote, with its own loopback TLS listener and a raw TCP
+Serve mapping (#670).
 
 This record accepts the authorized design. It does not assert real proxy,
 cellular, or physical-device validation; the evidence and remaining steps are in
@@ -295,6 +297,75 @@ human-mandated limits or a change to the server's two-minute ticket lifetime.
    it separate from a permanent login URL.
 3. The existing remote cookie and password fallback preserve the established session boundary.
 
+## 4. Decision: The link between Koinon computers is part of Remote
+
+### Decision
+
+Remote also carries the link between the maintainer's own Koinon computers (#670). Remote
+enable adds a raw TCP Serve mapping (`tailscale serve --bg --tcp=PORT tcp://127.0.0.1:N`, never
+`--tls-terminated-tcp` and never the HTTPS route) from a separate, changeable link port
+(47672 by default) to a second loopback listener in the daemon, journaled in
+`remote-dashboard.json` with the dashboard mapping's ownership rules. Remote disable closes the
+link listener and its connections and cancels open invitations, then removes the mapping;
+pairs stay. A disable whose record write fails keeps the link closed.
+
+The link listener speaks TLS 1.3 only, end to end between the two daemons, through the raw TCP
+mapping; Tailscale's WireGuard is around it. Each daemon has its own Ed25519 key in the private
+`link-key.pem`, with a self-signed certificate renewed with the same key, and pins the other
+daemon's key (SHA-256 of its SubjectPublicKeyInfo) at pairing. `VerifyConnection` checks the pin
+on every connection, with session tickets off; a key that is not paired is refused in the
+handshake, except while an invitation is open, and then only for the pairing operation. Pairing
+is one invitation: the joining daemon checks the inviting key against the invitation's pin
+before it sends the invitation's single-use secret. The listener serves no agent API and no
+dashboard route. Tailnet membership, the dashboard login and the agent API bearer give no link
+access, and the maintainer secret never crosses the link. A daemon dials a pair's saved
+Tailscale addresses, refreshed from `tailscale status --json` by an exact tailnet-name match,
+and never resolves a name through the operating system.
+
+Invite, join, unpair and rename need the maintainer: the dashboard login, or a maintainer token
+on the agent API (PDR 009). Implementation: `internal/core/link.go`, `internal/core/link_routes.go`,
+`internal/link`, and `remote.Manager.EnsureTCP` and `RemoveTCP` in `internal/remote/link.go`.
+
+**Provenance (LINK-670-PAIR):**
+
+- **Decided by:** Robert Capps.
+- **Date:** 2026-11-12, revision 5, approved, after feedback on revisions 1, 3 and 4
+  ([decision record](../../sprints/2026-11-12-system-link/decision.md)).
+- **Context:** how two of the maintainer's daemons find, trust and reach each other. Revision 1
+  proposed a separate link listener with pinned keys. Feedback: "agreed, propose a design. How
+  can we EASILY introduce them to each other?" Revision 3 proposed one invitation. Feedback:
+  "looks good, how do we manage secure connections? Will this be LAN only, LAN plus Tailscale,
+  something else?" Revision 4 proposed any reachable network with pinned keys. Feedback: "I
+  think this should be an offshoot of the remote function, i.e., you must enable remote to
+  enable peer Koinon nodes. How will node to node traffic be protected? TLS?"
+- **Decision:** links are part of Remote; pairing is one invitation; invite, join and unpair
+  need the maintainer; a raw TCP Serve mapping to a loopback link listener; TLS 1.3 between the
+  daemons with pinned keys; disable closes the link and keeps the pairs; the agent API stays on
+  loopback.
+- **Reason and scope:** Remote already gives each computer a tailnet name and a managed Serve
+  setup, so pairing needs no address. The raw TCP mapping keeps the pinned daemon keys; the
+  HTTPS mapping ends TLS in tailscaled. This amends the scope of Decision 2, which approved
+  Remote for browser access only.
+- **Review when:** computers without Tailscale must link, or Tailscale Serve changes its TCP
+  forwarding.
+
+### Alternatives Considered
+
+A link listener on any LAN, tailnet or VPN address (revision 4); LAN only; tailnet device
+identity as the trust; links on the Remote HTTPS path with a credential per pair, which loses
+the pinned daemon keys; a direct tailnet listener outside Serve; a 6-digit code compared on two
+screens; LAN discovery by mDNS.
+
+### Enforcement and evidence
+
+`internal/core/link_test.go` and `internal/core/link_routes_test.go` run two daemons with real
+TLS and a synthetic Tailscale adapter: pairing through one invitation; reused, expired and
+cancelled invitations; a wrong pin before any secret; Remote disable with an open invitation,
+during a connection and with a failed record write; restart while off; unpair on both sides; no
+TLS session resumption after unpair; a refused unpaired key shown in status; the maintainer token and dashboard checks of each change, and audit records without
+the invitation. The raw TCP Serve probe on a tailnet host is in
+[the verification record](../../sprints/2026-11-12-system-link/verification.md).
+
 ## Conclusion
 
 Private remote browser access has a dedicated listener and credential surface,
@@ -311,3 +382,4 @@ Serve mapping and records recoverable lifecycle transitions.
 | 2026-11-11 | Amend remote sign-in with transient origin-bound QR tickets authorized in PDR 010, Decision 4. |
 | 2026-11-11 | Clarify remote-only seven-day idle time and its separation from ticket expiry. |
 | 2026-11-12 | Accepted by Robert Capps (#645). Name the proposer as Andrew Deugarte (@andyde8). Only a host dashboard session issues tickets. Record the QR library and its alternatives (review of PR #644). |
+| 2026-11-12 | Decision 4: the link between Koinon computers is part of Remote (LINK-670-PAIR, Robert Capps, #670). |

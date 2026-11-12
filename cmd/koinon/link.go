@@ -221,7 +221,7 @@ func linkCommand(ctx context.Context, args []string, in io.Reader, out io.Writer
 	case "name":
 		fmt.Fprintf(out, "This computer is %s; its agents are AGENT@%s on your other computers.\n", body["name"], body["name"])
 	case "unpair":
-		fmt.Fprintln(out, "Unpaired here; the other computer learns it at its next connection.")
+		fmt.Fprintln(out, "Unpaired. The other computer removes the pair when it answers, or shows it as rejected at its next connection.")
 	case "cancel":
 		fmt.Fprintln(out, "Cancelled.")
 	case "rename":

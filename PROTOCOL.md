@@ -82,6 +82,46 @@ reported instead of changing the port. Upgrade retains the configuration;
 uninstall removes its owned mapping after stopping the daemon. See
 [remote setup](docs/REMOTE-DASHBOARD.md).
 
+The link between the maintainer's Koinon computers (#670, ADR 002 Decision 4, LINK-670-PAIR)
+is part of Remote. Its files are private, owner-checked, mode 0600 and written atomically:
+`link-key.pem` holds the daemon's Ed25519 key and a self-signed certificate, renewed with the
+same key, so the pin (SHA-256 of the SubjectPublicKeyInfo, hex) does not change; `link.json`
+holds the version, the advertised name, the link port, at most 64 pairs (ID, advertised,
+override and effective names, pin, tailnet name, Tailscale addresses, port, state `pending` or
+`paired`, role `inviter` or `joiner`, created time) and at most 16 open invitations as SHA-256
+hashes of their secrets with their expiry. `remote-dashboard.json` adds `link` (the link port
+and the loopback target) and `link_owned`, under the same write-ahead ownership rules as the
+dashboard mapping. Setup (`link-name`) validates the name (lower-case letters, digits,
+hyphens and dots, at most 253 bytes, labels of 1 to 63 bytes with alphanumeric ends) and the
+port (1 to 65535, not the dashboard's HTTPS port; 47672 by default), journals the mapping,
+opens a `127.0.0.1` TLS listener and adds `tailscale serve --bg --tcp=PORT
+tcp://127.0.0.1:N`. Remote enable and restore open the listener, then the mapping; remote
+disable closes link connections and the listener and cancels open invitations, then removes
+the mapping; pairs stay. A disable whose record write fails keeps the link closed.
+
+The listener takes TLS 1.3 only, with a client certificate required and session tickets off;
+`VerifyConnection` admits a paired or pending key, or any key while an invitation is open, and
+refuses every other key in the handshake with the `bad_certificate` alert, before any
+application data, and records it as the last refused key. On the TLS stream each frame is a
+4-byte big-endian length and a JSON object (`op`, `body`, or `error` and `detail`), at most 64
+KiB, with unknown fields refused; a connection carries at most 64 frames. The operations are
+`pair-hello` (`secret`, `name`, `dns`, `ips`, `port`; only an unpaired key with an open
+invitation's secret, which is used at once; the reply `hello-ok` has the pair `id` and `name`),
+`pair-confirm` (`id`), `ping` (`id`) and `unpair` (`id`). The client dials a pair's saved
+Tailscale addresses with its pin checked in `VerifyConnection`, and when none connects reads
+`tailscale status --json`, takes the addresses of the peer whose full tailnet name matches
+exactly, and saves new addresses only after a connection with the pinned key. A wrong pin is
+`link_key_mismatch`, at once, at no other address. The invitation is `koinon-link-1:` and
+base64url JSON (`v`, `dns`, `ips`, `port`, `pin`, `name`, `secret` of 128 bits), at most 2,048
+bytes, valid 10 minutes. A join checks the pin before it sends the secret; a refused key is
+`link_invitation_refused`. Refusals: `link_remote_required`, `link_setup_required`,
+`link_name_invalid`, `link_name_used`, `link_port_invalid`, `link_invitation_invalid`,
+`link_invitation_self`, `link_invitation_refused`, `link_already_paired`, `link_key_mismatch`,
+`link_unreachable`, `link_limit`, `link_pair_not_found`. A pair is shown as `connected` for 3
+ping intervals after an authenticated connection, `offline` (with the error), `pending`, or
+`rejected` (`link_key_mismatch`, or `link_key_refused` when the other computer refused this
+key).
+
 | Route | Operation |
 | --- | --- |
 | `GET /v1/status` | Daemon readiness, the release `version`, `pid`, listeners, schema, session counts, storage, content-free wake health and `maintainer_secret_set`. |
@@ -113,6 +153,7 @@ uninstall removes its owned mapping after stopping the daemon. See
 | `GET /v1/remote/status` | Remote configuration, URL, listener readiness, observed Tailscale/Serve state, actionable error when present, and phone reachability `unverified`. When Serve is ready, `policy_hint` says that the tailnet policy must allow TCP on the remote HTTPS port (443 unless chosen) to the host, and `policy_rule` is an example policy entry with the host's Tailscale addresses (`tailscale.tailscale_ips`), absent when no valid address is known. Local bearer API only. |
 | `POST /v1/remote/enable` | JSON object with an optional `https_port` (#665): Serve's HTTPS port, 1 to 65535; absent or 0 keeps the saved port, or 443 for a first enable; another value or type is `invalid_request` before any change. The remote origin is `https://HOST.TAILNET.ts.net`, with `:PORT` when the port is not 443, and every remote URL, QR code, ticket and Host and Origin check uses it. A new port on an owned mapping first takes the disable steps for the old one. Check setup, persist ownership intent, start the dashboard-only listener, and ensure the private Serve root mapping. Local bearer API only. |
 | `POST /v1/remote/disable` | Empty JSON object; stop the remote surface, invalidate its sessions, persist disabled intent, and remove only its exact owned mapping. The surface stays closed when the record cannot be written; the reconciler then retries the write instead of opening it. Local bearer API only. |
+| `GET /v1/link/status` | The link (#670): `configured`, `name` (or `suggest_short` and `suggest_long` before setup), `port`, `fingerprint`, `remote`, `listener`, `serve`, open `invitations`, `pairs` (`id`, `name`, `advertised`, `override`, `state`, `role`, `observed` with `state`, `at` and `error`, `created`) and `rejected` (`fingerprint`, `at`). `GET /v1/remote/status` adds `link_port`, `link_listener` and `link_serve`. Local bearer API only. |
 
 A refused `enable` or `disable` is 409 `{"ok": false, "code": ..., "error": ...}`. The code is
 `remote_secret_required` when no maintainer secret is set, the Tailscale diagnostic's own code
@@ -124,7 +165,7 @@ with one `[y/N]` question; on yes it runs `sudo tailscale set --operator=NAME` a
 argument list and posts `enable` once more (PDR 010, Decision 6).
 | `POST /v1/maintainer/secret` | Set, generate or clear the maintainer secret (`action`, `secret`); ends every dashboard login and maintainer token. |
 | `POST /v1/maintainer/session` | Exchange the maintainer secret for a maintainer token (`secret`, `client`); see Maintainer mode. |
-| `POST /v1/maintainer/ROUTE` | The maintainer's reads and actions with a maintainer token: `board-list`, `decision-get`, `decision-history`, `decision-verdict`, `inbox`, `ack`, `send`, `room-list`, `room-read`, `room-post`, `room-create`, `room-add`, `room-remove`, `peers`, `peer-status` and the long poll `changes`; see Maintainer mode. |
+| `POST /v1/maintainer/ROUTE` | The maintainer's reads and actions with a maintainer token: `board-list`, `decision-get`, `decision-history`, `decision-verdict`, `inbox`, `ack`, `send`, `room-list`, `room-read`, `room-post`, `room-create`, `room-add`, `room-remove`, `peers`, `peer-status`, the link's `link-name`, `link-invite`, `link-join`, `link-unpair`, `link-cancel` and `link-rename`, and the long poll `changes`; see Maintainer mode. |
 | `GET /v1/participants` | Each participant's `address`, `family`, `repository`, optional `role`, active `holder` peer name, `conflict` and `last_event`, at most 1,000 with `truncated` (`koinon participant list`, #398). |
 | `POST /v1/participants/holder` | The maintainer's holder choice from the command line (`koinon participant holder`, #398): `address`, `peer` and an optional `if_revision`, the session's current revision when absent. It makes what the dashboard's **Make holder** makes and is audited as `participant-holder` by `cli`. It returns `holder` and `former`; refusals are `invalid_request`, `peer_not_found`, `not_participant`, `session_not_active` and `revision_changed`. |
 | `POST /v1/storage/recover` | Prove the write-ahead log empty again, return free pages and clear a blocked state. |
@@ -2515,6 +2556,18 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     `peer_not_found`, `room_member_not_found`, `idempotency_conflict` and the room limits).
   - `peers` lists the agent sessions without the maintainer; `peer-status` (`peer`) reads one
     as `peer_status` does (`peer_not_found`, `alias_unheld`).
+  - The link (#670): `link-name` (`name`, `port`, 0 for the saved port or 47672);
+    `link-invite`, whose result has `invitation` and `expires_seconds`; `link-join`
+    (`invitation`), whose result has the pair's `id`, `name` and `advertised`; `link-unpair`
+    (`pair`, a name or ID); `link-cancel` (`pair`, or `invitations` for every open invitation);
+    `link-rename` (`pair`, `name`, empty for the advertised name). The refusals are the link's.
+    Each writes its accepted or refused record with the action's name and the target `name
+    NAME`, `link invitation` or `pair PAIR`; no record holds an invitation. `koinon link`
+    exchanges the secret from `--secret-file` or the terminal as client `koinon-link`, and
+    `koinon link join` reads the invitation from the terminal or the first line of standard
+    input. The dashboard's Settings, Computers section posts the same actions under
+    `/dashboard/actions/link-*` with the request protection; `link-invite` answers with a page
+    that shows the invitation and an inline SVG QR code, never a redirect.
   - `changes` (`wait_seconds` 1–30, optional `cursor`) is the long poll of the change notices.
     Its result is `{"cursor": {URI: VERSION}, "changed": [URI]}`: the version of
     `koinon://maintainer/inbox`, `koinon://maintainer/decisions` and each
