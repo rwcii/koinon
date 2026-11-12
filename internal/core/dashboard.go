@@ -34,6 +34,8 @@ type settingsData struct {
 	Context []ContextFamilyPolicy
 	Modes   []string
 	Remote  *dashboardRemoteData
+	// Link is the Computers section (#670).
+	Link *LinkStatus
 }
 
 // loginData is the login page's reason, and whether it shows the secret form.
@@ -108,6 +110,12 @@ func dashboardTemplates() (map[string]*template.Template, error) {
 				return "—"
 			}
 			return time.Unix(0, int64(f*1e9)).UTC().Format("2006-01-02 15:04:05Z")
+		},
+		"unix": func(v int64) string {
+			if v == 0 {
+				return "—"
+			}
+			return time.Unix(v, 0).UTC().Format("2006-01-02 15:04:05Z")
 		},
 		"list": func(values ...string) []string { return values },
 		"decisionCard": func(page dashboardPage, item DecisionItem, lookup bool) decisionCard {
@@ -304,6 +312,7 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 	d.dashboardActions(mux, authedLimit)
 	d.dashboardRemoteRoutes(mux, authed, pages)
 	d.dashboardAccessRoutes(mux, authed)
+	d.dashboardLinkRoutes(mux, authed)
 	mux.HandleFunc("GET /dashboard/{$}", authed(func(w http.ResponseWriter, r *http.Request, _ string) {
 		http.Redirect(w, r, "/dashboard/sessions", http.StatusSeeOther)
 	}))
@@ -572,8 +581,12 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 		return result, err
 	case "settings":
 		at, err := d.store.settingsUpdatedAt(ctx)
+		var linkState *LinkStatus
+		if q.Get("fragment") != "1" {
+			linkState = d.dashboardLinkState(ctx)
+		}
 		return settingsData{Current: d.store.Settings(), Default: DefaultSettings, UpdatedAt: at, Context: d.store.ContextPolicy(),
-			Modes: []string{ContextObserve, ContextNativeCompaction, ContextHandoffCycle}}, err
+			Modes: []string{ContextObserve, ContextNativeCompaction, ContextHandoffCycle}, Link: linkState}, err
 	case "decisions":
 		return d.store.dashboardDecisions(ctx, q)
 	case "audit":

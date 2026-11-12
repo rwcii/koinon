@@ -53,6 +53,11 @@ type RemoteStatus struct {
 	// host is ready but the phone is unverified (#653). Koinon cannot read the policy.
 	PolicyHint string `json:"policy_hint,omitempty"`
 	PolicyRule string `json:"policy_rule,omitempty"`
+	// The link between Koinon computers (#670), once its name and port are set: its loopback
+	// listener and its raw TCP Serve mapping.
+	LinkPort     int    `json:"link_port,omitempty"`
+	LinkListener string `json:"link_listener,omitempty"`
+	LinkServe    string `json:"link_serve,omitempty"`
 }
 
 // policyHint names the remote HTTPS port that the tailnet access policy must allow (#665).
@@ -452,6 +457,24 @@ func (d *Daemon) remoteStatus(ctx context.Context) RemoteStatus {
 					result.PolicyRule = rule
 				}
 			}
+		}
+	}
+	if c := rt.config; c != nil && c.Link != nil {
+		result.LinkPort, result.LinkListener, result.LinkServe = c.Link.Port, "off", "off"
+		d.link.mu.Lock()
+		if d.link.listener != nil {
+			result.LinkListener = "ready"
+		}
+		d.link.mu.Unlock()
+		switch {
+		case !c.Enabled && c.LinkOwned:
+			result.LinkServe = "cleanup pending"
+		case c.Enabled && err != nil:
+			result.LinkServe = "unknown"
+		case c.Enabled && observed.TCPMappingPresent(*c.Link):
+			result.LinkServe = "ready"
+		case c.Enabled:
+			result.LinkServe = "missing"
 		}
 	}
 	if rt.config != nil && rt.config.Enabled {

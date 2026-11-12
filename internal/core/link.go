@@ -38,6 +38,9 @@ var (
 	ErrLinkPaired      = Refusal{"link_already_paired", "this computer is already paired with that computer; unpair it first to pair it again"}
 	ErrLinkNameUsed    = Refusal{"link_name_used", "another paired computer uses that name; choose another"}
 	ErrLinkPortSame    = Refusal{"link_port_invalid", "the link port must differ from the Remote dashboard port"}
+	ErrLinkPortRange   = Refusal{"link_port_invalid", "use a link port of 1 to 65535 that differs from the Remote dashboard port"}
+	ErrLinkNameInvalid = Refusal{"link_name_invalid", "use lower-case letters, digits, hyphens and dots, at most 253 characters"}
+	ErrLinkTextInvalid = Refusal{"link_invitation_invalid", "paste the whole invitation from the other computer's Add a computer step"}
 	ErrLinkUnreachable = Refusal{"link_unreachable", "the other computer did not answer at any of its Tailscale addresses; check that it is on, connected to the tailnet and has Remote on, then try again"}
 	ErrLinkWrongKey    = Refusal{"link_key_mismatch", "the other computer's key does not match the invitation; make a new invitation on that computer"}
 	ErrLinkInvitation  = Refusal{"link_invitation_refused", "the other computer refused the invitation: it expired, was used or was cancelled; make a new one"}
@@ -51,12 +54,20 @@ type linkObservation struct {
 	Error string `json:"error,omitempty"`
 }
 
+// LinkRejection is the last unexpected key that this computer's link listener refused.
+type LinkRejection struct {
+	Fingerprint string `json:"fingerprint"`
+	At          int64  `json:"at"`
+}
+
 type linkRuntime struct {
 	mu       sync.Mutex
 	identity *link.Identity
 	listener net.Listener
 	conns    map[net.Conn]string
 	observed map[string]linkObservation
+	// rejected is the last key that the listener refused in the handshake.
+	rejected *LinkRejection
 	stop     chan struct{}
 	// dial connects to a paired computer, and now is the link's clock; tests set them
 	// before Remote opens the link.
@@ -147,6 +158,9 @@ func (d *Daemon) linkServerConfig(id link.Identity) *tls.Config {
 		SessionTicketsDisabled: true,
 		VerifyConnection: func(cs tls.ConnectionState) error {
 			if pin := peerPin(cs); pin == "" || !d.linkAdmits(pin) {
+				d.link.mu.Lock()
+				d.link.rejected = &LinkRejection{Fingerprint: pin, At: d.linkNow().Unix()}
+				d.link.mu.Unlock()
 				return errLinkPin
 			}
 			return nil
@@ -729,7 +743,7 @@ func (d *Daemon) linkInvite(ctx context.Context) (string, error) {
 func (d *Daemon) linkJoin(ctx context.Context, text string) (link.Pair, error) {
 	invitation, err := link.ParseInvitation(text)
 	if err != nil {
-		return link.Pair{}, Refusal{"link_invitation_invalid", "paste the whole invitation from the other computer's Add a computer step"}
+		return link.Pair{}, ErrLinkTextInvalid
 	}
 	d.remote.mu.Lock()
 	err = d.linkReadyLocked()
@@ -876,7 +890,7 @@ func (d *Daemon) linkCancel(ref string) error {
 func (d *Daemon) linkRename(ref, name string) error {
 	name = link.NormalizeName(name)
 	if name != "" && link.ValidateName(name) != nil {
-		return Refusal{"link_name_invalid", "use lower-case letters, digits, hyphens and dots, at most 253 characters"}
+		return ErrLinkNameInvalid
 	}
 	d.link.mu.Lock()
 	defer d.link.mu.Unlock()
@@ -905,13 +919,13 @@ func (d *Daemon) linkRename(ref, name string) error {
 func (d *Daemon) linkSetup(ctx context.Context, name string, port int) error {
 	name = link.NormalizeName(name)
 	if err := link.ValidateName(name); err != nil {
-		return Refusal{"link_name_invalid", "use lower-case letters, digits, hyphens and dots, at most 253 characters"}
+		return ErrLinkNameInvalid
 	}
 	if port == 0 {
 		port = link.DefaultPort
 	}
 	if !remote.ValidHTTPSPort(port) {
-		return Refusal{"link_port_invalid", "use a link port of 1 to 65535"}
+		return ErrLinkPortRange
 	}
 	rt := &d.remote
 	rt.mu.Lock()
@@ -1012,6 +1026,7 @@ type LinkStatus struct {
 	Serve        string           `json:"serve"`
 	Invitations  int              `json:"invitations"`
 	Pairs        []LinkPairStatus `json:"pairs"`
+	Rejected     *LinkRejection   `json:"rejected,omitempty"`
 	Error        string           `json:"error,omitempty"`
 }
 
@@ -1032,6 +1047,10 @@ func (d *Daemon) linkStatus(ctx context.Context) LinkStatus {
 	observed := map[string]linkObservation{}
 	for k, v := range d.link.observed {
 		observed[k] = v
+	}
+	if d.link.rejected != nil {
+		copied := *d.link.rejected
+		result.Rejected = &copied
 	}
 	s, err := link.ReadState(d.root)
 	d.link.mu.Unlock()
