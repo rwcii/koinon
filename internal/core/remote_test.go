@@ -24,6 +24,8 @@ type syntheticTailscale struct {
 	dns       string
 	noHTTPS   bool
 	noSelf    bool
+	// writes are the Serve writes in order, as "--https=PORT TARGET".
+	writes []string
 }
 
 func (s *syntheticTailscale) Run(_ context.Context, args ...string) ([]byte, error) {
@@ -51,9 +53,11 @@ func (s *syntheticTailscale) Run(_ context.Context, args ...string) ([]byte, err
 	if s.fail {
 		return nil, errors.New("synthetic failure")
 	}
-	if len(args) != 5 || args[0] != "serve" || args[1] != "--bg" || args[2] != "--https=443" || args[3] != "--set-path=/" {
+	if len(args) != 5 || args[0] != "serve" || args[1] != "--bg" || !strings.HasPrefix(args[2], "--https=") || args[3] != "--set-path=/" {
 		return nil, errors.New("unexpected command")
 	}
+	port := strings.TrimPrefix(args[2], "--https=")
+	s.writes = append(s.writes, args[2]+" "+args[4])
 	if s.config.Web == nil {
 		s.config.Web = map[string]remote.WebConfig{}
 	}
@@ -61,7 +65,7 @@ func (s *syntheticTailscale) Run(_ context.Context, args ...string) ([]byte, err
 	if dns == "" {
 		dns = "host.example.ts.net"
 	}
-	key := dns + ":443"
+	key := dns + ":" + port
 	web := s.config.Web[key]
 	if web.Handlers == nil {
 		web.Handlers = map[string]remote.Handler{}
@@ -75,7 +79,7 @@ func (s *syntheticTailscale) Run(_ context.Context, args ...string) ([]byte, err
 	if s.config.TCP == nil {
 		s.config.TCP = map[string]remote.TCPConfig{}
 	}
-	s.config.TCP["443"] = remote.TCPConfig{HTTPS: true}
+	s.config.TCP[port] = remote.TCPConfig{HTTPS: true}
 	return nil, nil
 }
 
@@ -96,7 +100,7 @@ func remoteFixture(t *testing.T) (*Daemon, string, *syntheticTailscale) {
 func TestRemoteLifecycle(t *testing.T) {
 	d, root, fake := remoteFixture(t)
 	ctx := context.Background()
-	if err := d.remoteEnable(ctx); err != nil {
+	if err := d.remoteEnable(ctx, 0); err != nil {
 		t.Fatal(err)
 	}
 	first, err := ReadRemoteConfig(root)
@@ -110,7 +114,7 @@ func TestRemoteLifecycle(t *testing.T) {
 	if err != nil || fi.Mode().Perm() != 0600 {
 		t.Fatal(fi, err)
 	}
-	if err := d.remoteEnable(ctx); err != nil {
+	if err := d.remoteEnable(ctx, 0); err != nil {
 		t.Fatal(err)
 	}
 	again, _ := ReadRemoteConfig(root)
@@ -178,7 +182,7 @@ func TestRemoteLifecycle(t *testing.T) {
 	if response := dashboardDo(t, restarted, "GET", "/dashboard/login", "", nil, nil); response.status != 200 {
 		t.Fatal("local unavailable", response.status)
 	}
-	if err := restarted.remoteEnable(ctx); err != nil {
+	if err := restarted.remoteEnable(ctx, 0); err != nil {
 		t.Fatal(err)
 	}
 	reenabled, _ := ReadRemoteConfig(root)
@@ -191,7 +195,7 @@ func TestRemoteInterruptedSetupAndDisable(t *testing.T) {
 	d, root, fake := remoteFixture(t)
 	ctx := context.Background()
 	fake.fail = true
-	if err := d.remoteEnable(ctx); err == nil {
+	if err := d.remoteEnable(ctx, 0); err == nil {
 		t.Fatal("expected setup failure")
 	}
 	c, _ := ReadRemoteConfig(root)
@@ -199,7 +203,7 @@ func TestRemoteInterruptedSetupAndDisable(t *testing.T) {
 		t.Fatal("lost ownership intent")
 	}
 	fake.fail = false
-	if err := d.remoteEnable(ctx); err != nil {
+	if err := d.remoteEnable(ctx, 0); err != nil {
 		t.Fatal(err)
 	}
 	id, _ := d.auth.start("remote:" + c.Mapping.Origin)
@@ -235,7 +239,7 @@ func TestRemoteInterruptedSetupAndDisable(t *testing.T) {
 func TestRemotePortConflictAndUnsafeConfig(t *testing.T) {
 	d, root, _ := remoteFixture(t)
 	ctx := context.Background()
-	if err := d.remoteEnable(ctx); err != nil {
+	if err := d.remoteEnable(ctx, 0); err != nil {
 		t.Fatal(err)
 	}
 	c, _ := ReadRemoteConfig(root)
@@ -267,7 +271,7 @@ func TestRemotePortConflictAndUnsafeConfig(t *testing.T) {
 	if _, err := ReadRemoteConfig(root); err == nil {
 		t.Fatal("public config read")
 	}
-	if err := d.remoteEnable(ctx); err == nil {
+	if err := d.remoteEnable(ctx, 0); err == nil {
 		t.Fatal("unsafe config overwritten")
 	}
 	os.Chmod(path, 0600)
@@ -275,7 +279,7 @@ func TestRemotePortConflictAndUnsafeConfig(t *testing.T) {
 
 func TestRemoteUninstallCleanup(t *testing.T) {
 	d, root, fake := remoteFixture(t)
-	if err := d.remoteEnable(context.Background()); err != nil {
+	if err := d.remoteEnable(context.Background(), 0); err != nil {
 		t.Fatal(err)
 	}
 	if err := d.Close(); err != nil {
@@ -320,7 +324,7 @@ func TestRemoteUnsafeExposureEndsSessions(t *testing.T) {
 		t.Run(kind, func(t *testing.T) {
 			d, _, fake := remoteFixture(t)
 			ctx := context.Background()
-			if err := d.remoteEnable(ctx); err != nil {
+			if err := d.remoteEnable(ctx, 0); err != nil {
 				t.Fatal(err)
 			}
 			id, _ := d.auth.start("remote:https://host.example.ts.net")
@@ -367,7 +371,7 @@ func (missingRemoteAdapter) Run(context.Context, ...string) ([]byte, error) {
 func TestRemoteUninstallMissingDependencyRecovers(t *testing.T) {
 	d, root, fake := remoteFixture(t)
 	ctx := context.Background()
-	if err := d.remoteEnable(ctx); err != nil {
+	if err := d.remoteEnable(ctx, 0); err != nil {
 		t.Fatal(err)
 	}
 	if err := d.Close(); err != nil {
@@ -394,7 +398,7 @@ func TestRemoteUninstallMissingDependencyRecovers(t *testing.T) {
 func TestRemoteExplicitReenableCanRecoverOccupiedReleasedPort(t *testing.T) {
 	d, root, _ := remoteFixture(t)
 	ctx := context.Background()
-	if err := d.remoteEnable(ctx); err != nil {
+	if err := d.remoteEnable(ctx, 0); err != nil {
 		t.Fatal(err)
 	}
 	first, _ := ReadRemoteConfig(root)
@@ -406,7 +410,7 @@ func TestRemoteExplicitReenableCanRecoverOccupiedReleasedPort(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer occupied.Close()
-	if err := d.remoteEnable(ctx); err != nil {
+	if err := d.remoteEnable(ctx, 0); err != nil {
 		t.Fatal(err)
 	}
 	next, _ := ReadRemoteConfig(root)
@@ -418,7 +422,7 @@ func TestRemoteExplicitReenableCanRecoverOccupiedReleasedPort(t *testing.T) {
 func TestRemoteRenamedIdentityRecoveryWithoutJournalEditing(t *testing.T) {
 	d, root, fake := remoteFixture(t)
 	ctx := context.Background()
-	if err := d.remoteEnable(ctx); err != nil {
+	if err := d.remoteEnable(ctx, 0); err != nil {
 		t.Fatal(err)
 	}
 	fake.mu.Lock()
@@ -428,7 +432,7 @@ func TestRemoteRenamedIdentityRecoveryWithoutJournalEditing(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "tailscale set --hostname=host") {
 		t.Fatal("no exact safe name recovery step", err)
 	}
-	if err := d.remoteEnable(ctx); err == nil || !strings.Contains(err.Error(), "restore") {
+	if err := d.remoteEnable(ctx, 0); err == nil || !strings.Contains(err.Error(), "restore") {
 		t.Fatal("name conflict not actionable", err)
 	}
 	// Simulate the documented external account action; no live Tailscale is changed.
@@ -441,7 +445,7 @@ func TestRemoteRenamedIdentityRecoveryWithoutJournalEditing(t *testing.T) {
 	fake.mu.Lock()
 	fake.dns = "renamed.example.ts.net."
 	fake.mu.Unlock()
-	if err := d.remoteEnable(ctx); err != nil {
+	if err := d.remoteEnable(ctx, 0); err != nil {
 		t.Fatal(err)
 	}
 	c, _ := ReadRemoteConfig(root)
@@ -453,14 +457,14 @@ func TestRemoteRenamedIdentityRecoveryWithoutJournalEditing(t *testing.T) {
 func TestRemoteSignedOutIsNotIdentityChange(t *testing.T) {
 	d, _, fake := remoteFixture(t)
 	ctx := context.Background()
-	if err := d.remoteEnable(ctx); err != nil {
+	if err := d.remoteEnable(ctx, 0); err != nil {
 		t.Fatal(err)
 	}
 	id, _ := d.auth.start("remote:https://host.example.ts.net")
 	fake.mu.Lock()
 	fake.noSelf = true
 	fake.mu.Unlock()
-	err := d.remoteEnable(ctx)
+	err := d.remoteEnable(ctx, 0)
 	if err == nil || !strings.Contains(err.Error(), "tailscale_disconnected") {
 		t.Fatal(err)
 	}
@@ -480,7 +484,7 @@ func TestRemoteSignedOutIsNotIdentityChange(t *testing.T) {
 	fake.mu.Lock()
 	fake.noSelf = true
 	fake.mu.Unlock()
-	if err := d.remoteEnable(ctx); err == nil || !strings.Contains(err.Error(), "tailscale_disconnected") {
+	if err := d.remoteEnable(ctx, 0); err == nil || !strings.Contains(err.Error(), "tailscale_disconnected") {
 		t.Fatal("signed out after disable", err)
 	}
 	fake.mu.Lock()
@@ -490,7 +494,7 @@ func TestRemoteSignedOutIsNotIdentityChange(t *testing.T) {
 
 func TestRemoteStatusUnavailableSecretIsUnknown(t *testing.T) {
 	d, _, _ := remoteFixture(t)
-	if err := d.remoteEnable(context.Background()); err != nil {
+	if err := d.remoteEnable(context.Background(), 0); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -506,7 +510,7 @@ func TestRemoteStatusUnavailableSecretIsUnknown(t *testing.T) {
 func TestRemoteDisableClosesWhenRecordWriteFails(t *testing.T) {
 	d, root, _ := remoteFixture(t)
 	ctx := context.Background()
-	if err := d.remoteEnable(ctx); err != nil {
+	if err := d.remoteEnable(ctx, 0); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chmod(root, 0500); err != nil {
@@ -542,7 +546,7 @@ func TestRemoteDisableClosesWhenRecordWriteFails(t *testing.T) {
 func TestRemoteDisableSignedOutIsNotRename(t *testing.T) {
 	d, _, fake := remoteFixture(t)
 	ctx := context.Background()
-	if err := d.remoteEnable(ctx); err != nil {
+	if err := d.remoteEnable(ctx, 0); err != nil {
 		t.Fatal(err)
 	}
 	fake.mu.Lock()

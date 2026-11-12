@@ -746,6 +746,7 @@ loopback.
 
 ```sh
 koinon remote enable     # start the dashboard-only listener and the Serve mapping; prints the URL and a URL-only QR
+koinon remote enable --https-port 8443   # the same on another Serve HTTPS port, saved for later enables (443 by default)
 koinon remote status     # configuration, listener, Serve and Tailscale state; add --json for the report
 koinon remote disable    # stop the listener, end remote logins, remove only Koinon's own mapping
 ```

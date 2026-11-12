@@ -47,8 +47,17 @@ func remoteCommand(ctx context.Context, args []string, in io.Reader, out io.Writ
 	state := flags.String("state-dir", root, "private Go state directory")
 	address := addressFlag(flags)
 	asJSON := flags.Bool("json", false, "print status as JSON")
+	httpsPort := flags.Int("https-port", 0, "Tailscale Serve HTTPS port for enable; 0 keeps the saved port, or 443")
 	if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 {
 		return usageError{"invalid_request", "invalid remote command options; use koinon --help"}
+	}
+	portSet := false
+	flags.Visit(func(f *flag.Flag) { portSet = portSet || f.Name == "https-port" })
+	if portSet && args[0] != "enable" {
+		return usageError{"invalid_request", "--https-port applies only to koinon remote enable"}
+	}
+	if *httpsPort != 0 && !remote.ValidHTTPSPort(*httpsPort) {
+		return usageError{"invalid_request", "--https-port must be 1 to 65535"}
 	}
 	if err := resolveAddress(flags); err != nil {
 		return err
@@ -60,8 +69,14 @@ func remoteCommand(ctx context.Context, args []string, in io.Reader, out io.Writ
 	var status core.RemoteStatus
 	if err == nil {
 		if args[0] != "status" {
+			var body any = struct{}{}
+			if args[0] == "enable" {
+				body = struct {
+					HTTPSPort int `json:"https_port,omitempty"`
+				}{*httpsPort}
+			}
 			call := func() error {
-				_, err := core.Call(ctx, *address, bearer, "/v1/remote/"+args[0], struct{}{})
+				_, err := core.Call(ctx, *address, bearer, "/v1/remote/"+args[0], body)
 				return err
 			}
 			err := call()

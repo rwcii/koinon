@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- `koinon remote enable --https-port PORT` publishes the remote dashboard on another
+  Tailscale Serve HTTPS port, for a computer where another program, such as a container
+  that publishes `443:443`, takes port 443 (#665). Koinon saves the port. The URL, the QR
+  code, the sign-in links, the login checks and the tailnet policy entry in
+  `koinon remote status` name it. A later enable, also from the dashboard, keeps it.
+  Choosing a new port ends remote logins and removes Koinon's old Serve mapping first.
+  The API's `POST /v1/remote/enable` takes an optional `https_port`.
+
 - On Linux, when Tailscale refuses to let the account that runs Koinon change Serve,
   `koinon remote enable` at a terminal now asks once whether to grant that account control
   of this computer's Tailscale settings by running `sudo tailscale set --operator=NAME`

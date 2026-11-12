@@ -42,7 +42,11 @@ type RemoteStatus struct {
 	PolicyRule string `json:"policy_rule,omitempty"`
 }
 
-const policyHint = "If the phone times out, the tailnet access policy must allow TCP 443 to this computer's Tailscale addresses (docs/REMOTE-DASHBOARD.md)."
+// policyHint names the remote HTTPS port that the tailnet access policy must allow (#665).
+func policyHint(port int) string {
+	return fmt.Sprintf("If the phone times out, the tailnet access policy must allow TCP %d to this computer's Tailscale addresses (docs/REMOTE-DASHBOARD.md).", port)
+}
+
 const policyRuleNote = "autogroup:member is every member of the tailnet; replace it with a user, group or devices for narrower access."
 
 type remoteRuntime struct {
@@ -171,7 +175,18 @@ func (d *Daemon) remoteSecurityFailureLocked(err error) {
 	}
 }
 
-func (d *Daemon) remoteEnable(ctx context.Context) error {
+// errRemotePort refuses an HTTPS port outside 1 to 65535.
+func errRemotePort() error {
+	return workError("invalid_request", "https_port must be 1 to 65535, or 0 to keep the saved port")
+}
+
+// remoteEnable opens the remote surface on port, Serve's HTTPS port (#665): 0 keeps the saved
+// port, or 443 for a first enable. A changed port on an owned mapping first takes the
+// disable steps for the old one, so its logins end and its Serve mapping is removed.
+func (d *Daemon) remoteEnable(ctx context.Context, port int) error {
+	if port != 0 && !remote.ValidHTTPSPort(port) {
+		return errRemotePort()
+	}
 	rt := &d.remote
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
@@ -192,12 +207,26 @@ func (d *Daemon) remoteEnable(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if c != nil && c.Owned && status.Origin != "" && c.Mapping.Origin != status.Origin {
+	if c != nil && c.Owned && status.Origin != "" && c.Mapping.HostOrigin() != status.Origin {
 		d.closeRemoteLocked()
 		return fmt.Errorf("remote_identity_changed: the saved mapping names %s; restore that Tailscale name/network temporarily, run koinon remote disable, then restore the desired name and enable; see docs/REMOTE-DASHBOARD.md#name-change-recovery", c.Mapping.Origin)
 	}
 	if err := status.Ready(); err != nil {
 		return err
+	}
+	if port == 0 {
+		port = remote.DefaultHTTPSPort
+		if c != nil {
+			port = c.Mapping.Port()
+		}
+	}
+	if c != nil && c.Owned && c.Mapping.Port() != port {
+		if err := d.remoteDisableLocked(ctx); err != nil {
+			return err
+		}
+		if c, err = ReadRemoteConfig(d.root); err != nil {
+			return err
+		}
 	}
 	var held net.Listener
 	if c == nil {
@@ -210,9 +239,9 @@ func (d *Daemon) remoteEnable(ctx context.Context) error {
 				held.Close()
 			}
 		}()
-		c = &RemoteConfig{Version: 1, Mapping: remote.Mapping{Origin: status.Origin, Target: "http://" + held.Addr().String()}}
+		c = &RemoteConfig{Version: 1, Mapping: remote.Mapping{Origin: remote.OriginAt(status.Origin, port), Target: "http://" + held.Addr().String()}}
 	} else if !c.Owned {
-		c.Mapping.Origin = status.Origin
+		c.Mapping.Origin = remote.OriginAt(status.Origin, port)
 		// An explicit disable released the old mapping; a new enable can recover from
 		// an occupied old port. Enabled/restarting configurations never silently move.
 		held, err = net.Listen("tcp4", strings.TrimPrefix(c.Mapping.Target, "http://"))
@@ -258,9 +287,14 @@ func (d *Daemon) remoteEnable(ctx context.Context) error {
 }
 
 func (d *Daemon) remoteDisable(ctx context.Context) error {
+	d.remote.mu.Lock()
+	defer d.remote.mu.Unlock()
+	return d.remoteDisableLocked(ctx)
+}
+
+// remoteDisableLocked takes the disable steps with the remote lock held.
+func (d *Daemon) remoteDisableLocked(ctx context.Context) error {
 	rt := &d.remote
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
 	// The off switch closes the surface first, also when the record cannot be read
 	// or written; the error then reports the record failure.
 	d.closeRemoteLocked()
@@ -320,7 +354,7 @@ func (d *Daemon) remoteStatus(ctx context.Context) RemoteStatus {
 		result.Error = err.Error()
 	} else {
 		result.Tailscale = &observed
-		if rt.config != nil && rt.config.Enabled && observed.Origin != "" && rt.config.Mapping.Origin != observed.Origin {
+		if rt.config != nil && rt.config.Enabled && observed.Origin != "" && rt.config.Mapping.HostOrigin() != observed.Origin {
 			d.closeRemoteLocked()
 			result.Listener = "unavailable"
 			result.Error = "Tailscale identity changed; see docs/REMOTE-DASHBOARD.md#name-change-recovery before disabling and enabling"
@@ -340,8 +374,8 @@ func (d *Daemon) remoteStatus(ctx context.Context) RemoteStatus {
 				}
 			} else {
 				result.Serve = "ready"
-				result.PolicyHint = policyHint
-				if rule := remote.PolicyRule(observed.TailscaleIPs); rule != "" {
+				result.PolicyHint = policyHint(rt.config.Mapping.Port())
+				if rule := remote.PolicyRule(observed.TailscaleIPs, rt.config.Mapping.Port()); rule != "" {
 					result.PolicyHint += " Example policy entry; " + policyRuleNote
 					result.PolicyRule = rule
 				}
@@ -453,15 +487,31 @@ func (d *Daemon) remoteRoutes(mux *http.ServeMux) {
 	})
 	for _, action := range []string{"enable", "disable"} {
 		mux.HandleFunc("POST /v1/remote/"+action, func(w http.ResponseWriter, r *http.Request) {
-			if err := decode(w, r, &struct{}{}); err != nil {
+			// enable takes an optional https_port (#665); disable takes an empty object.
+			var body struct {
+				HTTPSPort *int `json:"https_port,omitempty"`
+			}
+			var err error
+			if action == "enable" {
+				err = decode(w, r, &body)
+			} else {
+				err = decode(w, r, &struct{}{})
+			}
+			if err == nil && body.HTTPSPort != nil && *body.HTTPSPort != 0 && !remote.ValidHTTPSPort(*body.HTTPSPort) {
+				err = errRemotePort()
+			}
+			if err != nil {
 				failure(w, err)
 				return
 			}
 			ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 			defer cancel()
-			var err error
 			if action == "enable" {
-				err = d.remoteEnable(ctx)
+				port := 0
+				if body.HTTPSPort != nil {
+					port = *body.HTTPSPort
+				}
+				err = d.remoteEnable(ctx, port)
 			} else {
 				err = d.remoteDisable(ctx)
 			}

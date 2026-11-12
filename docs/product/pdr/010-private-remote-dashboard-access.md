@@ -367,6 +367,28 @@ tailnet policy is raised again.
    access, and a GitOps-managed policy can overwrite or reject the edit. Declined for
    now.
 
+## 7. Refinement: A chosen Serve HTTPS port
+
+**Requested by:** Robert Capps, 2026-11-12 (#665): "we should be able to set the port,
+and it propagates to all aspects of the interface, including QR code and link
+generation."
+
+**Context:** Remote access always used Serve's HTTPS port 443. On a host where a
+container publishes `443:443` on all addresses, tailscaled and the container cannot share
+the port, and whichever starts second fails. A Serve mapping moved by hand would
+disagree with Koinon's ownership record and its links.
+
+**Decision:** `koinon remote enable --https-port PORT` (the API's `https_port`) chooses
+Serve's HTTPS port, 1 to 65535. The port is part of the saved remote origin,
+`https://HOST.TAILNET.ts.net:PORT`, written without a port for 443, so the URL, the QR
+code, the sign-in tickets, the Host and Origin checks, the remote sessions and the
+tailnet policy entry all use it. An enable without a port keeps the saved one, or 443.
+A new port on an owned mapping takes the disable steps for the old one first.
+
+**Reason and scope:** One saved origin keeps every remote surface on the same port.
+Ownership, conflict and identity checks keep their rules on the chosen port; the host's
+Tailscale identity is its name without the port. The dashboard does not choose the port.
+
 ## Conclusion
 
 Remote access reuses the dashboard's actions and login while making setup
@@ -384,3 +406,4 @@ unverified connectivity and action outcomes stay labeled as such.
 | 2026-11-11 | Record the requested longer-session refinement and its remote-only scope, without assigning a cause to the phone sign-out report. |
 | 2026-11-12 | Accepted by Robert Capps (#645). Name the proposer as Andrew Deugarte (@andyde8) and Robert Capps as the decider. A remote session cannot create a sign-in QR (review of PR #644). Correct the spelling in quotes. |
 | 2026-11-12 | Record Robert Capps's decision TAILSCALE-AUTO-656 (#656): the terminal runs the Linux operator step after confirmation; the tailnet policy step stays manual. |
+| 2026-11-12 | Record Robert Capps's request for a chosen Serve HTTPS port (#665). |

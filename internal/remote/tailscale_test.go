@@ -51,14 +51,15 @@ func (f *fakeAdapter) Run(_ context.Context, args ...string) ([]byte, error) {
 		}
 		return json.Marshal(f.config)
 	}
-	if len(args) != 5 || !reflect.DeepEqual(args[:4], []string{"serve", "--bg", "--https=443", "--set-path=/"}) {
+	if len(args) != 5 || args[0] != "serve" || args[1] != "--bg" || !strings.HasPrefix(args[2], "--https=") || args[3] != "--set-path=/" {
 		return nil, errors.New("unexpected command")
 	}
+	port := strings.TrimPrefix(args[2], "--https=")
 	if f.fail != "" && !f.applyOnFailure {
 		return nil, errors.New(f.fail)
 	}
 	if !f.noApply {
-		hp := testMapping.hostPort()
+		hp := strings.TrimSuffix(f.dns, ".") + ":" + port
 		if args[4] == "off" {
 			w := f.config.Web[hp]
 			delete(w.Handlers, "/")
@@ -67,7 +68,7 @@ func (f *fakeAdapter) Run(_ context.Context, args ...string) ([]byte, error) {
 			if f.config.TCP == nil {
 				f.config.TCP = map[string]TCPConfig{}
 			}
-			f.config.TCP["443"] = TCPConfig{HTTPS: true}
+			f.config.TCP[port] = TCPConfig{HTTPS: true}
 			if f.config.Web == nil {
 				f.config.Web = map[string]WebConfig{}
 			}

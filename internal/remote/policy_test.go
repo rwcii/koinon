@@ -40,7 +40,7 @@ func TestPolicyRuleNamesOnlyThePresentAddresses(t *testing.T) {
 		{"IPv6 only", []string{"fd7a:115c:a1e0::1"}, `{"action":"accept","src":["autogroup:member"],"proto":"tcp","dst":["[fd7a:115c:a1e0::1]:443"]}`},
 		{"none", nil, ""},
 	} {
-		if got := PolicyRule(tc.ips); got != tc.want {
+		if got := PolicyRule(tc.ips, 443); got != tc.want {
 			t.Errorf("%s: %s", tc.name, got)
 		}
 	}
