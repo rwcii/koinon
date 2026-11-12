@@ -13,7 +13,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"os/user"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -75,14 +74,25 @@ const OperatorRequired = "tailscale_operator_required"
 
 var accountName = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]{0,63}$`)
 
-// currentAccount names the account that runs Koinon, so the recovery step never
-// depends on $USER, which is root in a root shell.
-func currentAccount() (string, error) {
-	u, err := user.Current()
+// currentAccount names the account that runs Koinon by its UID in /etc/passwd, so the
+// recovery step never depends on $USER, which is root in a root shell. os/user is not
+// used: without cgo, user.Current falls back to $USER when /etc/passwd has no entry.
+// An account that only a directory service knows gets the manual id -un step.
+func currentAccount() (string, error) { return accountByUID(os.Getuid(), "/etc/passwd") }
+
+func accountByUID(uid int, passwd string) (string, error) {
+	data, err := os.ReadFile(passwd)
 	if err != nil {
 		return "", err
 	}
-	return u.Username, nil
+	want := strconv.Itoa(uid)
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Split(line, ":")
+		if len(fields) >= 3 && fields[2] == want {
+			return fields[0], nil
+		}
+	}
+	return "", errors.New("no passwd entry for the process UID")
 }
 
 // OperatorCommand is the exact Linux command that lets this account configure

@@ -2,6 +2,8 @@ package remote
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -73,5 +75,34 @@ func TestOperatorCommandRejectsUnsafeNames(t *testing.T) {
 		if got := operatorCommand(named(name)); got != "" {
 			t.Fatalf("%q: command = %q", name, got)
 		}
+	}
+}
+
+// The account is the passwd entry of the process UID. $USER never names it, also when
+// the entry is missing, as Go's user.Current does without cgo (#652 review).
+func TestAccountByUIDNeverTrustsUSER(t *testing.T) {
+	t.Setenv("USER", "root")
+	t.Setenv("HOME", t.TempDir())
+	dir := t.TempDir()
+	passwd := filepath.Join(dir, "passwd")
+	if err := os.WriteFile(passwd, []byte("root:x:0:0:root:/root:/bin/sh\nsynthetic-user:x:4242:4242::/home/synthetic-user:/bin/sh\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if name, err := accountByUID(4242, passwd); err != nil || name != "synthetic-user" {
+		t.Fatalf("listed UID: %q %v", name, err)
+	}
+	account := func() (string, error) { return accountByUID(5151, passwd) }
+	if name, err := account(); err == nil || name != "" {
+		t.Fatalf("unlisted UID named %q", name)
+	}
+	if got := operatorCommand(account); got != "" {
+		t.Fatalf("unlisted UID got a command: %q", got)
+	}
+	d := commandFailure("linux", []byte(deniedServeWrite), account)
+	if d.Code != OperatorRequired || strings.Contains(d.Next, "--operator=root") || !strings.Contains(d.Next, "outside a root shell, run id -un") {
+		t.Fatalf("unlisted UID: %+v", d)
+	}
+	if _, err := accountByUID(4242, filepath.Join(dir, "missing")); err == nil {
+		t.Fatal("unreadable passwd named an account")
 	}
 }
