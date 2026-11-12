@@ -246,6 +246,7 @@ func TestCompactionSubmissionOutcomes(t *testing.T) {
 	}
 	t.Cleanup(func() { restarted.db.Close() })
 	restarted.now = func() time.Time { return f.clock }
+	restarted.processStart = f.s.processStart
 	if err := restarted.cycleStep(context.Background()); err != nil {
 		t.Fatal(err)
 	}

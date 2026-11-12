@@ -78,6 +78,7 @@ func TestCompactionReviewWaitingRestartNeedsObservation(t *testing.T) {
 	}
 	t.Cleanup(func() { restarted.db.Close() })
 	restarted.now = func() time.Time { return f.clock }
+	restarted.processStart = f.s.processStart
 	f.s = restarted
 	if e := f.s.contextEvidence(f.k); e.Found {
 		t.Fatal("unexpected retained observation")

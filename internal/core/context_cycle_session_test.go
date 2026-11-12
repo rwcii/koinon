@@ -440,6 +440,7 @@ func (g *sessionFixture) reopen(t *testing.T) {
 	}
 	t.Cleanup(func() { reopened.cycleWork.stop(); reopened.db.Close() })
 	reopened.now = g.s.now
+	reopened.processStart = g.s.processStart
 	g.s = reopened
 }
 

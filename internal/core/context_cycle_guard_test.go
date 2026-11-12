@@ -648,6 +648,7 @@ func TestContextCycleTimeoutAfterRestartNamesThePane(t *testing.T) {
 		}
 		t.Cleanup(func() { reopened.Close() })
 		reopened.now = f.s.now
+		reopened.processStart = f.s.processStart
 		f.s = reopened
 		f.adapter.inMode, f.adapter.inspect = test.inMode, test.inspect
 		f.clock = time.UnixMilli(ready.StageDeadline)

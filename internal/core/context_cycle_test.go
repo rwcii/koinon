@@ -1176,6 +1176,7 @@ func TestContextCycleSurvivesRestart(t *testing.T) {
 	}
 	t.Cleanup(func() { reopened.db.Close() })
 	reopened.now = f.s.now
+	reopened.processStart = f.s.processStart
 	f.s = reopened
 	again := f.status(t, f.k)
 	if again == nil || again.ID != v.ID || again.State != cycleWaitingReady || again.Revision != 1 {

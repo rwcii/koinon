@@ -10,7 +10,7 @@ import (
 // pinSyntheticHost makes s read the synthetic host process pid as running with start; every
 // other process ID is read as before. A fixture that records a synthetic host row calls it
 // before any goroutine reads s, so that the cycle probe's host check (#637) sees that host
-// as running.
+// as running. A store reopened on the same state takes the reader with its clock.
 func pinSyntheticHost(s *Store, pid int, start int64) {
 	read := s.processStart
 	s.processStart = func(p int) (int64, error) {
