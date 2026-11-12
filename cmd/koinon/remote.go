@@ -81,7 +81,7 @@ func remoteCommand(ctx context.Context, args []string, in io.Reader, out io.Writ
 			}
 			err := call()
 			if err != nil && args[0] == "enable" && !*asJSON {
-				err = grantOperator(ctx, in, err, call)
+				err = grantOperator(ctx, nil, in, err, call)
 			}
 			if err != nil {
 				if ctx.Err() != nil {
@@ -130,7 +130,9 @@ func operatorGrant(ctx context.Context, t *terminal, name string) *exec.Cmd {
 // the fixed sudo command on yes and then asks the daemon to enable once more. No, the end of
 // input, a sudo failure, another refusal, another platform, an account without a plain name
 // or no terminal keep the refusal with its manual step.
-func grantOperator(ctx context.Context, in io.Reader, refusal error, enable func() error) error {
+// A command that already holds the terminal, such as install (#665), passes it as t, so that
+// its one reader serves every question; otherwise the terminal is opened on in.
+func grantOperator(ctx context.Context, t *terminal, in io.Reader, refusal error, enable func() error) error {
 	var refused core.RefusedError
 	if !errors.As(refusal, &refused) || refused.Code != remote.OperatorRequired || operatorGOOS != "linux" {
 		return refusal
@@ -139,7 +141,9 @@ func grantOperator(ctx context.Context, in io.Reader, refusal error, enable func
 	if name == "" {
 		return refusal
 	}
-	t := operatorTerminal(ctx, in)
+	if t == nil {
+		t = operatorTerminal(ctx, in)
+	}
 	if t == nil {
 		return refusal
 	}

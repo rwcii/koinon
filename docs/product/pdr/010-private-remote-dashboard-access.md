@@ -389,6 +389,29 @@ A new port on an owned mapping takes the disable steps for the old one first.
 Ownership, conflict and identity checks keep their rules on the chosen port; the host's
 Tailscale identity is its name without the port. The dashboard does not choose the port.
 
+## 8. Refinement: This computer and the tailnet only
+
+**Requested by:** Robert Capps, 2026-11-12 (#665): "ask for the dashboard to be mountable
+localhost and tailnet only, as an option to mounting it on the LAN IP. In fact, the
+localhost and tailnet only is probably the better solution."
+
+**Context:** The first install asked whether the dashboard opens only on this computer or
+also on a network address. `--dashboard-address none` with remote access enabled already
+kept it off the LAN, but nothing offered that as a choice.
+
+**Decision:** The install question offers a third answer, "On this computer and your tailnet,
+through Tailscale Serve", recommended on a computer in a tailnet. It asks the Serve HTTPS
+port, saves the local-only answer, offers the maintainer secret when none is set and enables
+remote access after the start; a failed enable leaves the install complete and names the
+command. The dashboard's remote access panel names where the dashboard opens and offers
+**Use this computer and the tailnet only**, which enables remote access, saves the local
+answer, removes the network address and closes the network listener at once.
+
+**Reason and scope:** The tailnet URL gives HTTPS without a self-signed certificate and keeps
+the dashboard off the LAN. The switch changes nothing when remote access cannot be enabled,
+so a person who uses the dashboard from another computer keeps a way in. Opening a network address stays an install
+step.
+
 ## Conclusion
 
 Remote access reuses the dashboard's actions and login while making setup
@@ -407,3 +430,4 @@ unverified connectivity and action outcomes stay labeled as such.
 | 2026-11-12 | Accepted by Robert Capps (#645). Name the proposer as Andrew Deugarte (@andyde8) and Robert Capps as the decider. A remote session cannot create a sign-in QR (review of PR #644). Correct the spelling in quotes. |
 | 2026-11-12 | Record Robert Capps's decision TAILSCALE-AUTO-656 (#656): the terminal runs the Linux operator step after confirmation; the tailnet policy step stays manual. |
 | 2026-11-12 | Record Robert Capps's request for a chosen Serve HTTPS port (#665). |
+| 2026-11-12 | Record Robert Capps's request for a "localhost and tailnet only" choice (#665). |

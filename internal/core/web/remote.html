@@ -55,6 +55,13 @@
 </div>
 {{end}}
 <p><small>Keep this computer awake and Koinon running.</small></p>
+<section id="dashboard-access">
+<h3>Dashboard access</h3>
+<p>The dashboard opens on this computer{{with .Access}}{{if .Network}}{{if .NetworkOpen}}, and on the network address <code>{{.Network}}</code>{{else}}; the network address <code>{{.Network}}</code> is configured but not open ({{.NetworkCode}}){{end}}{{end}}{{if .Tailnet}}{{if .TailnetReady}}, and on your tailnet at <code>{{.Tailnet}}</code>{{else}}; tailnet access at <code>{{.Tailnet}}</code> is not ready yet{{end}}{{end}}{{end}}.</p>
+{{if not .Access.TailnetOnly}}<form method="post" action="/dashboard/actions/dashboard-access"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="mode" value="tailnet">
+<p>Use this computer and your tailnet only: Koinon enables remote access through Tailscale Serve{{if .Access.Network}} and closes the network address{{if .Access.NetworkOpen}} at once; a page open on it then loses its connection{{end}}{{end}}.</p>
+<button type="submit">Use this computer and the tailnet only</button></form>{{end}}
+</section>
 <details data-remote-diagnostics><summary>Connection details</summary>
 <dl>
 <dt>Remote access</dt><dd>{{if .Status.Configured}}Enabled{{else}}Off{{end}}</dd>

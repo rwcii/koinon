@@ -184,12 +184,17 @@ func errRemotePort() error {
 // port, or 443 for a first enable. A changed port on an owned mapping first takes the
 // disable steps for the old one, so its logins end and its Serve mapping is removed.
 func (d *Daemon) remoteEnable(ctx context.Context, port int) error {
+	d.remote.mu.Lock()
+	defer d.remote.mu.Unlock()
+	return d.remoteEnableLocked(ctx, port)
+}
+
+// remoteEnableLocked takes the enable steps with the remote lock held.
+func (d *Daemon) remoteEnableLocked(ctx context.Context, port int) error {
 	if port != 0 && !remote.ValidHTTPSPort(port) {
 		return errRemotePort()
 	}
 	rt := &d.remote
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
 	rt.offUnrecorded = false
 	set, err := d.store.maintainerSecretSet(ctx)
 	if err != nil {

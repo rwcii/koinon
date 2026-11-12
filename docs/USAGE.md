@@ -697,7 +697,9 @@ under `127.0.0.1`.
 ### Open the dashboard on the network
 
 At a terminal, the first `koinon install` asks whether the dashboard opens only on this
-computer (the default) or also on a network address, lists this host's addresses, and offers
+computer (the default), on this computer and your tailnet through Tailscale Serve (#665;
+no network address, see [the remote dashboard](REMOTE-DASHBOARD.md)), or also on a network
+address. For a network address it lists this host's addresses; it offers
 to set or generate the maintainer secret when none is set
 ([installation](INSTALL.md#network-dashboard)). Without those questions, on the daemon's host,
 set a maintainer secret, then run

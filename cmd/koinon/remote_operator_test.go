@@ -208,13 +208,13 @@ func TestRemoteOperatorOtherRefusal(t *testing.T) {
 	t.Cleanup(func() { operatorGOOS, operatorTerminal = goos, term })
 	operatorGOOS = "linux"
 	operatorTerminal = func(context.Context, io.Reader) *terminal { asked = true; return nil }
-	if err := grantOperator(context.Background(), strings.NewReader("y\n"), refusal, func() error { return nil }); asked {
+	if err := grantOperator(context.Background(), nil, strings.NewReader("y\n"), refusal, func() error { return nil }); asked {
 		t.Fatalf("other refusal: asked")
 	} else if got, ok := err.(core.RefusedError); !ok || got.Code != refusal.Code {
 		t.Fatalf("other refusal: %v, asked %v", err, asked)
 	}
 	plain := errors.New("synthetic transport failure")
-	if err := grantOperator(context.Background(), strings.NewReader("y\n"), plain, func() error { return nil }); err != plain || asked {
+	if err := grantOperator(context.Background(), nil, strings.NewReader("y\n"), plain, func() error { return nil }); err != plain || asked {
 		t.Fatalf("transport failure: %v, asked %v", err, asked)
 	}
 }

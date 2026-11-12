@@ -13,33 +13,43 @@ import (
 
 	"github.com/rwcii/koinon/internal/core"
 	"github.com/rwcii/koinon/internal/platform"
+	"github.com/rwcii/koinon/internal/remote"
+	"github.com/rwcii/koinon/internal/setup"
 )
 
 // DefaultDashboardPort is the port that the network question offers.
 const DefaultDashboardPort = 8443
 
-// askDashboard puts the network dashboard questions at the terminal (DASHBOARD-LAN-624,
-// part 2). It returns local for the answer "only on this computer", or the resolved network
-// address. Ended input returns neither, so nothing is saved.
-func askDashboard(ctx context.Context, o Options) (bool, *core.DashboardAddress, error) {
-	fmt.Fprintln(o.Tell, "Open the dashboard only on this computer (default), or also on a network address?")
+// askDashboard puts the dashboard questions at the terminal (DASHBOARD-LAN-624, part 2, and
+// #665). It returns local for the answers "only on this computer" and "this computer and your
+// tailnet", with the Serve HTTPS port for the second, or the resolved network address. Ended
+// input returns none of them, so nothing is saved.
+func askDashboard(ctx context.Context, o Options) (bool, int, *core.DashboardAddress, error) {
+	fmt.Fprintln(o.Tell, "Where should the dashboard open?")
 	fmt.Fprintln(o.Tell, "  1. Only on this computer")
-	fmt.Fprintln(o.Tell, "  2. Also on a network address, over HTTPS, with a login by the maintainer secret")
+	fmt.Fprintln(o.Tell, "  2. On this computer and your tailnet, through Tailscale Serve, with a login by the maintainer secret (recommended on a computer in a tailnet; no network address)")
+	fmt.Fprintln(o.Tell, "  3. Also on a network address, over HTTPS, with a login by the maintainer secret")
 	for network := false; !network; {
 		answer, err := o.Line("Choice [1]: ")
 		if errors.Is(err, io.EOF) {
-			return false, nil, nil
+			return false, 0, nil, nil
 		}
 		if err != nil {
-			return false, nil, err
+			return false, 0, nil, err
 		}
 		switch strings.ToLower(strings.TrimSpace(answer)) {
 		case "", "1":
-			return true, nil, nil
+			return true, 0, nil, nil
 		case "2":
+			port, err := askHTTPSPort(o)
+			if err != nil || port == 0 {
+				return false, 0, nil, err
+			}
+			return true, port, nil, nil
+		case "3":
 			network = true
 		default:
-			fmt.Fprintln(o.Tell, "Type 1 or 2.")
+			fmt.Fprintln(o.Tell, "Type 1, 2 or 3.")
 		}
 	}
 	addresses, err := o.HostAddresses()
@@ -57,10 +67,10 @@ func askDashboard(ctx context.Context, o Options) (bool, *core.DashboardAddress,
 		}
 		answer, err := o.Line("Address number, or a fully qualified name of this host: ")
 		if errors.Is(err, io.EOF) {
-			return false, nil, nil
+			return false, 0, nil, nil
 		}
 		if err != nil {
-			return false, nil, err
+			return false, 0, nil, err
 		}
 		host := strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(answer), "["), "]")
 		if host == "" {
@@ -75,10 +85,10 @@ func askDashboard(ctx context.Context, o Options) (bool, *core.DashboardAddress,
 		}
 		port, err := o.Line(fmt.Sprintf("Port [%d]: ", DefaultDashboardPort))
 		if errors.Is(err, io.EOF) {
-			return false, nil, nil
+			return false, 0, nil, nil
 		}
 		if err != nil {
-			return false, nil, err
+			return false, 0, nil, err
 		}
 		if port = strings.TrimSpace(port); port == "" {
 			port = strconv.Itoa(DefaultDashboardPort)
@@ -88,19 +98,109 @@ func askDashboard(ctx context.Context, o Options) (bool, *core.DashboardAddress,
 			fmt.Fprintln(o.Tell, "This address is refused: "+err.Error())
 			continue
 		}
-		return false, &a, nil
+		return false, 0, &a, nil
 	}
+}
+
+// askHTTPSPort asks for the Serve HTTPS port of the tailnet answer; ended input returns 0.
+func askHTTPSPort(o Options) (int, error) {
+	for {
+		answer, err := o.Line(fmt.Sprintf("Tailscale Serve HTTPS port [%d]: ", remote.DefaultHTTPSPort))
+		if errors.Is(err, io.EOF) {
+			return 0, nil
+		}
+		if err != nil {
+			return 0, err
+		}
+		answer = strings.TrimSpace(answer)
+		if answer == "" {
+			return remote.DefaultHTTPSPort, nil
+		}
+		if n, err := strconv.Atoi(answer); err == nil && remote.ValidHTTPSPort(n) && answer == strconv.Itoa(n) {
+			return n, nil
+		}
+		fmt.Fprintln(o.Tell, "Type a port from 1 to 65535.")
+	}
+}
+
+// enableTailnet enables remote access for the tailnet answer after the daemon started. It
+// offers the maintainer secret only when none is set. A refusal does not fail the install:
+// the report and the terminal name the step. Without a start it names the steps.
+func enableTailnet(ctx context.Context, o Options, r *Report, port int) error {
+	step := remoteEnableCommand(o, r.Binary, port)
+	r.Remote = &RemoteResult{HTTPSPort: port}
+	fail := func(code, step string) {
+		r.Remote.Error, r.Remote.Step = code, step
+		fmt.Fprintln(o.Tell, "Remote access is not enabled: "+code+". "+step)
+	}
+	if o.NoStart {
+		fail("daemon_not_started", "Start the daemon, then run "+step+".")
+		return nil
+	}
+	status, err := readStatus(ctx, o)
+	if err != nil {
+		fail("daemon_unavailable", "When the daemon answers, run "+step+".")
+		return nil
+	}
+	if !status.SecretSet {
+		set, err := offerSecret(ctx, o, "The remote dashboard needs the maintainer secret for its login, and no secret is set.")
+		if err != nil {
+			return err
+		}
+		if !set {
+			fail("remote_secret_required", "Set the maintainer secret with "+installCommand(o, r.Binary, "maintainer secret set")+", then run "+step+".")
+			return nil
+		}
+	}
+	url, err := o.RemoteEnable(ctx, o.StateDir, o.Address, port)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if err != nil {
+		reason := err.Error()
+		var refused core.RefusedError
+		if errors.As(err, &refused) {
+			reason = refused.Code
+			if refused.Message != "" {
+				reason += ": " + refused.Message
+			}
+		}
+		fail(reason, "Then run "+step+".")
+		return nil
+	}
+	r.Remote.URL = url
+	fmt.Fprintln(o.Tell, "The dashboard is also open on your tailnet at "+url)
+	return nil
+}
+
+// remoteEnableCommand is the command that enables remote access for this installation.
+func remoteEnableCommand(o Options, binary string, port int) string {
+	return installCommand(o, binary, "remote enable --https-port "+strconv.Itoa(port))
+}
+
+// installCommand is the installed binary's command for this installation: its state
+// directory when not the default, and always its daemon address, so neither a default nor
+// KOINON_STATE_DIR or KOINON_DAEMON_ADDRESS can name another daemon.
+func installCommand(o Options, binary, command string) string {
+	command = setup.ShellWord(binary) + " " + command
+	if state, err := platform.DefaultStateDir(); err != nil || state != o.StateDir {
+		command += " --state-dir " + setup.ShellWord(o.StateDir)
+	}
+	if o.Address != "" {
+		command += " --address " + setup.ShellWord(o.Address)
+	}
+	return command
 }
 
 // offerSecret asks to set the maintainer secret, which the network login needs. It reports
 // whether a secret was set. A generated secret is shown once on the terminal, never in the
 // report. Ended input and "not now" set nothing.
-func offerSecret(ctx context.Context, o Options) (bool, error) {
+func offerSecret(ctx context.Context, o Options, why string) (bool, error) {
 	bearer, err := core.ReadSecret(o.StateDir)
 	if err != nil {
 		return false, err
 	}
-	fmt.Fprintln(o.Tell, "The network dashboard needs the maintainer secret for its login, and no secret is set.")
+	fmt.Fprintln(o.Tell, why)
 	fmt.Fprintln(o.Tell, "  1. Type a new secret")
 	fmt.Fprintln(o.Tell, "  2. Generate a secret")
 	fmt.Fprintln(o.Tell, "  3. Not now")
@@ -144,6 +244,41 @@ func offerSecret(ctx context.Context, o Options) (bool, error) {
 			fmt.Fprintln(o.Tell, "Type 1, 2 or 3.")
 		}
 	}
+}
+
+// RemoteEnable asks the daemon of state at address to enable remote access on port, as
+// koinon remote enable --https-port does without its terminal question, and returns the URL.
+func RemoteEnable(ctx context.Context, state, address string, port int) (string, error) {
+	bearer, err := core.ClientSecret(state, address)
+	if err != nil {
+		return "", err
+	}
+	if _, err := core.Call(ctx, address, bearer, "/v1/remote/enable", map[string]int{"https_port": port}); err != nil {
+		return "", err
+	}
+	return RemoteURL(ctx, address, bearer)
+}
+
+// RemoteURL reads the remote URL from the daemon's remote status, only while remote access
+// is on with its listener and Serve mapping ready; otherwise it returns the status's reason.
+// Phone reachability stays unverified.
+func RemoteURL(ctx context.Context, address, bearer string) (string, error) {
+	data, err := core.Call(ctx, address, bearer, "/v1/remote/status", nil)
+	if err != nil {
+		return "", err
+	}
+	var status core.RemoteStatus
+	if err := json.Unmarshal(data, &status); err != nil {
+		return "", errors.New("remote_status_invalid: the daemon's remote status is unreadable")
+	}
+	if !status.Configured || status.Listener != "ready" || status.Serve != "ready" || status.Error != "" || status.URL == "" {
+		reason := status.Error
+		if reason == "" {
+			reason = fmt.Sprintf("configured %t, listener %s, Serve %s", status.Configured, status.Listener, status.Serve)
+		}
+		return "", errors.New("remote_not_ready: " + reason)
+	}
+	return status.URL, nil
 }
 
 // maintainerSecret calls the daemon's secret route, as koinon maintainer secret does.

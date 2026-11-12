@@ -184,6 +184,21 @@ does not indicate an active listener.
 A missing or old daemon needs installation of this version before these commands
 can work; inspect `koinon install --plan` before changing a shared service.
 
+## This computer and the tailnet only
+
+On a computer in a tailnet, the dashboard can stay off the local network: it opens on this
+computer and, through Tailscale Serve, on your tailnet, with HTTPS and no self-signed
+certificate (#665). There are three ways to choose this:
+
+- The first `koinon install` at a terminal asks where the dashboard opens; answer 2,
+  "On this computer and your tailnet" ([installation](INSTALL.md#network-dashboard)).
+- In the dashboard, the remote access panel's **Dashboard access** section names where the
+  dashboard opens now. **Use this computer and the tailnet only** enables remote access with
+  the saved port, removes the network address and closes it at once. If the page itself was
+  open on the network address, its connection ends, and the answer links the tailnet URL. If
+  remote access cannot be enabled, nothing else changes.
+- From a script: `koinon install --dashboard-address none`, then `koinon remote enable`.
+
 ## URL, restarts, and configuration ownership
 
 Serve provides `https://MACHINE.TAILNET.ts.net/dashboard/` on HTTPS port 443, or

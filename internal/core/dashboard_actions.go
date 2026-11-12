@@ -44,6 +44,8 @@ var (
 // noticeText is every notice a view can show; any other code shows nothing.
 var noticeText = map[string]string{
 	"remote_enabled":            "Remote access is enabled. Phone reachability is still unverified.",
+	"dashboard_access_tailnet":  "The dashboard now opens on this computer and your tailnet only.",
+	"dashboard_access_partial":  "Remote access is on, but the network address could not be removed and stays open. Check the dashboard access section and try again.",
 	"remote_disabled":           "Remote access is off. Local dashboard access remains available.",
 	"remote_setup_required":     "Remote setup needs attention. Check the status and instructions below before trying again.",
 	"remote_secret_required":    "Set your maintainer secret on this computer before enabling remote access.",

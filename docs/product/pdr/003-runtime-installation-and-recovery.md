@@ -268,7 +268,8 @@ certificate fingerprint when started, and any required step. A missing secret or
 address keeps loopback working. With `--no-start`, the setting is staged for the next start.
 Robert Capps approved this on 2026-11-05, including an optional FQDN; ADR 001 Decision 2 records
 the question, options, quoted answer, reason and scope. At a terminal, a first install asks
-whether the dashboard opens only on this computer (the default) or also on a network address,
+whether the dashboard opens only on this computer (the default), on this computer and the
+tailnet through Tailscale Serve (#665, PDR 010 Refinement 8), or also on a network address,
 and Decision 6 gives what it then reports.
 
 **Status-line completion (AGY-STATUSLINE-631, #631):**
