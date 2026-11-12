@@ -128,6 +128,11 @@ func newGrokTerminal(t *testing.T) *grokTerminal {
 		parents:   map[int]int{6162: 6161},
 		commands:  map[int]string{6161: "/usr/local/bin/grok", 6162: "/synthetic/koinon"}}
 	g.env["HOME"] = g.home
+	// A repository root at the working directory stops the pickup entry's upward walk inside the
+	// test's directories, even when the temporary directory is below a real home (#668).
+	if err := os.Mkdir(filepath.Join(g.dir, ".git"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	g.skill(t, filepath.Join(g.home, ".grok"), pickupSkillEntry().Content)
 	g.statusLine(t, true)
 	previous, wait := grokEvidencedPlatforms, grokKeyWait
