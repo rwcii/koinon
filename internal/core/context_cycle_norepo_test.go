@@ -151,6 +151,7 @@ func TestContextCycleReadyRefusalsAreRecorded(t *testing.T) {
 	}
 	t.Cleanup(func() { reopened.db.Close() })
 	reopened.now = f.s.now
+	reopened.processStart = f.s.processStart
 	f.s = reopened
 	got := f.status(t, f.k)
 	if got.Revision != v.Revision || got.State != cycleWaitingReady || count(t, f.s, `SELECT COUNT(*) FROM context_cycle_events`) != events {
@@ -279,6 +280,7 @@ func TestContextCycleReadyRefusalAtOrdinaryCeiling(t *testing.T) {
 	}
 	t.Cleanup(func() { reopened.db.Close() })
 	reopened.now, reopened.storage.maxPages = f.s.now, maxPages
+	reopened.processStart = f.s.processStart
 	f.s = reopened
 	f.clock = time.UnixMilli(v.StageDeadline)
 	f.step(t)

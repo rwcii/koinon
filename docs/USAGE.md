@@ -481,7 +481,9 @@ each session's mode, threshold, Enable, whether its family has a verified cycle,
 or is not at its threshold, with the age of its context reading. Enabling is refused
 (`context_cycle_unavailable`) and its button is inactive while the cycle cannot run for that
 session; the page names the reason (for example a session that is not in its launched tmux pane,
-or a missing `koinon-pickup` skill, with the `koinon install` step that installs it). Disabling always works. A stored mode or threshold that is not valid
+or a missing `koinon-pickup` skill, with the `koinon install` step that installs it). A session
+whose host process has ended stays `active` until its lease ends; its reason is `host_ended`, and
+the session to enable is the one that replaced it. Disabling always works. A stored mode or threshold that is not valid
 keeps the family default, and the Settings page names the error.
 
 The Settings page also turns on the spoken alert (#553, SPEAK-SCOPE-553 in PDR 007, Decision 1). While it

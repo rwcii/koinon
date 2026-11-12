@@ -151,6 +151,7 @@ func newCycleFixture(t *testing.T) *cycleFixture {
 	}
 	f.session = join(t, s, "claude", "synthetic-a", f.repo)
 	f.k = Key{"claude", "synthetic-a"}
+	pinSyntheticHost(s, 4242, 77)
 	if _, err := fixtureExec(s, `UPDATE sessions SET host_pid=4242,host_start=77,tmux_socket='/tmp/synthetic-socket',tmux_pane='%3' WHERE family='claude' AND id=?`, f.k.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -753,6 +754,7 @@ func TestContextCycleControlsAtSaturation(t *testing.T) {
 	socket := "/" + strings.Repeat("s", 4095)
 	keys := []Key{}
 	for i := range maxActiveCycles {
+		pinSyntheticHost(f.s, 5000+i, 77)
 		k := Key{"claude", "synthetic-saturation-" + strings.Repeat("i", 180) + string(rune('a'+i))}
 		join(t, f.s, "claude", k.ID, f.repo)
 		if _, err := fixtureExec(f.s, `UPDATE sessions SET host_pid=?,host_start=77,tmux_socket=?,tmux_pane='%3',expires_at=? WHERE family='claude' AND id=?`,
@@ -979,7 +981,8 @@ func TestContextCycleDashboardAndRoutes(t *testing.T) {
 	s := d.store
 	repo := namedRepo(t, "cycle-dashboard")
 	a := join(t, s, "claude", "synthetic-dashboard-a", repo)
-	fixtureExec(s, `UPDATE sessions SET host_pid=4242,host_start=77,tmux_socket='/tmp/synthetic-private-socket',tmux_pane='%3' WHERE family='claude' AND id=?`, a.ID)
+	pid, start := liveHost(t)
+	fixtureExec(s, `UPDATE sessions SET host_pid=?,host_start=?,tmux_socket='/tmp/synthetic-private-socket',tmux_pane='%3' WHERE family='claude' AND id=?`, pid, start, a.ID)
 	a, _ = scanSession(s.db.QueryRow(sessionQuery+` WHERE s.family=? AND s.id=?`, "claude", a.ID), s.now().UnixMilli())
 	if _, err := s.SetContextEnable(roomCtx("context-enable"), a.Name, a.Revision, 0, true); err != nil {
 		t.Fatal(err)
@@ -1173,6 +1176,7 @@ func TestContextCycleSurvivesRestart(t *testing.T) {
 	}
 	t.Cleanup(func() { reopened.db.Close() })
 	reopened.now = f.s.now
+	reopened.processStart = f.s.processStart
 	f.s = reopened
 	again := f.status(t, f.k)
 	if again == nil || again.ID != v.ID || again.State != cycleWaitingReady || again.Revision != 1 {

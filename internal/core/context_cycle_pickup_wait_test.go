@@ -165,7 +165,8 @@ func TestContextCyclePickupDialogsOnDashboard(t *testing.T) {
 	repo := namedRepo(t, "cycle-pickup-dialog")
 	os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("_handoff/\n"), 0o644)
 	a := join(t, s, "claude", "synthetic-pickup-a", repo)
-	fixtureExec(s, `UPDATE sessions SET host_pid=4242,host_start=77,tmux_socket='/tmp/synthetic-socket',tmux_pane='%3' WHERE family='claude' AND id=?`, a.ID)
+	pid, start := liveHost(t)
+	fixtureExec(s, `UPDATE sessions SET host_pid=?,host_start=?,tmux_socket='/tmp/synthetic-socket',tmux_pane='%3' WHERE family='claude' AND id=?`, pid, start, a.ID)
 	a, _ = scanSession(s.db.QueryRow(sessionQuery+` WHERE s.family=? AND s.id=?`, "claude", a.ID), s.now().UnixMilli())
 	if _, err := s.SetContextEnable(roomCtx("context-enable"), a.Name, a.Revision, 0, true); err != nil {
 		t.Fatal(err)

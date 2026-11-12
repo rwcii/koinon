@@ -208,6 +208,7 @@ func TestIdleCompactionAfterRestart(t *testing.T) {
 	}
 	t.Cleanup(func() { restarted.db.Close() })
 	restarted.now = func() time.Time { return f.clock }
+	restarted.processStart = f.s.processStart
 	f.s = restarted
 	f.clock = f.clock.Add(nextConfirmation)
 	f.step(t)
