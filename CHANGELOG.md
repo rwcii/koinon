@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The dashboard shows the Koinon icon in its header and browser tab, with a light and a dark
+  variant, and the README opens with the Koinon logo.
+
 - Private remote access to the dashboard through Tailscale Serve (#645, PR 644 by Andrew
   Deugarte, @andyde8; ADR 002, PDR 010). `koinon remote enable`, `status` and `disable` manage a
   dashboard-only loopback listener and one owned private HTTPS mapping, and keep other Serve

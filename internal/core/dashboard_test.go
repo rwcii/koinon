@@ -696,3 +696,22 @@ func sortOrder(t *testing.T, spec *sortSpec, key, dir, after string) dashboardSo
 	}
 	return order
 }
+
+// The dashboard header and tab show the Koinon icon, a light and a dark variant, served as
+// SVG images from the embedded static files.
+func TestDashboardLogo(t *testing.T) {
+	d, _ := startTestDaemon(t)
+	for _, name := range []string{"koinon-icon-for-light.svg", "koinon-icon-for-dark.svg"} {
+		r := dashboardDo(t, d, "GET", "/dashboard/static/"+name, "", nil, nil)
+		if r.status != 200 || r.header.Get("Content-Type") != "image/svg+xml" || strings.Contains(r.body, "<script") {
+			t.Fatalf("%s: %d %q", name, r.status, r.header.Get("Content-Type"))
+		}
+	}
+	page := dashboardDo(t, d, "GET", "/dashboard/sessions", "", nil, nil)
+	for _, want := range []string{`<link rel="icon" type="image/svg+xml" href="/dashboard/static/koinon-icon-for-light.svg">`,
+		`<source srcset="/dashboard/static/koinon-icon-for-dark.svg" media="(prefers-color-scheme: dark)">`} {
+		if !strings.Contains(page.body, want) {
+			t.Fatalf("page lacks %s", want)
+		}
+	}
+}

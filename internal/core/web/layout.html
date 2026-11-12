@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Koinon · {{.Title}}</title>
+<link rel="icon" type="image/svg+xml" href="/dashboard/static/koinon-icon-for-light.svg">
 <link rel="stylesheet" href="/dashboard/static/app.css">
 <script src="/dashboard/static/app.js" defer></script>
 <script src="/dashboard/static/speak.js" defer></script>
@@ -12,7 +13,7 @@
 </head>
 <body>
 <header>
-<span class="brand">Koinon</span>
+<span class="brand"><picture><source srcset="/dashboard/static/koinon-icon-for-dark.svg" media="(prefers-color-scheme: dark)"><img src="/dashboard/static/koinon-icon-for-light.svg" alt="" width="28" height="28"></picture>Koinon</span>
 {{if .CSRF}}<nav>{{range .Views}}<a href="/dashboard/{{.}}"{{if eq . $.View}} aria-current="page"{{end}}>{{.}}</a>{{end}}</nav>
 {{if not .Remote}}<a class="remote-link" href="/dashboard/settings#remote-access">Go remote</a>{{end}}
 <form method="post" action="/dashboard/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Log out</button></form>{{end}}
