@@ -33,6 +33,8 @@ type dashboardRemoteData struct {
 	// OnRemote is true when the page is served on the remote surface, which
 	// cannot issue sign-in codes.
 	OnRemote bool
+	// Access is where the dashboard opens, for the Dashboard access section (#665).
+	Access dashboardAccess
 }
 
 func remoteControlRequest(r *http.Request) bool {
@@ -41,7 +43,7 @@ func remoteControlRequest(r *http.Request) bool {
 		// The no-JS status redirect renders these same lifecycle diagnostics.
 		// It can revoke this surface on an observed identity/Serve conflict.
 		return r.URL.Query().Get("remote_status") == "1" || r.URL.Query().Get("remote_setup") == "1"
-	case "/dashboard/remote/status", "/dashboard/remote/qr", "/dashboard/remote/ticket", "/dashboard/actions/remote-enable", "/dashboard/actions/remote-disable":
+	case "/dashboard/remote/status", "/dashboard/remote/qr", "/dashboard/remote/ticket", "/dashboard/actions/remote-enable", "/dashboard/actions/remote-disable", "/dashboard/actions/dashboard-access":
 		return true
 	}
 	return false
@@ -53,6 +55,7 @@ func (d *Daemon) dashboardRemoteState(ctx context.Context, checked bool, csrf st
 	data := dashboardRemoteData{CSRF: csrf, Checked: checked}
 	data.Secret, _ = d.store.maintainerSecretSet(ctx)
 	data.Status = d.remoteStatus(ctx)
+	data.Access = d.dashboardAccessOf(ctx, data.Status)
 	if data.Status.Tailscale != nil {
 		if err := data.Status.Tailscale.Ready(); err != nil {
 			data.Prerequisite = err.Error()

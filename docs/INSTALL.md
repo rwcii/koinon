@@ -293,14 +293,23 @@ listener below; neither exposes `/v1/`. See ADR 002 and PDR 010.
 At a terminal, the first `koinon install` asks where the dashboard opens:
 
 ```text
-Open the dashboard only on this computer (default), or also on a network address?
+Where should the dashboard open?
   1. Only on this computer
-  2. Also on a network address, over HTTPS, with a login by the maintainer secret
+  2. On this computer and your tailnet, through Tailscale Serve, with a login by the maintainer secret (recommended on a computer in a tailnet; no network address)
+  3. Also on a network address, over HTTPS, with a login by the maintainer secret
 Choice [1]:
 ```
 
 Enter, or 1, keeps it on this computer and saves that answer in `dashboard-local.json` in the
-private state directory, so a later install asks nothing. 2 lists this host's network
+private state directory, so a later install asks nothing. 2 keeps it off the network address
+too and saves the same answer (#665). It asks for the Tailscale Serve HTTPS port (Enter takes
+443). After the daemon starts it offers the maintainer secret when none is set, as below, and
+then enables remote access, as `koinon remote enable --https-port PORT` does, with the
+[remote dashboard](REMOTE-DASHBOARD.md) and its operator question on Linux. The terminal
+shows the tailnet URL, and the report's `remote` has it with the port. When remote access
+cannot be enabled yet, for example because Tailscale is not set up, the install still
+completes: the terminal and `remote.error` and `remote.step` name the reason and the
+command to run. With `--no-start`, it names the start and that command. 3 lists this host's network
 addresses, numbered; type a number or a fully qualified name of this host, then a port (Enter
 takes 8443). A refused address is shown with its reason, and the question comes again. When no
 maintainer secret is set, the install then offers to type one (twice, with echo off), to

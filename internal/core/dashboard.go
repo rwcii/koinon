@@ -303,6 +303,7 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 	}))
 	d.dashboardActions(mux, authedLimit)
 	d.dashboardRemoteRoutes(mux, authed, pages)
+	d.dashboardAccessRoutes(mux, authed)
 	mux.HandleFunc("GET /dashboard/{$}", authed(func(w http.ResponseWriter, r *http.Request, _ string) {
 		http.Redirect(w, r, "/dashboard/sessions", http.StatusSeeOther)
 	}))

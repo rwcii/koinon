@@ -33,7 +33,13 @@ daemon starts use the saved IP and requests use no DNS. Invalid input is
 `dashboard_address_unavailable`, and an invalid private setting is
 `dashboard_configuration_invalid`. At a terminal, a first install asks for the setting; its
 local-only answer, and `--dashboard-address none`, are saved in the private, owner-checked
-`dashboard-local.json` (`{"choice":"local"}`), which only the installer reads. After a secret
+`dashboard-local.json` (`{"choice":"local"}`), which only the installer reads; the answer
+"this computer and your tailnet" (#665) saves it too, then enables remote access with its
+port and reports `remote` (`https_port`, and `url`, or `error` and `step`). The dashboard's
+authenticated `dashboard-access` action (`mode` `tailnet`) enables remote access with the
+saved port, saves `dashboard-local.json`, removes `dashboard-address.json` and closes the
+network listener after its own response; a failed enable changes neither file, and a failed
+write keeps the listener open (`dashboard_access_partial`). After a secret
 set at those questions, the install restarts the daemon once; a failed restart reports
 `dashboard_network.code` `dashboard_restart_failed` with its step, and the install fails with
 `daemon_restart_failed`.

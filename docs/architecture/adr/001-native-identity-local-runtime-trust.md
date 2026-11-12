@@ -221,11 +221,15 @@ and the replacement/removal commands for the same state directory, retaining the
 ownership, mode and link checks.
 
 Implementation (part 2, the installation questions): at a terminal, a first `koinon install`
-asks "Open the dashboard only on this computer (default), or also on a network address?". It
+asks "Where should the dashboard open?", with the answers only on this computer (default), on
+this computer and the tailnet through Tailscale Serve (#665, PDR 010 Refinement 8), or also on
+a network address. It
 asks nothing with a saved network setting, a saved local-only answer, `--dashboard-address`,
 `koinon upgrade`, `--plan` or without a terminal. The local answer, also an empty one, is saved
 in the private, owner-checked `dashboard-local.json`, which the daemon does not read;
-`--dashboard-address none` saves it too. A network answer lists this host's addresses without
+`--dashboard-address none` saves it too, and so does the tailnet answer, which then enables
+remote access after the start. The dashboard's access switch (#665) also saves it and
+removes the network setting, then closes the network listener at once. A network answer lists this host's addresses without
 loopback, multicast and IPv6 link-local addresses, takes a number or an FQDN, then a port
 (default 8443), and checks the answer as `--dashboard-address` does. A refused answer is shown
 with its reason and asked again. Ended input or a cancel in the choice, address or port

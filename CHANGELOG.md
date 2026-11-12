@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The first `koinon install` at a terminal now offers a third answer for where the dashboard
+  opens: on this computer and your tailnet, through Tailscale Serve, with no network address
+  (#665). It asks the Serve HTTPS port, offers the maintainer secret when none is set, and
+  enables remote access after the start; the report's `remote` has the URL, or the reason and
+  the command to run. The dashboard's remote access panel names where the dashboard opens and
+  offers **Use this computer and the tailnet only**, which enables remote access, removes the
+  network address and closes it at once.
+
 - `koinon remote enable --https-port PORT` publishes the remote dashboard on another
   Tailscale Serve HTTPS port, for a computer where another program, such as a container
   that publishes `443:443`, takes port 443 (#665). Koinon saves the port. The URL, the QR
