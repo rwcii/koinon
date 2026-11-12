@@ -18,6 +18,7 @@ import (
 type remoteCLIAdapter struct {
 	mu       sync.Mutex
 	target   string
+	port     string // the HTTPS port of the last Serve write, 443 before one
 	commands int
 }
 
@@ -32,10 +33,15 @@ func (a *remoteCLIAdapter) Run(_ context.Context, args ...string) ([]byte, error
 		if a.target != "" {
 			handlers["/"] = map[string]string{"Proxy": a.target}
 		}
-		return json.Marshal(map[string]any{"TCP": map[string]any{"443": map[string]bool{"HTTPS": true}}, "Web": map[string]any{"board.example.ts.net:443": map[string]any{"Handlers": handlers}}})
+		port := a.port
+		if port == "" {
+			port = "443"
+		}
+		return json.Marshal(map[string]any{"TCP": map[string]any{port: map[string]bool{"HTTPS": true}}, "Web": map[string]any{"board.example.ts.net:" + port: map[string]any{"Handlers": handlers}}})
 	}
 	if len(args) == 5 && args[3] == "--set-path=/" {
 		a.commands++
+		a.port = strings.TrimPrefix(args[2], "--https=")
 		a.target = args[4]
 		if a.target == "off" {
 			a.target = ""
@@ -285,5 +291,58 @@ func TestRemoteStatusShowsThePolicyRule(t *testing.T) {
 	}
 	if err := json.Unmarshal(out.Bytes(), &status); err != nil || !status.OK || status.Phone != "unverified" || status.PolicyRule != rule || !strings.Contains(status.PolicyHint, "TCP 443") || len(status.Tailscale.IPs) != 2 {
 		t.Fatal(out.String(), err)
+	}
+}
+
+// #665: --https-port reaches the daemon, and the printed URL and QR name the port; the flag
+// belongs to enable only and must be a port.
+func TestRemoteHTTPSPort(t *testing.T) {
+	ctx := context.Background()
+	adapter := &remoteCLIAdapter{}
+	root := filepath.Join(t.TempDir(), "state")
+	d, err := core.Start(core.Config{StateDir: root, Listen: []string{"127.0.0.1:0"}, Tailscale: adapter, SecretCost: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	address := d.Addresses()[0]
+	args := func(op string, extra ...string) []string {
+		return append([]string{"remote", op, "--state-dir", root, "--address", address}, extra...)
+	}
+	var out bytes.Buffer
+	if err := run(ctx, []string{"maintainer", "secret", "set", "--state-dir", root, "--address", address}, strings.NewReader("synthetic-long-secret\n"), &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range [][]string{args("status", "--https-port", "8443"), args("disable", "--https-port", "8443"), args("enable", "--https-port", "65536"), args("enable", "--https-port", "-1"), args("enable", "--https-port", "x")} {
+		out.Reset()
+		var usage usageError
+		if err := run(ctx, c, strings.NewReader(""), &out); !errors.As(err, &usage) || usage.code != "invalid_request" {
+			t.Fatalf("%v: %v", c, err)
+		}
+	}
+	if adapter.commands != 0 {
+		t.Fatal("a refused flag changed Serve")
+	}
+	out.Reset()
+	if err := run(ctx, args("enable", "--https-port", "8443"), strings.NewReader(""), &out); err != nil {
+		t.Fatal(out.String(), err)
+	}
+	link := "https://board.example.ts.net:8443/dashboard/"
+	qr, err := remoteQR(link)
+	if err != nil || !strings.Contains(out.String(), link) || !strings.Contains(out.String(), qr) || adapter.port != "8443" {
+		t.Fatalf("enable: %v %q %s", err, adapter.port, out.String())
+	}
+	out.Reset()
+	if err := run(ctx, args("status", "--json"), strings.NewReader(""), &out); err != nil {
+		t.Fatal(err)
+	}
+	var status core.RemoteStatus
+	if err := json.Unmarshal(out.Bytes(), &status); err != nil || status.URL != link || status.Serve != "ready" || !strings.Contains(status.PolicyHint, "TCP 8443") {
+		t.Fatal(out.String(), err)
+	}
+	// The offline status reads the saved URL with its port.
+	saved, err := remoteOfflineStatus(ctx, root, adapter)
+	if err != nil || saved.URL != link {
+		t.Fatalf("offline: %+v %v", saved, err)
 	}
 }

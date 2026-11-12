@@ -264,7 +264,7 @@ func TestDashboardRemoteSetupConflictPreservesForeignMappings(t *testing.T) {
 func TestDashboardRemoteSetupDisableFromOwnListenerCompletes(t *testing.T) {
 	d, root, fake := onboardingFixture(t)
 	local := newActionClient(t, d, root)
-	if err := d.remoteEnable(context.Background()); err != nil {
+	if err := d.remoteEnable(context.Background(), 0); err != nil {
 		t.Fatal(err)
 	}
 	config, err := ReadRemoteConfig(root)
@@ -372,7 +372,7 @@ func testRemoteSettingsReconciliation(t *testing.T, query, failure string) {
 	phase := time.AfterFunc(8*time.Second, func() { panic("remote settings reconciliation did not complete") })
 	defer phase.Stop()
 	local := newActionClient(t, d, root)
-	if err := d.remoteEnable(context.Background()); err != nil {
+	if err := d.remoteEnable(context.Background(), 0); err != nil {
 		t.Fatal(err)
 	}
 	config, err := ReadRemoteConfig(root)

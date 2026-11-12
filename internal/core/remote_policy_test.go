@@ -37,7 +37,7 @@ func TestRemoteStatusPolicyHintOnlyWhenServeIsReady(t *testing.T) {
 	if s := d.remoteStatus(ctx); s.PolicyHint != "" || s.PolicyRule != "" {
 		t.Fatalf("hint before enable: %+v", s)
 	}
-	if err := d.remoteEnable(ctx); err != nil {
+	if err := d.remoteEnable(ctx, 0); err != nil {
 		t.Fatal(err)
 	}
 	s := d.remoteStatus(ctx)
@@ -52,7 +52,7 @@ func TestRemoteStatusPolicyHintOnlyWhenServeIsReady(t *testing.T) {
 	for _, ips := range []any{nil, []string{}, "bad", []any{42, "192.0.2.1"}} {
 		use(ips)
 		s := d.remoteStatus(ctx)
-		if s.Serve != "ready" || s.Listener != "ready" || s.Phone != "unverified" || s.Error != "" || s.PolicyHint != policyHint || s.PolicyRule != "" {
+		if s.Serve != "ready" || s.Listener != "ready" || s.Phone != "unverified" || s.Error != "" || s.PolicyHint != policyHint(443) || s.PolicyRule != "" {
 			t.Fatalf("%v: %+v", ips, s)
 		}
 	}
@@ -61,7 +61,7 @@ func TestRemoteStatusPolicyHintOnlyWhenServeIsReady(t *testing.T) {
 	client := newActionClient(t, d, root)
 	got := dashboardDo(t, d, "GET", "/dashboard/remote/status?fragment=1", client.cookie, nil, nil)
 	body := html.UnescapeString(got.body)
-	if got.status != 200 || !strings.Contains(body, policyHint) || !strings.Contains(body, "<code>"+policyRuleBoth+"</code>") {
+	if got.status != 200 || !strings.Contains(body, policyHint(443)) || !strings.Contains(body, "<code>"+policyRuleBoth+"</code>") {
 		t.Fatalf("dashboard: %d %s", got.status, got.body)
 	}
 	// A missing Serve mapping gives no hint: the next step is the mapping.

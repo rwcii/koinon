@@ -94,8 +94,9 @@ steps an upgrade still needs. The command-line workflow remains available.
 1. Install Tailscale on the host and phone using the [platform instructions](https://tailscale.com/download).
    Connect both to the intended private network. Restrict the network's access
    policy to the intended maintainer devices, especially in a network with other people.
-   The policy must allow TCP 443 to this computer's Tailscale addresses, IPv4 and
-   IPv6, or the phone's connection times out. For example, in the policy's `acls`:
+   The policy must allow TCP 443, or the HTTPS port chosen with `--https-port`, to this
+   computer's Tailscale addresses, IPv4 and IPv6, or the phone's connection times out.
+   For example, for port 443 in the policy's `acls`:
 
    ```json
    {"action": "accept", "src": ["autogroup:member"], "proto": "tcp", "dst": ["100.64.0.1:443", "[fd7a:115c:a1e0::1]:443"]}
@@ -140,7 +141,24 @@ steps an upgrade still needs. The command-line workflow remains available.
    root the operator again. `tailscale debug prefs` shows the result as `OperatorUser`.
 
    Follow any other reported account or operating-system step, then repeat enable.
-   Repeating the command preserves a working setup. On macOS the CLI bundled at
+   Repeating the command preserves a working setup.
+
+   Serve uses HTTPS port 443 unless you choose another (#665):
+
+   ```sh
+   koinon remote enable --https-port 8443
+   ```
+
+   Choose another port when something else on this computer takes 443, such as a
+   container that publishes `443:443` on all addresses: tailscaled and that program
+   cannot share the port, and whichever starts second fails. Pick a port that no other
+   program on this computer uses, including the network dashboard (8443 by default).
+   Koinon saves the port; a later `koinon remote enable` without the option, and the
+   dashboard's Enable, keep it. The URL, the QR code, the sign-in links, the login
+   checks and the policy entry in `koinon remote status` all name the port. Choosing a
+   new port takes the disable steps for the old one first: remote logins end, and Koinon
+   removes its old Serve mapping before it adds the new one. `--https-port 443` returns
+   to the default. On macOS the CLI bundled at
    `/Applications/Tailscale.app/Contents/MacOS/Tailscale` is also found when
    `tailscale` is absent from `PATH`.
 4. Open the printed URL on the phone, or scan its QR code, and enter the maintainer
@@ -168,7 +186,9 @@ can work; inspect `koinon install --plan` before changing a shared service.
 
 ## URL, restarts, and configuration ownership
 
-Serve provides `https://MACHINE.TAILNET.ts.net/dashboard/` on HTTPS port 443.
+Serve provides `https://MACHINE.TAILNET.ts.net/dashboard/` on HTTPS port 443, or
+`https://MACHINE.TAILNET.ts.net:PORT/dashboard/` on the port chosen with
+`koinon remote enable --https-port PORT`.
 This adapter takes the native `Self.DNSName` reported by Tailscale and validates
 its `.ts.net` name, following the official [MagicDNS naming](https://tailscale.com/docs/features/magicdns#fully-qualified-domain-names-vs-machine-names)
 and [HTTPS certificate](https://tailscale.com/docs/how-to/set-up-https-certificates)
@@ -282,7 +302,7 @@ return screen after sign-in, without submitting the prior action.
 | Serve permission is denied | Complete the account permission. On Linux, `tailscale_operator_required` names the command `sudo tailscale set --operator=NAME` with the account that runs Koinon; `koinon remote enable` at a terminal offers to run it, or run it yourself, then repeat enable. The dashboard setup shows the same step. |
 | Required root or port is already used | Inspect `tailscale serve status --json`; resolve the reported conflict explicitly. Koinon preserves it. |
 | Saved loopback port is occupied | Free the saved port and repeat enable, or disable successfully then enable to choose an available backend port. The daemon's local API remains available. |
-| Network policy denies the phone (the page times out) | The tailnet access policy must allow TCP 443 to this computer's IPv4 and IPv6 Tailscale addresses from the phone. `koinon remote status` shows an example entry with this computer's addresses. Also check the phone's network and account. Host status cannot prove phone permission. |
+| Network policy denies the phone (the page times out) | The tailnet access policy must allow TCP 443, or the chosen HTTPS port, to this computer's IPv4 and IPv6 Tailscale addresses from the phone. `koinon remote status` shows an example entry with this computer's addresses. Also check the phone's network and account. Host status cannot prove phone permission. |
 | Sign-in QR expired, was already used, or its result is unknown | Create a new sign-in QR on the signed-in computer, or use the Koinon password at the ordinary dashboard URL. |
 | Host is configured but phone fails | Check host wake state, both Tailscale connections, network policy, and the URL from status. Complete the cellular test separately. |
 

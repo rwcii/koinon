@@ -18,7 +18,7 @@ func pairFixture(t *testing.T) (*Daemon, string, *actionClient, http.Handler, st
 	t.Helper()
 	d, root, _ := onboardingFixture(t)
 	local := newActionClient(t, d, root)
-	if err := d.remoteEnable(context.Background()); err != nil {
+	if err := d.remoteEnable(context.Background(), 0); err != nil {
 		t.Fatal(err)
 	}
 	config, err := ReadRemoteConfig(root)

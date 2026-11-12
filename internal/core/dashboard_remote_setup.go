@@ -133,7 +133,7 @@ func (d *Daemon) dashboardRemoteRoutes(mux *http.ServeMux, authed func(func(http
 			ctx, pending := withAudit(ctx, "remote-"+action, "remote dashboard")
 			var err error
 			if action == "enable" {
-				err = d.remoteEnable(ctx)
+				err = d.remoteEnable(ctx, 0)
 			} else {
 				err = d.remoteDisable(ctx)
 			}
