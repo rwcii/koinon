@@ -42,6 +42,7 @@ var (
 	ErrLinkWrongKey    = Refusal{"link_key_mismatch", "the other computer's key does not match the invitation; make a new invitation on that computer"}
 	ErrLinkInvitation  = Refusal{"link_invitation_refused", "the other computer refused the invitation: it expired, was used or was cancelled; make a new one"}
 	ErrLinkLimit       = Refusal{"link_limit", "this computer has the most pairs or open invitations that it can hold"}
+	ErrLinkKeyRefused  = Refusal{"link_key_refused", "the other computer refused this computer's key: it has no pair and no open invitation for it"}
 )
 
 type linkObservation struct {
@@ -107,6 +108,17 @@ func peerPin(cs tls.ConnectionState) string {
 }
 
 var errLinkPin = errors.New("link_key_not_admitted")
+
+// linkKeyRefused reports whether the other computer refused this computer's key in the
+// handshake: its pin check sends the bad_certificate alert. In TLS 1.3 the alert can arrive
+// after the client's handshake ends, at the first read.
+func linkKeyRefused(err error) bool {
+	if errors.Is(err, ErrLinkKeyRefused) {
+		return true
+	}
+	var op *net.OpError
+	return errors.As(err, &op) && op.Op == "remote error" && op.Err != nil && op.Err.Error() == "tls: bad certificate"
+}
 
 // linkAdmits reports whether a client key may finish the handshake: a paired or pending key,
 // or any key while an invitation is open (then only for the pairing exchange).
@@ -482,7 +494,8 @@ func (s linkSession) call(op string, body any, wantOp string, out any) error {
 }
 
 // connectLink dials the addresses in order and finishes a TLS handshake that checks the
-// server's pin. A wrong key is reported at once: it is never retried at another address.
+// server's pin. A wrong key, or a refusal of this computer's key, is reported at once: it is
+// never retried at another address.
 func (d *Daemon) connectLink(ctx context.Context, ips []string, port int, pin string) (linkSession, error) {
 	id, err := d.linkIdentity()
 	if err != nil {
@@ -507,6 +520,9 @@ func (d *Daemon) connectLink(ctx context.Context, ips []string, port int, pin st
 			if errors.Is(err, ErrLinkWrongKey) {
 				return linkSession{}, ErrLinkWrongKey
 			}
+			if linkKeyRefused(err) {
+				return linkSession{}, ErrLinkKeyRefused
+			}
 			last = ErrLinkUnreachable
 			continue
 		}
@@ -520,7 +536,7 @@ func (d *Daemon) connectLink(ctx context.Context, ips []string, port int, pin st
 // the pinned key.
 func (d *Daemon) connectPair(ctx context.Context, p link.Pair) (linkSession, error) {
 	session, err := d.connectLink(ctx, p.IPs, p.Port, p.Pin)
-	if err == nil || errors.Is(err, ErrLinkWrongKey) {
+	if err == nil || errors.Is(err, ErrLinkWrongKey) || errors.Is(err, ErrLinkKeyRefused) {
 		return session, err
 	}
 	d.remote.mu.Lock()
@@ -616,6 +632,8 @@ func (d *Daemon) linkPass(stop chan struct{}) {
 			d.observe(p.ID, "connected", "")
 		case errors.Is(err, ErrLinkWrongKey):
 			d.observe(p.ID, "rejected", ErrLinkWrongKey.Code)
+		case linkKeyRefused(err):
+			d.observe(p.ID, "rejected", ErrLinkKeyRefused.Code)
 		default:
 			d.observe(p.ID, "offline", errorCode(err))
 		}
@@ -748,12 +766,19 @@ func (d *Daemon) linkJoin(ctx context.Context, text string) (link.Pair, error) {
 	}
 	// The handshake checks the invitation's pin before the secret is sent.
 	session, err := d.connectLink(ctx, invitation.IPs, invitation.Port, invitation.Pin)
+	if linkKeyRefused(err) {
+		// The other computer admits an unknown key only while an invitation is open.
+		return link.Pair{}, ErrLinkInvitation
+	}
 	if err != nil {
 		return link.Pair{}, err
 	}
 	defer session.conn.Close()
 	var ok linkHelloOK
 	if err := session.call("pair-hello", linkHello{Secret: invitation.Secret, Name: s.Name, DNS: dns, IPs: ips, Port: port}, "hello-ok", &ok); err != nil {
+		if linkKeyRefused(err) {
+			return link.Pair{}, ErrLinkInvitation
+		}
 		var refusal Refusal
 		if errors.As(err, &refusal) {
 			return link.Pair{}, refusal

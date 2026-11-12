@@ -331,6 +331,8 @@ func TestLinkDisableWithFailedRecordWriteKeepsLinkClosed(t *testing.T) {
 	if err := os.Mkdir(path, 0700); err != nil {
 		t.Fatal(err)
 	}
+	// Runs before the host's own cleanup, whose state check needs regular files.
+	t.Cleanup(func() { os.Remove(path) })
 	if err := a.d.remoteDisable(ctx); err == nil {
 		t.Fatal("disable reported success")
 	}
