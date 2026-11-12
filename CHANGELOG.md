@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The Sessions view's bulk actions (retire, purge, keep and clear the inbox) work again (#654).
+  Since v0.10.2 the dashboard script read the form's target as `form.action`, which the bulk
+  form's `action` select hides, so each bulk action went to `/dashboard/[object HTMLSelectElement]`
+  and failed with HTTP 404. The script now reads the `action` and `method` attributes, and a
+  test refuses a form control that hides a form property that a dashboard script reads.
+
 - On Linux, when Tailscale refuses to change Serve for the account that runs Koinon,
   `koinon remote enable`, `koinon remote status` and the dashboard setup now name the step:
   `sudo tailscale set --operator=NAME` with the literal account name, then `koinon remote enable`
