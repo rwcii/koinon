@@ -148,7 +148,7 @@ func enableTailnet(ctx context.Context, o Options, r *Report, port int) error {
 			return err
 		}
 		if !set {
-			fail("remote_secret_required", "Set the maintainer secret with koinon maintainer secret set, then run "+step+".")
+			fail("remote_secret_required", "Set the maintainer secret with "+installCommand(o, r.Binary, "maintainer secret set")+", then run "+step+".")
 			return nil
 		}
 	}
@@ -175,9 +175,19 @@ func enableTailnet(ctx context.Context, o Options, r *Report, port int) error {
 
 // remoteEnableCommand is the command that enables remote access for this installation.
 func remoteEnableCommand(o Options, binary string, port int) string {
-	command := setup.ShellWord(binary) + " remote enable --https-port " + strconv.Itoa(port)
+	return installCommand(o, binary, "remote enable --https-port "+strconv.Itoa(port))
+}
+
+// installCommand is the installed binary's command for this installation: its state
+// directory when not the default, and always its daemon address, so neither a default nor
+// KOINON_STATE_DIR or KOINON_DAEMON_ADDRESS can name another daemon.
+func installCommand(o Options, binary, command string) string {
+	command = setup.ShellWord(binary) + " " + command
 	if state, err := platform.DefaultStateDir(); err != nil || state != o.StateDir {
 		command += " --state-dir " + setup.ShellWord(o.StateDir)
+	}
+	if o.Address != "" {
+		command += " --address " + setup.ShellWord(o.Address)
 	}
 	return command
 }
@@ -249,15 +259,24 @@ func RemoteEnable(ctx context.Context, state, address string, port int) (string,
 	return RemoteURL(ctx, address, bearer)
 }
 
-// RemoteURL reads the remote URL from the daemon's remote status.
+// RemoteURL reads the remote URL from the daemon's remote status, only while remote access
+// is on with its listener and Serve mapping ready; otherwise it returns the status's reason.
+// Phone reachability stays unverified.
 func RemoteURL(ctx context.Context, address, bearer string) (string, error) {
 	data, err := core.Call(ctx, address, bearer, "/v1/remote/status", nil)
 	if err != nil {
 		return "", err
 	}
 	var status core.RemoteStatus
-	if err := json.Unmarshal(data, &status); err != nil || status.URL == "" {
-		return "", errors.New("the daemon reports no remote URL")
+	if err := json.Unmarshal(data, &status); err != nil {
+		return "", errors.New("remote_status_invalid: the daemon's remote status is unreadable")
+	}
+	if !status.Configured || status.Listener != "ready" || status.Serve != "ready" || status.Error != "" || status.URL == "" {
+		reason := status.Error
+		if reason == "" {
+			reason = fmt.Sprintf("configured %t, listener %s, Serve %s", status.Configured, status.Listener, status.Serve)
+		}
+		return "", errors.New("remote_not_ready: " + reason)
 	}
 	return status.URL, nil
 }
