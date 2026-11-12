@@ -90,7 +90,7 @@ func TestServeLifecycleLogAndLockWait(t *testing.T) {
 	case <-ready:
 	case err := <-done:
 		t.Fatalf("startup: %v", err)
-	case <-time.After(15 * time.Second):
+	case <-time.After(startupWait(t)):
 		t.Fatal("startup deadline")
 	}
 	// Without the flag, a second daemon fails at once, as before.
@@ -122,7 +122,7 @@ func TestServeLifecycleLogAndLockWait(t *testing.T) {
 	case body = <-secondReady:
 	case err := <-secondDone:
 		t.Fatalf("waiting daemon: %v", err)
-	case <-time.After(20 * time.Second):
+	case <-time.After(startupWait(t)):
 		t.Fatal("the waiting daemon did not take over")
 	}
 	var status struct {
@@ -304,7 +304,7 @@ func TestServePickupSkillFailureKeepsServing(t *testing.T) {
 	case <-ready:
 	case err := <-done:
 		t.Fatalf("startup: %v", err)
-	case <-time.After(15 * time.Second):
+	case <-time.After(startupWait(t)):
 		t.Fatal("startup deadline")
 	}
 	if data, err := os.ReadFile(core.CodexPickupSkillPath(home)); err != nil || !bytes.Equal(data, core.PickupSkill()) {
@@ -436,7 +436,7 @@ func TestServeStopsWhenItsExecutableChanges(t *testing.T) {
 	case <-ready:
 	case err := <-done:
 		t.Fatalf("startup: %v", err)
-	case <-time.After(15 * time.Second):
+	case <-time.After(startupWait(t)):
 		t.Fatal("startup deadline")
 	}
 	// The opt link briefly missing, as during an upgrade, and a rewrite in place change nothing.
@@ -486,7 +486,7 @@ func TestServeStopsWhenItsExecutableChanges(t *testing.T) {
 	case body = <-againReady:
 	case err := <-againDone:
 		t.Fatalf("restart: %v", err)
-	case <-time.After(15 * time.Second):
+	case <-time.After(startupWait(t)):
 		t.Fatal("restart deadline")
 	}
 	// Its status names the release it runs.
@@ -525,5 +525,47 @@ func TestWatchExecutableNeedsAnAbsoluteResolvingPath(t *testing.T) {
 	case <-changed:
 	case <-time.After(5 * time.Second):
 		t.Fatal("no change after the rename")
+	}
+}
+
+// startupWait is how long a test waits for a daemon to report ready or to take over: the time
+// left before the test's own deadline, less a cleanup margin. A fixed wait failed on a slow CI
+// runner under -race while the daemon was still starting (#659).
+func startupWait(t *testing.T) time.Duration {
+	deadline, ok := t.Deadline()
+	return startupBudget(deadline, ok, time.Now())
+}
+
+// startupBudget keeps min(30 s, a tenth of the time left) for cleanup, so a short deadline
+// still gives most of its time to startup. An expired deadline gives 0, and no deadline gives
+// 5 minutes.
+func startupBudget(deadline time.Time, ok bool, now time.Time) time.Duration {
+	if !ok {
+		return 5 * time.Minute
+	}
+	left := deadline.Sub(now)
+	if left <= 0 {
+		return 0
+	}
+	return left - min(30*time.Second, left/10)
+}
+
+func TestStartupBudget(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	for _, tc := range []struct {
+		name     string
+		deadline time.Time
+		ok       bool
+		want     time.Duration
+	}{
+		{"no deadline", time.Time{}, false, 5 * time.Minute},
+		{"long deadline", now.Add(30 * time.Minute), true, 30*time.Minute - 30*time.Second},
+		{"short deadline", now.Add(20 * time.Second), true, 18 * time.Second},
+		{"at the deadline", now, true, 0},
+		{"expired deadline", now.Add(-time.Second), true, 0},
+	} {
+		if got := startupBudget(tc.deadline, tc.ok, now); got != tc.want {
+			t.Errorf("%s: %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }
