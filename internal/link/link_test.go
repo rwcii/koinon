@@ -102,7 +102,9 @@ func TestNames(t *testing.T) {
 }
 
 func TestShortAndLongName(t *testing.T) {
-	defer func(h func() (string, error), l func(context.Context, string) (string, error)) { hostname, lookupCNAME = h, l }(hostname, lookupCNAME)
+	defer func(h func() (string, error), l func(context.Context, string) (string, error)) {
+		hostname, lookupCNAME = h, l
+	}(hostname, lookupCNAME)
 	cases := []struct{ host, cname, short, long string }{
 		{"DevBox", "devbox.example.internal.", "devbox", "devbox.example.internal"},
 		{"devbox.example.internal", "", "devbox", "devbox.example.internal"},
@@ -213,9 +215,11 @@ func TestStateRoundTripAndValidation(t *testing.T) {
 		t.Fatalf("read %v %+v", err, got)
 	}
 	bad := map[string]func(*State){
-		"duplicate id":   func(s *State) { s.Pairs = append(s.Pairs, testPair(s.Pairs[0].ID, strings.Repeat("b", 64), "other")) },
-		"duplicate pin":  func(s *State) { s.Pairs = append(s.Pairs, testPair(strings.Repeat("2", 32), s.Pairs[0].Pin, "other")) },
-		"duplicate name": func(s *State) { s.Pairs = append(s.Pairs, testPair(strings.Repeat("2", 32), strings.Repeat("b", 64), "laptop")) },
+		"duplicate id":  func(s *State) { s.Pairs = append(s.Pairs, testPair(s.Pairs[0].ID, strings.Repeat("b", 64), "other")) },
+		"duplicate pin": func(s *State) { s.Pairs = append(s.Pairs, testPair(strings.Repeat("2", 32), s.Pairs[0].Pin, "other")) },
+		"duplicate name": func(s *State) {
+			s.Pairs = append(s.Pairs, testPair(strings.Repeat("2", 32), strings.Repeat("b", 64), "laptop"))
+		},
 		"pending no exp": func(s *State) { s.Pairs[0].State = Pending },
 		"bad state":      func(s *State) { s.Pairs[0].State = "open" },
 		"bad role":       func(s *State) { s.Pairs[0].Role = "x" },
