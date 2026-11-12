@@ -457,7 +457,8 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N]
        koinon work <get|propose|edit|start|update|release|finish|report|accept|reject> WORK_ID --as FAMILY:ID [--consumer KEY] [options]
        koinon claim renew WORK_ID --as FAMILY:ID --claim-generation N --if-claim-revision N [--lease-seconds S]
        koinon recover [--state-dir DIR] [--address 127.0.0.1:PORT]
-       koinon <claude|codex|agy|opencode|grok> [--state-dir DIR] [--address HOST:PORT] [--cli ABS_PATH] [--directory DIR] [--tmux-session NAME] [--role ROLE] [--bg] [--] [CLI arguments...]
+       koinon <claude|codex|agy|opencode|grok> [--state-dir DIR] [--address HOST:PORT] [--cli ABS_PATH] [--directory DIR] [--tmux-session NAME] [--role ROLE] [--] [CLI arguments...]
+       koinon claude --bg [--state-dir DIR] [--address HOST:PORT] [--cli ABS_PATH] [--directory DIR] [--role ROLE] [--] [CLI arguments...]
        koinon peers --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon peer-status --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT] NAME
        koinon send --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT] NAME BODY

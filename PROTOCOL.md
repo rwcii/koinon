@@ -2273,7 +2273,7 @@ with `reference_in_use`.
   `invalid_request`; one whose version or record digest changed since is `export_changed`. A
   move and a restore each change `version` in their own transaction, so pages with one version
   hold each item once. An acknowledgement changes a record without changing `version`, so the
-  digest tells the parts of one record. `koinon decision export PATH` (or `--path PATH`) pages
+  digest tells the parts of one record. `koinon decision export --as FAMILY:ID PATH` (or `--path PATH`) pages
   from the start and writes each record as a line of a new private file (mode 0600) in PATH's
   directory, with a record's parts joined in offset order (a part out of order, a record without
   its final part, an end inside a record, or bytes that do not match the digest fail the export,

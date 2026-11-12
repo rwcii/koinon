@@ -159,7 +159,7 @@ message give the verdict, the card text and this instruction. Correct the spelli
 errors in quoted words (notes, feedback and quotes), and keep their meaning and wording. Name a
 decision by its card reference, never by verdict ID: a verdict ID exists only in this machine's
 store. How a project cites its decisions is that project's own rule. Recorded text is public
-repository text, so write every card as public text (#536). koinon decision export PATH writes
+repository text, so write every card as public text (#536). koinon decision export --as FAMILY:ID PATH writes
 every item, live and deep-archived, as JSON lines to a new private file outside a Git work
 tree, which a person or CI can read without the daemon.
 

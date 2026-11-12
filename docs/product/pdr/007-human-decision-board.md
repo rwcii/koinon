@@ -346,7 +346,7 @@ record the decision, other than an `fyi` acknowledgement: in the ADR, PDR, WDR o
 document that holds the rule, in the pull request that does the work, with the decider's name,
 the date, the context, the decision, the reason and scope, and the condition for a review
 (#623; WDR 001, Decision 7). Koinon writes no record file. The item read gives the verdict with
-its card text. `koinon decision export PATH` writes every item, live and deep-archived, as JSON
+its card text. `koinon decision export --as FAMILY:ID PATH` writes every item, live and deep-archived, as JSON
 lines to a new private file outside a Git work tree, which a person or CI can read without the
 daemon (#589). Repository text names a decision by its reference, never by its verdict ID,
 which exists only in this machine's store. How a project cites its decisions is that project's
