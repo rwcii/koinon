@@ -29,7 +29,11 @@ actual remote connection, rather than the screen width.
    the installed Tailscale version cannot provide an approval link.
 3. Select **Enable remote access** when ready. Account approval, refresh, and
    reconnect never enable access automatically. This uses the same persistent
-   listener and owned mapping as `koinon remote enable`.
+   listener and owned mapping as `koinon remote enable`. On Linux, when Tailscale
+   refuses this account, setup shows **Allow Koinon to configure Tailscale** with
+   one command, such as `sudo tailscale set --operator=alice`. Koinon does not run
+   it: run it once in a terminal on this computer, then select **I’ve run it —
+   enable remote access**.
 4. Connect Tailscale on the phone. On the signed-in computer, select **Show
    sign-in QR**, then scan it on the phone within two minutes. It authorizes one
    sign-in to this remote dashboard. Treat the displayed QR as a temporary
@@ -106,7 +110,20 @@ steps an upgrade still needs. The command-line workflow remains available.
    koinon remote enable
    ```
 
-   Follow any reported account or operating-system step, then repeat enable.
+   On Linux, only root or the Tailscale operator can change Serve, and Koinon runs
+   as your account. Koinon does not change this setting itself (#656 reviews that).
+   When enable or status reports `tailscale_operator_required`, run the command that
+   it names once, then run `koinon remote enable` again. The command names the
+   account that runs Koinon, for example:
+
+   ```sh
+   sudo tailscale set --operator=alice
+   ```
+
+   Type the name; do not use `$USER`, which is `root` in a root shell and then makes
+   root the operator again. `tailscale debug prefs` shows the result as `OperatorUser`.
+
+   Follow any other reported account or operating-system step, then repeat enable.
    Repeating the command preserves a working setup. On macOS the CLI bundled at
    `/Applications/Tailscale.app/Contents/MacOS/Tailscale` is also found when
    `tailscale` is absent from `PATH`.
@@ -246,7 +263,7 @@ return screen after sign-in, without submitting the prior action.
 | Host is stopped, signed out, or offline | Open Tailscale and connect or complete its account prompt. Repeat enable. |
 | No usable `.ts.net` name | Check MagicDNS and the host's name in the Tailscale admin console. |
 | HTTPS is unavailable | Enable HTTPS certificates in the admin console using the linked instructions. |
-| Serve permission is denied | Complete the account permission; on Linux check the Tailscale operator setting. Repeat enable. |
+| Serve permission is denied | Complete the account permission. On Linux, `tailscale_operator_required` names the command `sudo tailscale set --operator=NAME` with the account that runs Koinon; run it, then repeat enable. The dashboard setup shows the same step. |
 | Required root or port is already used | Inspect `tailscale serve status --json`; resolve the reported conflict explicitly. Koinon preserves it. |
 | Saved loopback port is occupied | Free the saved port and repeat enable, or disable successfully then enable to choose an available backend port. The daemon's local API remains available. |
 | Network policy denies the phone | Check the phone's network/account and the tailnet access policy for this host's HTTPS port. Host status cannot prove phone permission. |

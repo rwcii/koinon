@@ -11,6 +11,12 @@ into a dated release section when promoted to `main`.
   and failed with HTTP 404. The script now reads the `action` and `method` attributes, and a
   test refuses a form control that hides a form property that a dashboard script reads.
 
+- On Linux, when Tailscale refuses to change Serve for the account that runs Koinon,
+  `koinon remote enable`, `koinon remote status` and the dashboard setup now name the step:
+  `sudo tailscale set --operator=NAME` with the literal account name, then `koinon remote enable`
+  (#652). The code is `tailscale_operator_required`. Before, status showed only "Serve: missing"
+  and a general message, and a step with `$USER` in a root shell made root the operator.
+
 ## 2026-11-12 — A private remote dashboard with one-time QR sign-in, the Koinon logo, and approved work after a reset
 
 This release can open the dashboard privately from a phone or another computer through

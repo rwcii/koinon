@@ -16,7 +16,12 @@
 </details>
 {{else}}
 <div id="remote-setup">
-{{if not .Checked}}
+{{if .Operator}}
+<h2>Allow Koinon to configure Tailscale</h2>
+<p>Tailscale refused this account. On this computer, run:</p>
+{{if .OperatorCommand}}<p><code>{{.OperatorCommand}}</code></p>{{else}}<p>As the account that runs Koinon, outside a root shell, run <code>id -un</code>. Then run <code>sudo tailscale set --operator=NAME</code> with that name.</p>{{end}}
+<form method="post" action="/dashboard/actions/remote-enable"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">I’ve run it — enable remote access</button></form>
+{{else if not .Checked}}
 <p>Open Koinon on your phone. Let’s check your computer first.</p>
 <p><a class="remote-link" data-remote-check href="/dashboard/remote/status?setup=1#remote-access">Get started</a></p>
 {{else if not .Secret}}
@@ -61,7 +66,7 @@
 {{if .Status.Error}}<p>{{.Status.Error}}</p>{{end}}
 {{if .Prerequisite}}<p>{{.Prerequisite}}</p>{{end}}
 {{if .SetupError}}<p>{{.SetupError}}</p>{{end}}
-{{if and .Checked .Secret .SetupError (not .Ready)}}<form method="post" action="/dashboard/actions/remote-enable"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Try enabling remote access</button></form>{{end}}
+{{if and .Checked .Secret .SetupError (not .Ready) (not .Operator)}}<form method="post" action="/dashboard/actions/remote-enable"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Try enabling remote access</button></form>{{end}}
 </details>
 {{if or .Status.Configured (eq .Status.Serve "cleanup pending")}}<details><summary>Turn off remote access</summary><p>Your phone will lose access. Koinon keeps working on this computer.</p><form method="post" action="/dashboard/actions/remote-disable"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Turn off remote access</button></form></details>{{end}}
 {{end}}

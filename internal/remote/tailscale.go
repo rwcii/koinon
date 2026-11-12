@@ -13,6 +13,8 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -58,12 +60,65 @@ func (Exec) Run(ctx context.Context, args ...string) ([]byte, error) {
 		if ctx.Err() != nil {
 			return nil, &Diagnostic{Code: "tailscale_timeout", Next: "open Tailscale and check its connection and account prompts, then retry the command"}
 		}
-		return nil, &Diagnostic{Code: "tailscale_command_failed", Next: "open Tailscale, check that it is connected and that this account can configure Serve; on Linux configure the Tailscale operator if needed, then retry"}
+		return nil, commandFailure(runtime.GOOS, stderr.Bytes(), currentAccount)
 	}
 	if output.overflow {
 		return nil, &Diagnostic{Code: "tailscale_output_invalid", Next: "Tailscale returned too much data; update Tailscale and retry"}
 	}
 	return output.Bytes(), nil
+}
+
+// OperatorRequired is the code of a Linux Serve write that tailscaled refused
+// because this account is neither root nor the Tailscale operator (#652).
+const OperatorRequired = "tailscale_operator_required"
+
+var accountName = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]{0,63}$`)
+
+// currentAccount names the account that runs Koinon by its UID in /etc/passwd, so the
+// recovery step never depends on $USER, which is root in a root shell. os/user is not
+// used: without cgo, user.Current falls back to $USER when /etc/passwd has no entry.
+// An account that only a directory service knows gets the manual id -un step.
+func currentAccount() (string, error) { return accountByUID(os.Getuid(), "/etc/passwd") }
+
+func accountByUID(uid int, passwd string) (string, error) {
+	data, err := os.ReadFile(passwd)
+	if err != nil {
+		return "", err
+	}
+	want := strconv.Itoa(uid)
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Split(line, ":")
+		if len(fields) >= 3 && fields[2] == want {
+			return fields[0], nil
+		}
+	}
+	return "", errors.New("no passwd entry for the process UID")
+}
+
+// OperatorCommand is the exact Linux command that lets this account configure
+// Serve, or "" when the account name cannot be read as a plain name.
+func OperatorCommand() string { return operatorCommand(currentAccount) }
+
+func operatorCommand(account func() (string, error)) string {
+	name, err := account()
+	if err != nil || !accountName.MatchString(name) {
+		return ""
+	}
+	return "sudo tailscale set --operator=" + name
+}
+
+// commandFailure classifies a failed Tailscale command by its stderr and never
+// copies that output. tailscaled refuses a Serve write from an account that is
+// not root or the operator with "Access denied: serve config denied".
+func commandFailure(goos string, stderr []byte, account func() (string, error)) *Diagnostic {
+	if goos == "linux" && bytes.Contains(bytes.ToLower(stderr), []byte("access denied")) {
+		next := "Tailscale refused this account. As the account that runs Koinon, outside a root shell, run id -un; then run sudo tailscale set --operator=NAME with that name, then run koinon remote enable"
+		if command := operatorCommand(account); command != "" {
+			next = "Tailscale refused this account. Run " + command + ", then run koinon remote enable"
+		}
+		return &Diagnostic{Code: OperatorRequired, Next: next}
+	}
+	return &Diagnostic{Code: "tailscale_command_failed", Next: "open Tailscale, check that it is connected and that this account can configure Serve; on Linux configure the Tailscale operator if needed, then retry"}
 }
 
 type limitedBuffer struct {
