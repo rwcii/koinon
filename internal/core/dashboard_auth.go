@@ -15,8 +15,9 @@ import (
 )
 
 // Dashboard login (sprint chunk 08). A one-time link from the bearer API, or the maintainer
-// secret (PDR 009), starts a browser session; the daemon keeps only hashes of links and session IDs, in memory, so a restart
-// ends every login. The CSRF token is derived from the session ID with a per-start key,
+// secret (PDR 009), starts a browser session. Local/API sessions remain in memory;
+// remote bearer hashes and their fixed deadlines persist in private SQLite.
+// The CSRF token is derived from the session bearer with a per-start key,
 // so it needs no storage of its own.
 
 const (
@@ -24,9 +25,9 @@ const (
 	dashboardCSRF   = "X-Koinon-CSRF"
 	linkLifetime    = 60 * time.Second
 	// Local browser and maintainer-token logins allow a day idle (#435).
-	// Remote browser logins allow a week idle; every login lasts at most a week.
+	// Remote browser logins have a fixed 48-hour window; local/API limits stay unchanged.
 	sessionIdle       = 24 * time.Hour
-	remoteSessionIdle = 7 * 24 * time.Hour
+	remoteSessionIdle = 48 * time.Hour
 	sessionAbsolute   = 7 * 24 * time.Hour
 	maxLoginLinks     = 8
 	maxDashboardLogin = 16
@@ -41,12 +42,19 @@ type dashboardSession struct {
 }
 
 type dashboardAuth struct {
-	mu       sync.Mutex
-	now      func() time.Time
-	csrfKey  []byte
-	links    map[[32]byte]time.Time
-	tickets  map[[32]byte]remoteTicket
-	sessions map[[32]byte]*dashboardSession
+	store              *Store
+	denied             map[[32]byte]bool
+	denyAllRemote      bool
+	pendingRevocations map[string]bool
+	authReason         string
+	storeHealth        string
+	lastPhone          int64
+	mu                 sync.Mutex
+	now                func() time.Time
+	csrfKey            []byte
+	links              map[[32]byte]time.Time
+	tickets            map[[32]byte]remoteTicket
+	sessions           map[[32]byte]*dashboardSession
 	// gate orders the maintainer secret's checks and changes (PDR 009).
 	gate secretGate
 }
@@ -56,7 +64,7 @@ func newDashboardAuth(now func() time.Time) (*dashboardAuth, error) {
 	if _, err := rand.Read(key); err != nil {
 		return nil, err
 	}
-	return &dashboardAuth{now: now, csrfKey: key, links: map[[32]byte]time.Time{}, tickets: map[[32]byte]remoteTicket{}, sessions: map[[32]byte]*dashboardSession{},
+	return &dashboardAuth{denied: map[[32]byte]bool{}, storeHealth: "healthy", now: now, csrfKey: key, links: map[[32]byte]time.Time{}, tickets: map[[32]byte]remoteTicket{}, sessions: map[[32]byte]*dashboardSession{},
 		gate: secretGate{mu: make(chanMutex, 1)}}, nil
 }
 
@@ -139,7 +147,13 @@ func (a *dashboardAuth) start(client string) (string, error) {
 	sessionHash, _ := tokenHash(id)
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.startLocked(sessionHash, client)
+	if strings.HasPrefix(client, "remote:") {
+		if err := a.startRemoteLocked(sessionHash, strings.TrimPrefix(client, "remote:")); err != nil {
+			return "", err
+		}
+	} else {
+		a.startLocked(sessionHash, client)
+	}
 	return id, nil
 }
 
@@ -166,6 +180,7 @@ func (a *dashboardAuth) endAll() {
 	a.mu.Lock()
 	clear(a.sessions)
 	clear(a.tickets)
+	_ = a.revokeRemoteLocked("", "password_changed")
 	a.mu.Unlock()
 }
 
@@ -175,7 +190,11 @@ func (a *dashboardAuth) prune(now time.Time) {
 		if strings.HasPrefix(s.client, "remote:") {
 			idle = remoteSessionIdle
 		}
-		if !now.Before(s.used.Add(idle)) || !now.Before(s.created.Add(sessionAbsolute)) {
+		absolute := sessionAbsolute
+		if strings.HasPrefix(s.client, "remote:") {
+			absolute = remoteSessionLifetime
+		}
+		if !now.Before(s.used.Add(idle)) || !now.Before(s.created.Add(absolute)) {
 			delete(a.sessions, h)
 		}
 	}
@@ -212,6 +231,9 @@ func (a *dashboardAuth) session(r *http.Request) (string, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	now := a.now()
+	if origin := remoteOrigin(r); origin != "" && a.store != nil {
+		return cookie.Value, a.remoteSessionLocked(hash, origin)
+	}
 	a.prune(now)
 	s, found := a.sessions[hash]
 	if !found || s.client != dashboardClient(r) {
@@ -254,12 +276,33 @@ func (a *dashboardAuth) live(id string) bool {
 	return found && strings.HasPrefix(s.client, "mcp:")
 }
 
-func (a *dashboardAuth) logout(id string) {
-	if hash, ok := tokenHash(id); ok {
-		a.mu.Lock()
-		delete(a.sessions, hash)
-		a.mu.Unlock()
+func (a *dashboardAuth) logout(id string) error {
+	hash, ok := tokenHash(id)
+	if !ok {
+		return nil
 	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if s := a.sessions[hash]; s != nil && !strings.HasPrefix(s.client, "remote:") {
+		delete(a.sessions, hash)
+		return nil
+	}
+	a.denied[hash] = true
+	if a.store == nil {
+		delete(a.sessions, hash)
+		return nil
+	}
+	sessions, err := a.readRemoteLocked()
+	if err != nil {
+		a.storeHealth = "unavailable"
+		return ErrRevocationIncomplete
+	}
+	for _, s := range sessions {
+		if s.Hash == hex.EncodeToString(hash[:]) {
+			return a.revokeRemoteLocked(s.ID, "device_revoked")
+		}
+	}
+	return nil
 }
 
 func (a *dashboardAuth) csrf(id string) string {
@@ -307,13 +350,4 @@ func dashboardClient(r *http.Request) string {
 	return "dashboard"
 }
 
-func (a *dashboardAuth) endRemote() {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	clear(a.tickets)
-	for hash, s := range a.sessions {
-		if strings.HasPrefix(s.client, "remote:") {
-			delete(a.sessions, hash)
-		}
-	}
-}
+func (a *dashboardAuth) endRemote() { _ = a.revokeRemote("", "remote_disabled") }

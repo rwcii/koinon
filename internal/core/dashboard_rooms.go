@@ -136,6 +136,9 @@ func (d *Daemon) roomActions(mux *http.ServeMux, authed func(int64, func(http.Re
 		}
 		run(w, r, "room-post", "room "+roomTarget(room)+" bytes "+strconv.Itoa(len(body)), "rooms", query, valid,
 			func(ctx context.Context) error {
+				if op := operationOf(ctx); op != nil {
+					key, deadline = op.ID, float64(op.ExpiresAt)/1000
+				}
 				_, err := d.store.DashboardRoomPost(ctx, room, body, key, deadline)
 				return err
 			}, "room_posted", nil)

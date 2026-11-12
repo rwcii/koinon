@@ -1,7 +1,7 @@
 {{define "filter"}}<form method="get" action="/dashboard/messages" class="filter"><label>Recipient <input name="to" value="{{.Data.Recipient}}" maxlength="128" list="peer-names"></label><input type="hidden" name="sort" value="{{.Data.Sort.Key}}"><input type="hidden" name="dir" value="{{.Data.Sort.Dir}}">{{if .Data.AllPeers}}<input type="hidden" name="peers" value="all">{{end}} <button type="submit">Filter</button></form>{{end}}
 {{define "list"}}{{if not .Data.Messages}}<p class="empty">No messages.</p>{{else}}<table class="mobile-cards">
 <thead><tr>{{template "th" (.Data.Sort.Column "id" "ID")}}{{template "th" (.Data.Sort.Column "to" "To")}}{{template "th" (.Data.Sort.Column "seq" "Seq")}}{{template "th" (.Data.Sort.Column "from" "From")}}{{template "th" (.Data.Sort.Column "sent" "Sent")}}{{template "th" (.Data.Sort.Column "delivery" "Delivery")}}{{template "th" (.Data.Sort.Column "acknowledged" "Acknowledged")}}<th>Body</th></tr></thead>
-<tbody>{{range .Data.Messages}}<tr>
+<tbody>{{range .Data.Messages}}<tr id="message-{{.ID}}">
 <td data-label="ID">{{.ID}}</td>
 <td data-label="To">{{if .RecipientName}}{{.RecipientName}}{{else}}{{.RecipientFamily}}:{{.RecipientID}}{{end}}</td>
 <td data-label="Seq">{{.Seq}}</td>

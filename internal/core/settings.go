@@ -119,6 +119,6 @@ func (s *Store) SetSettings(ctx context.Context, v Settings) error {
 // settingsUpdatedAt is when the maintainer last changed a setting, or 0.
 func (s *Store) settingsUpdatedAt(ctx context.Context) (int64, error) {
 	var at sql.NullInt64
-	err := s.db.QueryRowContext(ctx, `SELECT MAX(updated_at) FROM settings`).Scan(&at)
+	err := s.db.QueryRowContext(ctx, `SELECT MAX(updated_at) FROM settings WHERE name IN ('lifetime_seconds','renewal_seconds','guard_seconds')`).Scan(&at)
 	return at.Int64, err
 }

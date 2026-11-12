@@ -23,7 +23,7 @@ type remoteTicket struct {
 
 // newRemoteTicket issues a short-lived sign-in capability from a live browser
 // login on this host. A remote session cannot issue one, so it cannot renew
-// itself past its seven-day limit or fill the login table without the secret.
+// itself past its 48-hour limit or fill the login table without the secret.
 // Its cap matches the existing eight outstanding local login links.
 func (a *dashboardAuth) newRemoteTicket(origin, issuer string) (string, time.Time, error) {
 	if !remote.ValidOrigin(origin) {
@@ -93,7 +93,9 @@ func (a *dashboardAuth) redeemRemoteTicket(token, origin string) (string, bool, 
 		return "", false, nil
 	}
 	delete(a.tickets, hash)
-	a.startLocked(sessionHash, "remote:"+origin)
+	if err := a.startRemoteLocked(sessionHash, origin); err != nil {
+		return "", false, err
+	}
 	return id, true, nil
 }
 
@@ -152,6 +154,10 @@ func (d *Daemon) dashboardPairRoutes(mux *http.ServeMux,
 		// route. The unguessable one-time ticket is the unauthenticated capability.
 		id, ok, err := d.auth.redeemRemoteTicket(r.PostForm.Get("ticket"), origin)
 		if err != nil {
+			if errors.Is(err, ErrRemoteCapacity) {
+				http.Error(w, "Signed-in device limit reached. Forget a device in Remote access settings on the host or an existing signed-in browser, then get a new code.", http.StatusConflict)
+				return
+			}
 			http.Error(w, "Sign-in unavailable. Get a new code on your computer.", http.StatusInternalServerError)
 			return
 		}

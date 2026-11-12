@@ -173,7 +173,9 @@ For private phone access away from home, install Tailscale on the host and phone
 connect both to the same private network, and run `koinon remote enable`. It prints
 a stable HTTPS URL and a QR containing only that URL; sign in with the maintainer
 secret. `koinon remote status` shows readiness and `koinon remote disable` removes
-only the owned forwarding. The host must stay awake and online. See
+only the owned forwarding. Remote control v2 keeps sign-in for a fixed 48 hours
+across routine restarts, with signed-in device controls, explicit recovery and an
+Attention landing page. The host must stay awake and online. See
 [remote setup and phone use](docs/REMOTE-DASHBOARD.md).
 
 ## Security and storage

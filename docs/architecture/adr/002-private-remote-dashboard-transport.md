@@ -295,6 +295,45 @@ human-mandated limits or a change to the server's two-minute ticket lifetime.
    it separate from a permanent login URL.
 3. The existing remote cookie and password fallback preserve the established session boundary.
 
+
+## 4. Decision: Remote control v2 durable authentication and atomic receipts
+
+**Source:** Andrew's direct implementation request, 2026-11-12; see PDR 010's
+remote control v2 refinement and `docs/REMOTE-CONTROL-V2-SPEC.md`.
+
+Use the existing private SQLite database and opaque bearer cookie; persist only
+its hash, a noncredential session ID, origin, credential-generation binding,
+fixed deadline, observations, label and revocation state. The generation is a
+domain-separated digest of the actual maintainer secret record's random salt;
+it detects replacement while the daemon is stopped without saving the password
+or a reusable credential. Issuance/revocation commit before success. Storage
+failure denies access immediately and reports incomplete durable revocation.
+
+The per-start CSRF key stays ephemeral. Surviving browsers fetch fresh tokens
+without replacing unsent text or replaying actions. Listener shutdown is separated
+from credential revocation; Tailscale mapping ownership and conflict rules remain.
+
+Engineering choice: versioned, namespaced JSON records live in the existing
+non-STRICT `settings` table. SQLite retains JSON text under its INTEGER affinity;
+known timing readers select timing keys explicitly. This preserves schema37 and
+its exact catalog for previous binaries. Older binaries ignore these v2 rows and
+still require sign-in; their in-memory sessions cannot use v2 credentials.
+A typed-table migration can replace this representation when rollback compatibility
+can be changed deliberately. Never use a WAL-attached sidecar for cross-database
+receipt/mutation atomicity.
+
+Receipt records share the mutation's database transaction and host operation-ID
+namespace. An engineering bound of 10,000 unexpired receipts rejects additional
+receipt-backed writes with capacity rather than evicting a promised seven-day
+receipt; retained-result lookup still works when ordinary write admission blocks. Seven-day deduplication checks type/target/origin and payload digest;
+reauthentication changes attribution, never the namespace. Message delivery and
+acknowledgement remain separate effects. Decision revision conflicts are retained
+as original outcomes. Attention cursors use a separate browser namespace and never
+change inbox acknowledgement. Private browser drafts are not daemon storage.
+
+Review when schema compatibility changes or production evidence calls for a new
+storage bound. Automated and actual phone/platform acceptance stay distinct.
+
 ## Conclusion
 
 Private remote browser access has a dedicated listener and credential surface,
@@ -311,3 +350,4 @@ Serve mapping and records recoverable lifecycle transitions.
 | 2026-11-11 | Amend remote sign-in with transient origin-bound QR tickets authorized in PDR 010, Decision 4. |
 | 2026-11-11 | Clarify remote-only seven-day idle time and its separation from ticket expiry. |
 | 2026-11-12 | Accepted by Robert Capps (#645). Name the proposer as Andrew Deugarte (@andyde8). Only a host dashboard session issues tickets. Record the QR library and its alternatives (review of PR #644). |
+| 2026-11-12 | Record Andrew's v2 implementation authorization, fixed 48-hour policy, durable sessions and explicit recovery scope. |

@@ -1,0 +1,67 @@
+# Local independent review
+
+Same-family subagents reviewed implementation independently of their owned code.
+These are local findings and dispositions, not cross-family commit-bound statuses.
+No active same-repository other-family reviewer was available in runtime discovery.
+No PR was published; exact-head cross-family review and CI remain outstanding.
+
+| Finding | Disposition |
+| --- | --- |
+| Room recovery read `room` while forms submit `room_id` | Corrected; retained synthetic isolation tests |
+| Refresh 401 did not clear saved drafts on observed revocation | Corrected; retained browser test |
+| Changed-content refusal could navigate away and clear draft via original accepted receipt | Accepted-notice allowlist preserves form; disputed operation keeps draft; retained stale_revision/decided tests |
+| Client clock rollback discarded future pending IDs | Retain IDs and reconcile explicitly; retained test |
+| Accepted original receipt could clear later edits | Clear only matching drafts written no later than operation creation |
+| Device controls reused stale CSRF after restart indefinitely | Refresh device metadata after 403 without replacing label inputs or replaying POST; retained Node and Go regression passed |
+| Attention read cursor bypassed storage admission | Uses standard ordinary write transaction; blocked-store regression added; separate narrow transaction/locking review passed |
+| Draft saving matched private memory editor bodies | Restrict message bodies to send/room-post form actions and notes to decision forms; retained negative memory-editor test passes |
+| Session writes bypassed storage admission | Use ordinary/control store transactions |
+| Failed logout read reported success | Deny bearer immediately; return incomplete durable revocation |
+| Copied cookie origin rejection tombstoned original valid login | Reject request only; revocation follows trusted config reconciliation |
+| Offline origin change could later revive old-origin sessions | Trusted startup/enable reconciliation durably revokes other-origin sessions |
+| Saved disabled state on startup did not revoke with empty runtime config | Startup reconciliation now durably revokes |
+| SQLite attached WAL databases cannot guarantee receipt atomicity | Use same main database transaction and backward-compatible namespaced rows |
+| Exact schema validation could prevent rollback | Keep schema 37; pristine previous-reader open/catalog/settings test passed |
+
+Residual engineering limitation: if storage cannot record expiry evidence, the
+in-memory denial cannot survive process loss. A subsequent server clock rollback
+with repaired storage can make an unrecorded expiry appear future again. Successful
+expiry tombstones survive restart and rollback. This combined storage-failure/time
+case remains a limitation, rather than a claim of durable evidence that never wrote.
+
+Plan review confirmed the supplied delivery order, scope and separate actual-device
+acceptance. The local plan is not a published sprint or a merge-ready verdict.
+
+
+The sprint skill says "Commit the plan under project policy"; repository ship facts
+require "Cryptographically signed, human-authored DCO commits (git commit -S -s)".
+No signing keys are available in this checkout's environment. The plan and change
+therefore remain reviewable in the worktree, without an unsigned checkpoint or
+invented human identity. No permission request or publication is implied.
+
+
+Final integration review reproduced the device-control CSRF finding at source
+fingerprint f5398e111ea9eb3406a57ec1c9650add620a092b35bb84f6489dc894e8659827.
+The correction and retained device test produce fingerprint
+fd23f332dcb969defa2185b0fad24e61a8b7a3aa9ea4c193ac49f27a0e5767f4. The parent
+reviewed the narrow correction and its no-replay/label-preservation regression.
+A subsequent parent correction put Attention cursor writes through storage admission; a separate narrow review passed. Final required checks were restarted after both corrections.
+
+Final draft eligibility correction excludes memory editors despite their shared `body` field name. The matching negative test and all existing recovery cases pass directly in Node. Required checks were restarted with GOMAXPROCS=2 on this final source to reduce shared-host contention; earlier runs used 4.
+
+
+Final implementation fingerprint after the draft guard:
+26ecf4e47389b0d7427ef59b073751d5feaca9a6776cd823f265be23b130e68e.
+Separate narrow privacy review passed against the actual templates: send/room
+bodies and decision notes remain eligible, memory editors and password/input
+fields are excluded. Both saving and recovery share the guard.
+
+
+## Local checkpoint instruction — 2026-11-12
+
+After the implementation report stated that no signing key was configured and the
+changes remained uncommitted, Andrew instructed: "ok commit all changes so far. whats
+next?" This is interpreted as authorization for an unsigned local DCO checkpoint
+of the full current change, including the preserved draft specification. GitHub
+identity was verified as Andrew Deugarte, andyde8, account 153491212. No signing
+configuration or publication policy was changed, and no push/PR was requested.

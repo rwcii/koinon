@@ -1,0 +1,13 @@
+{{define "list"}}
+<p><small>Source snapshot: {{ms .Data.At}} (host time). Opening this view does not acknowledge agent inboxes or resolve decisions.</small></p>
+<section><h2><a href="/dashboard/decisions?status=waiting">{{.Data.Waiting}} awaiting you</a></h2><p>{{.Data.Oldest}}</p>
+{{range .Data.Decisions}}<p><a href="{{.Href}}"><code>{{.Label}}</code></a> {{.Detail}}</p>{{end}}</section>
+<section><h2>{{.Data.DirectUnread}} unread direct messages</h2><p><small>Messages addressed to maintainer. Read state belongs to this browser sign-in.</small></p>
+{{range .Data.Messages}}<p><a href="{{.Href}}">{{.Label}}</a> <small>{{.Detail}}</small></p>{{end}}</section>
+<section><h2>{{.Data.RoomUnread}} unread room posts</h2>{{range .Data.Posts}}<p><a href="{{.Href}}">{{.Label}}</a> <small>{{.Detail}}</small></p>{{end}}</section>
+<form method="post" action="/dashboard/actions/attention-read"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="direct" value="{{.Data.DirectHead}}"><input type="hidden" name="room" value="{{.Data.RoomHead}}"><button type="submit">Mark displayed snapshot read on this browser</button></form>
+<p><small>Each section previews at most 20 records. Mark read covers all records counted in this snapshot. <a href="/dashboard/messages?to=maintainer">All direct messages</a> · <a href="/dashboard/rooms">All rooms</a></small></p>
+<section><h2>Agent observations</h2>{{range .Data.Problems}}<p><a href="{{.Href}}">{{.Label}}</a> · {{.Detail}}</p>{{else}}<p>No problems in available observations.</p>{{end}}<p>{{.Data.UnknownActivities}} active registrations have unknown or stale activity.</p><p><a href="/dashboard/sessions">Inspect sessions</a> · <a href="/dashboard/health">Host diagnostics</a></p></section>
+<section><h2>Recent action outcomes</h2><div id="attention-pending-actions"></div>{{range .Data.Receipts}}<p><a href="/dashboard/receipts?id={{.ID}}"><code>{{.ID}}</code></a> · {{.Type}} · {{if eq .State "accepted"}}Accepted{{else}}Conflict{{end}} <small>{{.Code}} · {{ms .CreatedAt}}</small></p>{{else}}<p>No retained action receipts.</p>{{end}}<p><small>Accepted means recorded by the host. Delivery and agent acknowledgement are separate.</small></p><a href="/dashboard/audit">Private audit</a></section>
+<p><a href="/dashboard/sessions">Full dashboard</a> · <a href="/dashboard/settings#remote-access">Remote settings</a></p>
+{{end}}

@@ -23,7 +23,7 @@ import (
 //go:embed web
 var webFiles embed.FS
 
-var dashboardViews = []string{"sessions", "messages", "rooms", "decisions", "memory", "work", "health", "settings", "audit"}
+var dashboardViews = []string{"attention", "sessions", "messages", "rooms", "decisions", "memory", "work", "health", "settings", "audit"}
 
 // settingsData is the settings view: the values in force, the defaults and the time of
 // the last change.
@@ -79,9 +79,11 @@ type dashboardPage struct {
 	Back   string // the view's order and filters, which its action forms return to
 	// Reload makes the refresh load the whole page once its list reads again: the fault page
 	// has none of the view's actions or filters to keep (#507).
-	Reload bool
-	Host   string
-	Remote bool
+	Reload          bool
+	Host            string
+	Remote          bool
+	RemoteSessionID string
+	SessionExpires  int64
 }
 
 func dashboardTemplates() (map[string]*template.Template, error) {
@@ -172,6 +174,13 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 		page.Views, page.Now = dashboardViews, d.store.now()
 		page.Host, _ = os.Hostname()
 		page.Remote = remoteOrigin(r) != ""
+		if page.Remote {
+			if token, ok := d.auth.session(r); ok {
+				info := d.auth.sessionInfo(token)
+				page.RemoteSessionID = info.ID
+				page.SessionExpires = info.ExpiresAt
+			}
+		}
 		page.Back = backField(page.View, r.URL.Query())
 		if page.CSRF != "" {
 			page.Notice = notice(r.URL.Query().Get("notice"))
@@ -210,6 +219,7 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 		return func(w http.ResponseWriter, r *http.Request) {
 			id, ok := d.auth.session(r)
 			if !ok {
+				w.Header().Set("X-Koinon-Auth-Reason", d.auth.remoteRejectionReason(r))
 				refuse(w, r, http.StatusUnauthorized, "login")
 				return
 			}
@@ -242,15 +252,28 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 	// signedIn sets the login cookie and opens the board. The cookie lasts as long as the
 	// login can, so a browser restart keeps it (#435).
 	signedIn := func(w http.ResponseWriter, r *http.Request, id string) {
-		http.SetCookie(w, &http.Cookie{Name: cookieName(r), Value: id, Path: "/dashboard/", MaxAge: int(sessionAbsolute.Seconds()),
+		lifetime := sessionAbsolute
+		if remoteOrigin(r) != "" {
+			info := d.auth.sessionInfo(id)
+			lifetime = time.Duration(max(int64(1000), info.ExpiresAt-d.auth.now().UnixMilli())) * time.Millisecond
+		}
+		http.SetCookie(w, &http.Cookie{Name: cookieName(r), Value: id, Path: "/dashboard/", MaxAge: int(lifetime.Seconds()),
 			HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: networkDashboard(r) || remoteOrigin(r) != ""})
 		target := dashboardReturn(r.PostForm.Get("return"))
 		if target == "" {
 			target = "/dashboard/sessions"
+			if remoteOrigin(r) != "" {
+				target = "/dashboard/attention"
+			}
 		}
 		http.Redirect(w, r, target, http.StatusSeeOther)
 	}
 	d.dashboardPairRoutes(mux, authed, signedIn, render)
+	d.dashboardDeviceRoutes(mux, authed)
+	mux.HandleFunc("GET /dashboard/session", authed(func(w http.ResponseWriter, r *http.Request, id string) {
+		info := d.auth.sessionInfo(id)
+		respond(w, 200, map[string]any{"csrf": d.auth.csrf(id), "session_id": info.ID, "expires_at": info.ExpiresAt})
+	}))
 	mux.HandleFunc("GET /dashboard/login", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			// A HEAD request, such as a link preview, never uses the token.
@@ -290,6 +313,8 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 			refuse(w, r, http.StatusTooManyRequests, "backoff")
 		case errors.Is(err, ErrSecretInvalid):
 			refuse(w, r, http.StatusUnauthorized, "secret")
+		case errors.Is(err, ErrRemoteCapacity):
+			http.Error(w, "Signed-in device limit reached. Open Settings → Remote access → Signed-in devices in an existing signed-in browser or on the host and forget a device, then try again.", http.StatusConflict)
 		case errors.Is(err, ErrSecretUnset):
 			refuse(w, r, http.StatusUnauthorized, "unset")
 		default:
@@ -297,15 +322,24 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 		}
 	})
 	mux.HandleFunc("POST /dashboard/logout", authed(func(w http.ResponseWriter, r *http.Request, id string) {
-		d.auth.logout(id)
+		if err := d.auth.logout(id); err != nil {
+			http.Error(w, err.Error(), 503)
+			return
+		}
 		http.SetCookie(w, &http.Cookie{Name: cookieName(r), Value: "", Path: "/dashboard/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: networkDashboard(r) || remoteOrigin(r) != ""})
 		refuse(w, r, http.StatusOK, "logout")
 	}))
 	d.dashboardActions(mux, authedLimit)
 	d.dashboardRemoteRoutes(mux, authed, pages)
 	d.dashboardAccessRoutes(mux, authed)
+
+	d.dashboardAttentionRoutes(mux, authed)
 	mux.HandleFunc("GET /dashboard/{$}", authed(func(w http.ResponseWriter, r *http.Request, _ string) {
-		http.Redirect(w, r, "/dashboard/sessions", http.StatusSeeOther)
+		target := "/dashboard/sessions"
+		if remoteOrigin(r) != "" {
+			target = "/dashboard/attention"
+		}
+		http.Redirect(w, r, target, http.StatusSeeOther)
 	}))
 	// The spoken alert's read of the waiting items (#553).
 	mux.HandleFunc("GET /dashboard/waiting", authed(func(w http.ResponseWriter, r *http.Request, _ string) {
@@ -505,6 +539,9 @@ type healthData struct {
 func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 	ctx, q, path := r.Context(), r.URL.Query(), "/dashboard/"+view
 	switch view {
+	case "attention":
+		id, _ := d.auth.session(r)
+		return d.store.attention(ctx, d.attentionBrowser(id), remoteOrigin(r))
 	case "sessions":
 		order, err := parseSort(&sessionSort, path, q, viewFilters["sessions"]...)
 		if err != nil {

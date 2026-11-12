@@ -144,23 +144,28 @@ func (s *Store) roomPost(ctx context.Context, caller Key, maintainer bool, roomI
 		return RoomPostResult{}, ErrInvalid
 	}
 	clock := s.clock()
-	if deadline <= clock {
+	if deadline <= clock && operationOf(ctx) == nil {
 		return RoomPostResult{}, ErrRoomPostLate
 	}
-	if deadline > clock+s.limits().idemTTL {
+	if deadline > clock+s.limits().idemTTL && operationOf(ctx) == nil {
 		return RoomPostResult{}, Refusal{"invalid_request", fmt.Sprintf("the retry deadline must be a Unix time in seconds at most %.0f s ahead", s.limits().idemTTL)}
 	}
 	print := roomPostFingerprint(roomID, body, deadline)
 	// A repeat writes nothing, so it is answered from a read transaction before ordinary
 	// write admission: a full store still returns the original receipt.
-	read, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return RoomPostResult{}, err
+	if operationOf(ctx) == nil {
+		read, err := s.db.BeginTx(ctx, nil)
+		if err != nil {
+			return RoomPostResult{}, err
+		}
+		_, original, err := roomPostRepeat(ctx, read, s.now().UnixMilli(), caller, maintainer, roomID, key, print)
+		read.Rollback()
+		if err != nil || original != nil {
+			return orZero(original), err
+		}
 	}
-	_, original, err := roomPostRepeat(ctx, read, s.now().UnixMilli(), caller, maintainer, roomID, key, print)
-	read.Rollback()
-	if err != nil || original != nil {
-		return orZero(original), err
+	if result, found, err := operationLookup[RoomPostResult](ctx, s.db, s.now().UnixMilli()); found || err != nil {
+		return result, err
 	}
 	tx, err := s.begin(ctx, ordinary)
 	if err != nil {
@@ -168,12 +173,22 @@ func (s *Store) roomPost(ctx context.Context, caller Key, maintainer bool, roomI
 	}
 	defer tx.Rollback()
 	tx.audited = maintainer
+	if result, found, err := operationReplay[RoomPostResult](tx); found || err != nil {
+		return result, err
+	}
 	now := s.now().UnixMilli()
 	// Checked again in the write: a concurrent post with the same key or a removal may have
 	// committed since the read.
 	senders, original, err := roomPostRepeat(ctx, tx.Tx, now, caller, maintainer, roomID, key, print)
-	if err != nil || original != nil {
-		return orZero(original), err
+	if err != nil {
+		return RoomPostResult{}, err
+	}
+	if original != nil {
+		if operationOf(ctx) != nil {
+			tx.operationResult(*original)
+			return *original, tx.Commit()
+		}
+		return *original, nil
 	}
 	var name string
 	var head int64
@@ -227,6 +242,7 @@ func (s *Store) roomPost(ctx context.Context, caller Key, maintainer bool, roomI
 		return RoomPostResult{}, tx.fail(err)
 	}
 	setAuditTarget(ctx, fmt.Sprintf("room %s post %d bytes %d queued %d skipped %d", roomID, seq, len(body), receipt.Queued, receipt.Skipped))
+	tx.operationResult(receipt)
 	return receipt, tx.Commit()
 }
 

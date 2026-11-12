@@ -13,6 +13,14 @@ into a dated release section when promoted to `main`.
   offers **Use this computer and the tailnet only**, which enables remote access, removes the
   network address and closes it at once.
 
+- Remote control v2 keeps remote browser sign-in for a fixed 48 hours across routine
+  restarts and upgrades, adds named browser-session revocation, reconnect recovery,
+  opt-in private browser drafts, transactional receipts for messages, room posts
+  and verdicts, and an Attention landing page with per-browser unread cursors.
+  Remote diagnostics distinguish observed requests, storage health and authentication
+  end reasons. Local browser and maintainer API-token policies are unchanged.
+  Actual phone retention and platform lifecycle acceptance remain separately verified.
+
 - `koinon remote enable --https-port PORT` publishes the remote dashboard on another
   Tailscale Serve HTTPS port, for a computer where another program, such as a container
   that publishes `443:443`, takes port 443 (#665). Koinon saves the port. The URL, the QR

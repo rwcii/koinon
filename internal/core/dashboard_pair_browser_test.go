@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func TestRemoteBrowserSessionLastsWeek(t *testing.T) {
+func TestRemoteBrowserSessionFixed48Hours(t *testing.T) {
 	now := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
 	auth, err := newDashboardAuth(func() time.Time { return now })
 	if err != nil {
@@ -16,7 +16,7 @@ func TestRemoteBrowserSessionLastsWeek(t *testing.T) {
 	}
 	remoteID, _ := auth.start("remote:https://host.example.ts.net")
 	localID, _ := auth.start("dashboard")
-	now = now.Add(48 * time.Hour)
+	now = now.Add(48*time.Hour - time.Millisecond)
 	auth.mu.Lock()
 	auth.prune(now)
 	remoteHash, _ := tokenHash(remoteID)
@@ -24,9 +24,9 @@ func TestRemoteBrowserSessionLastsWeek(t *testing.T) {
 	remoteAlive, localAlive := auth.sessions[remoteHash] != nil, auth.sessions[localHash] != nil
 	auth.mu.Unlock()
 	if !remoteAlive || localAlive {
-		t.Fatalf("48h idle: remote=%v local=%v", remoteAlive, localAlive)
+		t.Fatalf("before 48h idle: remote=%v local=%v", remoteAlive, localAlive)
 	}
-	now = now.Add(6 * 24 * time.Hour)
+	now = now.Add(time.Millisecond)
 	auth.mu.Lock()
 	auth.prune(now)
 	alive := auth.sessions[remoteHash] != nil
@@ -90,7 +90,7 @@ function read(request,html='enabled'){request.resolve({ok:true,text:async()=>htm
 function image(request){request.resolve({ok:true,headers:{get(){return '120'}},blob:async()=>({type:'image/png'})})}
 (async()=>{
  const p=pair();assert.equal(p.requests.length,1);assert.equal(p.requests[0].options.body.get('ticket'),token);assert.equal(p.history[0][2],'/dashboard/pair');assert.equal(p.requests[0].options.method,'POST');assert.equal(p.requests[0].options.cache,'no-store');assert.doesNotMatch(p.requests[0].url,/ticket=/);
- p.requests[0].resolve({ok:true,status:200,redirected:true,url:'https://host.example.ts.net/dashboard/sessions'});await settle();assert.deepEqual(p.navigations,['https://host.example.ts.net/dashboard/sessions']);
+ p.requests[0].resolve({ok:true,status:200,redirected:true,url:'https://host.example.ts.net/dashboard/attention'});await settle();assert.deepEqual(p.navigations,['https://host.example.ts.net/dashboard/attention']);
  const replay=pair();replay.requests[0].resolve({ok:false,status:401});await settle();assert.match(replay.nodes['pair-status'].textContent,/expired|used/);assert.equal(replay.nodes['pair-help'].hidden,false);assert.equal(replay.navigations.length,0);
  const lost=pair();lost.requests[0].reject(new Error('lost'));await settle();assert.match(lost.nodes['pair-status'].textContent,/confirm/);assert.equal(lost.requests.length,1);assert.equal(Object.keys(lost.events).length,0);
  const malicious=pair();malicious.requests[0].resolve({ok:true,status:200,redirected:true,url:'https://evil.example/dashboard/sessions'});await settle();assert.equal(malicious.navigations.length,0);assert.match(malicious.nodes['pair-status'].textContent,/confirm/);

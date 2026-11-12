@@ -277,8 +277,10 @@ persistent background mapping. Orderly daemon shutdown removes the owned mapping
 before releasing the backend port, keeping the enabled journal for restoration
 on the next start. A port conflict is reported and its owned forwarding removed
 instead of changing ports. An unavailable dependency leaves the local API
-running. Upgrade retains the setting; restart ends browser sessions, so sign in
-again. The [remote guide](REMOTE-DASHBOARD.md#url-restarts-and-configuration-ownership)
+running. Upgrade retains the setting. Remote browser sign-in survives routine
+restart and upgrade until its original fixed 48-hour deadline, provided the private
+state, origin, password and browser cookie remain valid. Local browser sessions
+still end on restart. The [remote guide](REMOTE-DASHBOARD.md#url-restarts-and-configuration-ownership)
 describes the unresolved loopback ownership window after abrupt termination or
 failed shutdown cleanup.
 
@@ -868,12 +870,16 @@ belong in Git or logs. The agent API binds loopback only; the optional network d
 its separate HTTPS listener. Custom state and agent API address must match
 between the daemon, command clients and MCP server; a recorded port matches by itself for every
 client of that state directory.
-The dashboard uses one-time login links, or the maintainer secret (`koinon maintainer secret
+The local dashboard uses one-time login links, or the maintainer secret (`koinon maintainer secret
 set`, docs/USAGE.md), a login cookie and CSRF-protected actions. A login ends after 24 hours
 without a request, 7 days after it was made, or when the daemon restarts; then log in again
 with the secret, or run `koinon dashboard` for a new link. A login on the private remote
-surface (`koinon remote`, docs/REMOTE-DASHBOARD.md) allows 7 days without a request. Schema 29 adds the table that holds
-the secret's salted key; an upgrade starts with no secret set.
+surface (`koinon remote`, docs/REMOTE-DASHBOARD.md) instead has a fixed 48-hour
+window from sign-in and survives routine restart/upgrade within that window.
+First upgrade to remote control v2 requires fresh sign-in. Versioned remote
+session/receipt records preserve the schema 37 catalog for older readers; rollback
+requires sign-in again. Schema 29 originally added the secret's salted-key table;
+upgrading a pre-secret store starts with no secret set.
 
 The daemon applies supported Go schema migrations transactionally and refuses an unknown
 future schema. `koinon status` reports health, storage, delivery and retention counts. The

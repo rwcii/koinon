@@ -20,7 +20,7 @@
       if (response.status === 401) { fail("This code has expired or was already used."); return; }
       if (!response.ok) { throw new Error("sign-in unavailable"); }
       var destination = new URL(response.url, window.location.href);
-      if (!response.redirected || destination.origin !== window.location.origin || destination.pathname !== "/dashboard/sessions" || destination.search || destination.hash) {
+      if (!response.redirected || destination.origin !== window.location.origin || destination.pathname !== "/dashboard/attention" || destination.search || destination.hash) {
         throw new Error("unexpected sign-in destination");
       }
       window.location.replace(destination.toString());

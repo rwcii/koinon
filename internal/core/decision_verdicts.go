@@ -256,23 +256,29 @@ func (s *Store) DecisionVerdict(ctx context.Context, reference string, revision 
 	if err := checkCredentials(note, "note"); err != nil {
 		return DecisionVerdict{}, err
 	}
+	if result, found, err := operationLookup[DecisionVerdict](ctx, s.db, s.now().UnixMilli()); found || err != nil {
+		return result, err
+	}
 	tx, err := s.begin(ctx, ordinary)
 	if err != nil {
 		return DecisionVerdict{}, err
 	}
 	defer tx.Rollback()
 	tx.audited = true
+	if result, found, err := operationReplay[DecisionVerdict](tx); found || err != nil {
+		return result, err
+	}
 	now := s.now().UnixMilli()
 	id, item, err := decisionRow(ctx, tx.Tx, reference)
 	if err != nil {
 		return DecisionVerdict{}, err
 	}
 	if item.Revision != revision {
-		return DecisionVerdict{}, WorkRefusal{Code: "stale_revision", Message: "the decision item changed after the page showed it",
-			Details: map[string]any{"current_revision": item.Revision}}
+		return DecisionVerdict{}, tx.operationRefusal(WorkRefusal{Code: "stale_revision", Message: "the decision item changed after the page showed it",
+			Details: map[string]any{"current_revision": item.Revision}})
 	}
 	if item.State != "active" {
-		return DecisionVerdict{}, workError("decided", "the decision item already has a verdict")
+		return DecisionVerdict{}, tx.operationRefusal(workError("decided", "the decision item already has a verdict"))
 	}
 	allowed := false
 	for _, v := range kindVerdicts[item.Kind] {
@@ -332,6 +338,7 @@ func (s *Store) DecisionVerdict(ctx context.Context, reference string, revision 
 		result.Deliveries = append(result.Deliveries, d)
 	}
 	setAuditTarget(ctx, fmt.Sprintf("decision %s revision %d %s verdict %d", reference, revision, verdict, verdictID))
+	tx.operationResult(DecisionVerdict{ID: result.ID, Revision: result.Revision, Verdict: result.Verdict, At: result.At})
 	return result, tx.Commit()
 }
 

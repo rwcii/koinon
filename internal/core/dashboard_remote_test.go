@@ -113,6 +113,10 @@ func TestRemoteDashboardBoundary(t *testing.T) {
 
 func TestRemoteSessionInvalidation(t *testing.T) {
 	d, _ := startTestDaemon(t)
+	d.store.secretCost = 1000
+	if _, err := d.changeSecret(context.Background(), "set", testSecret); err != nil {
+		t.Fatal(err)
+	}
 	id, err := d.auth.start("remote:https://host.example.ts.net")
 	if err != nil {
 		t.Fatal(err)

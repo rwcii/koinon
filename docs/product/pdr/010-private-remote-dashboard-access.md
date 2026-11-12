@@ -412,6 +412,33 @@ the dashboard off the LAN. The switch changes nothing when remote access cannot 
 so a person who uses the dashboard from another computer keeps a way in. Opening a network address stays an install
 step.
 
+
+## 9. Refinement: Remote control v2 fixed sign-in and recovery
+
+**Source and scope:** Andrew, direct implementation authorization, 2026-11-12,
+for `docs/REMOTE-CONTROL-V2-SPEC.md`, confirmed fixed 48 hours from sign-in, no
+automatic extension, routine restart/upgrade retention and unchanged local/API
+policy. This supersedes the remote seven-day proposal in the earlier refinement.
+
+Remote sessions are browser sessions with explicit individual/all revocation,
+labels and a separate 32-session engineering capacity. Activity does not extend
+the deadline. Password replacement (even while stopped), remote disable and origin
+change revoke remote credentials and pending tickets. Routine shutdown and temporary
+network loss preserve the fixed window. Public sign-in remains generic.
+
+Reconnect refreshes reads and CSRF without write replay. Browser draft recovery is
+optional, off initially, private and explicit, with seven-day retention and documented
+offline-erasure limits. Messages, room posts and verdicts have transactional host
+receipts and explicit same-ID recovery; external terminal/process side effects do
+not gain exactly-once claims. Remote starts on Attention with browser-specific read
+cursors, distinct from agent acknowledgement. Observed diagnostics do not prove
+cellular access or actual device retention.
+
+The 32-session bound, storage representation, jitter and UI labels are engineering
+choices supporting the authorized spec, not separately dictated maintainer policy.
+Review when field device acceptance exposes retention/recovery issues or capacity
+requires revision. Actual phone/platform evidence is tracked in the v2 sprint.
+
 ## Conclusion
 
 Remote access reuses the dashboard's actions and login while making setup
@@ -431,3 +458,4 @@ unverified connectivity and action outcomes stay labeled as such.
 | 2026-11-12 | Record Robert Capps's decision TAILSCALE-AUTO-656 (#656): the terminal runs the Linux operator step after confirmation; the tailnet policy step stays manual. |
 | 2026-11-12 | Record Robert Capps's request for a chosen Serve HTTPS port (#665). |
 | 2026-11-12 | Record Robert Capps's request for a "localhost and tailnet only" choice (#665). |
+| 2026-11-12 | Record Andrew's v2 implementation authorization, fixed 48-hour policy, durable sessions and explicit recovery scope. |
