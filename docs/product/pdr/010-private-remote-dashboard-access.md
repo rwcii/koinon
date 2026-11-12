@@ -415,10 +415,27 @@ step.
 
 ## 9. Refinement: Remote control v2 fixed sign-in and recovery
 
-**Source and scope:** Andrew, direct implementation authorization, 2026-11-12,
-for `docs/REMOTE-CONTROL-V2-SPEC.md`, confirmed fixed 48 hours from sign-in, no
-automatic extension, routine restart/upgrade retention and unchanged local/API
-policy. This supersedes the remote seven-day proposal in the earlier refinement.
+**Decided by:** Andrew Deugarte, 2026-11-12, direct conversation.
+
+**Context:** How long should remote browser sign-in last? The draft considered
+90-day/year retention and the earlier seven-day policy; Andrew first requested
+about 24 hours, then changed the requested fixed window to 48 hours. The choice
+was the duration, rather than adding a sliding extension or changing local/API
+policy.
+
+**Decision:** Andrew said, “Let's make it 48 actually,” then explicitly authorized
+implementation: “The confirmed session policy is a fixed 48 hours from sign-in,
+with no automatic extension. Remote login should survive routine restarts and
+upgrades within that original window. Local browser and maintainer API-token
+policies stay unchanged.” These words were verified against the direct
+conversation before recording this clarification.
+
+**Reason and scope:** Retain phone sign-in within that fixed window across routine
+restart/upgrade. This supersedes the earlier remote seven-day proposal. It covers
+remote browser sessions and the requested v2 implementation; it does not change
+local browser or maintainer API-token lifetimes. The later crash-survival and
+failed-persistence decision is recorded with its question, options and answer in
+[the v2 continuation](../../sprints/2026-11-12-remote-control-v2/decision.md).
 
 Remote sessions are browser sessions with explicit individual/all revocation,
 labels and a separate 32-session engineering capacity. Activity does not extend

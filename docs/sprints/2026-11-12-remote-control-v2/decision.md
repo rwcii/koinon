@@ -1,7 +1,9 @@
 # Remote control v2 decision
 
-Source: Andrew, direct implementation request, 2026-11-12, and
-`docs/REMOTE-CONTROL-V2-SPEC.md`. Implement the supplied scope. Remote browser
+Source: Andrew Deugarte, direct implementation request, 2026-11-12, and
+`docs/REMOTE-CONTROL-V2-SPEC.md`. PDR 010 §9 records the lifetime question,
+alternatives and his direct answer: “The confirmed session policy is a fixed
+48 hours from sign-in, with no automatic extension.” Implement that supplied scope. Remote browser
 sign-in lasts exactly 48 hours from authentication without extension, including
 routine restart and upgrade. Local browser and API-token policy is unchanged.
 
@@ -51,3 +53,13 @@ live Tailscale configuration under this publication authorization.
 availability question. Plan actual iOS Safari testing; Android Chrome remains
 unverified until a real device is available. This availability report is not a
 waiver of Android acceptance.
+
+
+**Preview scope — 2026-11-12:** Andrew Deugarte answered “Yes — add the temporary
+private preview route” to adding private Tailscale HTTPS port 9443 for the isolated
+iPhone test. The alternative was to keep the preview local. The question stated
+that preview state/password are separate, the existing 443 route remains unchanged,
+and only the preview route will be removed after testing. This authorizes that
+temporary route and preview process lifecycle only; it does not authorize replacing
+the shared daemon or altering other Serve mappings. Before/after mapping evidence
+is kept privately. Revisit when preview testing ends and the route is removed.

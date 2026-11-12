@@ -272,7 +272,7 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 	d.dashboardDeviceRoutes(mux, authed)
 	mux.HandleFunc("GET /dashboard/session", authed(func(w http.ResponseWriter, r *http.Request, id string) {
 		info := d.auth.sessionInfo(id)
-		respond(w, 200, map[string]any{"csrf": d.auth.csrf(id), "session_id": info.ID, "expires_at": info.ExpiresAt})
+		respond(w, 200, map[string]any{"csrf": d.auth.csrf(id), "session_id": info.ID, "expires_at": info.ExpiresAt, "server_time": d.store.now().UnixMilli()})
 	}))
 	mux.HandleFunc("GET /dashboard/login", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {

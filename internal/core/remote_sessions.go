@@ -178,11 +178,11 @@ func (a *dashboardAuth) remoteSessionLocked(hash [32]byte, origin string) bool {
 			// Do not let the in-memory deny list skip the durable retry.
 			reason = a.denied[hash]
 		}
-		now := a.now().UnixMilli()
+		now := max(a.now().UnixMilli(), s.LastObserved)
 		if reason == "" && s.Generation != current {
 			reason = "password_changed"
 		}
-		if reason == "" && (now >= s.ExpiresAt || now < s.LastObserved) {
+		if reason == "" && now >= s.ExpiresAt {
 			reason = "session_expired"
 		}
 		if reason != "" {
@@ -211,10 +211,10 @@ func (a *dashboardAuth) remoteSessionLocked(hash [32]byte, origin string) bool {
 func (a *dashboardAuth) persistRemoteDenialLocked(s durableRemoteSession, reason string) bool {
 	s.Revoked = reason
 	if a.pendingRevocations == nil {
-		a.pendingRevocations = map[string]bool{}
+		a.pendingRevocations = map[string]string{}
 	}
 	if a.saveRemoteClassLocked(s, control) != nil {
-		a.pendingRevocations[s.ID] = true
+		a.pendingRevocations[s.ID] = reason
 		a.storeHealth = "unavailable"
 		return false
 	}
@@ -229,16 +229,26 @@ func (a *dashboardAuth) revokeRemote(id, reason string) error {
 	return a.revokeRemoteLocked(id, reason)
 }
 func (a *dashboardAuth) revokeRemoteLocked(id, reason string) (result error) {
+	inventoryRead := false
 	defer func() {
 		if a.pendingRevocations == nil {
-			a.pendingRevocations = map[string]bool{}
+			a.pendingRevocations = map[string]string{}
 		}
-		if result != nil {
-			a.pendingRevocations[id] = true
+		if result != nil && !inventoryRead {
+			a.pendingRevocations[id] = reason
+		} else if result != nil {
+			// Once the inventory is readable, retry only the failed rows, so
+			// a later new sign-in is not included in an earlier forget-all.
+			if id == "" || strings.HasPrefix(id, "hash:") {
+				delete(a.pendingRevocations, id)
+			}
 		} else if id == "" {
 			clear(a.pendingRevocations)
 		} else {
 			delete(a.pendingRevocations, id)
+		}
+		if result == nil && len(a.pendingRevocations) == 0 {
+			a.denyAllRemote = false
 		}
 	}()
 	clear(a.tickets)
@@ -256,8 +266,10 @@ func (a *dashboardAuth) revokeRemoteLocked(id, reason string) (result error) {
 		a.storeHealth = "unavailable"
 		return ErrRevocationIncomplete
 	}
+	inventoryRead = true
+	failed := false
 	for _, s := range sessions {
-		if id != "" && s.ID != id {
+		if id != "" && s.ID != id && "hash:"+s.Hash != id {
 			continue
 		}
 		hash, err := hex.DecodeString(s.Hash)
@@ -267,15 +279,28 @@ func (a *dashboardAuth) revokeRemoteLocked(id, reason string) (result error) {
 		}
 		var h [32]byte
 		copy(h[:], hash)
-		a.denied[h] = reason
-	}
-	failed := false
-	for _, s := range sessions {
-		if (id == "" || s.ID == id) && s.Revoked == "" {
-			s.Revoked = reason
+		// A later forget-all must not rewrite a previously recorded end reason.
+		rowReason := s.Revoked
+		if rowReason == "" {
+			rowReason = a.denied[h]
+		}
+		if rowReason == "" {
+			rowReason = reason
+		}
+		a.denied[h] = rowReason
+		if s.Revoked == "" {
+			s.Revoked = rowReason
 			if a.saveRemoteClassLocked(s, control) != nil {
+				if a.pendingRevocations == nil {
+					a.pendingRevocations = map[string]string{}
+				}
+				a.pendingRevocations[s.ID] = rowReason
 				failed = true
+			} else {
+				delete(a.pendingRevocations, s.ID)
 			}
+		} else {
+			delete(a.pendingRevocations, s.ID)
 		}
 	}
 	if failed {
@@ -396,6 +421,17 @@ func (a *dashboardAuth) remoteDiagnostics() map[string]any {
 		result["store_health"] = "unavailable"
 		return result
 	}
+	// Snapshot keys: retries mutate the queue. No browser cookie is required.
+	pending := make(map[string]string, len(a.pendingRevocations))
+	for id, reason := range a.pendingRevocations {
+		pending[id] = reason
+	}
+	persistenceFailed := false
+	for id, reason := range pending {
+		if a.revokeRemoteLocked(id, reason) != nil {
+			persistenceFailed = true
+		}
+	}
 	sessions, err := a.readRemoteLocked()
 	if err != nil {
 		result["store_health"] = "unavailable"
@@ -407,10 +443,7 @@ func (a *dashboardAuth) remoteDiagnostics() map[string]any {
 		return result
 	}
 	count := 0
-	persistenceFailed := false
 	for _, s := range sessions {
-		// The browser can discard its cookie after rejection. Host diagnostics
-		// also retry pending denials, without waiting for that cookie again.
 		h, err := hex.DecodeString(s.Hash)
 		if err != nil {
 			result["store_health"] = "unavailable"
@@ -419,13 +452,6 @@ func (a *dashboardAuth) remoteDiagnostics() map[string]any {
 		var hash [32]byte
 		copy(hash[:], h)
 		reason := a.denied[hash]
-		if a.pendingRevocations[s.ID] && reason != "" {
-			if s.Revoked != "" || a.persistRemoteDenialLocked(s, reason) {
-				delete(a.pendingRevocations, s.ID)
-			} else {
-				persistenceFailed = true
-			}
-		}
 		if s.Revoked == "" && reason == "" && s.Generation == generation && s.ExpiresAt > a.now().UnixMilli() {
 			count++
 		}

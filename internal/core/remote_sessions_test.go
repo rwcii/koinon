@@ -377,9 +377,9 @@ func TestDurableRemoteExpiryDiagnosticsMixedRetries(t *testing.T) {
 		copy(hash[:], raw)
 		a.denied[hash] = "session_expired"
 		if a.pendingRevocations == nil {
-			a.pendingRevocations = map[string]bool{}
+			a.pendingRevocations = map[string]string{}
 		}
-		a.pendingRevocations[session.ID] = true
+		a.pendingRevocations[session.ID] = "session_expired"
 	}
 	// Fail the first row and allow the later row to succeed. The later success
 	// must not hide the earlier failure in this diagnostics response.
@@ -410,5 +410,156 @@ func TestDurableRemoteExpiryDiagnosticsMixedRetries(t *testing.T) {
 		if row.Revoked != "session_expired" {
 			t.Fatal("missing durable denial")
 		}
+	}
+}
+
+func TestDurableRemoteSmallClockCorrectionKeepsValidSession(t *testing.T) {
+	a, s, now := durableAuth(t)
+	token, err := a.start("remote:https://host.example.ts.net")
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := a.sessionInfo(token)
+	*now = now.Add(time.Hour)
+	if _, ok := a.session(remoteRequest(token)); !ok {
+		t.Fatal("valid session rejected")
+	}
+	observed := a.sessionInfo(token).LastObserved
+	*now = now.Add(-time.Second)
+	if _, ok := a.session(remoteRequest(token)); !ok {
+		t.Fatal("small clock correction expired valid session")
+	}
+	info := a.sessionInfo(token)
+	if info.LastObserved != observed || info.ExpiresAt != original.ExpiresAt {
+		t.Fatal("clock correction changed high-water mark or deadline", info)
+	}
+	b, err := newDashboardAuth(func() time.Time { return *now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.store = s
+	if _, ok := b.session(remoteRequest(token)); !ok {
+		t.Fatal("restart during clock correction rejected valid session")
+	}
+	*now = time.UnixMilli(original.ExpiresAt)
+	if _, ok := b.session(remoteRequest(token)); ok {
+		t.Fatal("accepted at original deadline")
+	}
+}
+
+func TestDurableRemoteRevokeAllDiagnosticsRetry(t *testing.T) {
+	a, s, now := durableAuth(t)
+	var tokens []string
+	for i := 0; i < 2; i++ {
+		token, err := a.start("remote:https://host.example.ts.net")
+		if err != nil {
+			t.Fatal(err)
+		}
+		tokens = append(tokens, token)
+	}
+	if _, err := s.db.Exec(`CREATE TEMP TRIGGER fail_revoke BEFORE UPDATE ON settings BEGIN SELECT RAISE(FAIL,'injected revocation failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.revokeRemote("", "device_revoked"); err != ErrRevocationIncomplete {
+		t.Fatal(err)
+	}
+	if a.remoteDiagnostics()["revocation_incomplete"] != true {
+		t.Fatal("global revocation failure hidden")
+	}
+	// The original inventory was readable: its retry must not include a later
+	// newly issued browser session.
+	fresh, err := a.start("remote:https://host.example.ts.net")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`DROP TRIGGER fail_revoke`); err != nil {
+		t.Fatal(err)
+	}
+	if a.remoteDiagnostics()["revocation_incomplete"] != false {
+		t.Fatal("global revocation not retried")
+	}
+	b, err := newDashboardAuth(func() time.Time { return *now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.store = s
+	for _, token := range tokens {
+		if _, ok := b.session(remoteRequest(token)); ok {
+			t.Fatal("global retry did not persist revocation")
+		}
+	}
+	if _, ok := b.session(remoteRequest(fresh)); !ok {
+		t.Fatal("retry extended the original forget-all to a later sign-in")
+	}
+}
+
+func TestDurableRemoteUnreadableRevocationDiagnosticsRetry(t *testing.T) {
+	for _, action := range []string{"revoke", "logout"} {
+		t.Run(action, func(t *testing.T) {
+			a, s, now := durableAuth(t)
+			token, err := a.start("remote:https://host.example.ts.net")
+			if err != nil {
+				t.Fatal(err)
+			}
+			other, err := a.start("remote:https://host.example.ts.net")
+			if err != nil {
+				t.Fatal(err)
+			}
+			id := a.remoteSessionID(token)
+			root := s.root
+			if err := s.db.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if action == "logout" {
+				err = a.logout(token)
+			} else {
+				err = a.revokeRemote(id, "device_revoked")
+			}
+			if err != ErrRevocationIncomplete {
+				t.Fatal(err)
+			}
+			if a.remoteDiagnostics()["revocation_incomplete"] != true {
+				t.Fatal("unreadable revocation failure hidden")
+			}
+			reopened, err := openStore(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer reopened.db.Close()
+			a.store = reopened
+			status := a.remoteDiagnostics()
+			if status["revocation_incomplete"] != false || status["active_sessions"] != 1 {
+				t.Fatal("read recovery did not reconcile targeted denial", status)
+			}
+			if _, ok := a.session(remoteRequest(other)); !ok {
+				t.Fatal("targeted retry left unrelated browser locked out")
+			}
+			b, err := newDashboardAuth(func() time.Time { return *now })
+			if err != nil {
+				t.Fatal(err)
+			}
+			b.store = reopened
+			if _, ok := b.session(remoteRequest(token)); ok {
+				t.Fatal("targeted retry did not persist")
+			}
+		})
+	}
+}
+
+func TestDurableRemoteForgetAllPreservesExpiryReason(t *testing.T) {
+	a, _, now := durableAuth(t)
+	token, err := a.start("remote:https://host.example.ts.net")
+	if err != nil {
+		t.Fatal(err)
+	}
+	*now = now.Add(remoteSessionLifetime)
+	if _, ok := a.session(remoteRequest(token)); ok {
+		t.Fatal("expired credential accepted")
+	}
+	if err := a.revokeRemote("", "device_revoked"); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.remoteRejectionReason(remoteRequest(token)); got != "session_expired" {
+		t.Fatal("forget-all rewrote original end reason", got)
 	}
 }

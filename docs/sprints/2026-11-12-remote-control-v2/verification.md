@@ -1,6 +1,6 @@
 # Remote control v2 verification
 
-## Current acceptance run
+## Current acceptance run — follow-up corrections
 
 Andrew approved retaining crash survival with the documented total-write-failure
 limit, and approved an unsigned DCO follow-up and draft PR for CI. See
@@ -12,10 +12,26 @@ results belong to the draft PR and private run logs; the pre-integration results
 below do not imply those runs passed. Andrew has an iPhone for Safari acceptance;
 Android and elapsed retention remain unmeasured.
 
+Draft PR #673 was opened at `6fbdea9`. Its Linux/systemd native job passed in
+1m13s and macOS/launchd passed in 1m53s (Actions run 43330416953). The decision-
+citation check passed. Its local full race run reproduced the previously tracked
+contributor failures, then was stopped before editing source for accepted
+cross-family findings; partial package passes are retained privately. It is not a
+completed full-suite result. The two contributor cases pass in 2.244s with the
+previously documented `COPYFILE_DISABLE=1 LC_ALL=C` environment probe.
+
+The cross-family reviewer requested changes and independently passed a broad
+focused race suite in 347.087s on that frozen head. See [review.md](review.md).
+The combined focused v2/auth/QR race suite on the corrected source passed in
+17.144s, and vet passed. Exact-head full-suite, platform builds, native compile/vet
+and CI must run again after those fixes.
+The pre-integration statements below describe their dates only; they do not
+supersede the published PR or the answered decisions in [decision.md](decision.md).
+
 ## Pre-integration checkpoint after commit 7322934 — 2026-11-12
 
 The entries below this section describe the committed implementation. The
-follow-up currently consists of uncommitted expiry-retry changes, reviewed
+follow-up at this historical checkpoint consisted of uncommitted expiry-retry changes, reviewed
 independently by a same-family reviewer. Failed expiry writes now keep their
 reason, report incomplete persistence, retry on bearer requests and host
 diagnostics, and remain denied during clock rollback. Mixed retry failures

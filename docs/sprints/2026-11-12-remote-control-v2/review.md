@@ -1,5 +1,11 @@
 # Local independent review
 
+Current publication: [draft PR #673](https://github.com/rwcii/koinon/pull/673).
+The implementation notes below are historical checkpoints. The continuation
+decision and the cross-family findings below supersede their open questions.
+
+## Original implementation review
+
 Same-family subagents reviewed implementation independently of their owned code.
 These are local findings and dispositions, not cross-family commit-bound statuses.
 No active same-repository other-family reviewer was available in runtime discovery.
@@ -93,4 +99,28 @@ or frozen follow-up commit approval is claimed.
 This correction does not create evidence when all durable writes fail and the
 process ends before a retry succeeds. The original draft already describes that
 limit for failed revocation. A fallback journal and an unclean-start invalidation
-policy were raised with Andrew; no answer or policy change is recorded here.
+policy were raised with Andrew. He subsequently chose crash survival with the
+documented total-write-failure limit; see [decision.md](decision.md).
+
+
+## Cross-family review of 6fbdea9
+
+The independent Claude reviewer completed the frozen-commit peer and refusal
+reviews. Its broad focused race suite passed in 347.087s; targeted Node recovery
+and device tests ran. Both verdicts requested changes.
+
+| Finding | Disposition |
+| --- | --- |
+| P1/R1: any backward host-clock step permanently expired a valid session | Accepted: retain the persisted observation high-water mark and original deadline; only deadline expiry creates an expiry tombstone. Add small-correction/restart regression. |
+| P2/R2: a fast phone clock caused valid receipt-backed actions to fail | Accepted: use an advertised host-time anchor and monotonic browser elapsed time, separate from local draft timestamps; document original-at freshness and host acceptance retention. Add fast/slow/changed-clock and retained-ID regressions. |
+| P3: host diagnostics missed global or unreadable-inventory revocation retries | Accepted: queue target/reason even before rows are readable; resolve known rows individually once storage recovers. |
+| P4: unreadable-store logout omitted incomplete revocation | Accepted: queue the bearer hash/reason for host-only recovery; add store-close/reopen regression. |
+| P5: forget-all rewrote a previously persisted end reason in memory | Accepted: preserve the row's original reason; add expiry-reason regression. |
+| R3: lifetime decision lacked its complete context and direct quote | Accepted: verify the original conversation and record the question, alternatives, full name, answer and scope in PDR 010 §9; ADR and sprint cite it. |
+| R4: historical checkpoints looked like current unanswered questions | Accepted: label history and point current readers to the continuation decision and draft PR. |
+| Attention cursors have no row reclamation policy | Tracked in #672; existing physical storage admission still applies. No new cursor-retention promise is introduced in this correction. |
+| Device script reads a diagnostics field absent from the response | Minor cleanup tracked in #672; no security or acceptance effect was established. |
+
+Accepted corrections require follow-up review on their committed head. The prior
+347.087s pass and native CI results remain bound to 6fbdea9; they do not approve
+later source changes.

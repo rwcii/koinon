@@ -298,8 +298,11 @@ human-mandated limits or a change to the server's two-minute ticket lifetime.
 
 ## 4. Decision: Remote control v2 durable authentication and atomic receipts
 
-**Source:** Andrew's direct implementation request, 2026-11-12; see PDR 010's
-remote control v2 refinement and `docs/REMOTE-CONTROL-V2-SPEC.md`.
+**Source:** Andrew Deugarte's direct implementation request, 2026-11-12.
+[PDR 010 §9](../../product/pdr/010-private-remote-dashboard-access.md#9-refinement-remote-control-v2-fixed-sign-in-and-recovery)
+records the retention question, alternatives and his quoted fixed-48-hour answer.
+The architecture below implements that scope; it does not introduce a separate
+lifetime decision. See also `docs/REMOTE-CONTROL-V2-SPEC.md`.
 
 Use the existing private SQLite database and opaque bearer cookie; persist only
 its hash, a noncredential session ID, origin, credential-generation binding,

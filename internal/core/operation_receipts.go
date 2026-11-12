@@ -23,6 +23,9 @@ var operationIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{16,128}$`)
 // Versioned JSON uses namespaced settings rows so older binaries can still open the
 // unchanged schema. SQLite's non-STRICT INTEGER affinity preserves JSON as TEXT.
 type OperationReceipt struct {
+	// originalAt is the unchanged host-time browser attempt. It fences an absent
+	// old ID after receipt reclamation; stored receipt lifetime starts at host acceptance.
+	originalAt   int64
 	Version      int             `json:"version"`
 	ID           string          `json:"id"`
 	SessionID    string          `json:"session_id"`
@@ -53,11 +56,10 @@ func (d *Daemon) operationContext(r *http.Request, ctx context.Context, session,
 	id := r.PostForm.Get("operation_id")
 	created, err := strconv.ParseInt(r.PostForm.Get("operation_created_at"), 10, 64)
 	now := d.store.now().UnixMilli()
-	if err != nil || !operationIDPattern.MatchString(id) || created <= 0 || created > now+int64(time.Minute/time.Millisecond) {
+	// The original attempt is host-time anchored, not the phone wall clock. A
+	// bounded-future stamp keeps reclaimed IDs from gaining a future retry window.
+	if err != nil || !operationIDPattern.MatchString(id) || created <= 0 || created > now+time.Minute.Milliseconds() {
 		return ctx, ErrInvalid
-	}
-	if now >= created+operationReceiptWindow.Milliseconds() {
-		return ctx, ErrRoomPostLate
 	}
 	fields := map[string]string{"action": action, "target": target}
 	switch action {
@@ -75,7 +77,7 @@ func (d *Daemon) operationContext(r *http.Request, ctx context.Context, session,
 			session = d.auth.remoteSessionID(token)
 		}
 	}
-	p := &OperationReceipt{Version: 1, ID: id, SessionID: session, Origin: remoteOrigin(r), Type: action, Target: target, Digest: hex.EncodeToString(digest[:]), CreatedAt: created, ExpiresAt: created + operationReceiptWindow.Milliseconds(), State: "accepted", Code: accepted}
+	p := &OperationReceipt{Version: 1, ID: id, SessionID: session, Origin: remoteOrigin(r), Type: action, Target: target, Digest: hex.EncodeToString(digest[:]), originalAt: created, CreatedAt: now, ExpiresAt: now + operationReceiptWindow.Milliseconds(), State: "accepted", Code: accepted}
 	return context.WithValue(ctx, operationContextKey{}, p), nil
 }
 
@@ -106,8 +108,18 @@ func operationLookup[T any](ctx context.Context, q querier, now int64) (result T
 		return result, false, nil
 	}
 	old, err := operationReceipt(ctx, q, p.ID)
-	if err != nil || old == nil {
+	if err != nil {
 		return result, false, err
+	}
+	if old == nil {
+		created := p.originalAt
+		if created == 0 { // direct store callers use the host-stamped context
+			created = p.CreatedAt
+		}
+		if now >= created && now-created >= operationReceiptWindow.Milliseconds() {
+			return result, false, ErrRoomPostLate
+		}
+		return result, false, nil
 	}
 	if old.Digest != p.Digest || old.Origin != p.Origin || old.Type != p.Type || old.Target != p.Target {
 		return result, true, ErrRoomPostRepeat
@@ -144,6 +156,13 @@ func operationReplay[T any](t *writeTx) (result T, found bool, err error) {
 	return result, false, nil
 }
 
+// A tolerated future original stamp must not make a just-reclaimed ID fresh.
+// Keep the expired receipt as a tombstone through that original retry deadline;
+// its externally visible lifetime remains seven days from host acceptance.
+func operationReclaimAt(p *OperationReceipt) int64 {
+	return max(p.ExpiresAt, p.originalAt+operationReceiptWindow.Milliseconds())
+}
+
 func (t *writeTx) writeOperationReceipt() error {
 	p := operationOf(t.ctx)
 	if p == nil || !t.audited {
@@ -156,7 +175,7 @@ func (t *writeTx) writeOperationReceipt() error {
 	if err != nil {
 		return err
 	}
-	_, err = t.ExecContext(t.ctx, `INSERT INTO settings(name,value,updated_at) VALUES(?,?,?)`, operationReceiptPrefix+p.ID, string(data), p.ExpiresAt)
+	_, err = t.ExecContext(t.ctx, `INSERT INTO settings(name,value,updated_at) VALUES(?,?,?)`, operationReceiptPrefix+p.ID, string(data), operationReclaimAt(p))
 	return err
 }
 func (t *writeTx) operationResult(result any) {
@@ -179,7 +198,7 @@ func (t *writeTx) operationRefusal(err error) error {
 	if e != nil {
 		return e
 	}
-	if _, e = t.ExecContext(t.ctx, `INSERT INTO settings(name,value,updated_at) VALUES(?,?,?)`, operationReceiptPrefix+p.ID, string(data), p.ExpiresAt); e != nil {
+	if _, e = t.ExecContext(t.ctx, `INSERT INTO settings(name,value,updated_at) VALUES(?,?,?)`, operationReceiptPrefix+p.ID, string(data), operationReclaimAt(p)); e != nil {
 		return e
 	}
 	if e = t.Commit(); e != nil {
@@ -209,6 +228,9 @@ func (s *Store) recentOperationReceipts(ctx context.Context, limit int) ([]Opera
 		}
 		if p.Version != 1 {
 			return nil, ErrInvalid
+		}
+		if s.now().UnixMilli() >= p.ExpiresAt {
+			continue // expired future-tolerance tombstones are not recent actions
 		}
 		out = append(out, p)
 	}

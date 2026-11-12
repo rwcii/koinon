@@ -13,7 +13,7 @@
 {{if eq .View "settings"}}<script src="/dashboard/static/devices.js" defer></script><script src="/dashboard/static/remote.js" defer></script>{{end}}
 {{if eq .View "pair"}}<script src="/dashboard/static/pair.js" defer></script>{{end}}
 </head>
-<body{{if .Remote}} data-remote="true" data-remote-session="{{.RemoteSessionID}}"{{end}}>
+<body{{if .Remote}} data-remote="true" data-remote-session="{{.RemoteSessionID}}" data-host-time="{{.Now.UnixMilli}}"{{end}}>
 <header>
 <span class="brand"><picture><source srcset="/dashboard/static/koinon-icon-for-dark.svg" media="(prefers-color-scheme: dark)"><img src="/dashboard/static/koinon-icon-for-light.svg" alt="" width="28" height="28"></picture>Koinon</span>
 {{if .CSRF}}<nav>{{range .Views}}<a href="/dashboard/{{.}}"{{if eq . $.View}} aria-current="page"{{end}}>{{.}}</a>{{end}}</nav>

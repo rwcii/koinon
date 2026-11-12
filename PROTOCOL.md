@@ -3260,8 +3260,9 @@ remote credentials; password/origin change, disable and explicit revocation do n
 
 Authenticated, origin-checked browser routes (all POSTs also require current CSRF):
 
-- `GET /dashboard/session`: JSON `csrf`, nonsecret `session_id`, `expires_at` (Unix
-  milliseconds). Loading it never extends expiry or submits a form.
+- `GET /dashboard/session`: JSON `csrf`, nonsecret `session_id`, `expires_at` and
+  `server_time` (Unix milliseconds). Loading it refreshes the browser's host-time
+  anchor without extending expiry or submitting a form.
 - `GET /dashboard/remote/devices`: JSON `devices`, `current`, `csrf`. Each device has
   `id`, `label`, `created_at`, `last_observed`, `expires_at`, `this_browser`.
 - `POST /dashboard/remote/devices`: form `action=rename|revoke|revoke-all`, `id`
@@ -3272,7 +3273,19 @@ Authenticated, origin-checked browser routes (all POSTs also require current CSR
   with `direct` and `room` source heads advances only this browser's read cursors.
 - Receipt-supported remote `send`, `room-post` and decision verdict forms accept
   `operation_id` (16–128 alphanumeric/underscore/hyphen characters) and
-  `operation_created_at` (original Unix milliseconds). The host-wide ID namespace
+  `operation_created_at` (original host-time Unix milliseconds). Browser code
+  derives it from the rendered host timestamp and monotonic elapsed time, retains
+  it unchanged with the ID across retries, and does not use the phone wall clock.
+  The host allows up to one minute of future tolerance on this original timestamp;
+  this freshness bound prevents a reclaimed ID from acquiring a far-future retry
+  window. An absent ID whose original timestamp is seven days old is refused.
+  A retained receipt is checked first, so its full window remains available.
+  The host stamps receipt creation at first acceptance and retains it for seven
+  days from that host time. An expired receipt can remain as an invisible
+  tombstone for the future-tolerance remainder, so reclamation cannot make the
+  same unchanged ID fresh. Legacy browser pending metadata without the original
+  host timestamp stays unknown and requires explicit target inspection/dismissal;
+  recovery never silently replaces its ID or timestamp. The host-wide ID namespace
   survives reauthentication; content digest/type/target/origin mismatch conflicts.
   Mutation and accepted receipt, or a supported revision-conflict receipt, commit
   together. Forms without these fields retain ordinary action behavior.

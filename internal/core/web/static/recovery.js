@@ -5,6 +5,15 @@
   var session = document.body.dataset.remoteSession;
   var prefix = "koinon.remote.v2:" + window.location.origin + ":";
   var week = 7 * 86400000, pending = [], checking = false;
+  // Receipt timestamps come from the host. The phone wall clock is only for
+  // local draft ordering; monotonic elapsed time tolerates phone clock changes.
+  var hostAnchor = Number(document.body.dataset.hostTime), elapsedAnchor = performance.now();
+  function hostNow() { return hostAnchor + Math.max(0, performance.now() - elapsedAnchor); }
+  function observeHost(value) {
+    if (Number.isFinite(value) && value > 0) { hostAnchor = value; elapsedAnchor = performance.now(); }
+  }
+  function hasHostTime(operation) { return Number.isFinite(operation.hostAt) && operation.hostAt > 0; }
+  function operationExpired(operation) { return hasHostTime(operation) && hostNow() - operation.hostAt >= week; }
   var status = document.getElementById("recovery-status");
   function tell(text) { if (status) { status.textContent = text; } }
   function read(key, fallback) {
@@ -76,7 +85,7 @@
     panel.replaceChildren();
     pending.forEach(function (p) {
       var line = document.createElement("p");
-      line.textContent = "Result unknown · " + p.id + " · " + p.type + " · " + (Date.now() - p.at >= week ? "Receipt window expired. Inspect target state before another action." : "Check the host receipt; no automatic retry.");
+      line.textContent = "Result unknown · " + p.id + " · " + p.type + " · " + (!hasHostTime(p) ? "Original host time unavailable. Inspect target state before another action." : operationExpired(p) ? "Receipt window expired. Inspect target state before another action." : "Check the host receipt; no automatic retry.");
       var inspect = document.createElement("a"); inspect.href = p.type.indexOf("decision-") >= 0 ? "/dashboard/decisions?ref=" + encodeURIComponent(p.target) : p.type.indexOf("room-post") >= 0 ? "/dashboard/rooms?room=" + encodeURIComponent(p.target) : "/dashboard/messages?to=" + encodeURIComponent(p.target); inspect.textContent = "Inspect target"; line.append(inspect);
       var clear = document.createElement("button"); clear.type = "button"; clear.textContent = "I inspected the target; dismiss recovery";
       clear.addEventListener("click", function () { pending = pending.filter(function (q) { return q.id !== p.id; }); savePending(); showPending(); }); line.append(clear); panel.append(line);
@@ -89,9 +98,10 @@
       return fetch("/dashboard/receipts?id=" + encodeURIComponent(operation.id), {credentials:"same-origin", cache:"no-store"})
         .then(function (response) { if (response.status === 401) { unauthorized(response); } if (!response.ok) { throw new Error("unavailable"); } return response.json(); })
         .then(function (receipt) {
+          observeHost(receipt.server_time);
           if (receipt.found === false && receipt.authoritative) {
-            operation.missing = !receipt.expired && Date.now() - operation.at < week;
-            tell("Result unknown. The host has no receipt for " + operation.id + ". Inspect the target; explicitly submit the unchanged form to retry with this ID within seven days.");
+            operation.missing = !receipt.expired && hasHostTime(operation) && !operationExpired(operation);
+            tell(!hasHostTime(operation) ? "Result unknown. Original host time unavailable; inspect the target and dismiss recovery before another action." : "Result unknown. The host has no receipt for " + operation.id + ". Inspect the target; explicitly submit the unchanged form to retry with this ID within seven days.");
           } else if (receipt.found !== false && (receipt.state || (receipt.receipt && receipt.receipt.state))) {
             var record = receipt.receipt || receipt;
             if (record.state === "accepted" && !operation.disputed) {
@@ -110,6 +120,7 @@
     fetch("/dashboard/session", {credentials:"same-origin", cache:"no-store"})
       .then(function (response) { if (response.status === 401) { unauthorized(response); } if (!response.ok) { throw new Error("session unavailable"); } return response.json(); })
       .then(function (data) {
+        observeHost(data.server_time);
         if (typeof data.csrf !== "string") { return; }
         document.querySelectorAll('input[name="csrf"]').forEach(function (field) { field.value = data.csrf; field.defaultValue = data.csrf; });
         if (data.session_id) { session = data.session_id; }
@@ -126,16 +137,18 @@
       if (!supported(target.pathname)) { return null; }
       var targetID = body.get("reference") || body.get("room_id") || body.get("to") || "";
       var operation = pending.find(function (p) { return p.id === form.dataset.operationId || (p.type === target.pathname && p.target === targetID); });
-      if (operation && Date.now() - operation.at >= week) { tell("Receipt window expired. Inspect the target state and dismiss recovery in Attention before another action."); return {blocked:true}; }
+      if (operation && !hasHostTime(operation)) { tell("Result unknown. Original host time unavailable; inspect the target and dismiss recovery before another action."); resolve(); return {blocked:true}; }
+      if (operation && operationExpired(operation)) { tell("Receipt window expired. Inspect the target state and dismiss recovery in Attention before another action."); return {blocked:true}; }
       if (operation && !operation.missing) { tell("Result unknown. Check the host receipt before an explicit retry."); resolve(); return {blocked:true}; }
       if (!operation) {
         // Browser cryptographic randomness; never derive an operation ID from private text.
         if (!window.crypto || !window.crypto.randomUUID) { tell("Receipt recovery unavailable in this browser."); return null; }
-        operation = {id:window.crypto.randomUUID(), at:Date.now(), type:target.pathname, route:route(), target:body.get("reference") || body.get("room_id") || body.get("to") || ""};
+        if (!Number.isFinite(hostAnchor) || hostAnchor <= 0) { tell("Host time unavailable. Refresh the page before submitting this action."); return {blocked:true}; }
+        operation = {id:window.crypto.randomUUID(), at:Date.now(), hostAt:hostNow(), type:target.pathname, route:route(), target:body.get("reference") || body.get("room_id") || body.get("to") || ""};
         form.dataset.operationId = operation.id; pending.push(operation); savePending();
       }
       operation.missing = false; savePending();
-      body.set("operation_id", operation.id); body.set("operation_created_at", String(operation.at)); return operation;
+      body.set("operation_id", operation.id); body.set("operation_created_at", String(Math.floor(operation.hostAt))); return operation;
     },
     conflict:function (operation) { if (operation) { operation.disputed = true; savePending(); } },
     completed:function (form, target, response, operation) {

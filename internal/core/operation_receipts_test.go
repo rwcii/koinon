@@ -295,3 +295,140 @@ func TestOperationReceiptRemoteActionAndReauthentication(t *testing.T) {
 		t.Fatalf("changed content %d %s", w.Code, w.Header().Get("Location"))
 	}
 }
+
+func TestOperationReceiptHostAcceptanceWindowAndReclaimedID(t *testing.T) {
+	s, _ := testStore(t)
+	now := time.Date(2026, 11, 13, 1, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+	peer := join(t, s, "codex", "synthetic-host-clock-recipient", "")
+	d := &Daemon{store: s}
+	originalAt := now.Add(-time.Hour).UnixMilli()
+	const id = "synthetic-host-clock-operation"
+	makeContext := func(at int64) (context.Context, error) {
+		t.Helper()
+		form := url.Values{"operation_id": {id}, "operation_created_at": {strconv.FormatInt(at, 10)}, "to": {peer.Name}, "body": {"synthetic host-clock message"}}
+		r := httptest.NewRequest("POST", "http://127.0.0.1/dashboard/actions/send", strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		r = r.WithContext(context.WithValue(r.Context(), remoteOriginKey{}, "https://synthetic.example.ts.net"))
+		ctx, _ := withAudit(context.Background(), "send", peer.Name)
+		return d.operationContext(r, ctx, "browser", "send", peer.Name, "sent")
+	}
+	ctx, err := makeContext(originalAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := s.send(ctx, maintainerKey, peer.Name, "synthetic host-clock message", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := operationReceipt(context.Background(), s.db, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.CreatedAt != now.UnixMilli() || receipt.ExpiresAt != now.Add(operationReceiptWindow).UnixMilli() {
+		t.Fatalf("receipt lifetime did not use host acceptance: %+v", receipt)
+	}
+	// The original browser attempt is now seven days old, but the host's retained
+	// receipt still has its last hour. Lookup must use the stored receipt first.
+	now = now.Add(operationReceiptWindow - time.Hour)
+	ctx, err = makeContext(originalAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	replay, err := s.send(ctx, maintainerKey, peer.Name, "synthetic host-clock message", true)
+	if err != nil || replay.ID != first.ID {
+		t.Fatalf("retained receipt window shortened: %+v %v", replay, err)
+	}
+	now = now.Add(time.Hour)
+	ctx, err = makeContext(originalAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.send(ctx, maintainerKey, peer.Name, "synthetic host-clock message", true); errorCode(err) != "retry_deadline_expired" {
+		t.Fatalf("accepted expired retained receipt: %v", err)
+	}
+	// Model normal reclamation. Keeping the original host timestamp prevents a
+	// lost old result from becoming a second mutation after its row is gone.
+	if _, err = s.db.Exec(`DELETE FROM settings WHERE name=?`, operationReceiptPrefix+id); err != nil {
+		t.Fatal(err)
+	}
+	ctx, err = makeContext(originalAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.send(ctx, maintainerKey, peer.Name, "synthetic host-clock message", true); errorCode(err) != "retry_deadline_expired" {
+		t.Fatalf("reclaimed ID revived: %v", err)
+	}
+	if n := count(t, s, `SELECT COUNT(*) FROM messages WHERE recipient_id=?`, peer.ID); n != 1 {
+		t.Fatalf("old operation duplicated: %d", n)
+	}
+	if _, err = makeContext(now.Add(2 * time.Minute).UnixMilli()); err != ErrInvalid {
+		t.Fatalf("unbounded future host timestamp: %v", err)
+	}
+}
+
+func TestOperationReceiptFutureToleranceCannotReviveReclaimedID(t *testing.T) {
+	s, _ := testStore(t)
+	now := time.Date(2026, 11, 13, 1, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return now }
+	peer := join(t, s, "codex", "synthetic-future-clock-recipient", "")
+	originalAt := now.Add(30 * time.Second).UnixMilli()
+	makeContext := func(id string, at int64) context.Context {
+		t.Helper()
+		d := &Daemon{store: s}
+		form := url.Values{"operation_id": {id}, "operation_created_at": {strconv.FormatInt(at, 10)}, "to": {peer.Name}, "body": {"synthetic future-tolerance message"}}
+		r := httptest.NewRequest("POST", "http://127.0.0.1/dashboard/actions/send", strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		if err := r.ParseForm(); err != nil {
+			t.Fatal(err)
+		}
+		r = r.WithContext(context.WithValue(r.Context(), remoteOriginKey{}, "https://synthetic.example.ts.net"))
+		ctx, _ := withAudit(context.Background(), "send", peer.Name)
+		ctx, err := d.operationContext(r, ctx, "browser", "send", peer.Name, "sent")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ctx
+	}
+	const id = "synthetic-future-original-id"
+	if _, err := s.send(makeContext(id, originalAt), maintainerKey, peer.Name, "synthetic future-tolerance message", true); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(operationReceiptWindow)
+	peer = join(t, s, "codex", "synthetic-future-clock-recipient", "")
+	// A new action triggers ordinary reclamation exactly at visible receipt expiry.
+	if _, err := s.send(makeContext("synthetic-future-cleanup-one", now.UnixMilli()), maintainerKey, peer.Name, "synthetic future-tolerance message", true); err != nil {
+		t.Fatal(err)
+	}
+	if old, err := operationReceipt(context.Background(), s.db, id); err != nil || old == nil {
+		t.Fatalf("future-tolerance tombstone reclaimed early: %+v %v", old, err)
+	}
+	if _, err := s.send(makeContext(id, originalAt), maintainerKey, peer.Name, "synthetic future-tolerance message", true); errorCode(err) != "retry_deadline_expired" {
+		t.Fatalf("expired receipt replayed during future tolerance: %v", err)
+	}
+	recent, err := s.recentOperationReceipts(context.Background(), 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, receipt := range recent {
+		if receipt.ID == id {
+			t.Fatal("expired tombstone exposed as recent receipt")
+		}
+	}
+	now = now.Add(30 * time.Second)
+	if _, err := s.send(makeContext("synthetic-future-cleanup-two", now.UnixMilli()), maintainerKey, peer.Name, "synthetic future-tolerance message", true); err != nil {
+		t.Fatal(err)
+	}
+	if old, err := operationReceipt(context.Background(), s.db, id); err != nil || old != nil {
+		t.Fatalf("tombstone not reclaimed after original deadline: %+v %v", old, err)
+	}
+	if _, err := s.send(makeContext(id, originalAt), maintainerKey, peer.Name, "synthetic future-tolerance message", true); errorCode(err) != "retry_deadline_expired" {
+		t.Fatalf("reclaimed ID replayed: %v", err)
+	}
+	if n := count(t, s, `SELECT COUNT(*) FROM messages WHERE recipient_id=?`, peer.ID); n != 3 {
+		t.Fatalf("original ID duplicated mutation: %d", n)
+	}
+}

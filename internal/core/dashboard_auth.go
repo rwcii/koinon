@@ -45,7 +45,7 @@ type dashboardAuth struct {
 	store              *Store
 	denied             map[[32]byte]string
 	denyAllRemote      bool
-	pendingRevocations map[string]bool
+	pendingRevocations map[string]string
 	authReason         string
 	storeHealth        string
 	lastPhone          int64
@@ -295,6 +295,10 @@ func (a *dashboardAuth) logout(id string) error {
 	sessions, err := a.readRemoteLocked()
 	if err != nil {
 		a.storeHealth = "unavailable"
+		if a.pendingRevocations == nil {
+			a.pendingRevocations = map[string]string{}
+		}
+		a.pendingRevocations["hash:"+hex.EncodeToString(hash[:])] = "device_revoked"
 		return ErrRevocationIncomplete
 	}
 	for _, s := range sessions {
