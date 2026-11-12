@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A session whose host process has ended now shows its handoff cycle or compaction as
+  unavailable with `host_ended`, and the dashboard's Enable button says to enable the session
+  that replaced it (#637). Before, the probe stopped at a later step, such as
+  `native_registry_unavailable`, which did not say that the host had stopped. The session's
+  lease does not change.
+
 - When remote access is on and Serve is ready, `koinon remote status` (fields `policy_hint` and
   `policy_rule` in `--json`) and the dashboard's connection details say that the tailnet access
   policy must allow TCP 443 to this computer, and show an example policy entry with its own

@@ -298,7 +298,10 @@ as shown, `if_revision` of the Enable, `enabled` `on` or `off`) changes one sess
 audit record. Enabling needs an active session whose family adapter's Probe passes for its
 pinned host and pane (the cycle adapters below; in `native_compaction`, the compaction's own
 checks); otherwise it refuses with
-`context_cycle_unavailable` and writes nothing. Disabling is always
+`context_cycle_unavailable` and writes nothing. Before the adapter's Probe, a session with a
+host process (every family but DeepSeek) whose recorded host is gone, or whose process ID now
+names a process with another start, is unavailable as `host_ended` (#637); a recorded start of
+0 or another read error leaves the decision to the Probe. Disabling is always
 accepted. A changed session refuses `revision_changed`, a changed Enable
 `context_enable_changed`. Deleting a session deletes its Enable.
 

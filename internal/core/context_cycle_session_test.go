@@ -630,6 +630,7 @@ func TestSessionCycleWorkerBound(t *testing.T) {
 // no request for it (a two-cycle schedule).
 func TestSessionCycleReceiptDelaysNoOtherCycle(t *testing.T) {
 	g := newSessionFixture(t)
+	pinSyntheticHost(g.s, 4243, 78)
 	g.session.receiptBlock = make(chan struct{})
 	t.Cleanup(func() {
 		select {
