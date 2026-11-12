@@ -5,6 +5,15 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-11-12 — A private remote dashboard with one-time QR sign-in, the Koinon logo, and approved work after a reset
+
+This release can open the dashboard privately from a phone or another computer through
+Tailscale Serve (`koinon remote`, contributed by Andrew Deugarte, @andyde8). A one-time sign-in
+QR from the dashboard on the host signs the phone in, and the agent API stays on loopback. The
+dashboard and the README show the Koinon logo. Pickup shows approved decision items in progress
+again after a context reset. On Linux, `brew upgrade` no longer names a false install step. The
+documentation, `koinon --help` and the guide match the code again. The state schema stays at 37.
+
 - Pickup also reads the board's approved items in progress of its repository (#640). After a
   context reset, nothing else showed an approved card again to the session that must finish it.
   Pickup closes such an item with `decision_close` when its record and merged change exist, and
@@ -47,6 +56,22 @@ into a dated release section when promoted to `main`.
 - After remote access was enabled, `koinon uninstall` removes Koinon's Serve mapping. When it
   cannot, the uninstall stops with the Tailscale code and keeps the binary; repeat it after the
   step that the report names.
+
+Upgrade from v0.10.1 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and rewrites the skill entries; the state schema stays at 37. The
+restart ends current dashboard logins: log in again with the maintainer secret, or run `koinon
+dashboard` for a one-time link. Homebrew then shows the steps that `koinon install --plan`
+finds; run them, and run `koinon install --plan` again to check. A running `koinon mcp` server
+runs the new release without a session restart.
+
+Upgrade notes:
+
+- Remote access stays off until you turn it on with `koinon remote enable` or under Settings,
+  Remote access. It needs Tailscale on the host and the phone, and a maintainer secret
+  (docs/REMOTE-DASHBOARD.md).
+- Login pages call the maintainer secret **Koinon password**. It is the same secret.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
 
 ## 2026-11-10 — Decision cards with the form at each write, a fix-loop answer and an on-track answer
 
