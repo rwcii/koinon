@@ -100,9 +100,21 @@ func accountByUID(uid int, passwd string) (string, error) {
 // Serve, or "" when the account name cannot be read as a plain name.
 func OperatorCommand() string { return operatorCommand(currentAccount) }
 
-func operatorCommand(account func() (string, error)) string {
+// OperatorAccount is the name of the account that runs Koinon, read as for
+// OperatorCommand, or "" when it cannot be read as a plain name.
+func OperatorAccount() string { return operatorAccount(currentAccount) }
+
+func operatorAccount(account func() (string, error)) string {
 	name, err := account()
 	if err != nil || !accountName.MatchString(name) {
+		return ""
+	}
+	return name
+}
+
+func operatorCommand(account func() (string, error)) string {
+	name := operatorAccount(account)
+	if name == "" {
 		return ""
 	}
 	return "sudo tailscale set --operator=" + name

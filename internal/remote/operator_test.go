@@ -71,10 +71,21 @@ func TestOperatorCommandRejectsUnsafeNames(t *testing.T) {
 	if got := operatorCommand(named("synthetic.user-1")); got != "sudo tailscale set --operator=synthetic.user-1" {
 		t.Fatalf("command = %q", got)
 	}
+	if got := operatorAccount(named("synthetic.user-1")); got != "synthetic.user-1" {
+		t.Fatalf("account = %q", got)
+	}
 	for _, name := range []string{"", "-flag", "a b", "a$b", strings.Repeat("a", 65)} {
 		if got := operatorCommand(named(name)); got != "" {
 			t.Fatalf("%q: command = %q", name, got)
 		}
+		// The terminal grant (TAILSCALE-AUTO-656) passes the name as one argument; it gets
+		// none that the command would not show.
+		if got := operatorAccount(named(name)); got != "" {
+			t.Fatalf("%q: account = %q", name, got)
+		}
+	}
+	if got := operatorAccount(func() (string, error) { return "synthetic-user", errors.New("synthetic read error") }); got != "" {
+		t.Fatalf("read error: account = %q", got)
 	}
 }
 

@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- On Linux, when Tailscale refuses to let the account that runs Koinon change Serve,
+  `koinon remote enable` at a terminal now asks once whether to grant that account control
+  of this computer's Tailscale settings by running `sudo tailscale set --operator=NAME`
+  (#656, PDR 010 Decision 6). On `y`, it runs that one command through sudo, which asks for
+  the password, and then enables. The default is no; then, and with `--json`, in scripts,
+  in the dashboard and after a failed sudo, the manual step is shown as before. The tailnet
+  policy entry for TCP 443 stays a manual step.
+
 - A session whose host process has ended now shows its handoff cycle or compaction as
   unavailable with `host_ended`, and the dashboard's Enable button says to enable the session
   that replaced it (#637). Before, the probe stopped at a later step, such as

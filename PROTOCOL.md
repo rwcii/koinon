@@ -112,7 +112,10 @@ A refused `enable` or `disable` is 409 `{"ok": false, "code": ..., "error": ...}
 `remote_secret_required` when no maintainer secret is set, the Tailscale diagnostic's own code
 (such as `tailscale_disconnected`, `tailscale_identity_changed`, `tailscale_serve_conflict` or, on Linux,
 `tailscale_operator_required` with the `sudo tailscale set --operator=NAME` step),
-or `remote_setup_required` for another failure.
+or `remote_setup_required` for another failure. The daemon never runs sudo. On Linux,
+`koinon remote enable` at a terminal, without `--json`, answers `tailscale_operator_required`
+with one `[y/N]` question; on yes it runs `sudo tailscale set --operator=NAME` as a fixed
+argument list and posts `enable` once more (PDR 010, Decision 6).
 | `POST /v1/maintainer/secret` | Set, generate or clear the maintainer secret (`action`, `secret`); ends every dashboard login and maintainer token. |
 | `POST /v1/maintainer/session` | Exchange the maintainer secret for a maintainer token (`secret`, `client`); see Maintainer mode. |
 | `POST /v1/maintainer/ROUTE` | The maintainer's reads and actions with a maintainer token: `board-list`, `decision-get`, `decision-history`, `decision-verdict`, `inbox`, `ack`, `send`, `room-list`, `room-read`, `room-post`, `room-create`, `room-add`, `room-remove`, `peers`, `peer-status` and the long poll `changes`; see Maintainer mode. |

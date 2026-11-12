@@ -321,6 +321,52 @@ five-minute sign-out is fixed. Andrew later reported the password screen in a
 direct Safari/Chrome browser view. Browser versions and a reproduction remain
 needed to identify the cause.
 
+## 6. Decision: The terminal runs the Linux operator step after confirmation
+
+**Decided by:** Robert Capps, 2026-11-12, board card TAILSCALE-AUTO-656 (#656).
+
+**Context:** On Linux, tailscaled lets only root or the Tailscale operator change Serve,
+and an ordinary account cannot make itself operator: the first grant needs sudo. Since
+#652, `koinon remote enable` refuses with `tailscale_operator_required` and names
+`sudo tailscale set --operator=NAME`, which the person runs. When v0.10.3 was released
+with that manual step, Robert asked to "release it as is, make sure it's clear how this
+gets run at enable, and file an issue to review automating this" (#656). Operator status
+is control of all of this computer's Tailscale settings, not only Serve; Tailscale
+v1.104.5 has no Serve-only grant. Since #653, status also names the tailnet policy entry
+for TCP 443, which the person adds. The options were: keep both steps manual; run the
+operator step at the terminal after confirmation and keep the policy step manual; or
+also write the tailnet policy with a stored credential.
+
+**Decision:** On Linux, when `koinon remote enable` gets `tailscale_operator_required`
+and runs at a terminal, it asks once: "Grant NAME control of this computer's Tailscale
+settings, including more than Serve, by running sudo tailscale set --operator=NAME?
+[y/N]". NAME is the account that runs Koinon, read from the passwd entry of its UID, as
+for the manual step. On yes, Koinon runs that one fixed command through sudo, without a
+shell; sudo asks for the password, and Koinon never reads or stores it. Koinon then asks
+the daemon to enable once more. On no, an empty answer, the end of input or a sudo
+failure, enable shows the manual step, as before, and does not ask again. The dashboard,
+`--json` output, scripts and `koinon remote status` do not change; the daemon never runs
+sudo. The tailnet policy stays a manual step that status names.
+
+**Reason and scope:** The operator step is the one that stops setup at the terminal, and
+it needs the password once. The question states the full operator scope. The policy step
+stays manual for now: a writer would need a credential with the `policy_file` scope that
+changes the whole tailnet's access, its storage and renewal, and a check against a
+GitOps-managed policy, which overwrites an edit made outside its repository. This
+limits the scope of this change. It does not rule out policy automation.
+
+**Review when:** Tailscale offers a grant that covers only Serve, or automating the
+tailnet policy is raised again.
+
+### Alternatives Considered
+
+1. **Keep both steps manual.** No code and no new question; the person runs one sudo
+   command once per computer. Not chosen: the step stops setup at the terminal.
+2. **Also write the tailnet policy with a stored `policy_file` credential.** No manual
+   policy step, but Koinon would hold a secret that can change the whole tailnet's
+   access, and a GitOps-managed policy can overwrite or reject the edit. Declined for
+   now.
+
 ## Conclusion
 
 Remote access reuses the dashboard's actions and login while making setup
@@ -337,3 +383,4 @@ unverified connectivity and action outcomes stay labeled as such.
 | 2026-11-11 | Amend browser QR sign-in and remote-view presentation after Andrew's phone test and explicit choice. |
 | 2026-11-11 | Record the requested longer-session refinement and its remote-only scope, without assigning a cause to the phone sign-out report. |
 | 2026-11-12 | Accepted by Robert Capps (#645). Name the proposer as Andrew Deugarte (@andyde8) and Robert Capps as the decider. A remote session cannot create a sign-in QR (review of PR #644). Correct the spelling in quotes. |
+| 2026-11-12 | Record Robert Capps's decision TAILSCALE-AUTO-656 (#656): the terminal runs the Linux operator step after confirmation; the tailnet policy step stays manual. |

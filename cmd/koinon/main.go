@@ -72,7 +72,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 			return cleanupCommand(ctx, "inbox", "clear", args[2:], out)
 		}
 	case "remote":
-		return remoteCommand(ctx, args[1:], out)
+		return remoteCommand(ctx, args[1:], in, out)
 	case "dashboard":
 		return dashboardCommand(ctx, args[1:], out)
 	case "maintainer":
