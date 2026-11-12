@@ -149,7 +149,7 @@ func (a *dashboardAuth) startRemoteLocked(hash [32]byte, origin string) error {
 	return a.saveRemoteLocked(durableRemoteSession{Version: 2, RemoteDevice: RemoteDevice{ID: id, Label: "Browser", CreatedAt: now, LastObserved: now, ExpiresAt: now + remoteSessionLifetime.Milliseconds()}, Origin: origin, Generation: generation, Hash: hex.EncodeToString(hash[:])})
 }
 func (a *dashboardAuth) remoteSessionLocked(hash [32]byte, origin string) bool {
-	if a.denyAllRemote || a.denied[hash] {
+	if a.denyAllRemote {
 		a.authReason = "device_revoked"
 		return false
 	}
@@ -173,6 +173,11 @@ func (a *dashboardAuth) remoteSessionLocked(hash [32]byte, origin string) bool {
 			return false
 		}
 		reason := s.Revoked
+		if reason == "" {
+			// Keep the first denial across a failed write and a clock rollback.
+			// Do not let the in-memory deny list skip the durable retry.
+			reason = a.denied[hash]
+		}
 		now := a.now().UnixMilli()
 		if reason == "" && s.Generation != current {
 			reason = "password_changed"
@@ -182,10 +187,9 @@ func (a *dashboardAuth) remoteSessionLocked(hash [32]byte, origin string) bool {
 		}
 		if reason != "" {
 			a.authReason = reason
-			a.denied[hash] = true
-			s.Revoked = reason
-			if a.saveRemoteClassLocked(s, control) != nil {
-				a.storeHealth = "unavailable"
+			a.denied[hash] = reason
+			if s.Revoked == "" {
+				a.persistRemoteDenialLocked(s, reason)
 			}
 			return false
 		}
@@ -201,6 +205,24 @@ func (a *dashboardAuth) remoteSessionLocked(hash [32]byte, origin string) bool {
 	a.authReason = "unknown_credential"
 	return false
 }
+
+// Persist with the original reason even if a repaired store is observed after
+// the clock moved backward. Callers hold mu and continue to deny on failure.
+func (a *dashboardAuth) persistRemoteDenialLocked(s durableRemoteSession, reason string) bool {
+	s.Revoked = reason
+	if a.pendingRevocations == nil {
+		a.pendingRevocations = map[string]bool{}
+	}
+	if a.saveRemoteClassLocked(s, control) != nil {
+		a.pendingRevocations[s.ID] = true
+		a.storeHealth = "unavailable"
+		return false
+	}
+	delete(a.pendingRevocations, s.ID)
+	a.storeHealth = "healthy"
+	return true
+}
+
 func (a *dashboardAuth) revokeRemote(id, reason string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -245,7 +267,7 @@ func (a *dashboardAuth) revokeRemoteLocked(id, reason string) (result error) {
 		}
 		var h [32]byte
 		copy(h[:], hash)
-		a.denied[h] = true
+		a.denied[h] = reason
 	}
 	failed := false
 	for _, s := range sessions {
@@ -385,11 +407,34 @@ func (a *dashboardAuth) remoteDiagnostics() map[string]any {
 		return result
 	}
 	count := 0
+	persistenceFailed := false
 	for _, s := range sessions {
-		if s.Revoked == "" && s.Generation == generation && s.ExpiresAt > a.now().UnixMilli() {
+		// The browser can discard its cookie after rejection. Host diagnostics
+		// also retry pending denials, without waiting for that cookie again.
+		h, err := hex.DecodeString(s.Hash)
+		if err != nil {
+			result["store_health"] = "unavailable"
+			return result
+		}
+		var hash [32]byte
+		copy(hash[:], h)
+		reason := a.denied[hash]
+		if a.pendingRevocations[s.ID] && reason != "" {
+			if s.Revoked != "" || a.persistRemoteDenialLocked(s, reason) {
+				delete(a.pendingRevocations, s.ID)
+			} else {
+				persistenceFailed = true
+			}
+		}
+		if s.Revoked == "" && reason == "" && s.Generation == generation && s.ExpiresAt > a.now().UnixMilli() {
 			count++
 		}
 	}
+	if persistenceFailed {
+		a.storeHealth = "unavailable"
+	}
+	result["store_health"] = a.storeHealth
+	result["revocation_incomplete"] = len(a.pendingRevocations) > 0
 	result["active_sessions"] = count
 	return result
 }
@@ -407,6 +452,9 @@ func (a *dashboardAuth) remoteRejectionReason(r *http.Request) string {
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if reason := a.denied[hash]; reason != "" {
+		return reason
+	}
 	if a.store == nil {
 		return "unknown_credential"
 	}

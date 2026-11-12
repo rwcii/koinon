@@ -18,7 +18,8 @@ into a dated release section when promoted to `main`.
   opt-in private browser drafts, transactional receipts for messages, room posts
   and verdicts, and an Attention landing page with per-browser unread cursors.
   Remote diagnostics distinguish observed requests, storage health and authentication
-  end reasons. Local browser and maintainer API-token policies are unchanged.
+  end reasons. Failed expiry writes stay visible and retry after storage recovers,
+  including from host diagnostics after the browser drops its cookie. Local browser and maintainer API-token policies are unchanged.
   Actual phone retention and platform lifecycle acceptance remain separately verified.
 
 - `koinon remote enable --https-port PORT` publishes the remote dashboard on another

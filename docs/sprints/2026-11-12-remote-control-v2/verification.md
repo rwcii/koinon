@@ -1,5 +1,59 @@
 # Remote control v2 verification
 
+## Current acceptance run
+
+Andrew approved retaining crash survival with the documented total-write-failure
+limit, and approved an unsigned DCO follow-up and draft PR for CI. See
+[decision.md](decision.md) for the questions, answers and scope. Current develop
+was merged before preparing the follow-up. The combined focused v2/auth/QR race
+run passed in 13.064s on that integrated source, and `go vet ./...` passed.
+Exact-head full-suite, CI and review
+results belong to the draft PR and private run logs; the pre-integration results
+below do not imply those runs passed. Andrew has an iPhone for Safari acceptance;
+Android and elapsed retention remain unmeasured.
+
+## Pre-integration checkpoint after commit 7322934 — 2026-11-12
+
+The entries below this section describe the committed implementation. The
+follow-up currently consists of uncommitted expiry-retry changes, reviewed
+independently by a same-family reviewer. Failed expiry writes now keep their
+reason, report incomplete persistence, retry on bearer requests and host
+diagnostics, and remain denied during clock rollback. Mixed retry failures
+remain visible even if another pending write succeeds in the same diagnostics
+response. See [review.md](review.md) for the findings and dispositions.
+
+| Follow-up check | Result |
+| --- | --- |
+| Regression on original runtime | FAIL as expected: expiry persistence failure hidden (`false`) |
+| Focused v2 race suite, `-count=1`, including three new regressions | PASS, 10.300s |
+| Local/API lifetime and QR policy race suite, `-count=1` | PASS, 17.663s |
+| `go vet ./...` | PASS |
+| Native-tagged compile and vet | PASS; service-manager tests not executed |
+| Four CGO-free builds | PASS: linux/amd64, linux/arm64, darwin/amd64, darwin/arm64 |
+| Original supplied specification | Unchanged, blob `badcc108a863a75e46832f005e5342a5bac0bd78` |
+
+Logs are private under `remote-control-v2-evidence/expiry-focused-race.log` and
+`expiry-builds-vet.log` in the main checkout's ignored handoff directory.
+The full repository race suite has not been rerun on this follow-up; the previous
+full-suite failure below remains a historical result, not a follow-up pass.
+The branch is two upstream commits behind `origin/develop`; final integration
+and required exact-head CI remain open. No follow-up commit, push or PR was made.
+
+No actual phones or disposable native runners are connected. The local Xcode
+command-line installation has no `xctrace` device tool, `adb` is unavailable,
+and OrbStack lists no Linux machines. Docker is available but its existing
+application containers were left alone. These observations do not establish
+that devices or external runners are unavailable to the maintainer. Access was
+requested in the conversation. No phone, elapsed-retention, native service or CI
+pass is claimed. See [acceptance.md](acceptance.md) for the remaining run sheet.
+
+The pending retry fixes the recoverable-storage case. Process loss before any
+successful durable write, followed by arbitrary host-clock rollback, remains
+unresolved. A separate fallback journal only protects against database-specific
+failures; total-storage failure still loses evidence. Invalidating sessions after
+unclean shutdown would trade away crash survival. Those alternatives were raised
+in the conversation; neither was adopted without an answer.
+
 The supplied draft specification is preserved unchanged. Implementation began at
 `dfcca45` and the branch fast-forwarded to `848572461ba78d21c891c0289d178b8b32f00315`
 for the tailnet-only dashboard setting before integration. No shared daemon binary

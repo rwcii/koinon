@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -266,5 +267,148 @@ func TestDurableRemoteRestoreDisabledConfiguration(t *testing.T) {
 	next.store = d.store
 	if _, ok := next.session(remoteRequest(token)); ok {
 		t.Fatal("disabled state revocation lost on restart")
+	}
+}
+
+// A failed expiry write must remain visible and retry after storage recovers,
+// even when the clock rolls back before that retry.
+func TestDurableRemoteFailedExpiryRetriesBeforeRestart(t *testing.T) {
+	a, s, now := durableAuth(t)
+	token, err := a.start("remote:https://host.example.ts.net")
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := a.sessionInfo(token)
+	if _, err := s.db.Exec(`CREATE TEMP TRIGGER fail_expiry_write BEFORE UPDATE ON settings BEGIN SELECT RAISE(FAIL,'injected expiry failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	*now = time.UnixMilli(info.ExpiresAt)
+	if _, ok := a.session(remoteRequest(token)); ok {
+		t.Fatal("accepted expired credential with failed write")
+	}
+	if got := a.remoteDiagnostics()["revocation_incomplete"]; got != true {
+		t.Fatalf("expiry persistence failure hidden: %v", got)
+	}
+	if got := a.remoteRejectionReason(remoteRequest(token)); got != "session_expired" {
+		t.Fatalf("lost expiry reason: %s", got)
+	}
+	if _, err := s.db.Exec(`DROP TRIGGER fail_expiry_write`); err != nil {
+		t.Fatal(err)
+	}
+	*now = now.Add(-time.Hour)
+	if _, ok := a.session(remoteRequest(token)); ok {
+		t.Fatal("rollback revived pending expiry")
+	}
+	if got := a.remoteDiagnostics()["revocation_incomplete"]; got != false {
+		t.Fatalf("durable retry did not complete: %v", got)
+	}
+	root := s.root
+	if err := s.db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := openStore(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.db.Close()
+	b, err := newDashboardAuth(func() time.Time { return *now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.store = reopened
+	if _, ok := b.session(remoteRequest(token)); ok {
+		t.Fatal("restart and rollback revived retried expiry")
+	}
+	if got := b.remoteRejectionReason(remoteRequest(token)); got != "session_expired" {
+		t.Fatalf("durable reason: %s", got)
+	}
+}
+
+func TestDurableRemoteFailedExpiryDiagnosticsRetry(t *testing.T) {
+	a, s, now := durableAuth(t)
+	token, err := a.start("remote:https://host.example.ts.net")
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := a.sessionInfo(token)
+	if _, err := s.db.Exec(`CREATE TEMP TRIGGER fail_expiry_write BEFORE UPDATE ON settings BEGIN SELECT RAISE(FAIL,'injected expiry failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	*now = time.UnixMilli(info.ExpiresAt)
+	if _, ok := a.session(remoteRequest(token)); ok {
+		t.Fatal("expired credential accepted")
+	}
+	if _, err := s.db.Exec(`DROP TRIGGER fail_expiry_write`); err != nil {
+		t.Fatal(err)
+	}
+	*now = now.Add(-time.Hour)
+	// No further phone request: host diagnostics must finish the durable denial.
+	status := a.remoteDiagnostics()
+	if status["revocation_incomplete"] != false || status["active_sessions"] != 0 {
+		t.Fatalf("pending expiry not reconciled: %v", status)
+	}
+	b, err := newDashboardAuth(func() time.Time { return *now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.store = s
+	if _, ok := b.session(remoteRequest(token)); ok {
+		t.Fatal("diagnostics retry was not durable")
+	}
+}
+
+func TestDurableRemoteExpiryDiagnosticsMixedRetries(t *testing.T) {
+	a, s, now := durableAuth(t)
+	for i := 0; i < 2; i++ {
+		if _, err := a.start("remote:https://host.example.ts.net"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sessions, err := a.readRemoteLocked()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, session := range sessions {
+		raw, err := hex.DecodeString(session.Hash)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var hash [32]byte
+		copy(hash[:], raw)
+		a.denied[hash] = "session_expired"
+		if a.pendingRevocations == nil {
+			a.pendingRevocations = map[string]bool{}
+		}
+		a.pendingRevocations[session.ID] = true
+	}
+	// Fail the first row and allow the later row to succeed. The later success
+	// must not hide the earlier failure in this diagnostics response.
+	if _, err := s.db.Exec(`CREATE TEMP TRIGGER fail_first_expiry BEFORE UPDATE ON settings WHEN OLD.name = '` + remoteSessionPrefix + sessions[0].ID + `' BEGIN SELECT RAISE(FAIL,'injected expiry failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	status := a.remoteDiagnostics()
+	if status["store_health"] != "unavailable" || status["revocation_incomplete"] != true || status["active_sessions"] != 0 {
+		t.Fatalf("partial persistence failure hidden: %v", status)
+	}
+	if _, err := s.db.Exec(`DROP TRIGGER fail_first_expiry`); err != nil {
+		t.Fatal(err)
+	}
+	status = a.remoteDiagnostics()
+	if status["store_health"] != "healthy" || status["revocation_incomplete"] != false {
+		t.Fatalf("repair did not complete: %v", status)
+	}
+	b, err := newDashboardAuth(func() time.Time { return *now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.store = s
+	rows, err := b.readRemoteLocked()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range rows {
+		if row.Revoked != "session_expired" {
+			t.Fatal("missing durable denial")
+		}
 	}
 }

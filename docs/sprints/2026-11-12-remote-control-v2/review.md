@@ -65,3 +65,32 @@ next?" This is interpreted as authorization for an unsigned local DCO checkpoint
 of the full current change, including the preserved draft specification. GitHub
 identity was verified as Andrew Deugarte, andyde8, account 153491212. No signing
 configuration or publication policy was changed, and no push/PR was requested.
+
+
+## Commit 7322934 continuation review — 2026-11-12
+
+A separate Codex reviewer read the frozen commit without editing it. It found
+that failed expiry persistence entered the in-memory deny list, then the deny-list
+fast path skipped every later durable retry. This could leave expiry unwritten
+even after storage recovered. The failure also omitted the incomplete-revocation
+flag and lost the expiry reason on the rejected response. Accepted.
+
+The follow-up retains each denial reason, retries on a later bearer request, and
+retries pending rows when host diagnostics are read. The diagnostics path matters
+when the rejected browser has discarded its cookie. A failed write keeps access
+denied and incomplete persistence visible. Successful persistence clears the
+pending row. Diagnostics exclude pending denials from the active count.
+
+The reviewer also identified a mixed-result reporting defect in the follow-up:
+a later successful write could hide an earlier failed write in one diagnostics
+response. Accepted and corrected by aggregating failures across that response.
+Three regression tests cover request retry through rollback and store reopen,
+host-only diagnostic retry, and mixed successful/failed diagnostic retries.
+The first regression failed on the original code because incomplete persistence
+was reported as false. This is local independent review; no cross-family status
+or frozen follow-up commit approval is claimed.
+
+This correction does not create evidence when all durable writes fail and the
+process ends before a retry succeeds. The original draft already describes that
+limit for failed revocation. A fallback journal and an unclean-start invalidation
+policy were raised with Andrew; no answer or policy change is recorded here.

@@ -43,7 +43,7 @@ type dashboardSession struct {
 
 type dashboardAuth struct {
 	store              *Store
-	denied             map[[32]byte]bool
+	denied             map[[32]byte]string
 	denyAllRemote      bool
 	pendingRevocations map[string]bool
 	authReason         string
@@ -64,7 +64,7 @@ func newDashboardAuth(now func() time.Time) (*dashboardAuth, error) {
 	if _, err := rand.Read(key); err != nil {
 		return nil, err
 	}
-	return &dashboardAuth{denied: map[[32]byte]bool{}, storeHealth: "healthy", now: now, csrfKey: key, links: map[[32]byte]time.Time{}, tickets: map[[32]byte]remoteTicket{}, sessions: map[[32]byte]*dashboardSession{},
+	return &dashboardAuth{denied: map[[32]byte]string{}, storeHealth: "healthy", now: now, csrfKey: key, links: map[[32]byte]time.Time{}, tickets: map[[32]byte]remoteTicket{}, sessions: map[[32]byte]*dashboardSession{},
 		gate: secretGate{mu: make(chanMutex, 1)}}, nil
 }
 
@@ -287,7 +287,7 @@ func (a *dashboardAuth) logout(id string) error {
 		delete(a.sessions, hash)
 		return nil
 	}
-	a.denied[hash] = true
+	a.denied[hash] = "device_revoked"
 	if a.store == nil {
 		delete(a.sessions, hash)
 		return nil
