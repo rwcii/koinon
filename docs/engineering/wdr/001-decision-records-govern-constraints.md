@@ -373,7 +373,7 @@ only in one machine's store. Recorded text is public, so agents write every card
 A decision from another repository is recorded in a checkout of the repository that it names
 (`author_repository`), with no new approval. A verdict read (`decision_get`, `decision_pending`,
 the verdict message) gives the verdict, the card text and this form; the installed guide and
-the ship skill give the same form. `koinon decision export PATH` writes every item, live and
+the ship skill give the same form. `koinon decision export --as FAMILY:ID PATH` writes every item, live and
 deep-archived, as JSON lines to a new private file outside a Git work tree, so a person or CI
 can read a copy of the board without the daemon. The ship skill no longer declares the
 `Decision record` fact: a `.koinon/skills/ship.md` that holds it stays valid, and Koinon

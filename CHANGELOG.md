@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- `koinon --help` names `koinon decision export --as FAMILY:ID PATH` and the launcher's `--role`
+  and the Claude-only `--bg`, and `koinon guide` names Grok and the `work_checkout` and `work_checkout_request`
+  tools. README, PROTOCOL.md, docs/INSTALL.md and docs/USAGE.md now include Grok in the lists of
+  families that get the shared skills, launchers and context cycles, the network dashboard, and
+  the `binary_changed` stop reason.
+
 - The dashboard shows the Koinon icon in its header and browser tab, with a light and a dark
   variant, and the README opens with the Koinon logo.
 

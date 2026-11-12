@@ -30,7 +30,7 @@ var errExportChanged = errors.New("the board changed during the export")
 // The file appears only when it is complete, and an existing file is never replaced.
 func decisionExport(ctx context.Context, out io.Writer, address, secret string, caller any, path string) error {
 	if path == "" {
-		return usageError{"invalid_request", "koinon decision export needs the file: koinon decision export PATH"}
+		return usageError{"invalid_request", "koinon decision export needs the file: koinon decision export --as FAMILY:ID PATH"}
 	}
 	path, err := filepath.Abs(path)
 	if err != nil {

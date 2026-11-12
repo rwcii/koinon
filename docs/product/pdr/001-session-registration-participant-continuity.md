@@ -114,7 +114,7 @@ directory and its host process is among the caller's ancestors, or, for a backgr
 when its recorded job ID begins the session ID. `koinon <family>` creates the launch and
 passes it to the session's MCP server.
 
-DeepSeek has no launcher (`launcher.Families` holds the other four families). It registers
+DeepSeek has no launcher (`launcher.Families` holds the other five families). It registers
 with `koinon register --as deepseek:ID`; the daemon refuses a DeepSeek registration with a
 launch ID or `subagent`. A DeepSeek session has no role and no host record.
 
