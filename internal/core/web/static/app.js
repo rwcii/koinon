@@ -112,11 +112,13 @@
   "use strict";
   document.addEventListener("submit", function (event) {
     var form = event.target;
-    if (form.method.toLowerCase() !== "post") { return; }
+    // Read the attributes: a form control named "action" or "method" hides the form's own
+    // property of that name, as the Sessions bulk form's action select does (#654).
+    if ((form.getAttribute("method") || "get").toLowerCase() !== "post") { return; }
     event.preventDefault();
     if (form.dataset.busy) { return; }
     var submitter = event.submitter;
-    var target = new URL(submitter && submitter.getAttribute("formaction") || form.action, window.location.href);
+    var target = new URL(submitter && submitter.getAttribute("formaction") || form.getAttribute("action") || window.location.href, window.location.href);
     if (target.origin !== window.location.origin || !target.pathname.startsWith("/dashboard/")) {
       var refusal = document.getElementById("action-result");
       if (refusal) { refusal.textContent = "This form target is unavailable. Reload the page before trying again."; refusal.hidden = false; }
