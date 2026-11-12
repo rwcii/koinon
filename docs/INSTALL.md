@@ -851,7 +851,8 @@ the old session, which then stays retired.
 
 The daemon writes one JSON line to standard error for each lifecycle event: `start` (version,
 state directory, listeners), `stop` with its `reason` (`signal` and its name, `canceled`,
-`error` with a fixed code, or `lock_held`), `lock_wait` and `lock_acquired`. The lines hold no
+`error` with a fixed code, `lock_held`, or `binary_changed`, which exits non-zero so that the
+service manager starts the new binary), `lock_wait` and `lock_acquired`. The lines hold no
 secret, message body or session ID. On macOS the launchd agent writes them to
 `~/Library/Logs/koinon/daemon.log` (directory mode 0700). Installation refuses an existing log
 directory that is not private to this user (`service_log_unsafe`) and does not change it. On

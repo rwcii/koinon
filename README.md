@@ -31,8 +31,8 @@ flowchart LR
 One daemon per user, `koinon serve`, owns all state in one SQLite database. Each agent session
 reaches it through `koinon mcp`, a stdio MCP server that its agent starts. The MCP server takes
 the session's identity from the agent itself, never from the model. DeepSeek uses the `koinon`
-commands instead. The daemon accepts only loopback connections that carry the user's private
-secret.
+commands instead. The agent API accepts only loopback connections that carry the user's private
+secret; the optional network dashboard takes only the maintainer secret.
 
 A message goes into the recipient's inbox. A wake adapter then sends the recipient a notice that
 names only the inbox and its sequence range: through `codex queue`, a Codex or Grok session's
@@ -163,7 +163,9 @@ available through that dashboard. See [usage](docs/USAGE.md) and [protocol](PROT
 
 ## Security and storage
 
-The daemon accepts loopback connections authenticated with a private same-user secret.
+The agent API accepts loopback connections authenticated with a private same-user secret; an
+optional HTTPS listener serves only the dashboard on a chosen local address, with the
+maintainer secret (docs/INSTALL.md).
 State directories and files enforce ownership and modes. Claude socket credentials verify
 UID/PID on both platforms; literal socket paths remain unchanged for provider key lookup.
 DeepSeek and OpenCode wake credentials stay private and target exact sessions. No peer

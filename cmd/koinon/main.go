@@ -433,6 +433,7 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N]
        koinon decision close --as FAMILY:ID --reference REF --if-revision N [--note TEXT] --key KEY --deadline UNIX_SECONDS
        koinon decision withdraw --as FAMILY:ID --reference REF --if-revision N --reason TEXT --key KEY --deadline UNIX_SECONDS
        koinon decision restore --as FAMILY:ID --reference REF [--if-revision N]
+       koinon decision export --as FAMILY:ID PATH
        koinon context show [--json] [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon context set FAMILY --mode observe|native_compaction|handoff_cycle --threshold PERCENT
        koinon context enable|disable NAME
@@ -453,7 +454,7 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N]
        koinon work <get|propose|edit|start|update|release|finish|report|accept|reject> WORK_ID --as FAMILY:ID [--consumer KEY] [options]
        koinon claim renew WORK_ID --as FAMILY:ID --claim-generation N --if-claim-revision N [--lease-seconds S]
        koinon recover [--state-dir DIR] [--address 127.0.0.1:PORT]
-       koinon <claude|codex|agy|opencode|grok> [--state-dir DIR] [--address HOST:PORT] [--cli ABS_PATH] [--directory DIR] [--tmux-session NAME] [--] [CLI arguments...]
+       koinon <claude|codex|agy|opencode|grok> [--state-dir DIR] [--address HOST:PORT] [--cli ABS_PATH] [--directory DIR] [--tmux-session NAME] [--role ROLE] [--bg] [--] [CLI arguments...]
        koinon peers --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon peer-status --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT] NAME
        koinon send --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT] NAME BODY

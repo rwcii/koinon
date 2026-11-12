@@ -328,7 +328,7 @@ Chunk 02 adds the durable cycle. A context observation that makes an enabled ses
 admits a cycle when the family has a registered cycle adapter, the session still has the host
 and tmux pane that its Enable pinned, it has no unfinished cycle (nor has its host), and fewer
 than 16 cycles are unfinished. Chunk 03 registers the Claude Code adapter, chunk 04 the Codex
-adapter, #512 the agy adapter, #513 the OpenCode adapter and #514 the DeepSeek adapter; the
+adapter, #512 the agy adapter, #513 the OpenCode adapter, #514 the DeepSeek adapter and #515 the Grok adapter; the
 other families have none, so their Enable is refused. Admission is one ordinary transaction: the
 cycle row, its first event `requested admitted`, an audit record and the typed request in the
 session's own inbox. The request's sender is the reserved system identity `overwatch`
@@ -563,7 +563,7 @@ The skill's body only reads `skill.pickup` with `library_read` and requires its 
 to equal the cycle's `catalog_digest`, which `context_cycle_status` returns; it holds no
 procedure of its own. The daemon writes it at each start, from its own environment
 (`$CLAUDE_CONFIG_DIR`, else `~/.claude`, and `~/.agents/skills`, and OpenCode's and agy's
-configuration directories when they exist), when it is missing or holds other content, and
+configuration directories and the Grok home (`$GROK_HOME`, else `~/.grok`) when they exist), when it is missing or holds other content, and
 `koinon install` writes it for the person who runs it; neither writes into a repository (see
 [INSTALL.md](docs/INSTALL.md)). The install report lists it in `pickup_skills` and the other
 skill entries in `team_skills`, one row per file with `family`, `name` (for an entry), `path`

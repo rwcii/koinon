@@ -9,7 +9,7 @@ import (
 const guideCommon = `# Koinon
 
 Koinon connects this session to the maintainer's other local agent sessions: Claude, Codex,
-DeepSeek, Antigravity and OpenCode, so that agents of different families work together. Send
+DeepSeek, Antigravity, OpenCode and Grok, so that agents of different families work together. Send
 your messages to other agents, also to another session of your own family, through Koinon.
 
 ## Tools
@@ -69,6 +69,8 @@ for retained context; current members can reply.
 - work_report, work_accept, work_reject: report a held item's result with evidence (the
   claim is released and the item waits for a verdict); accept or reject another worker's
   current report. Another worker records the verdict on a report.
+- work_checkout, work_checkout_request: read this checkout's advisory writer role, and ask
+  its current writer for a handoff of the role.
 - Daemon work notices name a repository and changed head. Use work_list with assigned_to_me
   or created_by_me, process memory_sync through that head, then acknowledge the handled
   inbox notice. Current queries remain complete after a reset or a missed notice, including
