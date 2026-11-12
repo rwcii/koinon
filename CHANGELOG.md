@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- When remote access is on and Serve is ready, `koinon remote status` (fields `policy_hint` and
+  `policy_rule` in `--json`) and the dashboard's connection details say that the tailnet access
+  policy must allow TCP 443 to this computer, and show an example policy entry with its own
+  IPv4 and IPv6 Tailscale addresses (#653). Before, status showed "ready" while the policy
+  blocked the phone, which then timed out. Koinon cannot read the policy: Tailscale's debug
+  reads of the packet filter disagree with the filter in effect, so Koinon names the rule and
+  does not claim a block.
+
 ## 2026-11-12 — Bulk session actions work again, and Linux remote setup names the Tailscale operator step
 
 This release fixes the Sessions view's bulk actions, which failed with HTTP 404 in v0.10.2. On

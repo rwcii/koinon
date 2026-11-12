@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/exec"
@@ -247,11 +248,14 @@ func (h *Handler) UnmarshalJSON(data []byte) error {
 }
 
 type Status struct {
-	BackendState string      `json:"backend_state"`
-	Online       bool        `json:"online"`
-	DNSName      string      `json:"dns_name,omitempty"`
-	Origin       string      `json:"origin,omitempty"`
-	HTTPSReady   bool        `json:"https_ready"`
+	BackendState string `json:"backend_state"`
+	Online       bool   `json:"online"`
+	DNSName      string `json:"dns_name,omitempty"`
+	Origin       string `json:"origin,omitempty"`
+	HTTPSReady   bool   `json:"https_ready"`
+	// TailscaleIPs are the host's own Tailscale addresses, IPv4 first, for the policy
+	// example (#653). Only addresses in Tailscale's ranges are kept.
+	TailscaleIPs []string    `json:"tailscale_ips,omitempty"`
 	Serve        ServeConfig `json:"-"`
 }
 
@@ -309,8 +313,9 @@ func (m Manager) Inspect(ctx context.Context) (Status, error) {
 	var raw struct {
 		BackendState string
 		Self         *struct {
-			Online  bool
-			DNSName string
+			Online       bool
+			DNSName      string
+			TailscaleIPs json.RawMessage
 		}
 		CertDomains []string
 	}
@@ -325,6 +330,7 @@ func (m Manager) Inspect(ctx context.Context) (Status, error) {
 		if !ValidOrigin(s.Origin) {
 			s.Origin = ""
 		}
+		s.TailscaleIPs = tailnetIPs(raw.Self.TailscaleIPs)
 		for _, domain := range raw.CertDomains {
 			if strings.TrimSuffix(domain, ".") == s.DNSName {
 				s.HTTPSReady = true
@@ -339,6 +345,65 @@ func (m Manager) Inspect(ctx context.Context) (Status, error) {
 		return s, diagnostic("tailscale_serve_invalid", "update Tailscale; its Serve configuration could not be read; no mappings were changed")
 	}
 	return s, nil
+}
+
+var (
+	tailnetV4 = netip.MustParsePrefix("100.64.0.0/10")
+	tailnetV6 = netip.MustParsePrefix("fd7a:115c:a1e0::/48")
+)
+
+// tailnetIPs keeps the valid Tailscale addresses of the status field, IPv4 first. Missing
+// or malformed data gives none; it never makes the status unreadable (#653).
+func tailnetIPs(raw json.RawMessage) []string {
+	var values []any
+	if len(raw) == 0 || json.Unmarshal(raw, &values) != nil {
+		return nil
+	}
+	var v4, v6 []string
+	seen := map[netip.Addr]bool{}
+	for _, value := range values {
+		text, ok := value.(string)
+		if !ok {
+			continue
+		}
+		addr, err := netip.ParseAddr(text)
+		if err != nil || addr.Zone() != "" || seen[addr] {
+			continue
+		}
+		switch {
+		case addr.Is4() && tailnetV4.Contains(addr):
+			v4 = append(v4, addr.String())
+		case addr.Is6() && !addr.Is4In6() && tailnetV6.Contains(addr):
+			v6 = append(v6, addr.String())
+		default:
+			continue
+		}
+		seen[addr] = true
+	}
+	return append(v4, v6...)
+}
+
+// PolicyRule is an example tailnet policy entry that admits HTTPS to the given host
+// addresses, or "" when there are none. autogroup:member is every member of the tailnet.
+func PolicyRule(ips []string) string {
+	var dst []string
+	for _, ip := range ips {
+		addr, err := netip.ParseAddr(ip)
+		if err != nil {
+			continue
+		}
+		dst = append(dst, netip.AddrPortFrom(addr, 443).String())
+	}
+	if len(dst) == 0 {
+		return ""
+	}
+	rule, _ := json.Marshal(struct {
+		Action string   `json:"action"`
+		Src    []string `json:"src"`
+		Proto  string   `json:"proto"`
+		Dst    []string `json:"dst"`
+	}{"accept", []string{"autogroup:member"}, "tcp", dst})
+	return string(rule)
 }
 
 func conflict() error {

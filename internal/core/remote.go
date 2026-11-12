@@ -36,7 +36,14 @@ type RemoteStatus struct {
 	Tailscale  *remote.Status `json:"tailscale,omitempty"`
 	Error      string         `json:"error,omitempty"`
 	Phone      string         `json:"phone"`
+	// PolicyHint and PolicyRule say what the tailnet access policy must allow when the
+	// host is ready but the phone is unverified (#653). Koinon cannot read the policy.
+	PolicyHint string `json:"policy_hint,omitempty"`
+	PolicyRule string `json:"policy_rule,omitempty"`
 }
+
+const policyHint = "If the phone times out, the tailnet access policy must allow TCP 443 to this computer's Tailscale addresses (docs/REMOTE-DASHBOARD.md)."
+const policyRuleNote = "autogroup:member is every member of the tailnet; replace it with a user, group or devices for narrower access."
 
 type remoteRuntime struct {
 	mu       sync.Mutex
@@ -333,6 +340,11 @@ func (d *Daemon) remoteStatus(ctx context.Context) RemoteStatus {
 				}
 			} else {
 				result.Serve = "ready"
+				result.PolicyHint = policyHint
+				if rule := remote.PolicyRule(observed.TailscaleIPs); rule != "" {
+					result.PolicyHint += " Example policy entry; " + policyRuleNote
+					result.PolicyRule = rule
+				}
 			}
 		}
 	}
