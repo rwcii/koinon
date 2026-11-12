@@ -155,3 +155,28 @@ func TestRemoteStatusUnavailableDaemon(t *testing.T) {
 		t.Fatal("status changed mapping after graceful shutdown cleanup", n)
 	}
 }
+
+// A stopped daemon makes enable and disable daemon_unavailable, not daemon_error, also when
+// its state directory still holds the secret.
+func TestRemoteStoppedDaemonIsUnavailable(t *testing.T) {
+	ctx := context.Background()
+	root := filepath.Join(t.TempDir(), "state")
+	d, err := core.Start(core.Config{StateDir: root, Listen: []string{"127.0.0.1:0"}, Tailscale: &remoteCLIAdapter{}, SecretCost: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := d.Addresses()[0]
+	if err := d.Close(); err != nil {
+		t.Fatal(err)
+	}
+	for _, action := range []string{"enable", "disable"} {
+		err := run(ctx, []string{"remote", action, "--state-dir", root, "--address", address}, strings.NewReader(""), &bytes.Buffer{})
+		if code := errorReport(err)["code"]; code != "daemon_unavailable" {
+			t.Fatalf("%s: code %v, error %v", action, code, err)
+		}
+	}
+	refused := remoteCallError("enable", core.RefusedError{Code: "remote_secret_required"})
+	if code := errorReport(refused)["code"]; code != "remote_secret_required" {
+		t.Fatal("refusal code lost", code)
+	}
+}

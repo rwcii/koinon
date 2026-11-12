@@ -113,8 +113,9 @@ The implementation follows these boundaries from the authorized specification:
   Login reuses the existing global maintainer-secret backoff; the network access
   policy selects the intended maintainer devices.
 - An injectable adapter inspects Tailscale and Serve before mutation. A private
-  ownership intent is written before adding the mapping, and disabled intent
-  before stopping or removing it. Repeats and restart recovery finish the same
+  ownership intent is written before adding the mapping. Disable closes the listener
+  first, then writes disabled intent before removing the mapping; when that write
+  fails, the surface stays closed and the reconciler retries the write. Repeats and restart recovery finish the same
   transition. Unrelated configuration is preserved; conflicting root, foreground,
   TCP, or Funnel configuration is reported. Removal compares the exact owned
   target and uses explicit `--set-path=/` as required by the Tailscale CLI's

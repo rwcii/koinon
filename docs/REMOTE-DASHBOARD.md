@@ -82,9 +82,8 @@ host status. Use the displayed check action after the account step. If a read fa
 displayed status as potentially stale. The page retains an open confirmation
 section or form while its action is running.
 
-These controls require the daemon version that includes them. Before upgrading a
-shared service, inspect `koinon install --plan` and coordinate its current users.
-The command-line workflow remains available.
+These controls require Koinon v0.10.2 or later; `koinon install --plan` shows the
+steps an upgrade still needs. The command-line workflow remains available.
 
 ## Set up from the command line
 
@@ -175,8 +174,9 @@ configuration on the required port. An existing matching mapping without Koinon'
 ownership record is not adopted. Other mounts and ports stay in Tailscale's
 configuration; Koinon never runs `tailscale serve reset`.
 
-Disable records the disabled state first, stops only the remote listener, and ends
-its sessions. It removes only the exact root mapping recorded as Koinon's own,
+Disable first stops only the remote listener and ends its sessions, then records the
+disabled state. If that record cannot be written, the listener stays stopped and
+Koinon retries the record instead of starting the listener again. It removes only the exact root mapping recorded as Koinon's own,
 using explicit `--set-path=/`; a changed mapping is reported and preserved. If
 cleanup fails, the ownership record remains so a repeat or restart can finish it.
 Disable keeps local and LAN dashboard access, and does not log the host out of

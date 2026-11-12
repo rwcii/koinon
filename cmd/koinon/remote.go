@@ -57,7 +57,7 @@ func remoteCommand(ctx context.Context, args []string, out io.Writer) error {
 	if err == nil {
 		if args[0] != "status" {
 			if _, err := core.Call(ctx, *address, bearer, "/v1/remote/"+args[0], struct{}{}); err != nil {
-				return fmt.Errorf("remote %s: %w", args[0], err)
+				return remoteCallError(args[0], err)
 			}
 		}
 		var data []byte
@@ -68,11 +68,7 @@ func remoteCommand(ctx context.Context, args []string, out io.Writer) error {
 	}
 	if err != nil {
 		if args[0] != "status" {
-			var refused core.RefusedError
-			if errors.As(err, &refused) {
-				return err
-			}
-			return usageError{"daemon_unavailable", fmt.Sprintf("daemon unavailable or too old: install this version, then repeat koinon remote %s: %v", args[0], err)}
+			return remoteCallError(args[0], err)
 		}
 		status, err = remoteOfflineStatus(ctx, *state, nil)
 		if err != nil {
@@ -80,6 +76,16 @@ func remoteCommand(ctx context.Context, args []string, out io.Writer) error {
 		}
 	}
 	return printRemoteStatus(out, status, args[0], *asJSON)
+}
+
+// remoteCallError keeps the daemon's refusal and its code; any other failure of a call
+// means that the daemon did not answer, so it is daemon_unavailable.
+func remoteCallError(action string, err error) error {
+	var refused core.RefusedError
+	if errors.As(err, &refused) {
+		return fmt.Errorf("remote %s: %w", action, err)
+	}
+	return usageError{"daemon_unavailable", fmt.Sprintf("daemon unavailable or too old: install this version, then repeat koinon remote %s: %v", action, err)}
 }
 
 // An unavailable daemon makes readiness unknown, not configured=false. Status remains

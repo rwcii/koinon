@@ -65,8 +65,9 @@ forwarding headers as authority. The existing LAN HTTPS listener is independent.
 The private, owner-checked mode-0600 `remote-dashboard.json` records version,
 enabled state, ownership intent, external origin, and the loopback target port.
 Enable checks existing Serve use before recording new ownership intent and
-uses targeted persistent background setup. Disable journals its state before
-closing the listener and invalidating remote sessions, then removes only the
+uses targeted persistent background setup. Disable closes the listener and
+invalidates remote sessions first, then journals its state (the surface stays closed
+when the journal cannot be written), then removes only the
 exact owned root target with explicit `--set-path=/`. An unavailable dependency
 or changed mapping retains the journal for diagnosis and retry; it never causes
 a Serve reset or removal of unrelated mappings. Starts restore the listener and
