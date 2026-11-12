@@ -709,6 +709,7 @@ func TestDashboardLogo(t *testing.T) {
 	}
 	page := dashboardDo(t, d, "GET", "/dashboard/sessions", "", nil, nil)
 	for _, want := range []string{`<link rel="icon" type="image/svg+xml" href="/dashboard/static/koinon-icon-for-light.svg">`,
+		`<link rel="icon" type="image/svg+xml" href="/dashboard/static/koinon-icon-for-dark.svg" media="(prefers-color-scheme: dark)">`,
 		`<source srcset="/dashboard/static/koinon-icon-for-dark.svg" media="(prefers-color-scheme: dark)">`} {
 		if !strings.Contains(page.body, want) {
 			t.Fatalf("page lacks %s", want)
