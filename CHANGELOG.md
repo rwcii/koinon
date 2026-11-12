@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- On Linux, `brew upgrade koinon` no longer shows "ACTION REQUIRED: ... koinon install" while the
+  installation is current (#643). Homebrew runs the plan without `XDG_RUNTIME_DIR`, so
+  `systemctl --user` did not reach the user manager, and the plan then compared the version of
+  the daemon that had not restarted yet. A `systemctl` or `journalctl` command without
+  `XDG_RUNTIME_DIR` now gets the user's own `/run/user/UID`.
+
 - `koinon --help` names `koinon decision export --as FAMILY:ID PATH` and the launcher's `--role`
   and the Claude-only `--bg`, and `koinon guide` names Grok and the `work_checkout` and `work_checkout_request`
   tools. README, PROTOCOL.md, docs/INSTALL.md and docs/USAGE.md now include Grok in the lists of
