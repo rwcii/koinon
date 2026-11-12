@@ -219,7 +219,7 @@ func TestDashboardPasswordLogin(t *testing.T) {
 	if page.status != 200 || strings.Contains(page.body, `name="secret"`) || !strings.Contains(page.body, "koinon maintainer secret set") {
 		t.Fatalf("login page without a secret: %d %s", page.status, page.body)
 	}
-	if r := passwordForm(t, d, testSecret, nil); r.status != 401 || !strings.Contains(r.body, "No maintainer secret is set") {
+	if r := passwordForm(t, d, testSecret, nil); r.status != 401 || !strings.Contains(r.body, "No Koinon password is set") {
 		t.Fatalf("post without a secret: %d", r.status)
 	}
 	if status, _ := secretCall(t, d, bearer, `{"action":"set","secret":"`+testSecret+`"}`); status != 200 {
@@ -247,7 +247,7 @@ func TestDashboardPasswordLogin(t *testing.T) {
 	}
 	wrong := "wrong secret " + strings.Repeat("z", 20)
 	if r := passwordForm(t, d, wrong, nil); r.status != 401 || r.header.Get("Set-Cookie") != "" ||
-		!strings.Contains(r.body, "not correct") || strings.Contains(r.body, wrong) || strings.Contains(r.body, "zzzz") {
+		!strings.Contains(r.body, "isn’t correct") || strings.Contains(r.body, wrong) || strings.Contains(r.body, "zzzz") {
 		t.Fatalf("wrong secret: %d %s", r.status, r.body)
 	}
 	big := dashboardDo(t, d, "POST", "/dashboard/login", "", func(r *http.Request) { r.Header.Set("Origin", "http://"+r.Host) },

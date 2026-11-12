@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
+	"os"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -32,6 +33,7 @@ type settingsData struct {
 	// Context is each family's context policy (#196); Modes are the selectable modes.
 	Context []ContextFamilyPolicy
 	Modes   []string
+	Remote  *dashboardRemoteData
 }
 
 // loginData is the login page's reason, and whether it shows the secret form.
@@ -60,6 +62,7 @@ type loginData struct {
 	Reason  string
 	Form    bool
 	Network bool
+	Return  string
 }
 
 // loginFormLimit bounds a login form: a secret of MaintainerSecretMaxBytes, form-encoded.
@@ -77,6 +80,8 @@ type dashboardPage struct {
 	// Reload makes the refresh load the whole page once its list reads again: the fault page
 	// has none of the view's actions or filters to keep (#507).
 	Reload bool
+	Host   string
+	Remote bool
 }
 
 func dashboardTemplates() (map[string]*template.Template, error) {
@@ -134,12 +139,12 @@ func dashboardTemplates() (map[string]*template.Template, error) {
 			return text
 		},
 	}
-	layout, err := template.New("layout.html").Funcs(funcs).ParseFS(webFiles, "web/layout.html")
+	layout, err := template.New("layout.html").Funcs(funcs).ParseFS(webFiles, "web/layout.html", "web/remote.html")
 	if err != nil {
 		return nil, err
 	}
 	result := map[string]*template.Template{}
-	for _, view := range append([]string{"login", "fault"}, dashboardViews...) {
+	for _, view := range append([]string{"login", "fault", "pair"}, dashboardViews...) {
 		t, err := template.Must(layout.Clone()).ParseFS(webFiles, "web/"+view+".html")
 		if err != nil {
 			return nil, err
@@ -165,6 +170,8 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 			name = "list"
 		}
 		page.Views, page.Now = dashboardViews, d.store.now()
+		page.Host, _ = os.Hostname()
+		page.Remote = remoteOrigin(r) != ""
 		page.Back = backField(page.View, r.URL.Query())
 		if page.CSRF != "" {
 			page.Notice = notice(r.URL.Query().Get("notice"))
@@ -187,8 +194,15 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 	// refuse shows the login page with its reason, and the secret form when a maintainer
 	// secret is set (PDR 009, Decision 2).
 	refuse := func(w http.ResponseWriter, r *http.Request, status int, reason string) {
+		target := dashboardReturn(r.URL.RequestURI())
+		if r.URL.Path == "/dashboard/login" {
+			target = dashboardReturn(r.URL.Query().Get("return"))
+		}
+		if target == "" {
+			target = dashboardReturn(r.PostForm.Get("return"))
+		}
 		form, _ := d.store.maintainerSecretSet(r.Context())
-		render(w, r, status, dashboardPage{View: "login", Title: "Not signed in", Data: loginData{Reason: reason, Form: form, Network: networkDashboard(r)}})
+		render(w, r, status, dashboardPage{View: "login", Title: "Not signed in", Data: loginData{Reason: reason, Form: form, Network: networkDashboard(r) || remoteOrigin(r) != "", Return: target}})
 	}
 	// authedLimit requires a live login session and, for a state-changing request, its
 	// CSRF token; it reads a form body of at most limit bytes.
@@ -229,9 +243,14 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 	// login can, so a browser restart keeps it (#435).
 	signedIn := func(w http.ResponseWriter, r *http.Request, id string) {
 		http.SetCookie(w, &http.Cookie{Name: cookieName(r), Value: id, Path: "/dashboard/", MaxAge: int(sessionAbsolute.Seconds()),
-			HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: networkDashboard(r)})
-		http.Redirect(w, r, "/dashboard/sessions", http.StatusSeeOther)
+			HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: networkDashboard(r) || remoteOrigin(r) != ""})
+		target := dashboardReturn(r.PostForm.Get("return"))
+		if target == "" {
+			target = "/dashboard/sessions"
+		}
+		http.Redirect(w, r, target, http.StatusSeeOther)
 	}
+	d.dashboardPairRoutes(mux, authed, signedIn, render)
 	mux.HandleFunc("GET /dashboard/login", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			// A HEAD request, such as a link preview, never uses the token.
@@ -261,7 +280,7 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 			refuse(w, r, http.StatusBadRequest, "request")
 			return
 		}
-		id, err := d.passwordLogin(r.Context(), r.PostForm.Get("secret"), "dashboard")
+		id, err := d.passwordLogin(r.Context(), r.PostForm.Get("secret"), dashboardClient(r))
 		var backoff SecretBackoff
 		switch {
 		case err == nil:
@@ -279,10 +298,11 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 	})
 	mux.HandleFunc("POST /dashboard/logout", authed(func(w http.ResponseWriter, r *http.Request, id string) {
 		d.auth.logout(id)
-		http.SetCookie(w, &http.Cookie{Name: cookieName(r), Value: "", Path: "/dashboard/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: networkDashboard(r)})
+		http.SetCookie(w, &http.Cookie{Name: cookieName(r), Value: "", Path: "/dashboard/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: networkDashboard(r) || remoteOrigin(r) != ""})
 		refuse(w, r, http.StatusOK, "logout")
 	}))
 	d.dashboardActions(mux, authedLimit)
+	d.dashboardRemoteRoutes(mux, authed, pages)
 	mux.HandleFunc("GET /dashboard/{$}", authed(func(w http.ResponseWriter, r *http.Request, _ string) {
 		http.Redirect(w, r, "/dashboard/sessions", http.StatusSeeOther)
 	}))
@@ -308,6 +328,12 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 				refuse(w, r, http.StatusBadRequest, "request")
 				return
 			}
+			if settings, ok := data.(settingsData); ok && r.URL.Query().Get("fragment") != "1" && (r.URL.Query().Get("remote_status") == "1" || r.URL.Query().Get("remote_setup") == "1") {
+				remoteData := d.dashboardRemoteState(r.Context(), r.URL.Query().Get("remote_setup") == "1", d.auth.csrf(id))
+				remoteData.OnRemote = remoteOrigin(r) != ""
+				settings.Remote = &remoteData
+				data = settings
+			}
 			render(w, r, http.StatusOK, dashboardPage{View: view, Title: strings.ToUpper(view[:1]) + view[1:], CSRF: d.auth.csrf(id), Data: data})
 		}))
 	}
@@ -316,7 +342,7 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 		origin := r.Header.Get("Origin")
 		scheme := "http://"
 		expectedHost := r.Host
-		if networkDashboard(r) {
+		if networkDashboard(r) || remoteOrigin(r) != "" {
 			scheme = "https://"
 			expectedHost = dashboardHTTPSAuthority(expectedHost)
 			if strings.HasPrefix(origin, "https://") {
@@ -324,7 +350,7 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 			}
 		}
 		switch {
-		case !networkDashboard(r) && !dashboardHost(r):
+		case !networkDashboard(r) && remoteOrigin(r) == "" && !dashboardHost(r):
 			http.Error(w, "foreign host", http.StatusForbidden)
 		case origin != "" && origin != scheme+expectedHost:
 			http.Error(w, "foreign origin", http.StatusForbidden)

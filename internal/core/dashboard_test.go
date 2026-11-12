@@ -141,7 +141,7 @@ func TestDashboardLoginAndRequestProtection(t *testing.T) {
 		t.Fatalf("sessions: %d %s", page.status, page.body)
 	}
 	for name, want := range map[string]string{
-		"Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+		"Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
 		"X-Frame-Options":         "DENY", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "same-origin",
 		"Cache-Control": "no-store", "Cross-Origin-Opener-Policy": "same-origin",
 	} {
@@ -543,7 +543,7 @@ func TestDashboardViewsRenderSyntheticState(t *testing.T) {
 	if strings.Contains(messages, "<script>alert") || strings.Contains(messages, `href="javascript:`) {
 		t.Fatal("message body not escaped")
 	}
-	if got := strings.Count(messages, "<td>yes<br><small>by recipient ("+b.Name+", ack)</small></td>"); got != 1 {
+	if got := strings.Count(messages, "<td data-label=\"Acknowledged\">yes<br><small>by recipient ("+b.Name+", ack)</small></td>"); got != 1 {
 		t.Fatalf("acknowledged messages: %d", got)
 	}
 	contains(page("/dashboard/messages?to="+b.Name), "first message")

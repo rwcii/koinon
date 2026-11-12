@@ -71,6 +71,8 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		if len(args) > 1 && args[1] == "clear" {
 			return cleanupCommand(ctx, "inbox", "clear", args[2:], out)
 		}
+	case "remote":
+		return remoteCommand(ctx, args[1:], out)
 	case "dashboard":
 		return dashboardCommand(ctx, args[1:], out)
 	case "maintainer":
@@ -395,6 +397,7 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N]
        koinon serve [--state-dir DIR] [--listen 127.0.0.1:PORT] [--listen-v6 [::1]:PORT] [--lock-wait 60s]
        koinon register --as deepseek:ID [--directory DIR] [--repository DIR] [--dsh-url URL] [--dsh-credentials FILE] [--state-dir DIR] [--address HOST:PORT]
        koinon status [--state-dir DIR] [--address 127.0.0.1:PORT]
+       koinon remote enable|status|disable [--state-dir DIR] [--address 127.0.0.1:PORT] [--json]
        koinon dashboard [--state-dir DIR] [--address 127.0.0.1:PORT] [--no-open]
        koinon maintainer secret set|generate|clear [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon mcp [--state-dir DIR] [--address 127.0.0.1:PORT]

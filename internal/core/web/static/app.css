@@ -52,7 +52,7 @@ dd { margin: 0; }
 .filter { margin-bottom: 10px; }
 input { font: inherit; padding: 2px 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--fg); }
 .notice { font-size: 15px; }
-.notice { margin: 0 0 12px; padding: 6px 10px; border-left: 3px solid var(--accent); background: var(--row); }
+.notice, .action-result { margin: 0 0 12px; padding: 6px 10px; border-left: 3px solid var(--accent); background: var(--row); }
 details.action { margin: 0 0 12px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 4px; }
 details.action summary { cursor: pointer; font-weight: 600; }
 details.action form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 14px; margin: 8px 0; }
@@ -92,3 +92,72 @@ form.verdict .buttons { display: flex; gap: 8px; margin: 6px 0 0; }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
 meter { width: 8em; }
 .verdict-record { margin-top: 8px; padding-top: 6px; border-top: 1px solid var(--line); }
+
+.connection { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 12px; color: var(--muted); }
+.connection b { color: var(--accent); overflow-wrap: anywhere; }
+#connection-state { color: #2f7d49; }
+.connection[data-state="stale"] #connection-state { color: #ae791c; }
+.connection[data-state="unavailable"] #connection-state { color: var(--warn); }
+[hidden] { display: none !important; }
+/* Phone layout only: desktop and terminal typography keep their existing settings. */
+@media (max-width: 700px), (max-width: 950px) and (pointer: coarse) {
+  :root { --bg: #101112; --fg: #e6e9eb; --muted: #a1a9ae; --line: #343a3e; --accent: #71d7e7; --warn: #f2a383; --row: #191d20; color-scheme: dark; }
+  body { overflow-wrap: anywhere; }
+  a { display: inline-block; min-width: 44px; min-height: 44px; padding-top: 10px; padding-bottom: 10px; }
+  header { padding: 8px 12px; gap: 6px 12px; }
+  nav { order: 3; flex-basis: 100%; gap: 0 8px; }
+  nav a { display: inline-flex; align-items: center; min-height: 44px; padding: 4px 8px; }
+  header form { margin-left: auto; }
+  main { min-width: 0; padding: 12px 12px 32px; }
+  button, input, select, textarea { font-size: 16px; min-width: 44px; min-height: 44px; max-width: 100%; }
+  button { padding: 8px 12px; }
+  input[type="checkbox"], input[type="radio"] { width: 44px; height: 44px; min-height: 44px; margin: 0 6px 0 0; vertical-align: middle; }
+  label { min-height: 44px; max-width: 100%; }
+  summary { min-height: 44px; padding: 10px 0; cursor: pointer; }
+  details.action { padding: 0 10px; }
+  details.action label { flex: 1 1 100%; min-width: 0; }
+  details.action label input, details.action label select { width: 100%; }
+  .filter, form.inline, form.verdict .buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+  .filter label, form.inline label { min-width: 0; flex: 1 1 100%; }
+  .filter input, .lookup input { width: 100%; }
+  .tally a { min-height: 44px; padding: 10px; }
+  .connection { gap: 4px 12px; font-size: 13px; }
+  .connection > span:first-child { flex-basis: 100%; }
+  #list { min-width: 0; }
+  #list[data-stale] { opacity: 1; }
+  .cards { grid-template-columns: minmax(0, 1fr); }
+  .card { padding: 10px; }
+  dl { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+  dd { margin-bottom: 10px; overflow-wrap: anywhere; }
+  .mobile-cards { display: block; width: 100%; }
+  .mobile-cards thead { display: block; }
+  .mobile-cards thead tr { display: flex; flex-wrap: wrap; gap: 4px; border: 0; padding: 0; }
+  .mobile-cards th { display: none; }
+  .mobile-cards th:has(a) { display: inline-block; padding: 0; white-space: normal; }
+  .mobile-cards th a { padding: 8px; }
+  .mobile-cards tbody { display: block; }
+  .mobile-cards tr { display: block; margin: 0 0 12px; padding: 8px; border: 1px solid var(--line); border-radius: 6px; }
+  .mobile-cards td { display: block; min-width: 0; padding: 4px 2px 8px; border: 0; overflow-wrap: anywhere; }
+  .mobile-cards td::before { content: attr(data-label); display: block; color: var(--muted); font-size: 12px; }
+  .mobile-cards td:first-child { color: var(--accent); }
+  .mobile-cards pre.body { max-width: 100%; max-height: none; }
+  .mobile-cards .inline { display: flex; flex-wrap: wrap; }
+  .mobile-cards .inline label { display: flex; flex-direction: column; }
+  th a { display: inline-flex; align-items: center; min-height: 44px; }
+  #list > p a, .md a, .card-foot a { display: inline-block; min-height: 44px; padding-top: 10px; padding-bottom: 10px; }
+}
+
+/* Remote access uses the existing dashboard controls and disclosure layout. */
+.remote-link { color: var(--fg); text-decoration: none; padding: 3px 10px; border: 1px solid var(--line); border-radius: 4px; background: var(--row); }
+.remote-panel { max-width: 800px; }
+.remote-panel h2 { word-break: normal; }
+.remote-panel li { margin: 6px 0; }
+.remote-panel form { margin: 10px 0; }
+.remote-url { padding: 8px 10px; background: var(--row); border: 1px solid var(--line); border-radius: 4px; }
+.remote-qr { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin: 12px 0; }
+.remote-qr img { max-width: 100%; height: auto; }
+#remote-read-status { color: var(--muted); font-size: 12px; }
+
+#remote-ticket-output { margin-top: 12px; }
+#remote-ticket-image { max-width: 100%; height: auto; }
+.remote-panel > details, .remote-link-option { margin: 12px 0; }

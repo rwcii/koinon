@@ -54,6 +54,28 @@ The secret and state files are user-owned regular files, mode 0600; the state ro
 Secrets, runtime session identifiers and response bodies stay in the state directory, outside
 repositories.
 
+An additional optional browser surface is managed by `koinon remote enable|status|disable`
+(ADR 002, PDR 010). Tailscale Serve supplies private HTTPS on the host's `.ts.net`
+name and forwards to a dedicated `127.0.0.1` HTTP listener. That listener serves
+only the dashboard and static assets, with `/` redirecting to `/dashboard/`;
+`/v1/` is absent. It accepts the exact configured external Host and validates
+write Origin against the saved HTTPS origin, ignoring proxy identity and
+forwarding headers as authority. The existing LAN HTTPS listener is independent.
+
+The private, owner-checked mode-0600 `remote-dashboard.json` records version,
+enabled state, ownership intent, external origin, and the loopback target port.
+Enable checks existing Serve use before recording new ownership intent and
+uses targeted persistent background setup. Disable closes the listener and
+invalidates remote sessions first, then journals its state (the surface stays closed
+when the journal cannot be written), then removes only the
+exact owned root target with explicit `--set-path=/`. An unavailable dependency
+or changed mapping retains the journal for diagnosis and retry; it never causes
+a Serve reset or removal of unrelated mappings. Starts restore the listener and
+retry the dependency while it becomes available; an occupied saved port is
+reported instead of changing the port. Upgrade retains the configuration;
+uninstall removes its owned mapping after stopping the daemon. See
+[remote setup](docs/REMOTE-DASHBOARD.md).
+
 | Route | Operation |
 | --- | --- |
 | `GET /v1/status` | Daemon readiness, the release `version`, `pid`, listeners, schema, session counts, storage, content-free wake health and `maintainer_secret_set`. |
@@ -82,6 +104,14 @@ repositories.
 | `POST /v1/cycles/agy-witness` | Give one agy status-line conversation with its reporting hook process (`conversation`, `reporter` with `pid` and `start`), kept only for the agy cycle whose pinned host is the reporter's nearest native host; see "agy cycle adapter". |
 | `POST /v1/cycles/grok-witness` | Give one Grok status-line session with its reporting hook process (`conversation` is the session ID; `reporter` with `pid` and `start`), kept only for the Grok cycle whose pinned host is the reporter's nearest native host; see "Grok cycle adapter". |
 | `POST /v1/dashboard/links` | Issue a one-time dashboard login link (`path`, `expires_in`). |
+| `GET /v1/remote/status` | Remote configuration, URL, listener readiness, observed Tailscale/Serve state, actionable error when present, and phone reachability `unverified`. Local bearer API only. |
+| `POST /v1/remote/enable` | Empty JSON object; check setup, persist ownership intent, start the dashboard-only listener, and ensure the private Serve root mapping. Local bearer API only. |
+| `POST /v1/remote/disable` | Empty JSON object; stop the remote surface, invalidate its sessions, persist disabled intent, and remove only its exact owned mapping. The surface stays closed when the record cannot be written; the reconciler then retries the write instead of opening it. Local bearer API only. |
+
+A refused `enable` or `disable` is 409 `{"ok": false, "code": ..., "error": ...}`. The code is
+`remote_secret_required` when no maintainer secret is set, the Tailscale diagnostic's own code
+(such as `tailscale_disconnected`, `tailscale_identity_changed` or `tailscale_serve_conflict`),
+or `remote_setup_required` for another failure.
 | `POST /v1/maintainer/secret` | Set, generate or clear the maintainer secret (`action`, `secret`); ends every dashboard login and maintainer token. |
 | `POST /v1/maintainer/session` | Exchange the maintainer secret for a maintainer token (`secret`, `client`); see Maintainer mode. |
 | `POST /v1/maintainer/ROUTE` | The maintainer's reads and actions with a maintainer token: `board-list`, `decision-get`, `decision-history`, `decision-verdict`, `inbox`, `ack`, `send`, `room-list`, `room-read`, `room-post`, `room-create`, `room-add`, `room-remove`, `peers`, `peer-status` and the long poll `changes`; see Maintainer mode. |
@@ -2425,7 +2455,7 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   most 4,096 bytes, with the request protection below but no CSRF token, since no session
   exists yet. The daemon checks one secret at a time and compares keys in constant time. A
   match writes the audit record `maintainer_login dashboard accepted`, then starts the same
-  session and cookie as a link (303 to `/dashboard/sessions`); a session is started only after
+  session and cookie as a link (303 to the requested dashboard view, else `/dashboard/sessions`); a session is started only after
   its record is written. A wrong secret is 401 and writes `maintainer_login dashboard refused
   secret_invalid`; no secret set is 401. The fifth wrong secret in a row starts a wait of 1
   second, and each later wrong secret doubles it, up to 60 seconds; a check during the wait is
@@ -2535,7 +2565,7 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   The token is HMAC-SHA256 of the session ID under a key made at each daemon start; pages carry it
   in a hidden field, so the cookie stays unreadable to scripts. A wrong host, origin or token is
   403; no session is 401. Every response carries a `default-src 'none'` content security policy
-  that allows only the dashboard's own script, style and fetches, `frame-ancestors 'none'`,
+  that allows only the dashboard's own script, style and fetches, and its own and `blob:` images, `frame-ancestors 'none'`,
   `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: same-origin` (under `no-referrer` a browser sends
   `Origin: null` with a same-origin `POST`, which the origin check refuses), `Cache-Control: no-store`
   and `Cross-Origin-Opener-Policy: same-origin`. The dashboard cookie never authorizes `/v1/`, and
@@ -2548,6 +2578,31 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   it. Removing the secret immediately refuses network requests. Routes outside `/dashboard/`
   are absent, including `/v1/` and MCP. `koinon dashboard` also prints the network URL,
   certificate SHA-256 fingerprint and any required step; it opens the loopback one-time link.
+  On the separate Serve surface the cookie is named `koinon_remote_dashboard`,
+  has `Secure`, `HttpOnly`, `SameSite=Strict`, and `Path=/dashboard/`, and has no
+  Domain. Its in-memory session is bound to the remote origin; a local session ID
+  copied into its cookie, or a remote ID copied into a local cookie, authenticates
+  neither crossover. Remote sessions start with the maintainer secret or a one-time
+  sign-in ticket; a local one-time link is refused. A remote login allows 7 days without a
+  request and 7 days in all. Restart, secret change, remote disable, and origin change end
+  remote logins and outstanding tickets. Actions use the same handlers and audit/verdict
+  attribution as the local dashboard.
+  - `POST /dashboard/remote/ticket` (request protection above) issues a sign-in ticket. Only a
+    dashboard session on the host issues one; a remote session, a maintainer token, remote
+    access that is off or not ready, or no secret is 409. The reply is a PNG QR of
+    `ORIGIN/dashboard/pair#ticket=TOKEN` (TOKEN is 32 random bytes as hex) with
+    `Cache-Control: no-store`, `X-Koinon-Ticket-Expires` (RFC 3339) and
+    `X-Koinon-Ticket-Lifetime` (`120`, seconds). The daemon keeps only the ticket's hash in
+    memory, at most 8 outstanding (the oldest goes), and ends them with their issuing session.
+    Each ticket writes the audit record `remote_pair_ticket remote dashboard`.
+  - On the remote surface only, `GET /dashboard/pair` shows the sign-in page and consumes
+    nothing; `POST /dashboard/pair` with one form field `ticket` consumes the ticket and starts
+    one remote session (303 to `/dashboard/sessions`), and writes `maintainer_login remote QR`.
+    A malformed form is 400, an unknown, used or expired ticket 401. Elsewhere both are 404.
+  - `GET /dashboard/remote/status?fragment=1` returns the Settings remote panel as HTML; without
+    `fragment=1` it is 303 to `/dashboard/settings?remote_status=1#remote-access`.
+    `GET /dashboard/remote/qr` is a PNG QR of the dashboard URL only (`ORIGIN/dashboard/`),
+    404 when remote access is off.
 - **Views.** `sessions` (100 per page, with the counts of active, expired and retired
   sessions; names, family, repository and working directory, state and times, the
   observations below with their source and time, and the live claims held under the session
@@ -2600,12 +2655,20 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   revision, schema, listeners, session counts, storage and the work maintenance sweep). With
   `fragment=1` a view returns its list alone; the page script fetches it every 5 seconds while the
   page is visible, with the page's own query. The search and recipient filter forms sit outside
-  the list, so a refresh never resets them. A refresh also waits while a disclosure in the list is
-  open, a form field in it has focus, or a field in it holds input that is not sent (a text
-  value, select or checkbox that differs from the loaded one, with or without focus, #510), and
-  drops an answer that arrives once one is, so an open confirmation, an edit form or a typed
-  verdict note stays as it is. While unsent input holds it, the list shows "Not refreshed: a
-  form on this page has input that is not sent."
+  the list, so a refresh never resets them. Content replacement waits while a disclosure in the
+  list is open, a form field in it has focus, or a field holds unsent input (a text value,
+  select or checkbox that differs from the loaded one, with or without focus, #510), so
+  an open confirmation, edit form, or verdict note stays. Connectivity reads can continue
+  while replacement is held; they do not make the displayed data fresh. The page shows
+  the host, connection state and last successful displayed-data refresh, and labels data
+  stale after 15 seconds without one. Foregrounding or reconnecting requests an immediate
+  refresh. Drafts stay only in page memory, with no promise after reload or tab discard,
+  and private pages are not cached offline.
+  Each submitted form disables duplicate submission while running. A lost response shows
+  "Result unknown; check the latest state before trying again." No write is replayed on
+  timeout, reconnect, or login. The existing revision checks and operation keys retain their
+  meaning. Expired login offers a safe relative read-only dashboard return screen after
+  sign-in; the prior action is not submitted.
   Views never write. A view query that the daemon refuses as invalid answers 400 with "The
   request was not valid." A view read that fails in the daemon (storage, Git, a stored record
   that cannot be read, such as `decision_unavailable`, or another server error) answers 500
@@ -2643,6 +2706,11 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   above, and answers `303` to the view it changed with a fixed `notice` code, so a reload never
   repeats it. Forms are limited to 4 KiB; the send form takes up to 3 × 65,536 + 4,096 bytes of
   URL-encoded input, and its decoded body must be 1–65,536 bytes of UTF-8.
+  - `remote-enable`, `remote-disable` (no fields): the same lifecycle as `koinon remote`, then
+    303 to the remote panel. The notice is `remote_enabled` or `remote_disabled`;
+    `remote_secret_required` when no secret is set; `remote_setup_required` for another
+    refusal; `remote_audit_unavailable` when the change happened but its audit record failed.
+    Audit records `remote-enable` and `remote-disable`, target `remote dashboard`.
   - `participant-holder` (`address`, `family`, `id`, `revision`): chooses the named active
     session as holder of its participant address. A changed session revision returns
     `revision_changed`; an inactive session returns `session_not_active`; a sub-agent or a

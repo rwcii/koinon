@@ -7,15 +7,25 @@
 <link rel="stylesheet" href="/dashboard/static/app.css">
 <script src="/dashboard/static/app.js" defer></script>
 <script src="/dashboard/static/speak.js" defer></script>
+{{if eq .View "settings"}}<script src="/dashboard/static/remote.js" defer></script>{{end}}
+{{if eq .View "pair"}}<script src="/dashboard/static/pair.js" defer></script>{{end}}
 </head>
 <body>
 <header>
 <span class="brand">Koinon</span>
 {{if .CSRF}}<nav>{{range .Views}}<a href="/dashboard/{{.}}"{{if eq . $.View}} aria-current="page"{{end}}>{{.}}</a>{{end}}</nav>
+{{if not .Remote}}<a class="remote-link" href="/dashboard/settings#remote-access">Go remote</a>{{end}}
 <form method="post" action="/dashboard/logout"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Log out</button></form>{{end}}
 </header>
 <main>
 <h1>{{.Title}}</h1>
+{{if .CSRF}}<div class="connection" id="connection" role="status" data-refreshed="{{.Now.UnixMilli}}">
+<span>Host <b>{{.Host}}</b></span> <span id="connection-state">{{if .Reload}}Connection unavailable{{else}}Connected{{end}}</span>
+<span>Last refresh <time id="refresh-time"{{if not .Reload}} datetime="{{.Now.Format "2006-01-02T15:04:05Z07:00"}}"{{end}}>{{if .Reload}}unknown{{else}}{{.Now.Format "15:04:05 MST"}}{{end}}</time></span>
+<button type="button" id="reconnect">Refresh now</button>
+<a id="sign-in" hidden href="/dashboard/login">Sign in again</a>
+</div>{{end}}
+<p id="action-result" class="action-result" role="status" hidden></p>
 {{if .Notice}}<p class="notice" role="status">{{.Notice}}</p>{{end}}
 {{if .CSRF}}{{block "actions" .}}{{end}}{{end}}
 {{block "filter" .}}{{end}}

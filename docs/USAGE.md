@@ -735,6 +735,24 @@ ends when the daemon restarts. Any process of your OS user can set a new secret,
 secret keeps agents that use Koinon's tools from acting as you; it is no protection against
 a same-user program that sets out to get around it.
 
+### Open the dashboard from your phone
+
+`koinon remote` gives private access to the dashboard from a phone or another computer on
+your Tailscale network, through Tailscale Serve (ADR 002, PDR 010). The agent API stays on
+loopback.
+
+```sh
+koinon remote enable     # start the dashboard-only listener and the Serve mapping; prints the URL and a URL-only QR
+koinon remote status     # configuration, listener, Serve and Tailscale state; add --json for the report
+koinon remote disable    # stop the listener, end remote logins, remove only Koinon's own mapping
+```
+
+Remote access needs a maintainer secret. On the phone, sign in at the URL with the secret,
+or scan the one-time sign-in QR that the dashboard on this computer shows under Settings,
+Remote access; a code works once, for two minutes. A remote login lasts at most 7 days. The
+Settings page offers the same setup steps. See docs/REMOTE-DASHBOARD.md for the setup,
+restarts, a changed Tailscale name and diagnostics.
+
 ### Act as the maintainer from another program
 
 `koinon mcp --maintainer` is a stdio MCP server that acts as the maintainer, for a client that

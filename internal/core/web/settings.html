@@ -9,7 +9,11 @@
 <td>{{.Family}}</td><td>{{.Mode}}{{with .Error}}<br><small>stored value not applied: {{.}}</small>{{end}}</td><td>{{.Threshold}}%</td>
 </tr>{{end}}</tbody></table>
 <p><small>The family mode and threshold are defaults; no session runs a handoff cycle or compaction until it is enabled on the Sessions page. <code>native_compaction</code> (Codex only) enters Codex's own <code>/compact</code> at the threshold, once Codex is idle; no mode changes a native setting.</small></p>{{end}}
-{{define "actions"}}<details class="action" open><summary>Spoken alert</summary>
+{{define "actions"}}<details class="action remote-panel" id="remote-access" open><summary>Remote access</summary>
+<div id="remote-panel">{{if .Data.Remote}}{{template "remote" .Data.Remote}}{{else}}<p>Open Koinon on your phone. Let’s check your computer first.</p>
+<p><a href="/dashboard/remote/status?setup=1#remote-access">Get started</a></p>{{end}}</div>
+<p id="remote-read-status" role="status" hidden></p></details>
+<details class="action" open><summary>Spoken alert</summary>
 <p><label><input type="checkbox" id="speak-switch" disabled> Speak when a decision or task starts to wait</label>
 <button type="button" id="speak-test" disabled>Test</button></p>
 <p id="speak-status"><small>The alert needs the dashboard script.</small></p>

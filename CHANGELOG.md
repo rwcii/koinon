@@ -5,6 +5,29 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Private remote access to the dashboard through Tailscale Serve (#645, PR 644 by Andrew
+  Deugarte, @andyde8; ADR 002, PDR 010). `koinon remote enable`, `status` and `disable` manage a
+  dashboard-only loopback listener and one owned private HTTPS mapping, and keep other Serve
+  configuration. The agent API is absent from that listener. The dashboard header offers **Go
+  remote**, which opens **Settings, Remote access** with one next step at a time; it is hidden
+  on the remote dashboard itself. Remote access needs a maintainer secret, now labeled
+  **Koinon password** on every login page, whose button now says **Sign in**.
+- On the dashboard of the host, **Show sign-in QR** gives a one-time sign-in code for the phone
+  that works once, for two minutes. A remote session cannot create one. The URL alone still
+  asks for the Koinon password; the QR that `koinon remote enable` prints holds only the URL.
+  A remote login allows 7 days without a request and lasts at most 7 days; local logins keep
+  24 hours without a request.
+- Dashboard pages fit a phone: long content wraps, controls are larger, and the page shows
+  when its data was last read. A refresh keeps open forms and unsent text; an interrupted
+  submission reports an unknown result and is never sent again automatically.
+- `koinon remote` refusals have fixed codes: `invalid_request`, `daemon_unavailable`,
+  `remote_secret_required`, a Tailscale code such as `tailscale_disconnected`, or
+  `remote_setup_required`; `--json` reports `ok`. Disable closes the remote surface also when
+  its record cannot be written.
+- After remote access was enabled, `koinon uninstall` removes Koinon's Serve mapping. When it
+  cannot, the uninstall stops with the Tailscale code and keeps the binary; repeat it after the
+  step that the report names.
+
 ## 2026-11-10 — Decision cards with the form at each write, a fix-loop answer and an on-track answer
 
 This release gives an agent the decision-card form each time it writes a card, also after a
