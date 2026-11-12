@@ -298,7 +298,7 @@ The Node VM browser tests use handwritten DOM, fetch, timer, and history stubs.
 They can check script decisions, one-attempt behavior, expiry handling, and
 expected destinations within those stubs. They do not prove real browser timer
 scheduling, `Set-Cookie` processing through a 303 redirect, fragment/history
-semantics, or a scanned ticket on a phone. The real-phone QR flow remains pending;
+semantics, or a scanned ticket on a phone. At this synthetic-evidence checkpoint, the real-phone QR flow remained pending;
 keep it separate from synthetic test results and the earlier reported password
 sign-in.
 
@@ -306,3 +306,20 @@ Andrew later identified a password screen in a direct Safari/Chrome browser view
 for the reported short session. The cause remains unknown. The longer server
 idle limit is not evidence that this browser report is fixed; record a
 reproduction and actual browser versions before assigning a cause.
+
+
+### Subsequent reported phone verification — 2026-11-11
+
+Andrew reported that the new QR signed him in on his phone without a password,
+and that access worked after he turned Wi-Fi off. These are maintainer-reported
+real-phone results, separate from the automated and host-browser tests above.
+Device/browser versions and host-confirmed message/verdict receipts were not
+provided, so those matrix details remain unverified.
+
+Andrew requested increasing the background/resume test from ten minutes to one
+hour. Leave the same signed-in phone tab in the background for one hour, then
+return without reopening the URL or scanning again. Confirm that the dashboard
+still loads without sign-in. This changes the manual test duration; remote
+sessions retain their seven-day idle and absolute limits. The one-hour test has
+not yet been reported complete, and the earlier short-session cause remains
+unresolved.
