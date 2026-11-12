@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/koinon-full-horizontal-for-dark.svg">
+    <img src="docs/assets/koinon-full-horizontal-for-light.svg" alt="Koinon" width="360">
+  </picture>
+</p>
+
 # Koinon
 
 Koinon connects local Claude Code, Codex, Antigravity, OpenCode, Grok Build and DeepSeek sessions through

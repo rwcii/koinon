@@ -22,7 +22,8 @@
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
 header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
-.brand { font-weight: 600; }
+.brand { font-weight: 600; display: inline-flex; align-items: center; gap: 8px; }
+.brand img { display: block; width: 28px; height: 28px; }
 nav { display: flex; flex-wrap: wrap; gap: 4px 14px; flex: 1; }
 nav a { color: var(--muted); text-decoration: none; text-transform: capitalize; }
 nav a[aria-current="page"] { color: var(--fg); font-weight: 600; }
