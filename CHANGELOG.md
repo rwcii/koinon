@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-11-12 — Bulk session actions work again, and Linux remote setup names the Tailscale operator step
+
+This release fixes the Sessions view's bulk actions, which failed with HTTP 404 in v0.10.2. On
+Linux, when Tailscale refuses to change Serve for the account that runs Koinon, remote setup now
+names the exact command to run. The state schema stays at 37.
+
 - The Sessions view's bulk actions (retire, purge, keep and clear the inbox) work again (#654).
   Since v0.10.2 the dashboard script read the form's target as `form.action`, which the bulk
   form's `action` select hides, so each bulk action went to `/dashboard/[object HTMLSelectElement]`
@@ -16,6 +22,21 @@ into a dated release section when promoted to `main`.
   `sudo tailscale set --operator=NAME` with the literal account name, then `koinon remote enable`
   (#652). The code is `tailscale_operator_required`. Before, status showed only "Serve: missing"
   and a general message, and a step with `$USER` in a root shell made root the operator.
+
+Upgrade from v0.10.2 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and rewrites the skill entries; the state schema stays at 37. The
+restart ends current dashboard logins, remote logins too: log in again with the Koinon password,
+or run `koinon dashboard` for a one-time link. Homebrew then shows the steps that `koinon install
+--plan` finds; run them, and run `koinon install --plan` again to check. A running `koinon mcp`
+server runs the new release without a session restart.
+
+Upgrade notes:
+
+- Remote access keeps its setting across the upgrade. On Linux, if `koinon remote status` shows
+  `tailscale_operator_required`, run the command that it names once, then `koinon remote enable`
+  (docs/REMOTE-DASHBOARD.md). Koinon does not run that command itself; #656 reviews that.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
 
 ## 2026-11-12 — A private remote dashboard with one-time QR sign-in, the Koinon logo, and approved work after a reset
 
