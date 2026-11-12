@@ -284,7 +284,7 @@ func TestDashboardSessionStatusPage(t *testing.T) {
 		button("dir=asc&amp;sort=state&amp;status=active", "<b>1</b> active", false),
 		button("dir=asc&amp;sort=state&amp;status=expired", "<b>1</b> expired", false),
 		button("dir=asc&amp;sort=state&amp;status=retired", "<b>1</b> retired", false),
-		`<input type="checkbox" data-select-all aria-controls="sessions"> Select all sessions on this page`, `<table id="sessions">`} {
+		`<input type="checkbox" data-select-all aria-controls="sessions"> Select all sessions on this page`, `<table id="sessions" class="mobile-cards">`} {
 		if !strings.Contains(all, want) {
 			t.Fatalf("missing %s in:\n%s", want, all)
 		}

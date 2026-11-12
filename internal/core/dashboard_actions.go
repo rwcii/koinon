@@ -43,6 +43,11 @@ var (
 
 // noticeText is every notice a view can show; any other code shows nothing.
 var noticeText = map[string]string{
+	"remote_enabled":            "Remote access is enabled. Phone reachability is still unverified.",
+	"remote_disabled":           "Remote access is off. Local dashboard access remains available.",
+	"remote_setup_required":     "Remote setup needs attention. Check the status and instructions below before trying again.",
+	"remote_secret_required":    "Set your maintainer secret on this computer before enabling remote access.",
+	"remote_audit_unavailable":  "The remote action completed, but its audit record could not be written. Check the current remote status.",
 	"participant_chosen":        "The session now holds the participant address.",
 	"settings_saved":            "The session timing was saved and applies now.",
 	"context_policy_saved":      "The family's context mode and threshold were saved; no session was enabled.",

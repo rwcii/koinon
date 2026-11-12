@@ -3,7 +3,7 @@ adr: "001"
 title: "Native Identity and Local Runtime Trust"
 status: draft
 created: "2026-10-12"
-updated: "2026-11-06"
+updated: "2026-11-12"
 parent_adr: ""
 authors:
   - "Robert Capps"
@@ -39,7 +39,9 @@ browser login and request checks. The upgrade from the Python runtime runs that 
 uninstaller.
 
 Every decision here is shipped behavior with no maintainer decision found, so the record is a
-draft: it states what Koinon currently does and why.
+draft: it states what Koinon currently does and why. The private Tailscale Serve dashboard
+surface, accepted by Robert Capps on 2026-11-12 (#645), is recorded in [ADR 002](002-private-remote-dashboard-transport.md);
+it retains the loopback agent API boundary and the existing LAN dashboard.
 
 ---
 
@@ -314,6 +316,9 @@ refused unless `Host` is a literal loopback IP with a port (`127.0.0.1:PORT` or 
 `localhost`) and any `Origin` is `http://` plus that `Host`. The port need not be the listener's, so an SSH tunnel from another
 local port reaches the dashboard. A request other than `GET` or `HEAD` also needs a CSRF token
 derived from the session. Responses carry a strict content security policy and deny framing.
+**Changed 2026-11-12 (#645, ADR 002):** the policy also allows `blob:` images (`img-src 'self'
+blob:`), on every dashboard surface, so the dashboard on the host can show the sign-in QR that
+its page fetches as an image; scripts, styles and connections stay `'self'`.
 Each administrative action writes an audit record.
 
 The optional network listener (DASHBOARD-LAN-624, Decision 2) accepts exactly the selected
@@ -427,3 +432,5 @@ agent.
 | 2026-10-25 | Decision 4: the login form accepts the maintainer secret (PDR 009, #470) |
 | 2026-10-25 | Requirement 3, Decisions 1 and 3: the peer-data and "does not" statements are restated as what the code does (#487) |
 | 2026-10-26 | Decision 1: the maintainer kept the `identity_unavailable` refusal (493-1, #493) |
+| 2026-11-11 | Link the private remote surface in ADR 002 and PDR 010. |
+| 2026-11-12 | The remote surface is accepted by Robert Capps (#645); Decision 4 records the `blob:` image source of the content security policy. |

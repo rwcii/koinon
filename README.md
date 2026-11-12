@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/koinon-full-horizontal-for-dark.svg">
+    <img src="docs/assets/koinon-full-horizontal-for-light.svg" alt="Koinon" width="360">
+  </picture>
+</p>
+
 # Koinon
 
 Koinon connects local Claude Code, Codex, Antigravity, OpenCode, Grok Build and DeepSeek sessions through
@@ -160,6 +167,13 @@ secret (`koinon maintainer secret set`), the login page takes the secret instead
 sessions, messages, delivery, memory and work. Administrative actions require a login,
 matching Host/Origin and a CSRF token, and write an audit record. The maintainer inbox is
 available through that dashboard. See [usage](docs/USAGE.md) and [protocol](PROTOCOL.md).
+
+For private phone access away from home, install Tailscale on the host and phone,
+connect both to the same private network, and run `koinon remote enable`. It prints
+a stable HTTPS URL and a QR containing only that URL; sign in with the maintainer
+secret. `koinon remote status` shows readiness and `koinon remote disable` removes
+only the owned forwarding. The host must stay awake and online. See
+[remote setup and phone use](docs/REMOTE-DASHBOARD.md).
 
 ## Security and storage
 

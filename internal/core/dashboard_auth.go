@@ -23,9 +23,10 @@ const (
 	dashboardCookie = "koinon_dashboard"
 	dashboardCSRF   = "X-Koinon-CSRF"
 	linkLifetime    = 60 * time.Second
-	// A login lasts through a working day and the night after it without a request, and
-	// at most a week (#435).
+	// Local browser and maintainer-token logins allow a day idle (#435).
+	// Remote browser logins allow a week idle; every login lasts at most a week.
 	sessionIdle       = 24 * time.Hour
+	remoteSessionIdle = 7 * 24 * time.Hour
 	sessionAbsolute   = 7 * 24 * time.Hour
 	maxLoginLinks     = 8
 	maxDashboardLogin = 16
@@ -44,6 +45,7 @@ type dashboardAuth struct {
 	now      func() time.Time
 	csrfKey  []byte
 	links    map[[32]byte]time.Time
+	tickets  map[[32]byte]remoteTicket
 	sessions map[[32]byte]*dashboardSession
 	// gate orders the maintainer secret's checks and changes (PDR 009).
 	gate secretGate
@@ -54,7 +56,7 @@ func newDashboardAuth(now func() time.Time) (*dashboardAuth, error) {
 	if _, err := rand.Read(key); err != nil {
 		return nil, err
 	}
-	return &dashboardAuth{now: now, csrfKey: key, links: map[[32]byte]time.Time{}, sessions: map[[32]byte]*dashboardSession{},
+	return &dashboardAuth{now: now, csrfKey: key, links: map[[32]byte]time.Time{}, tickets: map[[32]byte]remoteTicket{}, sessions: map[[32]byte]*dashboardSession{},
 		gate: secretGate{mu: make(chanMutex, 1)}}, nil
 }
 
@@ -137,6 +139,13 @@ func (a *dashboardAuth) start(client string) (string, error) {
 	sessionHash, _ := tokenHash(id)
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	a.startLocked(sessionHash, client)
+	return id, nil
+}
+
+// startLocked inserts a freshly generated session while the caller holds mu. QR
+// redemption uses it in the same critical section as consuming its ticket.
+func (a *dashboardAuth) startLocked(sessionHash [32]byte, client string) {
 	now := a.now()
 	a.prune(now)
 	for len(a.sessions) >= maxDashboardLogin {
@@ -150,19 +159,23 @@ func (a *dashboardAuth) start(client string) (string, error) {
 		delete(a.sessions, oldest)
 	}
 	a.sessions[sessionHash] = &dashboardSession{created: now, used: now, client: client}
-	return id, nil
 }
 
 // endAll ends every login and maintainer token, when the maintainer secret changes.
 func (a *dashboardAuth) endAll() {
 	a.mu.Lock()
 	clear(a.sessions)
+	clear(a.tickets)
 	a.mu.Unlock()
 }
 
 func (a *dashboardAuth) prune(now time.Time) {
 	for h, s := range a.sessions {
-		if !now.Before(s.used.Add(sessionIdle)) || !now.Before(s.created.Add(sessionAbsolute)) {
+		idle := sessionIdle
+		if strings.HasPrefix(s.client, "remote:") {
+			idle = remoteSessionIdle
+		}
+		if !now.Before(s.used.Add(idle)) || !now.Before(s.created.Add(sessionAbsolute)) {
 			delete(a.sessions, h)
 		}
 	}
@@ -172,6 +185,9 @@ func (a *dashboardAuth) prune(now time.Time) {
 // cookies by port, so each board opened under one loopback IP, such as a local daemon and a
 // tunnel to another computer's daemon, keeps its own login (#454).
 func cookieName(r *http.Request) string {
+	if remoteOrigin(r) != "" {
+		return "koinon_remote_dashboard"
+	}
 	_, port, _ := net.SplitHostPort(r.Host)
 	if networkDashboard(r) {
 		if port == "" {
@@ -198,7 +214,7 @@ func (a *dashboardAuth) session(r *http.Request) (string, bool) {
 	now := a.now()
 	a.prune(now)
 	s, found := a.sessions[hash]
-	if !found || s.client != "dashboard" {
+	if !found || s.client != dashboardClient(r) {
 		return "", false
 	}
 	s.used = now
@@ -272,7 +288,7 @@ func dashboardHost(r *http.Request) bool {
 // dashboardHeaders apply to every dashboard response, refusals included.
 func dashboardHeaders(w http.ResponseWriter) {
 	h := w.Header()
-	h.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+	h.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
 	h.Set("X-Frame-Options", "DENY")
 	h.Set("X-Content-Type-Options", "nosniff")
 	// same-origin, not no-referrer: under no-referrer a browser sends "Origin: null" with every
@@ -280,4 +296,24 @@ func dashboardHeaders(w http.ResponseWriter) {
 	h.Set("Referrer-Policy", "same-origin")
 	h.Set("Cache-Control", "no-store")
 	h.Set("Cross-Origin-Opener-Policy", "same-origin")
+}
+
+// A remote login is bound to the configured external origin, even if a cookie value is
+// copied into another surface's cookie. The origin comes only from listener configuration.
+func dashboardClient(r *http.Request) string {
+	if origin := remoteOrigin(r); origin != "" {
+		return "remote:" + origin
+	}
+	return "dashboard"
+}
+
+func (a *dashboardAuth) endRemote() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	clear(a.tickets)
+	for hash, s := range a.sessions {
+		if strings.HasPrefix(s.client, "remote:") {
+			delete(a.sessions, hash)
+		}
+	}
 }
