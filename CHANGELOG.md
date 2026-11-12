@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The Sessions view's bulk actions (retire, purge, keep and clear the inbox) work again (#654).
+  Since v0.10.2 the dashboard script read the form's target as `form.action`, which the bulk
+  form's `action` select hides, so each bulk action went to `/dashboard/[object HTMLSelectElement]`
+  and failed with HTTP 404. The script now reads the `action` and `method` attributes, and a
+  test refuses a form control that hides a form property that a dashboard script reads.
+
 ## 2026-11-12 — A private remote dashboard with one-time QR sign-in, the Koinon logo, and approved work after a reset
 
 This release can open the dashboard privately from a phone or another computer through

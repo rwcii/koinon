@@ -56,7 +56,7 @@ function browser() {
   return {nodes, requests, navigations, document, intervals, timers,
     advance(ms) { now += ms; intervals[1000](); },
     event(name, value) { for (const fn of events[name] || []) { fn(value); } },
-    form(action='/dashboard/actions/decision-approve') { const button = {disabled:false}; return {button, method:'post', action:new URL(action,location).toString(), dataset:{}, fields:[['csrf','synthetic-csrf'],['key','one-operation'],['note','unsent draft']], querySelectorAll() { return [button]; } }; },
+    form(action='/dashboard/actions/decision-approve') { const button = {disabled:false}; return {button, method:'post', action:new URL(action,location).toString(), getAttribute(name) { return name === 'method' ? 'post' : name === 'action' ? action : null; }, dataset:{}, fields:[['csrf','synthetic-csrf'],['key','one-operation'],['note','unsent draft']], querySelectorAll() { return [button]; } }; },
     submit(form, submitter) { this.event('submit',{target:form, submitter, preventDefault() {}}); }
   };
 }
