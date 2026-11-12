@@ -22,7 +22,9 @@ type remoteTicket struct {
 }
 
 // newRemoteTicket issues a short-lived sign-in capability from a live browser
-// login. Its cap matches the existing eight outstanding local login links.
+// login on this host. A remote session cannot issue one, so it cannot renew
+// itself past its seven-day limit or fill the login table without the secret.
+// Its cap matches the existing eight outstanding local login links.
 func (a *dashboardAuth) newRemoteTicket(origin, issuer string) (string, time.Time, error) {
 	if !remote.ValidOrigin(origin) {
 		return "", time.Time{}, ErrInvalid
@@ -41,7 +43,7 @@ func (a *dashboardAuth) newRemoteTicket(origin, issuer string) (string, time.Tim
 	now := a.now()
 	a.prune(now)
 	session := a.sessions[issuerHash]
-	if session == nil || session.client != "dashboard" && session.client != "remote:"+origin {
+	if session == nil || session.client != "dashboard" {
 		return "", time.Time{}, ErrUnavailable
 	}
 	a.pruneRemoteTickets(now)

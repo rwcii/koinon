@@ -32,7 +32,7 @@ func remoteQR(link string) (string, error) {
 
 func remoteCommand(ctx context.Context, args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] != "enable" && args[0] != "status" && args[0] != "disable" {
-		return errors.New("use koinon remote enable|status|disable")
+		return usageError{"invalid_request", "use koinon remote enable|status|disable"}
 	}
 	root, err := platform.DefaultStateDir()
 	if err != nil {
@@ -44,14 +44,14 @@ func remoteCommand(ctx context.Context, args []string, out io.Writer) error {
 	address := addressFlag(flags)
 	asJSON := flags.Bool("json", false, "print status as JSON")
 	if err := flags.Parse(args[1:]); err != nil || flags.NArg() != 0 {
-		return errors.New("invalid remote command options; use koinon --help")
+		return usageError{"invalid_request", "invalid remote command options; use koinon --help"}
 	}
 	if err := resolveAddress(flags); err != nil {
 		return err
 	}
 	bearer, err := core.ClientSecret(*state, *address)
 	if err != nil && args[0] != "status" {
-		return fmt.Errorf("daemon unavailable: run koinon install, then repeat this command: %w", err)
+		return usageError{"daemon_unavailable", "daemon unavailable: run koinon install, then repeat this command: " + err.Error()}
 	}
 	var status core.RemoteStatus
 	if err == nil {
@@ -68,7 +68,11 @@ func remoteCommand(ctx context.Context, args []string, out io.Writer) error {
 	}
 	if err != nil {
 		if args[0] != "status" {
-			return fmt.Errorf("daemon unavailable or too old: install this version, then repeat koinon remote %s: %w", args[0], err)
+			var refused core.RefusedError
+			if errors.As(err, &refused) {
+				return err
+			}
+			return usageError{"daemon_unavailable", fmt.Sprintf("daemon unavailable or too old: install this version, then repeat koinon remote %s: %v", args[0], err)}
 		}
 		status, err = remoteOfflineStatus(ctx, *state, nil)
 		if err != nil {
@@ -113,7 +117,10 @@ func remoteOfflineStatus(ctx context.Context, root string, adapter remote.Adapte
 
 func printRemoteStatus(out io.Writer, status core.RemoteStatus, action string, asJSON bool) error {
 	if asJSON {
-		return printJSON(out, status)
+		return printJSON(out, struct {
+			OK bool `json:"ok"`
+			core.RemoteStatus
+		}{true, status})
 	}
 	fmt.Fprintf(out, "Remote configured: %t\nDashboard listener: %s\nServe: %s\nPhone access: unverified\n", status.Configured, status.Listener, status.Serve)
 	if status.Tailscale != nil {

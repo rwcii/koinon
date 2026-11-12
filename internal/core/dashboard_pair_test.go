@@ -312,3 +312,25 @@ func TestDashboardPairRevokedByDisableOrSecretChange(t *testing.T) {
 		})
 	}
 }
+
+// A remote session cannot issue a sign-in code: a chain of codes would renew it past
+// its seven-day limit and fill the login table without the secret.
+func TestDashboardPairRemoteSessionCannotIssue(t *testing.T) {
+	d, _, _, h, origin := pairFixture(t)
+	id, err := d.passwordLogin(context.Background(), testSecret, "remote:"+origin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cookie := &http.Cookie{Name: "koinon_remote_dashboard", Value: id}
+	got := pairRequest(h, "POST", origin, "/dashboard/remote/ticket", origin, url.Values{"csrf": {d.auth.csrf(id)}}, cookie)
+	if got.Code != http.StatusConflict || got.Header().Get("X-Koinon-Ticket-Expires") != "" {
+		t.Fatalf("remote session issued a ticket: %d %v", got.Code, got.Header())
+	}
+	if _, _, err := d.auth.newRemoteTicket(origin, id); err != ErrUnavailable {
+		t.Fatal("remote issuer accepted", err)
+	}
+	page := pairRequest(h, "GET", origin, "/dashboard/remote/status?fragment=1", "", nil, cookie)
+	if page.Code != 200 || strings.Contains(page.Body.String(), "data-remote-ticket") || !strings.Contains(page.Body.String(), "only on this computer") {
+		t.Fatalf("remote surface offers a sign-in code: %d", page.Code)
+	}
+}

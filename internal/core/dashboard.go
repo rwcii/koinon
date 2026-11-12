@@ -330,6 +330,7 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 			}
 			if settings, ok := data.(settingsData); ok && r.URL.Query().Get("fragment") != "1" && (r.URL.Query().Get("remote_status") == "1" || r.URL.Query().Get("remote_setup") == "1") {
 				remoteData := d.dashboardRemoteState(r.Context(), r.URL.Query().Get("remote_setup") == "1", d.auth.csrf(id))
+				remoteData.OnRemote = remoteOrigin(r) != ""
 				settings.Remote = &remoteData
 				data = settings
 			}

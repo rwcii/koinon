@@ -24,7 +24,7 @@ import (
 // synthetic state and secret carry no production content. This does not test a phone.
 func TestRealServeForwarding(t *testing.T) {
 	if os.Getenv("KOINON_REAL_SERVE") != "1" {
-		t.Skip("real Serve probe requires connected Tailscale, HTTPS permission and explicit KOINON_REAL_SERVE=1; see docs/REMOTE-DASHBOARD-VERIFICATION.md")
+		t.Skip("real Serve probe requires connected Tailscale, HTTPS permission and explicit KOINON_REAL_SERVE=1; see docs/sprints/2026-11-11-remote-dashboard/verification.md")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()

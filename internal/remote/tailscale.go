@@ -13,10 +13,11 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/rwcii/koinon/internal/platform"
 )
 
 // Adapter is injectable so ordinary tests never need a Tailscale installation,
@@ -37,11 +38,7 @@ const maxOutput = 1 << 20
 func (Exec) Run(ctx context.Context, args ...string) ([]byte, error) {
 	path, err := exec.LookPath("tailscale")
 	if err != nil {
-		candidates := []string{"/usr/bin/tailscale", "/usr/local/bin/tailscale"}
-		if runtime.GOOS == "darwin" {
-			candidates = []string{"/Applications/Tailscale.app/Contents/MacOS/Tailscale", "/opt/homebrew/bin/tailscale", "/usr/local/bin/tailscale"}
-		}
-		for _, candidate := range candidates {
+		for _, candidate := range platform.TailscaleCandidates() {
 			if st, e := os.Stat(candidate); e == nil && st.Mode().IsRegular() && st.Mode()&0111 != 0 {
 				path, err = candidate, nil
 				break
@@ -411,6 +408,10 @@ func (m Manager) Remove(ctx context.Context, mapping Mapping) error {
 	h, exists := s.Serve.Web[mapping.hostPort()].Handlers["/"]
 	if !exists {
 		return nil
+	}
+	// A signed-out host reports no name. That is not a rename: say to connect it.
+	if s.Origin == "" {
+		return diagnostic("tailscale_disconnected", "the remote listener is stopped; open Tailscale and connect the host, then repeat koinon remote disable")
 	}
 	// The CLI addresses the current DNS name implicitly. It cannot safely remove
 	// a saved old-name mapping, because that could delete an unrelated current root.

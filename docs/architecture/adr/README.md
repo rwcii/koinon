@@ -10,4 +10,4 @@ Koinon keeps these records and how a constraint becomes one.
 | Number | Title | Status |
 | ------ | ----- | ------ |
 | 001    | [Native Identity and Local Runtime Trust](001-native-identity-local-runtime-trust.md) | Draft |
-| 002    | [Private Remote Dashboard Transport](002-private-remote-dashboard-transport.md) | Modified |
+| 002    | [Private Remote Dashboard Transport](002-private-remote-dashboard-transport.md) | Accepted |

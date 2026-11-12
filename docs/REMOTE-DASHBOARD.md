@@ -46,14 +46,14 @@ change, or daemon restart can end access earlier. Local browser and maintainer
 API-token sessions retain their 24-hour idle limit and seven-day maximum.
 
 The QR's two-minute lifetime applies only to starting a sign-in. Once redeemed,
-the remote session has the longer lifetime above. A report of sign-out after
-five minutes is still under investigation; the configured limits do not explain
-that report, and extending idle time is not a verified fix for it.
+the remote session has the longer lifetime above.
 
 ### Sign-in QR and saved URL
 
-A sign-in QR works once and expires after two minutes. If it expires, has already
-been used, or the browser loses the response, create another QR from the
+A sign-in QR works once and expires after two minutes. Only the dashboard on the
+computer that runs Koinon creates one; the remote view has no **Show sign-in QR**, so
+a remote session cannot renew itself past its seven days. If a code expires, has
+already been used, or the browser loses the response, create another QR from the
 signed-in computer or use the password form. A failed redemption is not retried
 automatically. Without JavaScript, use the ordinary password form.
 
@@ -253,5 +253,5 @@ return screen after sign-in, without submitting the prior action.
 | Sign-in QR expired, was already used, or its result is unknown | Create a new sign-in QR on the signed-in computer, or use the Koinon password at the ordinary dashboard URL. |
 | Host is configured but phone fails | Check host wake state, both Tailscale connections, network policy, and the URL from status. Complete the cellular test separately. |
 
-The [verification record](REMOTE-DASHBOARD-VERIFICATION.md) separates automated,
+The [verification record](sprints/2026-11-11-remote-dashboard/verification.md) separates automated,
 source, real proxy, platform, and physical-device evidence.

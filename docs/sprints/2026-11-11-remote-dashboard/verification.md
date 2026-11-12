@@ -1,7 +1,10 @@
 # Remote dashboard verification
 
+> Sprint working notes for PR #644 (#645), kept for provenance. They do not describe current
+> behavior: see ADR 002, PDR 010 and docs/REMOTE-DASHBOARD.md.
+
 This record is an acceptance checklist, not a claim that every row passed. The
-[design input](REMOTE-DASHBOARD-SPEC.md) requires real proxy and phone evidence in
+[design input](spec.md) requires real proxy and phone evidence in
 addition to synthetic tests. Keep account details, machine names, login output,
 cookies, messages, and configuration captures outside Git.
 

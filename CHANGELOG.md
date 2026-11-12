@@ -5,36 +5,28 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
-- The dashboard header now offers **Go remote**, opening **Settings → Remote
-  access** in Koinon's existing interface. Check setup, follow Tailscale's
-  account approval when required, and explicitly enable access. The concise
-  setup shows one next step, with technical status in details. **Go remote** is
-  hidden on the actual remote dashboard, including phones already using it.
-- **Show sign-in QR** lets a signed-in dashboard authorize one remote sign-in
-  within two minutes. Opening the copied or bookmarked URL while signed out
-  still asks for the Koinon password (the existing maintainer secret). The CLI's
-  printed QR remains a URL shortcut that needs that password. Host readiness
-  and unverified cellular access stay separate (PDR 010, Decision 4).
-
-- Remote browser sign-ins now allow seven days idle, with the existing seven-day
-  absolute maximum. Local browser and maintainer-token idle limits remain 24
-  hours. The sign-in QR still expires after two minutes; that does not expire a
-  session it has already opened. The reported five-minute phone sign-out remains
-  unexplained; this extension is not a verified fix for that report.
-
-- Private remote dashboard access through Tailscale Serve (ADR 002, PDR 010):
-  `koinon remote enable`, `status`, and `disable` manage a persistent dashboard-only
-  loopback listener and one owned private HTTPS mapping, preserving unrelated
-  Serve configuration. Setup prints a stable URL and a URL-only QR; the phone
-  signs in with the existing maintainer secret. Remote cookies and sessions are
-  separate from local ones, and the agent API is absent from the remote listener.
-- Dashboard phone layouts retain existing actions, wrap long content, and provide
-  touch controls. Host, connection, and refresh-time indicators distinguish stale
-  data from a live read. Foreground/reconnect refresh preserves open forms and
-  unsent input; interrupted submissions report an unknown result and are never
-  replayed automatically. See [setup](docs/REMOTE-DASHBOARD.md) and the
-  [verification matrix](docs/REMOTE-DASHBOARD-VERIFICATION.md) for the separate
-  real proxy, cellular, and device acceptance steps.
+- Private remote access to the dashboard through Tailscale Serve (#645, PR 644 by Andrew
+  Deugarte, @andyde8; ADR 002, PDR 010). `koinon remote enable`, `status` and `disable` manage a
+  dashboard-only loopback listener and one owned private HTTPS mapping, and keep other Serve
+  configuration. The agent API is absent from that listener. The dashboard header offers **Go
+  remote**, which opens **Settings, Remote access** with one next step at a time; it is hidden
+  on the remote dashboard itself. Remote access needs a maintainer secret, now labeled
+  **Koinon password** on every login page, whose button now says **Sign in**.
+- On the dashboard of the host, **Show sign-in QR** gives a one-time sign-in code for the phone
+  that works once, for two minutes. A remote session cannot create one. The URL alone still
+  asks for the Koinon password; the QR that `koinon remote enable` prints holds only the URL.
+  A remote login allows 7 days without a request and lasts at most 7 days; local logins keep
+  24 hours without a request.
+- Dashboard pages fit a phone: long content wraps, controls are larger, and the page shows
+  when its data was last read. A refresh keeps open forms and unsent text; an interrupted
+  submission reports an unknown result and is never sent again automatically.
+- `koinon remote` refusals have fixed codes: `invalid_request`, `daemon_unavailable`,
+  `remote_secret_required`, a Tailscale code such as `tailscale_disconnected`, or
+  `remote_setup_required`; `--json` reports `ok`. Disable closes the remote surface also when
+  its record cannot be written.
+- After remote access was enabled, `koinon uninstall` removes Koinon's Serve mapping. When it
+  cannot, the uninstall stops with the Tailscale code and keeps the binary; repeat it after the
+  step that the report names.
 
 ## 2026-11-10 — Decision cards with the form at each write, a fix-loop answer and an on-track answer
 

@@ -1,5 +1,8 @@
 # Remote dashboard specification
 
+> Sprint working notes for PR #644 (#645), kept for provenance. They do not describe current
+> behavior: see ADR 002, PDR 010 and docs/REMOTE-DASHBOARD.md.
+
 Status: Draft proposal. Updated: 2026-11-10.
 
 Koinon Remote lets the maintainer control the existing dashboard from a phone over

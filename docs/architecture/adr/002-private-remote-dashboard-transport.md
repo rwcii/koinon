@@ -1,11 +1,11 @@
 ---
 adr: "002"
 title: "Private Remote Dashboard Transport"
-status: modified
+status: accepted
 created: "2026-11-11"
-updated: "2026-11-11"
+updated: "2026-11-12"
 authors:
-  - "Andrew"
+  - "Andrew Deugarte (@andyde8)"
 reviewers: []
 supersedes: ""
 superseded_by: ""
@@ -24,9 +24,9 @@ tags:
 
 **Date:** 2026-11-11
 
-**Status:** Modified
+**Status:** Accepted
 
-**Authors:** Andrew
+**Authors:** Andrew Deugarte (@andyde8)
 
 ## Executive Summary
 
@@ -40,7 +40,7 @@ under ADR 001. Product behavior is in PDR 010.
 
 This record accepts the authorized design. It does not assert real proxy,
 cellular, or physical-device validation; the evidence and remaining steps are in
-[the verification record](../../REMOTE-DASHBOARD-VERIFICATION.md).
+[the verification record](../../sprints/2026-11-11-remote-dashboard/verification.md).
 
 ## 1. Problem Context
 
@@ -49,7 +49,7 @@ home. Forwarding the agent listener would mix browser acceptance with the
 private agent API. A public relay or embedded VPN would add an independent
 networking and credential lifecycle.
 
-The [design specification](../../REMOTE-DASHBOARD-SPEC.md) recommends an external
+The [design specification](../../sprints/2026-11-11-remote-dashboard/spec.md) recommends an external
 Tailscale installation and a dedicated browser surface. ADR 001, Decisions 2 and
 4, governs the existing loopback API and LAN dashboard. PDR 009 governs the
 maintainer credential; PDR 005 governs the authority of maintainer messages.
@@ -58,16 +58,16 @@ maintainer credential; PDR 005 governs the authority of maintainer messages.
 
 ### Decision
 
-**Decided by:** Andrew.
+**Proposed by:** Andrew Deugarte (@andyde8), 2026-11-11.
 
-**Date:** 2026-11-11.
+**Decided by:** Robert Capps, 2026-11-12 (#645), for this record as a whole: “yes we take it.”
 
 **Context:** Implement the specification's recommended first version through
 Tailscale Serve, or use an SSH tunnel, public relay, embedded VPN, agent-listener
 forwarding, or native phone app. The goal is private dashboard control away from
 home while reusing the existing daemon and login.
 
-**Answer:** “I authorize implementation of the spec’s recommended first version:
+**Proposer’s words:** “I authorize implementation of the spec’s recommended first version:
 private remote access to the existing dashboard through Tailscale Serve, with the
 existing maintainer login.”
 
@@ -211,7 +211,7 @@ saved port and mapping before restoring service.
 
 ## 3. Decision: Transient remote sign-in tickets
 
-PDR 010, Decision 4 records Andrew's 2026-11-11 choice between the original
+PDR 010, Decision 4 records the 2026-11-11 choice of Andrew Deugarte (@andyde8), accepted by Robert Capps on 2026-11-12 (#645), between the original
 URL-only browser QR with password entry and a one-time QR sign-in ticket with
 ordinary-URL password fallback. Its context, answer, and product scope are the
 source for this authentication amendment. This changes browser QR sign-in,
@@ -234,7 +234,22 @@ oldest when issuing another, matching the existing local `maxLoginLinks` bounded
 memory policy. Tickets also retain their issuing session's hash: issuer logout,
 idle or absolute expiry, and session eviction revoke its outstanding tickets.
 These are engineering bounds in `dashboard_pair.go` and `dashboard_auth.go`, not
-additional requirements attributed to Andrew.
+additional requirements attributed to Andrew Deugarte (@andyde8).
+
+Only a dashboard session on the host (`dashboard`) issues tickets; a `remote:` session
+gets a refusal and the remote view shows no QR control. A ticket from a remote session
+would start a new session with a new `created` time, so a chain of tickets would renew
+remote access past the seven-day absolute maximum (PDR 009, Decision 2) and could fill
+the 16-entry login table without the secret (review of PR #644).
+
+The QR image comes from `github.com/skip2/go-qrcode` at
+`v0.0.0-20200617195104-da1b6568686e`: MIT-style license (Copyright (c) 2014 Tom
+Harwood), no dependencies of its own, encoding only, no network or file access. It has
+no tagged release and no upstream change since 2020. Alternatives: a QR encoder written
+in Koinon (more code to keep correct for one image), a browser-side library (a script
+dependency on every dashboard page), or no QR (the phone types the URL and the
+password). A new release of the library, or a defect in it, is a review condition for
+this choice.
 
 The QR carries `/dashboard/pair#ticket=...` at that origin. This differs from the
 stable dashboard URL copied for bookmarks. A GET to the landing page does not
@@ -294,3 +309,4 @@ Serve mapping and records recoverable lifecycle transitions.
 | 2026-11-11 | Clarify the shared lifecycle, native setup query, and self-closing browser controls. |
 | 2026-11-11 | Amend remote sign-in with transient origin-bound QR tickets authorized in PDR 010, Decision 4. |
 | 2026-11-11 | Clarify remote-only seven-day idle time and its separation from ticket expiry. |
+| 2026-11-12 | Accepted by Robert Capps (#645). Name the proposer as Andrew Deugarte (@andyde8). Only a host dashboard session issues tickets. Record the QR library and its alternatives (review of PR #644). |

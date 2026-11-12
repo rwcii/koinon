@@ -1215,7 +1215,13 @@ func Uninstall(ctx context.Context, o Options) (Report, error) {
 		removed = true
 	}
 	if err := core.CleanupRemote(ctx, o.StateDir, o.Tailscale); err != nil {
-		return r, fmt.Errorf("remote cleanup: %w; the daemon is stopped; repeat koinon uninstall to finish", err)
+		// The refusal keeps the Tailscale diagnostic's own code, so the report names
+		// the step to take; another failure gets remote_cleanup_failed.
+		var diagnostic *remote.Diagnostic
+		if errors.As(err, &diagnostic) {
+			return r, fmt.Errorf("%w; the daemon is stopped; repeat koinon uninstall to finish", err)
+		}
+		return r, fmt.Errorf("remote_cleanup_failed: %v; the daemon is stopped; repeat koinon uninstall to finish", err)
 	}
 	r.Service = map[bool]string{true: "removed", false: "absent"}[removed]
 	for _, skill := range pickupSkillPaths(o) {

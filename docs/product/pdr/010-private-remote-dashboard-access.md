@@ -1,11 +1,11 @@
 ---
 pdr: "010"
 title: "Private Remote Dashboard Access"
-status: modified
+status: accepted
 created: "2026-11-11"
-updated: "2026-11-11"
+updated: "2026-11-12"
 authors:
-  - "Andrew"
+  - "Andrew Deugarte (@andyde8)"
 reviewers: []
 supersedes: ""
 superseded_by: ""
@@ -26,9 +26,9 @@ tags:
 
 **Date:** 2026-11-11
 
-**Status:** Modified
+**Status:** Accepted
 
-**Authors:** Andrew
+**Authors:** Andrew Deugarte (@andyde8)
 
 ## Executive Summary
 
@@ -43,9 +43,16 @@ unverified phone reachability.
 The mechanism is ADR 002. This record accepts the authorized behavior; it does
 not claim that the physical-device and cellular acceptance tests have passed.
 
+**Accepted by:** Robert Capps, 2026-11-12 (#645): “yes we take it.” Context: the peer
+review of PR #644 asked whether Koinon takes this second way to reach the dashboard from
+off the host, beside the network dashboard over HTTPS (PDR 009, Decision 2; #624).
+Scope: the behavior in this record, as fixed in PR #644, for release v0.10.2. Andrew
+Deugarte (@andyde8) proposed it; his words below are the proposal, and this acceptance
+is the decision.
+
 ## 1. Problem Context
 
-The [specification](../../REMOTE-DASHBOARD-SPEC.md) captures a request for dashboard
+The [specification](../../sprints/2026-11-11-remote-dashboard/spec.md) captures a request for dashboard
 control from a phone away from home. The existing local dashboard already holds
 the needed actions and state, but everyday phone access needs persistent setup,
 a usable layout, and honest handling of interrupted reads and writes.
@@ -58,15 +65,15 @@ phone or person merely because the network accepts its connection.
 
 ### Decision
 
-**Decided by:** Andrew.
+**Proposed by:** Andrew Deugarte (@andyde8), 2026-11-11.
 
-**Date:** 2026-11-11.
+**Decided by:** Robert Capps, 2026-11-12 (#645), for this record as a whole: “yes we take it.”
 
 **Context:** Implement the recommended private dashboard first version, compared
 with SSH tunnel management, a public relay, embedded VPN, or native phone app.
 The choice must support access away from home with the existing dashboard login.
 
-**Answer:** “I authorize implementation of the spec’s recommended first version:
+**Proposer’s words:** “I authorize implementation of the spec’s recommended first version:
 private remote access to the existing dashboard through Tailscale Serve, with the
 existing maintainer login.”
 
@@ -80,7 +87,7 @@ first deliverable; they remain future options.
 
 The answer above authorizes the recommended transport and existing login. The
 behavioral details below come from the same explicitly authorized
-[specification](../../REMOTE-DASHBOARD-SPEC.md), including its setup, mobile,
+[specification](../../sprints/2026-11-11-remote-dashboard/spec.md), including its setup, mobile,
 authentication, and reconnection requirements; the transport quote alone is not
 the source of every detail.
 
@@ -159,7 +166,7 @@ are dependencies, and configuration is not a claim of cellular reachability.
 
 ### Success Criteria
 
-The [verification record](../../REMOTE-DASHBOARD-VERIFICATION.md) tracks the
+The [verification record](../../sprints/2026-11-11-remote-dashboard/verification.md) tracks the
 specification's matrix: actual Serve behavior on macOS and Linux, cellular reads
 and writes with host verification, current iOS Safari and Android Chrome,
 360/390-pixel layouts, keyboard/zoom, login lifecycle, preserved drafts, uncertain
@@ -170,9 +177,9 @@ tests and static builds are distinct from physical-device evidence.
 
 ### Decision
 
-**Decided by:** Andrew.
+**Proposed by:** Andrew Deugarte (@andyde8), 2026-11-11.
 
-**Date:** 2026-11-11.
+**Decided by:** Robert Capps, 2026-11-12 (#645), for this record as a whole: “yes we take it.”
 
 **Context:** Add a customer-facing setup entry point, or keep remote setup in the
 terminal. Andrew requested a **Go remote** dashboard UI and asked to review a
@@ -180,7 +187,7 @@ standalone HTML preview before implementation. He rejected a visual redesign and
 approved the revised preview that used Koinon's actual navigation, tables, and
 Settings layout.
 
-**Answer:** “ok this is good for now implement this UI on this branch .”
+**Proposer’s words:** “ok this is good for now implement this UI on this branch.”
 
 **Reason and scope:** The approved preview makes remote setup discoverable inside
 the dashboard while retaining Koinon's interface. It adds a header entry point
@@ -220,9 +227,9 @@ the host before deciding to retry.
 
 ### Decision
 
-**Decided by:** Andrew.
+**Proposed by:** Andrew Deugarte (@andyde8), 2026-11-11.
 
-**Date:** 2026-11-11.
+**Decided by:** Robert Capps, 2026-11-12 (#645), for this record as a whole: “yes we take it.”
 
 **Context:** The first version's QR opened the ordinary dashboard URL and asked
 for the maintainer secret. Andrew reported that password sign-in worked on his
@@ -231,12 +238,12 @@ with the saved dashboard URL kept separate and requiring the password when
 signed out. Andrew chose that alternative instead of the original URL-only QR.
 He also asked to remove **Go remote** from a dashboard that is already remote.
 
-**Answer:** “yeah lets do that so the qr code is a one time sign in ticket. and then if you reach it through the URL I guess it would be password needed.”
+**Proposer’s words:** “yeah let’s do that so the qr code is a one time sign in ticket. and then if you reach it through the URL I guess it would be password needed.”
 
 This authorization followed the phone report in the same message; the quotation
 above isolates the authentication choice from the reported test result.
 
-For the header, Andrew said: “also it still says go remote on the mobile version. that shouldn't be there lol im already remot! commit changes.”
+For the header, Andrew said: “also it still says go remote on the mobile version. that shouldn't be there lol I’m already remote! commit changes.”
 
 **Reason and scope:** Scanning a QR created by an already signed-in dashboard
 should complete one remote sign-in without making the person type the same
@@ -246,7 +253,7 @@ the Koinon password when signed out. The CLI QR remains URL-only. Hiding the
 header control depends on the actual remote surface, so a local narrow window
 still has it and a remote desktop window does not.
 
-For setup clarity, Andrew requested: “there is a lot of unncessary info presetnted throuhghout the setup can u make it easeir for users who maybe don't udnerstand quite everything break it down to be as simple as possible and concise UI wise.”
+For setup clarity, Andrew requested: “there is a lot of unnecessary info presented throughout the setup can u make it easier for users who maybe don't understand quite everything break it down to be as simple as possible and concise UI wise.”
 
 **Implementation choices in response:** Show one next step for the current
 state, keep technical status in details, and collapse the other Settings
@@ -254,7 +261,10 @@ sections. Label the existing maintainer secret **Koinon password**. These are
 presentation choices responding to the request, not verbatim decisions from
 Andrew or an additional credential.
 
-A signed-in dashboard creates the QR through an explicit CSRF-protected action.
+A signed-in dashboard on the host creates the QR through an explicit CSRF-protected
+action. A remote session cannot create one: a chain of codes would renew a remote
+session past the seven-day absolute maximum (PDR 009, Decision 2) and fill the login
+table without the secret (review of PR #644).
 The ticket permits one sign-in to the configured remote origin. The
 implementation uses a two-minute expiry for this temporary credential. Its use creates the same remote session with the existing cookie
 attributes and lifetime; it does not grant the agent API or create a permanent
@@ -287,7 +297,7 @@ The new ticket flow needs its own verification.
 
 ## 5. Refinement: Longer remote browser sessions
 
-**Requested by:** Andrew, 2026-11-11.
+**Requested by:** Andrew Deugarte (@andyde8), 2026-11-11. **Decided by:** Robert Capps, 2026-11-12 (#645), for this record as a whole: “yes we take it.”
 
 **Context:** After phone sign-in, Andrew reported being signed out after putting
 his phone away for five minutes and asked for a longer session and a
@@ -326,3 +336,4 @@ unverified connectivity and action outcomes stay labeled as such.
 | 2026-11-11 | Record Andrew's approval of setup controls in the existing dashboard interface. |
 | 2026-11-11 | Amend browser QR sign-in and remote-view presentation after Andrew's phone test and explicit choice. |
 | 2026-11-11 | Record the requested longer-session refinement and its remote-only scope, without assigning a cause to the phone sign-out report. |
+| 2026-11-12 | Accepted by Robert Capps (#645). Name the proposer as Andrew Deugarte (@andyde8) and Robert Capps as the decider. A remote session cannot create a sign-in QR (review of PR #644). Correct the spelling in quotes. |

@@ -500,3 +500,62 @@ func TestRemoteStatusUnavailableSecretIsUnknown(t *testing.T) {
 		t.Fatal("unavailable observation reported as missing secret", status)
 	}
 }
+
+// A disable closes the surface also when its record cannot be written, and the
+// reconciler retries the write instead of opening the surface again.
+func TestRemoteDisableClosesWhenRecordWriteFails(t *testing.T) {
+	d, root, _ := remoteFixture(t)
+	ctx := context.Background()
+	if err := d.remoteEnable(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(root, 0500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(root, 0700) })
+	if err := d.remoteDisable(ctx); err == nil {
+		t.Fatal("disable reported success without its record")
+	}
+	active := func() bool {
+		d.remote.surface.RLock()
+		defer d.remote.surface.RUnlock()
+		return d.remote.active
+	}
+	if active() {
+		t.Fatal("surface still open after a disable whose record failed")
+	}
+	d.restoreRemote(ctx)
+	if active() {
+		t.Fatal("reconciler opened a surface that the maintainer turned off")
+	}
+	if err := os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	d.restoreRemote(ctx)
+	c, err := ReadRemoteConfig(root)
+	if err != nil || c == nil || c.Enabled || active() {
+		t.Fatalf("record not repaired: %+v %v active=%v", c, err, active())
+	}
+}
+
+// A signed-out host is not a rename: disable says to connect Tailscale.
+func TestRemoteDisableSignedOutIsNotRename(t *testing.T) {
+	d, _, fake := remoteFixture(t)
+	ctx := context.Background()
+	if err := d.remoteEnable(ctx); err != nil {
+		t.Fatal(err)
+	}
+	fake.mu.Lock()
+	fake.noSelf = true
+	fake.mu.Unlock()
+	err := d.remoteDisable(ctx)
+	if err == nil || !strings.Contains(err.Error(), "tailscale_disconnected") || strings.Contains(err.Error(), "hostname") {
+		t.Fatal(err)
+	}
+	fake.mu.Lock()
+	fake.noSelf = false
+	fake.mu.Unlock()
+	if err := d.remoteDisable(ctx); err != nil {
+		t.Fatal("disable after reconnect", err)
+	}
+}

@@ -24,6 +24,9 @@ type dashboardRemoteData struct {
 	Approval     remote.Setup
 	SetupError   string
 	Prerequisite string
+	// OnRemote is true when the page is served on the remote surface, which
+	// cannot issue sign-in codes.
+	OnRemote bool
 }
 
 func remoteControlRequest(r *http.Request) bool {
@@ -81,6 +84,7 @@ func (d *Daemon) dashboardRemoteRoutes(mux *http.ServeMux, authed func(func(http
 			return
 		}
 		data := d.dashboardRemoteState(r.Context(), r.URL.Query().Get("setup") == "1", d.auth.csrf(id))
+		data.OnRemote = remoteOrigin(r) != ""
 		data.Checked = data.Checked || r.URL.Query().Get("checked") == "1"
 		var out bytes.Buffer
 		err := pages["settings"].ExecuteTemplate(&out, "remote", data)

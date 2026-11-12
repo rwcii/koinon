@@ -47,6 +47,9 @@ type remoteRuntime struct {
 	listener net.Listener
 	problem  string
 	manager  remote.Manager
+	// offUnrecorded holds a disable whose record write failed: the surface stays
+	// closed and the reconciler retries the write instead of opening it again.
+	offUnrecorded bool
 }
 
 func ReadRemoteConfig(root string) (*RemoteConfig, error) {
@@ -165,6 +168,7 @@ func (d *Daemon) remoteEnable(ctx context.Context) error {
 	rt := &d.remote
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
+	rt.offUnrecorded = false
 	set, err := d.store.maintainerSecretSet(ctx)
 	if err != nil {
 		return err
@@ -250,20 +254,26 @@ func (d *Daemon) remoteDisable(ctx context.Context) error {
 	rt := &d.remote
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
+	// The off switch closes the surface first, also when the record cannot be read
+	// or written; the error then reports the record failure.
+	d.closeRemoteLocked()
 	c, err := ReadRemoteConfig(d.root)
 	if err != nil {
+		rt.offUnrecorded = true
+		rt.problem = err.Error()
 		return err
 	}
 	if c == nil {
-		d.closeRemoteLocked()
 		return nil
 	}
 	c.Enabled = false
 	if err := writeRemoteConfig(d.root, c); err != nil {
+		rt.offUnrecorded = true
+		rt.problem = err.Error()
 		return err
 	}
+	rt.offUnrecorded = false
 	rt.config = c
-	d.closeRemoteLocked()
 	if c.Owned {
 		if err := rt.manager.Remove(ctx, c.Mapping); err != nil {
 			rt.problem = err.Error()
@@ -359,6 +369,15 @@ func (d *Daemon) restoreRemote(ctx context.Context) {
 	if rt.config != nil && (c == nil || rt.config.Mapping != c.Mapping) {
 		d.closeRemoteLocked()
 	}
+	if c != nil && c.Enabled && rt.offUnrecorded {
+		c.Enabled = false
+		if err := writeRemoteConfig(d.root, c); err != nil {
+			d.closeRemoteLocked()
+			rt.problem = err.Error()
+			return
+		}
+		rt.offUnrecorded = false
+	}
 	rt.config = c
 	if c == nil {
 		return
@@ -435,7 +454,16 @@ func (d *Daemon) remoteRoutes(mux *http.ServeMux) {
 				err = d.remoteDisable(ctx)
 			}
 			if err != nil {
-				respond(w, 409, map[string]any{"ok": false, "code": "remote_setup_required", "error": err.Error()})
+				// The code names the step to take: a missing secret, a Tailscale
+				// diagnostic, or remote_setup_required for another failure.
+				code := "remote_setup_required"
+				var diagnostic *remote.Diagnostic
+				if errors.Is(err, ErrSecretUnset) {
+					code = "remote_secret_required"
+				} else if errors.As(err, &diagnostic) {
+					code = diagnostic.Code
+				}
+				respond(w, 409, map[string]any{"ok": false, "code": code, "error": err.Error()})
 				return
 			}
 			respond(w, 200, map[string]any{"ok": true})
