@@ -2775,7 +2775,8 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   certificate SHA-256 fingerprint and any required step; it opens the loopback one-time link.
   On the separate Serve surface the cookie is named `koinon_remote_dashboard`,
   has `Secure`, `HttpOnly`, `SameSite=Strict`, and `Path=/dashboard/`, and has no
-  Domain. Its durable hashed session is bound to the remote origin; a local session ID
+  Domain. Its `Max-Age` is the time left until the login's 48-hour deadline. Its durable
+  hashed session is bound to the remote origin; a local session ID
   copied into its cookie, or a remote ID copied into a local cookie, authenticates
   neither crossover. Remote sessions start with the maintainer secret or a one-time
   sign-in ticket; a local one-time link is refused. A remote login lasts exactly 48 hours from sign-in, without extension. Routine
@@ -3447,10 +3448,15 @@ Authenticated, origin-checked browser routes (all POSTs also require current CSR
 - `GET /dashboard/remote/devices`: JSON `devices`, `current`, `csrf`. Each device has
   `id`, `label`, `created_at`, `last_observed`, `expires_at`, `this_browser`.
 - `POST /dashboard/remote/devices`: form `action=rename|revoke|revoke-all`, `id`
-  for one device and `label` for rename. Success follows durable commit; storage
-  failure returns an incomplete-revocation error and immediately denies memory access.
+  for one device and `label` for rename (1 to 80 characters, one line). Success follows
+  durable commit. A wrong form answers 400, and an unknown, revoked or expired device ID
+  answers 404 `remote_device_not_found`. Storage failure answers 503 with an
+  incomplete-revocation error and immediately denies memory access; the daemon retries the
+  saved revocation at each status read while it runs, so forget the device again after a
+  restart that came before the retry. `revoke-all` also cancels outstanding sign-in
+  tickets; one device's revoke keeps them.
 - `GET /dashboard/attention`: one source snapshot of waiting decisions, browser
-  unread cursors and observed problems. `POST /dashboard/actions/attention-read`
+  unread cursors, observed problems and the newest 20 unexpired receipts of this origin. `POST /dashboard/actions/attention-read`
   with `direct` and `room` source heads advances only this browser's read cursors.
 - Receipt-supported remote `send`, `room-post` and decision verdict forms accept
   `operation_id` (16–128 alphanumeric/underscore/hyphen characters) and
@@ -3472,13 +3478,15 @@ Authenticated, origin-checked browser routes (all POSTs also require current CSR
   together. Forms without these fields retain ordinary action behavior.
 - `GET /dashboard/receipts?id=ID`: authenticated JSON `found`, `authoritative`,
   `server_time`, optional `receipt` or `expired`. Lookup requires the same remote
-  origin. Receipt fields include `id`, attribution `session_id`, `type`, `target`,
-  digest, fixed seven-day `created_at`/`expires_at`, `state`, `code` and opaque
-  `result_target`. Acceptance is distinct from message delivery/acknowledgement.
+  origin; another origin's receipt answers 409. Receipt fields include `id`, attribution
+  `session_id`, `origin`, `type`, `target`, digest, fixed seven-day
+  `created_at`/`expires_at`, `state`, `code`, opaque `result_target` and the optional
+  original `result`. Acceptance is distinct from message delivery/acknowledgement.
 
 `X-Koinon-Auth-Reason` on rejected authenticated reads identifies available
 `session_expired`, `device_revoked`, `password_changed`, `remote_disabled`,
-`origin_changed` or `unknown_credential` evidence. Missing historical state stays
-unknown. Public sign-in copy remains generic. Receipts and pending IDs never
+`origin_changed` or `unknown_credential` evidence; a logout ends the session with
+`device_revoked`, and a cleared maintainer secret with `password_changed`. Missing
+historical state stays unknown. Public sign-in copy remains generic. Receipts and pending IDs never
 authorize a write, bypass CSRF or permit automatic retries. Remote `/v1/` remains
 unavailable. Private diagnostics exclude raw credentials and message bodies.

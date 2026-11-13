@@ -112,7 +112,7 @@ sessions; at capacity, show the device list and require selecting one to forget,
 so pairing another browser cannot silently evict the everyday phone. This is an
 engineering bound proposed here, not an existing maintainer decision.
 
-**Settings → Remote access → Signed-in devices** lists label, created time, last
+**Settings → Signed-in remote devices** lists label, created time, last
 observed use, expiry and **This browser**. Allow rename, revoke one and revoke all
 remote sessions through existing authenticated, origin-checked CSRF actions.
 A device is a browser session, not proof of physical hardware identity. Browser

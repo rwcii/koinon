@@ -108,6 +108,10 @@ Decision 4 below amends the browser QR sign-in flow; the CLI QR remains URL-only
 | Writes | Submission prevents repeated taps while running. Lost responses say “Result unknown; check the latest state before trying again.” Reconnect and login read current state and never replay a prior write automatically. Existing revision and idempotency rules still apply. |
 | Login recovery | An expired login opens sign-in with a safe relative read-only dashboard return screen; it does not resubmit the previous action. |
 
+For remote browser sessions, §9 replaces the restart, lifetime and drafts rows above: a
+remote sign-in lasts a fixed 48 hours and survives a routine restart or upgrade, and
+draft recovery after a reload is an explicit opt-in.
+
 Network policy must permit the intended maintainer devices. The host must remain
 awake, online, and running Koinon and Tailscale. Account, certificate, and platform
 steps can require interaction outside Koinon, and diagnostics identify that step.

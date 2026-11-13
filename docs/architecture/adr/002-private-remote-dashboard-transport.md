@@ -106,7 +106,8 @@ The implementation follows these boundaries from the authorized specification:
   local cookie does not authorize the local surface, or vice versa. Writes retain
   Origin and session-bound CSRF checks.
 - Remote browser idle time is seven days, with the existing seven-day absolute
-  maximum (PDR 010, Refinement 5). Local browser and maintainer-token idle time
+  maximum (PDR 010, Refinement 5). Decision 5 replaces this lifetime and the restart
+  rule below for remote browsers: a fixed 48 hours that survives a routine restart. Local browser and maintainer-token idle time
   remains 24 hours under PDR 009. Restart,
   secret change, remote disable, and external-origin change end the relevant
   logins. An identity or Serve/Funnel conflict observed at status or the

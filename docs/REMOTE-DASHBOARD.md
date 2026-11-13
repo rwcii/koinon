@@ -406,18 +406,22 @@ source, real proxy, platform, and physical-device evidence.
 The remote landing page is **Attention**: pending maintainer decisions and their
 oldest age, unread maintainer direct messages and canonical room posts, cached
 agent problems, and recent action receipts. Unknown activity is labeled. Counts
-and source links come from one SQLite snapshot. **Mark displayed messages read**
-advances only this browser session's cursors; it never acknowledges an agent inbox
+and source links come from one SQLite snapshot; the receipts are this origin's
+unexpired ones. **Mark displayed snapshot read on this browser** advances only this
+browser session's cursors; it never acknowledges an agent inbox
 or resolves a decision. Follow the links for the full dashboard.
 
-Settings lists signed-in remote browser sessions, their labels, creation, expiry
-and last observed request. Rename or forget one browser, or forget all. These are
+**Settings → Signed-in remote devices** lists signed-in remote browser sessions, their
+labels, creation, expiry and last observed request. Rename or forget one browser, or
+**Forget all remote devices**, which also cancels open sign-in QR codes. These are
 browser sessions, not hardware identities or proof of a person being online.
 **Signed in until** shows the server deadline. First upgrade to v2 requires fresh
 sign-in; old seven-day cookies cannot start a durable session. Local browser and
 maintainer token policy stays unchanged. A full remote pool (32 sessions) requires
-forgetting an existing browser through an authenticated session on the host or
-another device; new sign-in never silently evicts the everyday phone.
+forgetting an existing browser in **Settings → Signed-in remote devices** on the host or
+another signed-in device; new sign-in never silently evicts the everyday phone. The
+sign-in page shows this, and a QR code scanned at the limit stays valid until it
+expires, so scan it again after forgetting a device.
 
 While visible, failed reads back off through 1, 2, 5, 10 and 30 seconds with
 jitter; foreground and network-return checks are immediate. Hidden pages stop
@@ -449,7 +453,13 @@ until old receipts expire; retained receipts remain available for lookup. Launch
 behavior because their external side effects are outside these transactions.
 
 Private remote status reports observed session count, storage health, last
-reconciliation and last authentication-ending reason. **Phone connected at** is a
+reconciliation and last authentication-ending reason. The session count, last
+reason, **Phone connected at** and a revocation that could not be saved are
+observations of the current daemon run and reset at restart. A failed revocation is
+retried at each status read while the daemon runs; after a restart, forget that
+device again. Without a maintainer secret, remote status reports no sessions, not a
+storage fault. Invalid stored session rows are counted and deny only their own
+cookie; **Forget all remote devices** deletes them. **Phone connected at** is a
 server observation of an authenticated browser request; it does not prove cellular
 use. Cellular and installed-home-screen verification require actual device tests.
 No authenticated pages are cached and no background write queue is installed.

@@ -160,7 +160,7 @@ func (d *Daemon) dashboardPairRoutes(mux *http.ServeMux,
 		id, ok, err := d.auth.redeemRemoteTicket(r.PostForm.Get("ticket"), origin)
 		if err != nil {
 			if errors.Is(err, ErrRemoteCapacity) {
-				http.Error(w, "Signed-in device limit reached. Forget a device in Remote access settings on the host or an existing signed-in browser, then scan this code again.", http.StatusConflict)
+				http.Error(w, "Signed-in device limit reached. Open Settings → Signed-in remote devices on the host or in a signed-in browser and forget a device, then scan this code again.", http.StatusConflict)
 				return
 			}
 			http.Error(w, "Sign-in unavailable. Get a new code on your computer.", http.StatusInternalServerError)

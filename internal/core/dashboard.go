@@ -338,7 +338,7 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 		case errors.Is(err, ErrSecretInvalid):
 			refuse(w, r, http.StatusUnauthorized, "secret")
 		case errors.Is(err, ErrRemoteCapacity):
-			http.Error(w, "Signed-in device limit reached. Open Settings → Remote access → Signed-in devices in an existing signed-in browser or on the host and forget a device, then try again.", http.StatusConflict)
+			http.Error(w, "Signed-in device limit reached. Open Settings → Signed-in remote devices on the host or in a signed-in browser and forget a device, then try again.", http.StatusConflict)
 		case errors.Is(err, ErrSecretUnset):
 			refuse(w, r, http.StatusUnauthorized, "unset")
 		default:

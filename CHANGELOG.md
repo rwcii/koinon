@@ -65,7 +65,7 @@ into a dated release section when promoted to `main`.
   end reasons. Failed expiry writes stay visible and retry after storage recovers,
   including from host diagnostics after the browser drops its cookie. Small host-clock
   corrections preserve valid sessions; action receipts use host time rather than the
-  phone clock. Failed logout and device revocations remain visible and retryable. Local browser and maintainer API-token policies are unchanged.
+  phone clock. Failed logout and device revocations remain visible and retryable while the daemon runs. At the 32-device limit, sign-in says how to forget a device, and a QR code scanned at the limit stays valid until it expires. Local browser and maintainer API-token policies are unchanged.
   Actual phone retention and platform lifecycle acceptance remain separately verified.
   Draft recovery rechecks the recipient, form and saved text when selected, preserving
   newer edits and respecting draft clearing, opt-out and observed revocation.
