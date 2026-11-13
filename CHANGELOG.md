@@ -67,6 +67,8 @@ into a dated release section when promoted to `main`.
   corrections preserve valid sessions; action receipts use host time rather than the
   phone clock. Failed logout and device revocations remain visible and retryable. Local browser and maintainer API-token policies are unchanged.
   Actual phone retention and platform lifecycle acceptance remain separately verified.
+  Draft recovery rechecks the recipient, form and saved text when selected, preserving
+  newer edits and respecting draft clearing, opt-out and observed revocation.
 
 - `koinon remote enable --https-port PORT` publishes the remote dashboard on another
   Tailscale Serve HTTPS port, for a computer where another program, such as a container

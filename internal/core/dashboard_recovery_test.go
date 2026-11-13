@@ -43,7 +43,7 @@ function browser(saved={}, broken=false, sessionID="synthetic-session", clock={}
  createElement(){return {addEventListener(n,f){this[n]=f;},remove(){this.removed=true;}};}};
  const window={location:new URL('https://synthetic.example/dashboard/messages'),crypto:{randomUUID(){return '12345678-1234-1234-1234-'+String(++nextID).padStart(12,'0');}},
  localStorage:{getItem(k){if(broken)throw Error('blocked');return storage.get(k)||null;},setItem(k,v){if(broken)throw Error('quota');storage.set(k,v);},removeItem(k){storage.delete(k);}},addEventListener(){}};
- class FormData {get(name){return name==='to'?'synthetic-peer':null;}}
+ class FormData {constructor(form){this.form=form;}get(name){return name==='to'?(this.form.recipient||'synthetic-peer'):null;}}
  vm.runInNewContext(code,{document,window,FormData,URLSearchParams,Date:PhoneDate,performance,Promise,fetch(url,opts){return new Promise((resolve,reject)=>requests.push({url,opts,resolve,reject}));}});
  return {window,storage,prefix,status,toggle,clear,field,buttons,events,requests,api:window.koinonRecovery};
 }
@@ -51,6 +51,22 @@ function browser(saved={}, broken=false, sessionID="synthetic-session", clock={}
  const b=browser();b.field.value='private draft';b.events.input({target:b.field});assert.equal(b.storage.has(b.prefix+'drafts'),false);
  b.toggle.checked=true;b.toggle.change();b.events.input({target:b.field});assert.match(b.storage.get(b.prefix+'drafts'),/private draft/);
  const resumed=browser(Object.fromEntries(b.storage));assert.equal(resumed.field.value,'');assert.equal(resumed.buttons[0].textContent,'Recover draft');resumed.buttons[0].click();assert.equal(resumed.field.value,'private draft');assert.equal(resumed.requests.length,0);
+ // A recovery offer must remain bound to its original target and saved text.
+ const retargeted=browser(Object.fromEntries(b.storage));
+ retargeted.field.form.recipient='other-peer';retargeted.events.change({target:{form:retargeted.field.form}});
+ retargeted.buttons[0].click();assert.equal(retargeted.field.value,'');
+ assert.ok(!JSON.parse(retargeted.storage.get(retargeted.prefix+'drafts')).some(d=>d.target==='other-peer'));
+ const newer=browser(Object.fromEntries(b.storage));newer.field.value='newer text';newer.events.input({target:newer.field});
+ newer.buttons[0].click();assert.equal(newer.field.value,'newer text');
+ for (const change of ['clear','opt-out','revoke','route','action']) {
+  const stale=browser(Object.fromEntries(b.storage));
+  if(change==='clear')stale.clear.click();
+  if(change==='opt-out'){stale.toggle.checked=false;stale.toggle.change();}
+  if(change==='revoke')stale.api.unauthorized({headers:{get(){return 'device_revoked';}}});
+  if(change==='route')stale.window.location.pathname='/dashboard/rooms';
+  if(change==='action')stale.field.form.getAttribute=()=>'/dashboard/actions/room-post';
+  stale.buttons[0].click();assert.equal(stale.field.value,'',change+' must invalidate a stale offer');
+ }
  // Unrelated private memory/editor bodies must never be persisted by message-draft opt-in.
  const memory=browser();memory.toggle.checked=true;memory.toggle.change();
  memory.field.form.getAttribute=()=>'/dashboard/actions/memory-record';memory.field.value='private memory record';

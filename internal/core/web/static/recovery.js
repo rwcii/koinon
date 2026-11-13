@@ -59,9 +59,18 @@
       var matches = rows.filter(function (d) { return d.route === route() && d.target === targetOf(field.form) && d.name === field.name; });
       if (!matches.length) { return; }
       var draft = matches[matches.length - 1];
+      var action = field.form.getAttribute("action") || "";
       var button = document.createElement("button"); button.type = "button";
       button.textContent = "Recover draft" + (draft.session !== session ? " from previous sign-in" : "");
-      button.addEventListener("click", function () { field.value = draft.text; button.remove(); delete field.dataset.recoverOffered; save(field); });
+      button.addEventListener("click", function () {
+        button.remove(); delete field.dataset.recoverOffered;
+        // The form and saved state may have changed since this offer appeared.
+        if (!opted() || !eligible(field) || field.value || route() !== draft.route ||
+            targetOf(field.form) !== draft.target || field.name !== draft.name ||
+            (field.form.getAttribute("action") || "") !== action ||
+            !drafts().some(function (d) { return d.key === draft.key && d.at === draft.at && d.text === draft.text; })) { return; }
+        field.value = draft.text; save(field);
+      });
       field.dataset.recoverOffered = "true"; field.insertAdjacentElement("afterend", button);
     });
   }
