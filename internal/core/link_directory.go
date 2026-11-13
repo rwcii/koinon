@@ -373,4 +373,3 @@ func (d *Daemon) remotePeerStatus(to string) (PeerStatus, error) {
 	}
 	return PeerStatus{Peer: remoteRow(p.Effective, e, c, stale), ObservedAt: c.at, Model: unknown, Context: unknown, Activity: activity}, nil
 }
-
