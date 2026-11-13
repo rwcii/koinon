@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- `koinon link join`, and **Connect** in Settings, Computers, now show why a join failed when
+  the other computer does not answer, for example `link_unreachable` when the tailnet policy
+  blocks the link port. Before, the daemon's answer was cut after 10 seconds and the command
+  reported that the daemon was unavailable or too old (#677). The same holds for naming,
+  inviting and unpairing.
+
 - Agents send messages to sessions on your other Koinon computers (#670, third part). `send`
   to `NAME@COMPUTER` (MCP, CLI and the agent API) queues the message on this computer at once
   and answers with its `link_id`; Koinon delivers each computer's queue in send order while
