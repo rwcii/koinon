@@ -210,7 +210,7 @@ func TestLinkRefusedKeyIsShown(t *testing.T) {
 		t.Fatal(err)
 	}
 	// alpha is not paired with beta and beta has no open invitation.
-	session, err := a.d.connectLink(ctx, []string{b.ip}, 47672, idB.Pin)
+	session, err := a.d.connectLink(ctx, a.d.openGen(), []string{b.ip}, 47672, idB.Pin)
 	if err == nil {
 		err = session.call("ping", linkPairID{ID: strings.Repeat("0", 32)}, "pong", nil)
 		session.conn.Close()

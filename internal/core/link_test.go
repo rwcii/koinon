@@ -151,8 +151,8 @@ func TestLinkPairsThroughOneInvitation(t *testing.T) {
 		t.Fatal("pins")
 	}
 	// Each side observes the other through a ping.
-	a.d.linkPass(make(chan struct{}))
-	b.d.linkPass(make(chan struct{}))
+	a.d.passNow()
+	b.d.passNow()
 	for _, h := range []*linkHost{a, b} {
 		st := h.d.linkStatus(ctx)
 		if !st.Configured || st.Listener != "ready" || st.Serve != "ready" || len(st.Pairs) != 1 || st.Pairs[0].Observed.State != "connected" {
@@ -302,7 +302,7 @@ func TestLinkRemoteDisableClosesAndKeepsPairs(t *testing.T) {
 	if _, err := g.d.linkJoin(ctx, open); refusalCode(err) != ErrLinkUnreachable.Code {
 		t.Fatalf("join while off: %v", err)
 	}
-	a.d.linkPass(make(chan struct{}))
+	a.d.passNow()
 	if st := a.d.linkStatus(ctx); st.Pairs[0].Observed.State != "offline" {
 		t.Fatalf("peer off: %+v", st.Pairs[0])
 	}
@@ -316,7 +316,7 @@ func TestLinkRemoteDisableClosesAndKeepsPairs(t *testing.T) {
 	if !c.LinkOwned {
 		t.Fatalf("re-enable %+v", c)
 	}
-	a.d.linkPass(make(chan struct{}))
+	a.d.passNow()
 	if st := a.d.linkStatus(ctx); st.Pairs[0].Observed.State != "connected" {
 		t.Fatalf("after re-enable: %+v", st.Pairs[0])
 	}
@@ -405,7 +405,7 @@ func TestLinkUnpairWhileOtherSideOffIsLocal(t *testing.T) {
 		t.Fatal(err)
 	}
 	// B's ping now fails at A's handshake: A refuses B's key.
-	b.d.linkPass(make(chan struct{}))
+	b.d.passNow()
 	if st := b.d.linkStatus(ctx); st.Pairs[0].Observed.State == "connected" {
 		t.Fatalf("unpaired key connected: %+v", st.Pairs[0])
 	}
@@ -419,7 +419,7 @@ func TestLinkPendingPairRecoversAtThePing(t *testing.T) {
 	text, _ := b.d.linkInvite(ctx)
 	invitation, _ := link.ParseInvitation(text)
 	// Run the hello by hand, without the confirm: B keeps a pending pair.
-	session, err := a.d.connectLink(ctx, invitation.IPs, invitation.Port, invitation.Pin)
+	session, err := a.d.connectLink(ctx, a.d.openGen(), invitation.IPs, invitation.Port, invitation.Pin)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -440,7 +440,7 @@ func TestLinkPendingPairRecoversAtThePing(t *testing.T) {
 	s.Pairs = append(s.Pairs, link.Pair{ID: ok.ID, Advertised: "beta", Effective: "beta", Pin: invitation.Pin, DNSName: invitation.DNSName, IPs: invitation.IPs, Port: invitation.Port, State: link.Paired, Role: link.Joiner, Created: 1})
 	link.WriteState(a.root, s)
 	a.d.link.mu.Unlock()
-	a.d.linkPass(make(chan struct{}))
+	a.d.passNow()
 	if s := b.state(t); s.Pairs[0].State != link.Paired {
 		t.Fatalf("not confirmed: %+v", s.Pairs)
 	}
@@ -448,7 +448,7 @@ func TestLinkPendingPairRecoversAtThePing(t *testing.T) {
 	g := newLinkHost(t, n, "gamma", "100.64.0.3")
 	text, _ = b.d.linkInvite(ctx)
 	invitation, _ = link.ParseInvitation(text)
-	session, err = g.d.connectLink(ctx, invitation.IPs, invitation.Port, invitation.Pin)
+	session, err = g.d.connectLink(ctx, g.d.openGen(), invitation.IPs, invitation.Port, invitation.Pin)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -458,7 +458,7 @@ func TestLinkPendingPairRecoversAtThePing(t *testing.T) {
 		t.Fatal("no pending pair")
 	}
 	n.shift.Store(int64(linkInviteLife + time.Second))
-	b.d.linkPass(make(chan struct{}))
+	b.d.passNow()
 	n.shift.Store(0)
 	if names := pairNames(b.state(t)); len(names) != 1 || names["alpha"] != link.Paired {
 		t.Fatalf("expiry: %v", names)
@@ -480,7 +480,7 @@ func TestLinkRefreshesAddressesFromTailscale(t *testing.T) {
 	n.hosts["fd7a:115c:a1e0::2:47672"] = b.d
 	n.hosts["[fd7a:115c:a1e0::2]:47672"] = b.d
 	n.mu.Unlock()
-	a.d.linkPass(make(chan struct{}))
+	a.d.passNow()
 	if st := a.d.linkStatus(ctx); st.Pairs[0].Observed.State != "offline" {
 		t.Fatalf("stale: %+v", st.Pairs[0])
 	}
@@ -491,7 +491,7 @@ func TestLinkRefreshesAddressesFromTailscale(t *testing.T) {
 		"k2": map[string]any{"DNSName": "beta.example-tailnet.ts.net.", "TailscaleIPs": []string{"100.64.0.99"}},
 	}
 	a.fake.mu.Unlock()
-	a.d.linkPass(make(chan struct{}))
+	a.d.passNow()
 	if got := a.state(t).Pairs[0].IPs; len(got) != 1 || got[0] != "100.64.0.2" {
 		t.Fatalf("ambiguous replaced: %v", got)
 	}
@@ -500,7 +500,7 @@ func TestLinkRefreshesAddressesFromTailscale(t *testing.T) {
 	a.fake.mu.Lock()
 	a.fake.peers = map[string]any{"k1": map[string]any{"DNSName": "BETA.example-tailnet.ts.net.", "TailscaleIPs": []string{"fd7a:115c:a1e0::2"}}}
 	a.fake.mu.Unlock()
-	a.d.linkPass(make(chan struct{}))
+	a.d.passNow()
 	if got := a.state(t).Pairs[0].IPs; len(got) != 1 || got[0] != "fd7a:115c:a1e0::2" {
 		t.Fatalf("refresh: %v", got)
 	}
@@ -516,7 +516,7 @@ func TestLinkRefreshesAddressesFromTailscale(t *testing.T) {
 	a.fake.mu.Lock()
 	a.fake.peers = map[string]any{"k1": map[string]any{"DNSName": "beta.example-tailnet.ts.net.", "TailscaleIPs": []string{"100.64.0.7"}}}
 	a.fake.mu.Unlock()
-	a.d.linkPass(make(chan struct{}))
+	a.d.passNow()
 	if st := a.d.linkStatus(ctx); st.Pairs[0].Observed.State != "rejected" {
 		t.Fatalf("wrong key: %+v", st.Pairs[0])
 	}

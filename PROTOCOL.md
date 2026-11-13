@@ -113,8 +113,9 @@ invitation's secret, which is used at once; the reply `hello-ok` has the pair `i
 `pair-confirm` (`id`), `ping` (`id`) and `unpair` (`id`). Each open of the link starts a generation: a
 connection is attached to it before its handshake (inbound) or before its handshake ends
 (outbound), and the close ends every dial, handshake and connection of that generation at
-once; a connection of an earlier generation never attaches to a later one, and an invite or
-join that started before a close does not commit. With the link closed, the daemon opens no
+once. Each join, unpair and monitor pass keeps the generation in which it began, through its
+Tailscale read, connection and retry: work of a closed generation never connects, attaches or
+commits in a later one. With the link closed, the daemon opens no
 outbound connection: an unpair is then local, and the other computer learns it at its next
 connection. The client dials a pair's saved
 Tailscale addresses with its pin checked in `VerifyConnection`, and when none connects reads

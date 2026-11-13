@@ -236,7 +236,7 @@ func (d *Daemon) openLinkLocked(held net.Listener) error {
 	d.link.stop = stop
 	d.wg.Add(2)
 	go d.acceptLink(listener, d.link.gen)
-	go d.monitorLink(stop)
+	go d.monitorLink(stop, d.link.gen)
 	return nil
 }
 
@@ -261,6 +261,17 @@ func (d *Daemon) closeLinkLocked() {
 	}
 	d.link.gen++
 	d.link.life, d.link.end, d.link.invites = nil, nil, nil
+}
+
+// linkLifeOf returns the context of generation gen while it is the open link's, or
+// link_remote_required.
+func (d *Daemon) linkLifeOf(gen uint64) (context.Context, error) {
+	d.link.mu.Lock()
+	defer d.link.mu.Unlock()
+	if d.link.listener == nil || d.link.life == nil || d.link.gen != gen {
+		return nil, ErrLinkRemoteOff
+	}
+	return d.link.life, nil
 }
 
 // linkLife returns the context and generation of the open link, or link_remote_required.
@@ -557,11 +568,12 @@ func (s linkSession) call(op string, body any, wantOp string, out any) error {
 // server's pin. A wrong key, or a refusal of this computer's key, is reported at once: it is
 // never retried at another address.
 //
-// It runs only while the link is open, under the link's generation: the close cancels a dial
-// or handshake in progress and closes an attached connection, and a connection never attaches
-// to a later generation. With the link closed it is link_remote_required and sends nothing.
-func (d *Daemon) connectLink(ctx context.Context, ips []string, port int, pin string) (linkSession, error) {
-	life, gen, err := d.linkLife()
+// It runs only in generation gen, which the caller took when its work began: the close of
+// that generation cancels a dial or handshake in progress and closes an attached connection,
+// and work of a closed generation never connects in a later one. With gen closed it is
+// link_remote_required and sends nothing.
+func (d *Daemon) connectLink(ctx context.Context, gen uint64, ips []string, port int, pin string) (linkSession, error) {
+	life, err := d.linkLifeOf(gen)
 	if err != nil {
 		return linkSession{}, err
 	}
@@ -613,8 +625,8 @@ func (d *Daemon) connectLink(ctx context.Context, ips []string, port int, pin st
 // connectPair dials a paired computer at its saved addresses, then at the addresses that
 // Tailscale reports for its full name. New addresses are saved only after a connection with
 // the pinned key.
-func (d *Daemon) connectPair(ctx context.Context, p link.Pair) (linkSession, error) {
-	session, err := d.connectLink(ctx, p.IPs, p.Port, p.Pin)
+func (d *Daemon) connectPair(ctx context.Context, gen uint64, p link.Pair) (linkSession, error) {
+	session, err := d.connectLink(ctx, gen, p.IPs, p.Port, p.Pin)
 	if err == nil || errors.Is(err, ErrLinkWrongKey) || errors.Is(err, ErrLinkKeyRefused) {
 		return session, err
 	}
@@ -632,7 +644,7 @@ func (d *Daemon) connectPair(ctx context.Context, p link.Pair) (linkSession, err
 	if _, ok := link.ValidAddresses(fresh); !ok || slices.Equal(fresh, p.IPs) {
 		return linkSession{}, err
 	}
-	session, err = d.connectLink(ctx, fresh, p.Port, p.Pin)
+	session, err = d.connectLink(ctx, gen, fresh, p.Port, p.Pin)
 	if err != nil {
 		return session, err
 	}
@@ -649,7 +661,7 @@ func (d *Daemon) connectPair(ctx context.Context, p link.Pair) (linkSession, err
 
 // monitorLink pings each paired computer while the link listener is open, removes expired
 // pending pairs and invitations, and records what it observes.
-func (d *Daemon) monitorLink(stop chan struct{}) {
+func (d *Daemon) monitorLink(stop chan struct{}, gen uint64) {
 	defer d.wg.Done()
 	timer := time.NewTimer(0)
 	defer timer.Stop()
@@ -660,13 +672,14 @@ func (d *Daemon) monitorLink(stop chan struct{}) {
 		case <-stop:
 			return
 		case <-timer.C:
-			d.linkPass(stop)
+			d.linkPass(stop, gen)
 			timer.Reset(linkPingInterval)
 		}
 	}
 }
 
-func (d *Daemon) linkPass(stop chan struct{}) {
+// linkPass is one monitor pass of generation gen.
+func (d *Daemon) linkPass(stop chan struct{}, gen uint64) {
 	d.link.mu.Lock()
 	s, err := link.ReadState(d.root)
 	if err == nil {
@@ -706,7 +719,7 @@ func (d *Daemon) linkPass(stop chan struct{}) {
 			continue // the joining computer confirms its pending pair
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*linkIOTimeout)
-		session, err := d.connectPair(ctx, p)
+		session, err := d.connectPair(ctx, gen, p)
 		if err == nil {
 			err = session.call("ping", linkPairID{ID: p.ID}, "pong", nil)
 			session.close()
@@ -868,7 +881,7 @@ func (d *Daemon) linkJoin(ctx context.Context, text string) (link.Pair, error) {
 		return link.Pair{}, err
 	}
 	// The handshake checks the invitation's pin before the secret is sent.
-	session, err := d.connectLink(ctx, invitation.IPs, invitation.Port, invitation.Pin)
+	session, err := d.connectLink(ctx, gen, invitation.IPs, invitation.Port, invitation.Pin)
 	if linkKeyRefused(err) {
 		// The other computer admits an unknown key only while an invitation is open.
 		return link.Pair{}, ErrLinkInvitation
@@ -930,6 +943,8 @@ func findPair(s link.State, ref string) int {
 // linkUnpair removes a pair here at once and tells the other computer when it answers.
 func (d *Daemon) linkUnpair(ctx context.Context, ref string) error {
 	d.link.mu.Lock()
+	// The notice to the other computer goes only in the generation in which the unpair began.
+	gen := d.link.gen
 	s, err := link.ReadState(d.root)
 	if err != nil {
 		d.link.mu.Unlock()
@@ -952,7 +967,7 @@ func (d *Daemon) linkUnpair(ctx context.Context, ref string) error {
 	// Best effort: the other computer also refuses this key at its next connection.
 	notify, cancel := context.WithTimeout(ctx, 2*linkIOTimeout)
 	defer cancel()
-	if session, err := d.connectLink(notify, p.IPs, p.Port, p.Pin); err == nil {
+	if session, err := d.connectLink(notify, gen, p.IPs, p.Port, p.Pin); err == nil {
 		session.call("unpair", linkPairID{ID: p.ID}, "unpair-ok", nil)
 		session.close()
 	}

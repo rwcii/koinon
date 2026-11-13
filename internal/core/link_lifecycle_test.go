@@ -57,7 +57,7 @@ func TestLinkMonitorDialEndsAtDisable(t *testing.T) {
 	}
 	a.d.link.mu.Unlock()
 	finished := make(chan struct{})
-	go func() { a.d.linkPass(make(chan struct{})); close(finished) }()
+	go func() { a.d.passNow(); close(finished) }()
 	<-entered
 	if err := a.d.remoteDisable(context.Background()); err != nil {
 		close(release)
@@ -244,5 +244,51 @@ func TestLinkOldGenerationDoesNotAttach(t *testing.T) {
 	}
 	if _, now, _ := a.d.linkLife(); !a.d.trackLink(c1, "", now) {
 		t.Fatal("a connection of the open generation did not attach")
+	}
+}
+
+// openGen is the open link's generation.
+func (d *Daemon) openGen() uint64 {
+	_, gen, _ := d.linkLife()
+	return gen
+}
+
+// passNow runs one monitor pass in the open generation.
+func (d *Daemon) passNow() {
+	_, gen, _ := d.linkLife()
+	d.linkPass(make(chan struct{}), gen)
+}
+
+// A join begun in one lifecycle must not perform its network exchange
+// under a new lifecycle after a provider read crosses disable and enable.
+func TestLinkOldJoinDoesNotSendInNewGeneration(t *testing.T) {
+	n := &linkNet{}
+	a := newLinkHost(t, n, "alpha", "100.64.0.1")
+	b := newLinkHost(t, n, "beta", "100.64.0.2")
+	ctx := context.Background()
+	text, err := b.d.linkInvite(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	barrier := &statusBarrier{inner: a.fake, entered: make(chan struct{}), release: make(chan struct{})}
+	a.d.remote.mu.Lock()
+	a.d.remote.manager = remote.Manager{Adapter: barrier}
+	a.d.remote.mu.Unlock()
+	finished := make(chan error, 1)
+	go func() { _, err := a.d.linkJoin(ctx, text); finished <- err }()
+	<-barrier.entered
+	if err := a.d.remoteDisable(ctx); err != nil {
+		close(barrier.release)
+		t.Fatal(err)
+	}
+	if err := a.d.remoteEnable(ctx, 0); err != nil {
+		close(barrier.release)
+		t.Fatal(err)
+	}
+	close(barrier.release)
+	result := <-finished
+	state := b.state(t)
+	if len(state.Pairs) != 0 || len(state.Invites) != 1 {
+		t.Fatalf("old join sent pair-hello in new generation: local error=%v, peer pairs=%d, peer invitations=%d", result, len(state.Pairs), len(state.Invites))
 	}
 }
