@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/rwcii/koinon/internal/platform"
 	"github.com/rwcii/koinon/internal/remote"
@@ -168,6 +169,10 @@ func (s State) FreeName(name, except string) string {
 		base := name
 		if len(base)+len(suffix) > MaxNameBytes {
 			base = base[:MaxNameBytes-len(suffix)]
+		}
+		// The suffix joins the last label, which keeps its 63-byte limit.
+		if last := len(base) - 1 - strings.LastIndexByte(base, '.'); last+len(suffix) > maxLabelBytes {
+			base = base[:len(base)-(last+len(suffix)-maxLabelBytes)]
 		}
 		// A cut can end a label with a hyphen or a dot; the suffix starts with a hyphen, so
 		// remove such characters from the end of the base.

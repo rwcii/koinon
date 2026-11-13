@@ -340,15 +340,22 @@ func (d *Daemon) enableLinkLocked(ctx context.Context) error {
 	return rt.manager.EnsureTCP(ctx, *c.Link, true)
 }
 
-// disableLinkLocked cancels open invitations and removes the link's Serve mapping. Pairs
-// stay. The link listener is already closed with the remote surface.
-func (d *Daemon) disableLinkLocked(ctx context.Context, c *RemoteConfig) error {
+// clearInvites removes the invitations from link.json. The close already revoked them in
+// memory, which is their authority; this keeps the file true, and its error is reported.
+func (d *Daemon) clearInvites() error {
 	d.link.mu.Lock()
-	if s, err := link.ReadState(d.root); err == nil && len(s.Invites) > 0 {
-		s.Invites = nil
-		link.WriteState(d.root, s)
+	defer d.link.mu.Unlock()
+	s, err := link.ReadState(d.root)
+	if err != nil || len(s.Invites) == 0 {
+		return err
 	}
-	d.link.mu.Unlock()
+	s.Invites = nil
+	return link.WriteState(d.root, s)
+}
+
+// disableLinkLocked removes the link's Serve mapping. Pairs stay. The link listener and its
+// connections and invitations are already closed with the remote surface.
+func (d *Daemon) disableLinkLocked(ctx context.Context, c *RemoteConfig) error {
 	if c == nil || !c.LinkOwned {
 		return nil
 	}
@@ -369,8 +376,10 @@ func (d *Daemon) remoteDisable(ctx context.Context) error {
 func (d *Daemon) remoteDisableLocked(ctx context.Context) error {
 	rt := &d.remote
 	// The off switch closes the surface first, also when the record cannot be read
-	// or written; the error then reports the record failure.
+	// or written; the error then reports the record failure. The close also ends the link
+	// and revokes its invitations, before any Serve cleanup that can fail.
 	d.closeRemoteLocked()
+	inviteErr := d.clearInvites()
 	c, err := ReadRemoteConfig(d.root)
 	if err != nil {
 		rt.offUnrecorded = true
@@ -402,6 +411,10 @@ func (d *Daemon) remoteDisableLocked(ctx context.Context) error {
 	if err := d.disableLinkLocked(ctx, c); err != nil {
 		rt.problem = err.Error()
 		return err
+	}
+	if inviteErr != nil {
+		rt.problem = "link invitations are revoked, but link.json could not be updated: " + inviteErr.Error()
+		return inviteErr
 	}
 	rt.problem = ""
 	return nil

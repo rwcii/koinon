@@ -89,7 +89,10 @@ same key, so the pin (SHA-256 of the SubjectPublicKeyInfo, hex) does not change;
 holds the version, the advertised name, the link port, at most 64 pairs (ID, advertised,
 override and effective names, pin, tailnet name, Tailscale addresses, port, state `pending` or
 `paired`, role `inviter` or `joiner`, created time) and at most 16 open invitations as SHA-256
-hashes of their secrets with their expiry. `remote-dashboard.json` adds `link` (the link port
+hashes of their secrets with their expiry. The valid invitations are the ones that the daemon
+holds in memory for the open link: closing the link (Remote disable, a restart) revokes every
+earlier invitation, also when `link.json` could not be updated, and Remote disable then reports
+that write error. `remote-dashboard.json` adds `link` (the link port
 and the loopback target) and `link_owned`, under the same write-ahead ownership rules as the
 dashboard mapping. Setup (`link-name`) validates the name (lower-case letters, digits,
 hyphens and dots, at most 253 bytes, labels of 1 to 63 bytes with alphanumeric ends) and the
@@ -107,7 +110,13 @@ application data, and records it as the last refused key. On the TLS stream each
 KiB, with unknown fields refused; a connection carries at most 64 frames. The operations are
 `pair-hello` (`secret`, `name`, `dns`, `ips`, `port`; only an unpaired key with an open
 invitation's secret, which is used at once; the reply `hello-ok` has the pair `id` and `name`),
-`pair-confirm` (`id`), `ping` (`id`) and `unpair` (`id`). The client dials a pair's saved
+`pair-confirm` (`id`), `ping` (`id`) and `unpair` (`id`). Each open of the link starts a generation: a
+connection is attached to it before its handshake (inbound) or before its handshake ends
+(outbound), and the close ends every dial, handshake and connection of that generation at
+once; a connection of an earlier generation never attaches to a later one, and an invite or
+join that started before a close does not commit. With the link closed, the daemon opens no
+outbound connection: an unpair is then local, and the other computer learns it at its next
+connection. The client dials a pair's saved
 Tailscale addresses with its pin checked in `VerifyConnection`, and when none connects reads
 `tailscale status --json`, takes the addresses of the peer whose full tailnet name matches
 exactly, and saves new addresses only after a connection with the pinned key. A wrong pin is

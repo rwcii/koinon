@@ -12,6 +12,9 @@ import (
 // MaxNameBytes is the longest advertised name: the length of a DNS name (LINK-670-ADDR).
 const MaxNameBytes = 253
 
+// maxLabelBytes is the limit of one dot-separated label.
+const maxLabelBytes = 63
+
 // NormalizeName lower-cases an advertised name and removes one trailing root dot.
 func NormalizeName(name string) string {
 	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(name)), ".")
@@ -24,7 +27,7 @@ func ValidateName(name string) error {
 		return errors.New("link_name_invalid: a computer name has 1 to 253 characters")
 	}
 	for _, label := range strings.Split(name, ".") {
-		if label == "" || len(label) > 63 {
+		if label == "" || len(label) > maxLabelBytes {
 			return errors.New("link_name_invalid: each part between dots has 1 to 63 characters")
 		}
 		if !alnum(label[0]) || !alnum(label[len(label)-1]) {

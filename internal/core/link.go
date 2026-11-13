@@ -69,6 +69,15 @@ type linkRuntime struct {
 	// rejected is the last key that the listener refused in the handshake.
 	rejected *LinkRejection
 	stop     chan struct{}
+	// gen counts each open and close of the link. life ends at close: outbound dials and
+	// handshakes run under it, and a connection attaches only to the generation it began in.
+	gen  uint64
+	life context.Context
+	end  context.CancelFunc
+	// invites are the open invitations of this generation, secret hash to expiry. They are
+	// the authority: link.json keeps a copy, and a hash there that is not here is not valid,
+	// so a close, a failed write or a restart revokes every earlier invitation.
+	invites map[string]int64
 	// dial connects to a paired computer, and now is the link's clock; tests set them
 	// before Remote opens the link.
 	dial func(ctx context.Context, address string) (net.Conn, error)
@@ -143,13 +152,19 @@ func (d *Daemon) linkAdmits(pin string) bool {
 	if _, ok := s.PairByPin(pin); ok {
 		return true
 	}
-	now := d.linkNow().Unix()
-	for _, i := range s.Invites {
-		if i.Expires > now {
-			return true
+	return d.openInvitesLocked() > 0
+}
+
+// openInvitesLocked counts the unexpired invitations of this generation. The link lock is
+// held.
+func (d *Daemon) openInvitesLocked() int {
+	now, n := d.linkNow().Unix(), 0
+	for _, expires := range d.link.invites {
+		if expires > now {
+			n++
 		}
 	}
-	return false
+	return n
 }
 
 func (d *Daemon) linkServerConfig(id link.Identity) *tls.Config {
@@ -211,13 +226,16 @@ func (d *Daemon) openLinkLocked(held net.Listener) error {
 	listener := tls.NewListener(held, d.linkServerConfig(id))
 	d.link.listener = listener
 	d.link.conns = map[net.Conn]string{}
+	d.link.gen++
+	d.link.life, d.link.end = context.WithCancel(context.Background())
+	d.link.invites = map[string]int64{}
 	if d.link.observed == nil {
 		d.link.observed = map[string]linkObservation{}
 	}
 	stop := make(chan struct{})
 	d.link.stop = stop
 	d.wg.Add(2)
-	go d.acceptLink(listener)
+	go d.acceptLink(listener, d.link.gen)
 	go d.monitorLink(stop)
 	return nil
 }
@@ -238,12 +256,29 @@ func (d *Daemon) closeLinkLocked() {
 		close(d.link.stop)
 		d.link.stop = nil
 	}
+	if d.link.end != nil {
+		d.link.end()
+	}
+	d.link.gen++
+	d.link.life, d.link.end, d.link.invites = nil, nil, nil
 }
 
-func (d *Daemon) trackLink(conn net.Conn, pin string) bool {
+// linkLife returns the context and generation of the open link, or link_remote_required.
+func (d *Daemon) linkLife() (context.Context, uint64, error) {
 	d.link.mu.Lock()
 	defer d.link.mu.Unlock()
-	if d.link.conns == nil {
+	if d.link.listener == nil || d.link.life == nil {
+		return nil, 0, ErrLinkRemoteOff
+	}
+	return d.link.life, d.link.gen, nil
+}
+
+// trackLink attaches a connection to generation gen, so that the close ends it. A connection
+// of an earlier generation is refused.
+func (d *Daemon) trackLink(conn net.Conn, pin string, gen uint64) bool {
+	d.link.mu.Lock()
+	defer d.link.mu.Unlock()
+	if d.link.conns == nil || d.link.gen != gen {
 		return false
 	}
 	d.link.conns[conn] = pin
@@ -267,7 +302,7 @@ func (d *Daemon) closeLinkPin(pin string) {
 	}
 }
 
-func (d *Daemon) acceptLink(l net.Listener) {
+func (d *Daemon) acceptLink(l net.Listener, gen uint64) {
 	defer d.wg.Done()
 	for {
 		conn, err := l.Accept()
@@ -277,7 +312,7 @@ func (d *Daemon) acceptLink(l net.Listener) {
 		d.wg.Add(1)
 		go func() {
 			defer d.wg.Done()
-			d.serveLink(conn)
+			d.serveLink(conn, gen)
 		}()
 	}
 }
@@ -300,23 +335,27 @@ func linkRefuse(conn net.Conn, err error) {
 	link.WriteFrame(conn, link.Frame{Op: "error", Error: code, Detail: detail})
 }
 
-// serveLink answers one link connection. The handshake has admitted the key; each operation
-// checks again what this key may do.
-func (d *Daemon) serveLink(raw net.Conn) {
+// serveLink answers one link connection of generation gen. The connection is attached before
+// its handshake, so that a close ends a handshake in progress. The handshake has admitted the
+// key; each operation checks again what this key may do.
+func (d *Daemon) serveLink(raw net.Conn, gen uint64) {
 	defer raw.Close()
 	conn, ok := raw.(*tls.Conn)
 	if !ok {
 		return
 	}
+	if !d.trackLink(conn, "", gen) {
+		return
+	}
+	defer d.untrackLink(conn)
 	conn.SetDeadline(time.Now().Add(linkIOTimeout))
 	if err := conn.Handshake(); err != nil {
 		return
 	}
 	pin := peerPin(conn.ConnectionState())
-	if !d.trackLink(conn, pin) {
+	if !d.trackLink(conn, pin, gen) {
 		return
 	}
-	defer d.untrackLink(conn)
 	for n := 0; n < linkMaxFramesConn; n++ {
 		conn.SetDeadline(time.Now().Add(linkIOTimeout))
 		f, err := link.ReadFrame(conn)
@@ -410,13 +449,8 @@ func (d *Daemon) acceptInvitation(pin string, hello linkHello) (linkHelloOK, err
 		return linkHelloOK{}, ErrLinkPaired
 	}
 	now := d.linkNow()
-	hash, found := link.SecretHash(hello.Secret), -1
-	for i, invite := range s.Invites {
-		if invite.SecretHash == hash && invite.Expires > now.Unix() {
-			found = i
-		}
-	}
-	if found < 0 {
+	hash := link.SecretHash(hello.Secret)
+	if expires, open := d.link.invites[hash]; !open || expires <= now.Unix() {
 		return linkHelloOK{}, ErrLinkInvitation
 	}
 	if len(s.Pairs) >= link.MaxPairs {
@@ -426,7 +460,8 @@ func (d *Daemon) acceptInvitation(pin string, hello linkHello) (linkHelloOK, err
 	if err != nil {
 		return linkHelloOK{}, err
 	}
-	s.Invites = slices.Delete(s.Invites, found, found+1)
+	delete(d.link.invites, hash)
+	s.Invites = slices.DeleteFunc(s.Invites, func(i link.Invite) bool { return i.SecretHash == hash })
 	s.Pairs = append(s.Pairs, link.Pair{ID: id, Advertised: name, Effective: s.FreeName(name, ""), Pin: pin, DNSName: hello.DNS, IPs: hello.IPs, Port: hello.Port,
 		State: link.Pending, Role: link.Inviter, Created: now.Unix(), Expires: now.Add(linkInviteLife).Unix()})
 	if err := link.WriteState(d.root, s); err != nil {
@@ -479,8 +514,19 @@ func (d *Daemon) removeLinkPair(pin, id string) error {
 	return err
 }
 
-// linkSession is one client connection to a paired computer.
-type linkSession struct{ conn *tls.Conn }
+// linkSession is one client connection to a paired computer, attached to the link's
+// generation until close.
+type linkSession struct {
+	conn *tls.Conn
+	d    *Daemon
+}
+
+func (s linkSession) close() {
+	s.conn.Close()
+	if s.d != nil {
+		s.d.untrackLink(s.conn)
+	}
+}
 
 func (s linkSession) call(op string, body any, wantOp string, out any) error {
 	f, err := link.NewFrame(op, body)
@@ -510,7 +556,18 @@ func (s linkSession) call(op string, body any, wantOp string, out any) error {
 // connectLink dials the addresses in order and finishes a TLS handshake that checks the
 // server's pin. A wrong key, or a refusal of this computer's key, is reported at once: it is
 // never retried at another address.
+//
+// It runs only while the link is open, under the link's generation: the close cancels a dial
+// or handshake in progress and closes an attached connection, and a connection never attaches
+// to a later generation. With the link closed it is link_remote_required and sends nothing.
 func (d *Daemon) connectLink(ctx context.Context, ips []string, port int, pin string) (linkSession, error) {
+	life, gen, err := d.linkLife()
+	if err != nil {
+		return linkSession{}, err
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	defer context.AfterFunc(life, cancel)()
 	id, err := d.linkIdentity()
 	if err != nil {
 		return linkSession{}, err
@@ -529,7 +586,12 @@ func (d *Daemon) connectLink(ctx context.Context, ips []string, port int, pin st
 		}
 		conn := tls.Client(raw, linkClientConfig(id, pin))
 		conn.SetDeadline(time.Now().Add(linkIOTimeout))
+		if !d.trackLink(conn, pin, gen) {
+			conn.Close()
+			return linkSession{}, ErrLinkRemoteOff
+		}
 		if err := conn.HandshakeContext(ctx); err != nil {
+			d.untrackLink(conn)
 			conn.Close()
 			if errors.Is(err, ErrLinkWrongKey) {
 				return linkSession{}, ErrLinkWrongKey
@@ -537,10 +599,13 @@ func (d *Daemon) connectLink(ctx context.Context, ips []string, port int, pin st
 			if linkKeyRefused(err) {
 				return linkSession{}, ErrLinkKeyRefused
 			}
+			if ctx.Err() != nil && life.Err() != nil {
+				return linkSession{}, ErrLinkRemoteOff
+			}
 			last = ErrLinkUnreachable
 			continue
 		}
-		return linkSession{conn: conn}, nil
+		return linkSession{conn: conn, d: d}, nil
 	}
 	return linkSession{}, last
 }
@@ -613,10 +678,16 @@ func (d *Daemon) linkPass(stop chan struct{}) {
 			return expired
 		})
 		s.Invites = slices.DeleteFunc(s.Invites, func(i link.Invite) bool {
-			expired := i.Expires <= now
+			expires, open := d.link.invites[i.SecretHash]
+			expired := !open || expires <= now
 			changed = changed || expired
 			return expired
 		})
+		for hash, expires := range d.link.invites {
+			if expires <= now {
+				delete(d.link.invites, hash)
+			}
+		}
 		if changed {
 			link.WriteState(d.root, s)
 		}
@@ -638,7 +709,7 @@ func (d *Daemon) linkPass(stop chan struct{}) {
 		session, err := d.connectPair(ctx, p)
 		if err == nil {
 			err = session.call("ping", linkPairID{ID: p.ID}, "pong", nil)
-			session.conn.Close()
+			session.close()
 		}
 		cancel()
 		switch {
@@ -693,7 +764,8 @@ func (d *Daemon) ownTailnet(ctx context.Context) (string, []string, error) {
 	return name, ips, nil
 }
 
-// linkInvite opens an invitation and returns its text.
+// linkInvite opens an invitation and returns its text. It commits only in the link
+// generation in which it started.
 func (d *Daemon) linkInvite(ctx context.Context) (string, error) {
 	d.remote.mu.Lock()
 	err := d.linkReadyLocked()
@@ -702,6 +774,10 @@ func (d *Daemon) linkInvite(ctx context.Context) (string, error) {
 		port = d.remote.config.Link.Port
 	}
 	d.remote.mu.Unlock()
+	if err != nil {
+		return "", err
+	}
+	_, gen, err := d.linkLife()
 	if err != nil {
 		return "", err
 	}
@@ -719,16 +795,24 @@ func (d *Daemon) linkInvite(ctx context.Context) (string, error) {
 	}
 	d.link.mu.Lock()
 	defer d.link.mu.Unlock()
+	if d.link.gen != gen || d.link.invites == nil {
+		return "", ErrLinkRemoteOff
+	}
 	s, err := link.ReadState(d.root)
 	if err != nil {
 		return "", err
 	}
 	now := d.linkNow()
-	s.Invites = slices.DeleteFunc(s.Invites, func(i link.Invite) bool { return i.Expires <= now.Unix() })
-	if len(s.Invites) >= link.MaxInvites {
+	// The file keeps this generation's open invitations only.
+	s.Invites = slices.DeleteFunc(s.Invites, func(i link.Invite) bool {
+		expires, open := d.link.invites[i.SecretHash]
+		return !open || expires <= now.Unix()
+	})
+	if d.openInvitesLocked() >= link.MaxInvites {
 		return "", ErrLinkLimit
 	}
-	s.Invites = append(s.Invites, link.Invite{SecretHash: link.SecretHash(secret), Created: now.Unix(), Expires: now.Add(linkInviteLife).Unix()})
+	invite := link.Invite{SecretHash: link.SecretHash(secret), Created: now.Unix(), Expires: now.Add(linkInviteLife).Unix()}
+	s.Invites = append(s.Invites, invite)
 	text, err := link.Invitation{Version: 1, DNSName: dns, IPs: ips, Port: port, Pin: id.Pin, Name: s.Name, Secret: secret}.Encode()
 	if err != nil {
 		return "", err
@@ -736,6 +820,7 @@ func (d *Daemon) linkInvite(ctx context.Context) (string, error) {
 	if err := link.WriteState(d.root, s); err != nil {
 		return "", err
 	}
+	d.link.invites[invite.SecretHash] = invite.Expires
 	return text, nil
 }
 
@@ -752,6 +837,10 @@ func (d *Daemon) linkJoin(ctx context.Context, text string) (link.Pair, error) {
 		port = d.remote.config.Link.Port
 	}
 	d.remote.mu.Unlock()
+	if err != nil {
+		return link.Pair{}, err
+	}
+	_, gen, err := d.linkLife()
 	if err != nil {
 		return link.Pair{}, err
 	}
@@ -787,7 +876,7 @@ func (d *Daemon) linkJoin(ctx context.Context, text string) (link.Pair, error) {
 	if err != nil {
 		return link.Pair{}, err
 	}
-	defer session.conn.Close()
+	defer session.close()
 	var ok linkHelloOK
 	if err := session.call("pair-hello", linkHello{Secret: invitation.Secret, Name: s.Name, DNS: dns, IPs: ips, Port: port}, "hello-ok", &ok); err != nil {
 		if linkKeyRefused(err) {
@@ -803,6 +892,12 @@ func (d *Daemon) linkJoin(ctx context.Context, text string) (link.Pair, error) {
 		return link.Pair{}, errors.New("link_reply_invalid")
 	}
 	d.link.mu.Lock()
+	if d.link.gen != gen {
+		// The link closed during the exchange: no pair here; the other computer's pending
+		// pair expires.
+		d.link.mu.Unlock()
+		return link.Pair{}, ErrLinkRemoteOff
+	}
 	s, err = link.ReadState(d.root)
 	if err != nil {
 		d.link.mu.Unlock()
@@ -859,7 +954,7 @@ func (d *Daemon) linkUnpair(ctx context.Context, ref string) error {
 	defer cancel()
 	if session, err := d.connectLink(notify, p.IPs, p.Port, p.Pin); err == nil {
 		session.call("unpair", linkPairID{ID: p.ID}, "unpair-ok", nil)
-		session.conn.Close()
+		session.close()
 	}
 	return nil
 }
@@ -873,6 +968,9 @@ func (d *Daemon) linkCancel(ref string) error {
 		return err
 	}
 	if ref == "invitations" {
+		if d.link.invites != nil {
+			d.link.invites = map[string]int64{}
+		}
 		s.Invites = nil
 		return link.WriteState(d.root, s)
 	}
@@ -922,7 +1020,17 @@ func (d *Daemon) linkSetup(ctx context.Context, name string, port int) error {
 		return ErrLinkNameInvalid
 	}
 	if port == 0 {
-		port = link.DefaultPort
+		// Absent keeps the saved port; the default is for the first setup.
+		d.link.mu.Lock()
+		saved, err := link.ReadState(d.root)
+		d.link.mu.Unlock()
+		if err != nil {
+			return err
+		}
+		port = saved.Port
+		if port == 0 {
+			port = link.DefaultPort
+		}
 	}
 	if !remote.ValidHTTPSPort(port) {
 		return ErrLinkPortRange
@@ -1080,11 +1188,9 @@ func (d *Daemon) linkStatus(ctx context.Context) LinkStatus {
 		}
 	}
 	now := d.linkNow().Unix()
-	for _, i := range s.Invites {
-		if i.Expires > now {
-			result.Invitations++
-		}
-	}
+	d.link.mu.Lock()
+	result.Invitations = d.openInvitesLocked()
+	d.link.mu.Unlock()
 	for _, p := range s.Pairs {
 		o := observed[p.ID]
 		switch {
