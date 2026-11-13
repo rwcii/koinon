@@ -102,8 +102,9 @@ maintainer secret is in PDR 009; Remote is in PDR 010.
   message surface. The exclusions are the scope of this deliverable.
 - **Review when:** agents need shared memory, work, rooms or decisions across computers, or the
   maintainer wants to write to the other computer from one dashboard.
-- **Shipped:** chunk 01 carries only pairing, `ping` and `unpair` on the link; item 5 holds.
-  Items 1 to 4 are pending (chunks 02 and 03).
+- **Shipped:** chunk 01 carries pairing, `ping` and `unpair`; chunk 02 carries the receiver
+  list of item 2 (`directory`) and `name-update`; item 5 holds. Items 1, 3 and 4 (messages) are
+  pending (chunk 03); until then a send to a paired computer answers `link_messages_pending`.
 
 ## 4. Decision 3: Addresses (LINK-670-ADDR)
 
@@ -131,7 +132,10 @@ maintainer secret is in PDR 009; Remote is in PDR 010.
      message goes through a second computer.
 - **Reason and scope:** short addresses that each computer chooses for itself.
 - **Shipped:** items 1 to 4 in chunk 01 (`koinon link name`, Settings, **Computers**, and the
-  pair's local name, which **Rename** changes). Items 5 and 6 are pending (chunks 02 and 03).
+  pair's local name, which **Rename** changes); in chunk 02, a name change reaches the paired
+  computers, `NAME@COMPUTER` names their sessions in `peers`, `peer_status` and the dashboard,
+  and an unknown COMPUTER is refused at the sender with no lookup and no connection (item 5).
+  Delivery to NAME and item 6 come with the messages (chunk 03).
 
 ## 5. Decision 4: Delivery when the other computer cannot be reached (LINK-670-OFFLINE)
 
@@ -161,3 +165,4 @@ computer keeps its own stores and controls.
 | Date | Change |
 | --- | --- |
 | 2026-11-12 | Record LINK-670-WHO, WHAT, ADDR and OFFLINE, approved by Robert Capps; chunk 01 (pairing) shipped (#670, #674). |
+| 2026-11-13 | Chunk 02: the receiver directory and NAME@COMPUTER addresses shipped; delivery pending (#670). |

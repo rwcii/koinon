@@ -52,6 +52,8 @@ type linkObservation struct {
 	State string `json:"state"`
 	At    int64  `json:"at,omitempty"`
 	Error string `json:"error,omitempty"`
+	// gen is the link generation of the connection that this observation saw.
+	gen uint64
 }
 
 // LinkRejection is the last unexpected key that this computer's link listener refused.
@@ -78,6 +80,9 @@ type linkRuntime struct {
 	// the authority: link.json keeps a copy, and a hash there that is not here is not valid,
 	// so a close, a failed write or a restart revokes every earlier invitation.
 	invites map[string]int64
+	// directories are the last directory of each pair, by pair ID (#670 chunk 02). They
+	// stay after a close, shown as stale, and go at unpair.
+	directories map[string]linkCache
 	// dial connects to a paired computer, and now is the link's clock; tests set them
 	// before Remote opens the link.
 	dial func(ctx context.Context, address string) (net.Conn, error)
@@ -328,13 +333,18 @@ func (d *Daemon) acceptLink(l net.Listener, gen uint64) {
 	}
 }
 
-func (d *Daemon) observe(id, state, problem string) {
+// observe records what a connection of generation gen saw. An observation of a closed
+// generation is dropped, so a late one never counts in a later generation.
+func (d *Daemon) observe(gen uint64, id, state, problem string) {
 	d.link.mu.Lock()
 	defer d.link.mu.Unlock()
+	if d.link.gen != gen {
+		return
+	}
 	if d.link.observed == nil {
 		d.link.observed = map[string]linkObservation{}
 	}
-	d.link.observed[id] = linkObservation{State: state, At: d.linkNow().Unix(), Error: problem}
+	d.link.observed[id] = linkObservation{State: state, At: d.linkNow().Unix(), Error: problem, gen: gen}
 }
 
 func linkRefuse(conn net.Conn, err error) {
@@ -373,7 +383,7 @@ func (d *Daemon) serveLink(raw net.Conn, gen uint64) {
 		if err != nil {
 			return
 		}
-		reply, closeAfter, err := d.linkOperation(pin, f)
+		reply, closeAfter, err := d.linkOperation(pin, f, gen)
 		if err != nil {
 			linkRefuse(conn, err)
 			return
@@ -402,14 +412,16 @@ type linkHelloOK struct {
 }
 
 // linkOperation runs one request of a connection whose client key is pin.
-func (d *Daemon) linkOperation(pin string, f link.Frame) (link.Frame, bool, error) {
+// linkOperation answers one frame of a connection of generation gen; each operation that
+// writes commits only while gen is the open link's generation.
+func (d *Daemon) linkOperation(pin string, f link.Frame, gen uint64) (link.Frame, bool, error) {
 	switch f.Op {
 	case "pair-hello":
 		var hello linkHello
 		if f.Decode(&hello) != nil {
 			return link.Frame{}, true, ErrInvalid
 		}
-		ok, err := d.acceptInvitation(pin, hello)
+		ok, err := d.acceptInvitation(pin, hello, gen)
 		if err != nil {
 			return link.Frame{}, true, err
 		}
@@ -420,18 +432,39 @@ func (d *Daemon) linkOperation(pin string, f link.Frame) (link.Frame, bool, erro
 		if f.Decode(&body) != nil {
 			return link.Frame{}, true, ErrInvalid
 		}
-		if err := d.confirmLinkPair(pin, body.ID); err != nil {
+		if err := d.confirmLinkPair(pin, body.ID, gen); err != nil {
 			return link.Frame{}, true, err
 		}
-		d.observe(body.ID, "connected", "")
+		d.observe(gen, body.ID, "connected", "")
 		reply, err := link.NewFrame(map[string]string{"pair-confirm": "confirm-ok", "ping": "pong"}[f.Op], struct{}{})
+		return reply, false, err
+	case "directory":
+		var body linkPairID
+		if f.Decode(&body) != nil {
+			return link.Frame{}, true, ErrInvalid
+		}
+		dir, err := d.answerDirectory(pin, body.ID)
+		if err != nil {
+			return link.Frame{}, true, err
+		}
+		reply, err := link.NewFrame("directory-ok", dir)
+		return reply, false, err
+	case "name-update":
+		var body linkNameUpdate
+		if f.Decode(&body) != nil {
+			return link.Frame{}, true, ErrInvalid
+		}
+		if err := d.acceptNameUpdate(pin, body.ID, body.Name, gen); err != nil {
+			return link.Frame{}, true, err
+		}
+		reply, err := link.NewFrame("name-ok", struct{}{})
 		return reply, false, err
 	case "unpair":
 		var body linkPairID
 		if f.Decode(&body) != nil {
 			return link.Frame{}, true, ErrInvalid
 		}
-		if err := d.removeLinkPair(pin, body.ID); err != nil {
+		if err := d.removeLinkPair(pin, body.ID, gen); err != nil {
 			return link.Frame{}, true, err
 		}
 		reply, err := link.NewFrame("unpair-ok", struct{}{})
@@ -442,7 +475,7 @@ func (d *Daemon) linkOperation(pin string, f link.Frame) (link.Frame, bool, erro
 
 // acceptInvitation consumes one open invitation for a new key and records the pair as
 // pending until the joining computer confirms it.
-func (d *Daemon) acceptInvitation(pin string, hello linkHello) (linkHelloOK, error) {
+func (d *Daemon) acceptInvitation(pin string, hello linkHello, gen uint64) (linkHelloOK, error) {
 	name := link.NormalizeName(hello.Name)
 	if link.ValidateName(name) != nil || remote.NormalizeDNSName(hello.DNS) != hello.DNS || hello.DNS == "" || !remote.ValidHTTPSPort(hello.Port) {
 		return linkHelloOK{}, ErrInvalid
@@ -452,6 +485,9 @@ func (d *Daemon) acceptInvitation(pin string, hello linkHello) (linkHelloOK, err
 	}
 	d.link.mu.Lock()
 	defer d.link.mu.Unlock()
+	if d.link.gen != gen {
+		return linkHelloOK{}, ErrLinkRemoteOff
+	}
 	s, err := link.ReadState(d.root)
 	if err != nil {
 		return linkHelloOK{}, err
@@ -482,9 +518,12 @@ func (d *Daemon) acceptInvitation(pin string, hello linkHello) (linkHelloOK, err
 }
 
 // confirmLinkPair checks that pin holds pair id; a pending pair of this key is confirmed.
-func (d *Daemon) confirmLinkPair(pin, id string) error {
+func (d *Daemon) confirmLinkPair(pin, id string, gen uint64) error {
 	d.link.mu.Lock()
 	defer d.link.mu.Unlock()
+	if d.link.gen != gen {
+		return ErrLinkRemoteOff
+	}
 	s, err := link.ReadState(d.root)
 	if err != nil {
 		return err
@@ -503,8 +542,12 @@ func (d *Daemon) confirmLinkPair(pin, id string) error {
 }
 
 // removeLinkPair removes pair id of key pin, at the other computer's unpair.
-func (d *Daemon) removeLinkPair(pin, id string) error {
+func (d *Daemon) removeLinkPair(pin, id string, gen uint64) error {
 	d.link.mu.Lock()
+	if d.link.gen != gen {
+		d.link.mu.Unlock()
+		return ErrLinkRemoteOff
+	}
 	s, err := link.ReadState(d.root)
 	if err != nil {
 		d.link.mu.Unlock()
@@ -517,6 +560,7 @@ func (d *Daemon) removeLinkPair(pin, id string) error {
 	}
 	s.Pairs = slices.Delete(s.Pairs, i, i+1)
 	delete(d.link.observed, id)
+	d.dropDirectoryLocked(id)
 	err = link.WriteState(d.root, s)
 	d.link.mu.Unlock()
 	if err == nil {
@@ -722,18 +766,21 @@ func (d *Daemon) linkPass(stop chan struct{}, gen uint64) {
 		session, err := d.connectPair(ctx, gen, p)
 		if err == nil {
 			err = session.call("ping", linkPairID{ID: p.ID}, "pong", nil)
+			if err == nil && p.State == link.Paired {
+				d.pollDirectory(session, gen, p)
+			}
 			session.close()
 		}
 		cancel()
 		switch {
 		case err == nil:
-			d.observe(p.ID, "connected", "")
+			d.observe(gen, p.ID, "connected", "")
 		case errors.Is(err, ErrLinkWrongKey):
-			d.observe(p.ID, "rejected", ErrLinkWrongKey.Code)
+			d.observe(gen, p.ID, "rejected", ErrLinkWrongKey.Code)
 		case linkKeyRefused(err):
-			d.observe(p.ID, "rejected", ErrLinkKeyRefused.Code)
+			d.observe(gen, p.ID, "rejected", ErrLinkKeyRefused.Code)
 		default:
-			d.observe(p.ID, "offline", errorCode(err))
+			d.observe(gen, p.ID, "offline", errorCode(err))
 		}
 	}
 }
@@ -930,7 +977,7 @@ func (d *Daemon) linkJoin(ctx context.Context, text string) (link.Pair, error) {
 	}
 	// The other computer's pair is pending until this confirm, or until the next ping.
 	if session.call("pair-confirm", linkPairID{ID: p.ID}, "confirm-ok", nil) == nil {
-		d.observe(p.ID, "connected", "")
+		d.observe(gen, p.ID, "connected", "")
 	}
 	return p, nil
 }
@@ -958,6 +1005,7 @@ func (d *Daemon) linkUnpair(ctx context.Context, ref string) error {
 	p := s.Pairs[i]
 	s.Pairs = slices.Delete(s.Pairs, i, i+1)
 	delete(d.link.observed, p.ID)
+	d.dropDirectoryLocked(p.ID)
 	err = link.WriteState(d.root, s)
 	d.link.mu.Unlock()
 	if err != nil {
@@ -1030,9 +1078,26 @@ func (d *Daemon) linkRename(ref, name string) error {
 // linkSetup sets this computer's advertised name and link port, journals the link's Serve
 // mapping and opens it. Remote must be on.
 func (d *Daemon) linkSetup(ctx context.Context, name string, port int) error {
+	d.link.mu.Lock()
+	before, readErr := link.ReadState(d.root)
+	d.link.mu.Unlock()
+	gen, err := d.linkSetupName(ctx, name, port)
+	// A changed name goes to the paired computers (#670 chunk 02), in the generation that the
+	// setup left open.
+	if err == nil && readErr == nil && before.Name != "" && before.Name != link.NormalizeName(name) {
+		d.wg.Add(1)
+		go func() {
+			defer d.wg.Done()
+			d.announceName(gen)
+		}()
+	}
+	return err
+}
+
+func (d *Daemon) linkSetupName(ctx context.Context, name string, port int) (uint64, error) {
 	name = link.NormalizeName(name)
 	if err := link.ValidateName(name); err != nil {
-		return ErrLinkNameInvalid
+		return 0, ErrLinkNameInvalid
 	}
 	if port == 0 {
 		// Absent keeps the saved port; the default is for the first setup.
@@ -1040,7 +1105,7 @@ func (d *Daemon) linkSetup(ctx context.Context, name string, port int) error {
 		saved, err := link.ReadState(d.root)
 		d.link.mu.Unlock()
 		if err != nil {
-			return err
+			return 0, err
 		}
 		port = saved.Port
 		if port == 0 {
@@ -1048,11 +1113,24 @@ func (d *Daemon) linkSetup(ctx context.Context, name string, port int) error {
 		}
 	}
 	if !remote.ValidHTTPSPort(port) {
-		return ErrLinkPortRange
+		return 0, ErrLinkPortRange
 	}
 	rt := &d.remote
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
+	if err := d.linkSetupLocked(ctx, name, port); err != nil {
+		return 0, err
+	}
+	// The generation that the setup left open, taken under the remote lock.
+	d.link.mu.Lock()
+	defer d.link.mu.Unlock()
+	return d.link.gen, nil
+}
+
+// linkSetupLocked saves the name and port, journals the mapping and opens the link. The
+// remote lock is held.
+func (d *Daemon) linkSetupLocked(ctx context.Context, name string, port int) error {
+	rt := &d.remote
 	if rt.config == nil || !rt.config.Enabled || rt.server == nil {
 		return ErrLinkRemoteOff
 	}
@@ -1167,6 +1245,7 @@ func (d *Daemon) linkStatus(ctx context.Context) LinkStatus {
 	d.remote.mu.Unlock()
 	d.link.mu.Lock()
 	open := d.link.listener != nil
+	gen := d.link.gen
 	observed := map[string]linkObservation{}
 	for k, v := range d.link.observed {
 		observed[k] = v
@@ -1213,7 +1292,8 @@ func (d *Daemon) linkStatus(ctx context.Context) LinkStatus {
 			o = linkObservation{State: "pending", At: p.Created}
 		case !open:
 			o = linkObservation{State: "offline", At: o.At, Error: ErrLinkRemoteOff.Code}
-		case o.State == "connected" && now-o.At > int64(linkConnectedFor/time.Second):
+		case o.State == "connected" && (now-o.At > int64(linkConnectedFor/time.Second) || o.gen != gen):
+			// A connection of an earlier generation is not a connection now.
 			o.State = "offline"
 		case o.State == "":
 			o.State = "offline"

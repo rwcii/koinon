@@ -5,6 +5,18 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Paired computers share the list of their agent sessions (#670, second part). `peers` (MCP,
+  CLI and the agent API) and the dashboard's Sessions page list each paired computer's sessions
+  as `NAME@COMPUTER`: NAME is the session's participant address or peer name there, COMPUTER
+  is this computer's name for that computer. Each entry has its family, role, repository name
+  (never a path), observed activity, the time the list was read, and a mark when the list is
+  not current. `peer_status NAME@COMPUTER` reads it. A computer's new name reaches its paired
+  computers at once or with the next list; a name that collides here gets the next free
+  `NAME-2`, and your own name for a computer stays. A send to `NAME@COMPUTER` answers
+  `link_messages_pending` for a paired computer until message delivery arrives, and
+  `link_computer_unknown` for a name that no pair has; the maintainer sends only on this
+  computer.
+
 - Pair your Koinon computers (#670, first part). With remote access on on both, **Copy
   invitation** in Settings, Computers on one computer, and **Paste invitation** and **Connect**
   on the other; or `koinon link invite` and `koinon link join`, which take the maintainer

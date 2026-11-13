@@ -284,7 +284,7 @@ func TestLinkDisableEndsConnectionAndUnpairRefusesResumption(t *testing.T) {
 	}
 	conn.Close()
 	// beta removes the pair; alpha's cached session gives it nothing.
-	if err := b.d.removeLinkPair(idA.Pin, b.state(t).Pairs[0].ID); err != nil {
+	if err := b.d.removeLinkPair(idA.Pin, b.state(t).Pairs[0].ID, b.d.openGen()); err != nil {
 		t.Fatal(err)
 	}
 	conn, err = dial()

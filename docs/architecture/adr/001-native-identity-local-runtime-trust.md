@@ -247,7 +247,9 @@ buffered reader serves every question of an install, so no answer typed ahead is
 **Changed 2026-11-12 (#670, ADR 002 Decision 4, LINK-670-PAIR):** while Remote is on and the
 link is set up, the daemon also opens a link listener on `127.0.0.1`, reached through a raw TCP
 Tailscale Serve mapping. It serves no agent API route: it accepts only TLS 1.3 with a client
-key that is paired, or the pairing operation of an open invitation. The agent API stays on
+key that is paired, or the pairing operation of an open invitation. Since #670 chunk 02 it
+also answers a paired key's request for the receiver directory (names, family, role,
+repository name and activity; no session ID, path or credential). The agent API stays on
 loopback with its bearer secret.
 
 ### Alternatives Considered
@@ -446,3 +448,4 @@ agent.
 | 2026-11-11 | Link the private remote surface in ADR 002 and PDR 010. |
 | 2026-11-12 | The remote surface is accepted by Robert Capps (#645); Decision 4 records the `blob:` image source of the content security policy. |
 | 2026-11-12 | Decision 2: the link listener for paired Koinon computers (ADR 002 Decision 4, #670). |
+| 2026-11-13 | Decision 2: the link listener also answers the receiver directory (#670 chunk 02). |

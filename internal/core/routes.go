@@ -1,6 +1,7 @@
 package core
 
 import (
+	"github.com/rwcii/koinon/internal/link"
 	"net/http"
 )
 
@@ -42,6 +43,7 @@ func (d *Daemon) messageRoutes(mux *http.ServeMux) {
 			failure(w, err)
 			return
 		}
+		items = append(items, d.remoteRows()...)
 		respond(w, 200, map[string]any{"ok": true, "peers": items, "truncated": truncated})
 	})
 	mux.HandleFunc("POST /v1/messages/send", func(w http.ResponseWriter, r *http.Request) {
@@ -55,6 +57,10 @@ func (d *Daemon) messageRoutes(mux *http.ServeMux) {
 			return
 		}
 		d.store.ToolCall(request.Caller)
+		if link.IsRemoteAddress(request.To) {
+			failure(w, d.remoteSend(r.Context(), &request.Caller, request.To, request.Body))
+			return
+		}
 		result, err := d.store.Send(r.Context(), request.Caller, request.To, request.Body)
 		if err != nil {
 			failure(w, err)

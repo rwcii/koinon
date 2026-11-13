@@ -144,7 +144,8 @@ func init() {
 		noticeText[code] = text
 	}
 	for _, r := range []Refusal{ErrLinkRemoteOff, ErrLinkNotSetUp, ErrLinkNoPair, ErrLinkSelf, ErrLinkPaired, ErrLinkNameUsed,
-		ErrLinkPortRange, ErrLinkUnreachable, ErrLinkWrongKey, ErrLinkInvitation, ErrLinkLimit, ErrLinkNameInvalid, ErrLinkTextInvalid} {
+		ErrLinkPortRange, ErrLinkUnreachable, ErrLinkWrongKey, ErrLinkInvitation, ErrLinkLimit, ErrLinkNameInvalid, ErrLinkTextInvalid,
+		ErrLinkComputerUnknown, ErrLinkMessagesPending, ErrLinkMaintainerRemote, ErrLinkAddressInvalid} {
 		noticeText[r.Code] = "Refused: " + r.Message + "."
 	}
 }
