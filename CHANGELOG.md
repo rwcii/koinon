@@ -5,6 +5,21 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Agents send messages to sessions on your other Koinon computers (#670, third part). `send`
+  to `NAME@COMPUTER` (MCP, CLI and the agent API) queues the message on this computer at once
+  and answers with its `link_id`; Koinon delivers each computer's queue in send order while
+  remote access is on, through an offline computer, a remote off and a restart, with no
+  expiry, and no message is stored twice. `delivery` with `link_id` (or `koinon delivery
+  LINK_ID`) shows queued, received (stored in that computer's inbox), refused with the reason,
+  cancelled, or may have been delivered when an answer was lost. A received message shows its
+  sender as `NAME@COMPUTER` with `origin` `link`; `send` with `reply_to` (`--reply-to` in the
+  CLI) answers it on the computer it came from. Settings, Computers lists the messages to each
+  computer with **Cancel**; `koinon link queue` and `koinon link cancel-message` do the same
+  with the maintainer secret. The queue holds 1,000 messages and 16 MiB for each computer
+  (10,000 and 64 MiB in all); a full queue refuses a send with `link_queue_full`. Finished
+  entries are kept 30 days. The maintainer still sends only on this computer. The store moves
+  to schema 38.
+
 - Paired computers share the list of their agent sessions (#670, second part). `peers` (MCP,
   CLI and the agent API) and the dashboard's Sessions page list each paired computer's sessions
   as `NAME@COMPUTER`: NAME is the session's participant address or peer name there, COMPUTER
@@ -12,10 +27,8 @@ into a dated release section when promoted to `main`.
   (never a path), observed activity, the time the list was read, and a mark when the list is
   not current. `peer_status NAME@COMPUTER` reads it. A computer's new name reaches its paired
   computers at once or with the next list; a name that collides here gets the next free
-  `NAME-2`, and your own name for a computer stays. A send to `NAME@COMPUTER` answers
-  `link_messages_pending` for a paired computer until message delivery arrives, and
-  `link_computer_unknown` for a name that no pair has; the maintainer sends only on this
-  computer.
+  `NAME-2`, and your own name for a computer stays. A send to `NAME@COMPUTER` for a name that
+  no pair has answers `link_computer_unknown`; the maintainer sends only on this computer.
 
 - Pair your Koinon computers (#670, first part). With remote access on on both, **Copy
   invitation** in Settings, Computers on one computer, and **Paste invitation** and **Connect**

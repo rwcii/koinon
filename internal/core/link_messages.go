@@ -23,9 +23,14 @@ const (
 	linkBackoffMax = time.Minute
 )
 
-// errLinkFault is a test fault point's stop: the worker ends at once and writes nothing more,
-// as a process that ends there does.
-var errLinkFault = errors.New("link fault point")
+// The fault points' answers, for tests: errLinkFault stops the worker at once with no further
+// write, as a process that ends there does; at the receiver, errLinkRetry answers retry as a
+// busy store does, and errLinkDrop closes the connection before any commit.
+var (
+	errLinkFault = errors.New("link fault point")
+	errLinkRetry = errors.New("link fault retry")
+	errLinkDrop  = errors.New("link fault drop")
+)
 
 // linkDeliverBody is the deliver operation. The body is bytes, so JSON carries it as base64
 // and the largest valid body fits one frame whatever its characters.
@@ -90,6 +95,13 @@ func (d *Daemon) answerDeliver(pin string, f link.Frame, gen uint64) (link.Frame
 		}
 		in = linkDelivery{Pair: body.ID, Seq: body.Seq, XID: body.XID, Recipient: body.Recipient, Sender: body.Sender,
 			Family: body.Family, Body: text, Digest: digest}
+	}
+	switch err := d.linkFault("before-receive"); {
+	case errors.Is(err, errLinkRetry):
+		reply, err := link.NewFrame("deliver-ok", linkDeliverReply{ID: in.Pair, Seq: in.Seq, Digest: digest, Result: "retry", Reason: "storage_busy"})
+		return reply, false, err
+	case err != nil:
+		return link.Frame{}, true, err
 	}
 	// The link lock fences the commit to this generation, as for every inbound write.
 	d.link.mu.Lock()
@@ -377,7 +389,12 @@ func (d *Daemon) linkDeliverBatch(gen uint64, life context.Context, id string) (
 	}
 	defer session.close()
 	progress := false
-	for {
+	// The other computer closes a connection after linkMaxFramesConn frames; the worker
+	// connects again before that, so no answer is lost to the limit.
+	for frames := 0; ; frames++ {
+		if frames == linkMaxFramesConn-4 {
+			return true, true, nil
+		}
 		h, found, err := d.linkPrepareHead(gen, id)
 		if err != nil {
 			return true, progress, nil

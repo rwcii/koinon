@@ -47,15 +47,17 @@ const linkOutboxTablesV38 = `
 	CREATE UNIQUE INDEX messages_link ON messages(link_pair, link_xid) WHERE link_xid IS NOT NULL;`
 
 // Queue limits (LINK-670-OFFLINE item 8): unfinished messages and their body bytes, for each
-// pair and for all pairs. A send at a limit is refused; nothing queued is dropped.
-const (
-	linkQueuePairCount  = 1000
-	linkQueuePairBytes  = 16 << 20
-	linkQueueTotalCount = 10000
-	linkQueueTotalBytes = 64 << 20
-	// linkOutboxKeepMS keeps a finished queue entry 30 days after its result.
-	linkOutboxKeepMS = 30 * 24 * 60 * 60 * 1000
+// pair and for all pairs. A send at a limit is refused; nothing queued is dropped. Tests
+// lower them.
+var (
+	linkQueuePairCount  int64 = 1000
+	linkQueuePairBytes  int64 = 16 << 20
+	linkQueueTotalCount int64 = 10000
+	linkQueueTotalBytes int64 = 64 << 20
 )
+
+// linkOutboxKeepMS keeps a finished queue entry 30 days after its result.
+const linkOutboxKeepMS = 30 * 24 * 60 * 60 * 1000
 
 var (
 	ErrLinkQueueFull     = Refusal{"link_queue_full", "the queue to other computers is full; nothing was queued"}
