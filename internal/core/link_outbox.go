@@ -11,6 +11,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"slices"
 )
 
 // Schema 38: the outbox, the streams and the link origin of a received message.
@@ -577,8 +578,9 @@ func (s *Store) linkReceive(ctx context.Context, in linkDelivery) (linkResult, e
 // linkInsert resolves NAME as a local send does and inserts the message with its link origin.
 // A permanent refusal is a result, not an error.
 func (s *Store) linkInsert(ctx context.Context, tx *writeTx, in linkDelivery) (linkResult, error) {
-	// A remote message never has the maintainer's or overwatch's origin (LINK-670-WHAT item 3).
-	if in.Family == "" || in.Family == "maintainer" || in.Family == "overwatch" {
+	// A remote message never has the maintainer's, overwatch's or the daemon's own origin
+	// (LINK-670-WHAT item 3): its family must be an agent family.
+	if !slices.Contains(SupportedFamilies(), in.Family) {
 		return linkResult{Result: "refused", Reason: "link_origin_refused"}, nil
 	}
 	var held int

@@ -375,6 +375,9 @@ func (d *Daemon) linkDeliverBatch(gen uint64, life context.Context, id string) (
 	}
 	i := slices.IndexFunc(s.Pairs, func(p link.Pair) bool { return p.ID == id })
 	if i < 0 {
+		// A pair that is gone without an unpair here (a pending pair that expired or was
+		// cancelled) ends its queue as an unpair does.
+		d.linkRetirePair(id)
 		return false, false, nil
 	}
 	p := s.Pairs[i]

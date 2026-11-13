@@ -554,7 +554,7 @@ func TestLinkMessageReceiverGuards(t *testing.T) {
 		}
 		return r, err
 	}
-	x := func(i int) string { return strings.Repeat("0", 31) + string(rune('0'+i)) }
+	x := func(i int64) string { return strings.Repeat("0", 31) + string(rune('0'+i)) }
 	// A gap is a protocol error and stores nothing.
 	if _, err := answer(aid.Pin, frame(2, x(1), "codex", "gap", "gap")); refusalCode(err) != ErrLinkProtocol.Code {
 		t.Fatalf("gap: %v", err)
@@ -564,18 +564,21 @@ func TestLinkMessageReceiverGuards(t *testing.T) {
 		t.Fatalf("digest: %v", err)
 	}
 	// The maintainer origin is refused, stored and advances, so the next sequence goes (A6).
-	if r, err := answer(aid.Pin, frame(1, x(1), "maintainer", "claim", "claim")); err != nil || r.Result != "refused" || r.Reason != "link_origin_refused" {
-		t.Fatalf("origin: %+v %v", r, err)
+	for i, family := range []string{"maintainer", "overwatch", "koinon", "daemon"} {
+		seq := int64(i + 1)
+		if r, err := answer(aid.Pin, frame(seq, x(seq), family, "claim", "claim")); err != nil || r.Result != "refused" || r.Reason != "link_origin_refused" {
+			t.Fatalf("origin %s: %+v %v", family, r, err)
+		}
 	}
-	if r, err := answer(aid.Pin, frame(2, x(2), "codex", "ok", "ok")); err != nil || r.Result != "received" || r.Seq != 2 {
+	if r, err := answer(aid.Pin, frame(5, x(5), "codex", "ok", "ok")); err != nil || r.Result != "received" || r.Seq != 5 {
 		t.Fatalf("next: %+v %v", r, err)
 	}
 	// The same sequence again returns its stored result and inserts nothing; with a changed
 	// body it is a protocol error.
-	if r, err := answer(aid.Pin, frame(2, x(2), "codex", "ok", "ok")); err != nil || r.Result != "received" {
+	if r, err := answer(aid.Pin, frame(5, x(5), "codex", "ok", "ok")); err != nil || r.Result != "received" {
 		t.Fatalf("again: %+v %v", r, err)
 	}
-	if _, err := answer(aid.Pin, frame(2, x(2), "codex", "changed", "changed")); refusalCode(err) != ErrLinkProtocol.Code {
+	if _, err := answer(aid.Pin, frame(5, x(5), "codex", "changed", "changed")); refusalCode(err) != ErrLinkProtocol.Code {
 		t.Fatalf("changed body: %v", err)
 	}
 	// An older sequence is stale.
@@ -583,11 +586,11 @@ func TestLinkMessageReceiverGuards(t *testing.T) {
 		t.Fatalf("stale: %+v %v", r, err)
 	}
 	// The same cross-node ID at a new sequence is refused while its message is held.
-	if _, err := answer(aid.Pin, frame(3, x(2), "codex", "dup", "dup")); refusalCode(err) != ErrLinkProtocol.Code {
+	if _, err := answer(aid.Pin, frame(6, x(5), "codex", "dup", "dup")); refusalCode(err) != ErrLinkProtocol.Code {
 		t.Fatalf("duplicate xid: %v", err)
 	}
 	// An unpaired key, and another pair's ID, get nothing.
-	if _, err := answer(strings.Repeat("ab", 32), frame(3, x(3), "codex", "x", "x")); refusalCode(err) != ErrLinkNoPair.Code {
+	if _, err := answer(strings.Repeat("ab", 32), frame(6, x(6), "codex", "x", "x")); refusalCode(err) != ErrLinkNoPair.Code {
 		t.Fatalf("unpaired key: %v", err)
 	}
 	if got := bodies(t, b, receiver); len(got) != 1 || got[0] != "ok" {
@@ -598,7 +601,7 @@ func TestLinkMessageReceiverGuards(t *testing.T) {
 	if _, err := b.d.store.db.Exec(`DELETE FROM messages WHERE link_pair IS NOT NULL`); err != nil {
 		t.Fatal(err)
 	}
-	if r, err := answer(aid.Pin, frame(2, x(2), "codex", "ok", "ok")); err != nil || r.Result != "received" {
+	if r, err := answer(aid.Pin, frame(5, x(5), "codex", "ok", "ok")); err != nil || r.Result != "received" {
 		t.Fatalf("after purge: %+v %v", r, err)
 	}
 	if got := bodies(t, b, receiver); len(got) != 0 {
@@ -738,4 +741,33 @@ func TestLinkMessageLongQueue(t *testing.T) {
 	if got := strings.Join(bodies(t, b, receiver), ","); got != strings.Join(want, ",") {
 		t.Fatalf("order differs")
 	}
+}
+
+// A pair that leaves the link state without an unpair here, as an expired pending pair does,
+// has its queue retired by the worker, which then stops.
+func TestLinkMessagePairGoneRetiresQueue(t *testing.T) {
+	_, a, b, sender, receiver := fastLinkHosts(t)
+	if err := b.d.remoteDisable(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	id := mustQueue(t, a, sender, receiver.Name+"@beta", "to a pair that goes")
+	pair := a.state(t).Pairs[0].ID
+	a.d.link.mu.Lock()
+	s, err := link.ReadState(a.root)
+	if err == nil {
+		s.Pairs = nil
+		err = link.WriteState(a.root, s)
+	}
+	a.d.link.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.d.linkKick(pair)
+	waitLinkStateIs(t, a, sender, id, "cancelled")
+	waitFor(t, "worker stops", func() bool {
+		a.d.link.mu.Lock()
+		defer a.d.link.mu.Unlock()
+		_, running := a.d.link.workers[pair]
+		return !running
+	})
 }
