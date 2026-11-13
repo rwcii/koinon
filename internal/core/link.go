@@ -32,7 +32,7 @@ const (
 // Link refusals.
 var (
 	ErrLinkRemoteOff   = Refusal{"link_remote_required", "turn Remote on with koinon remote enable on this computer first"}
-	ErrLinkNotSetUp    = Refusal{"link_setup_required", "set this computer's name first: Add a computer in the Remote settings, or koinon link setup"}
+	ErrLinkNotSetUp    = Refusal{"link_setup_required", "set this computer's name first: Name this computer in Settings, Computers, or koinon link name"}
 	ErrLinkNoPair      = Refusal{"link_pair_not_found", "no paired computer has that name or ID; see koinon link status"}
 	ErrLinkSelf        = Refusal{"link_invitation_self", "this invitation is from this computer; paste it on the other computer"}
 	ErrLinkPaired      = Refusal{"link_already_paired", "this computer is already paired with that computer; unpair it first to pair it again"}
@@ -41,7 +41,7 @@ var (
 	ErrLinkPortRange   = Refusal{"link_port_invalid", "use a link port of 1 to 65535 that differs from the Remote dashboard port"}
 	ErrLinkNameInvalid = Refusal{"link_name_invalid", "use lower-case letters, digits, hyphens and dots, at most 253 characters"}
 	ErrLinkTextInvalid = Refusal{"link_invitation_invalid", "paste the whole invitation from the other computer's Add a computer step"}
-	ErrLinkUnreachable = Refusal{"link_unreachable", "the other computer did not answer at any of its Tailscale addresses; check that it is on, connected to the tailnet and has Remote on, then try again"}
+	ErrLinkUnreachable = Refusal{"link_unreachable", "the other computer did not answer at any of its Tailscale addresses; check that it is on, connected to the tailnet and has Remote on, and that the tailnet access policy allows TCP on its link port, then try again"}
 	ErrLinkWrongKey    = Refusal{"link_key_mismatch", "the other computer's key does not match the invitation; make a new invitation on that computer"}
 	ErrLinkInvitation  = Refusal{"link_invitation_refused", "the other computer refused the invitation: it expired, was used or was cancelled; make a new one"}
 	ErrLinkLimit       = Refusal{"link_limit", "this computer has the most pairs or open invitations that it can hold"}

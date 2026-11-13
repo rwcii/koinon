@@ -87,7 +87,8 @@ host status. Use the displayed check action after the account step. If a read fa
 displayed status as potentially stale. The page retains an open confirmation
 section or form while its action is running.
 
-These controls require Koinon v0.10.2 or later; `koinon install --plan` shows the
+These controls require Koinon v0.10.2 or later, and v0.11.0 or later for Dashboard access,
+Computers and Signed-in remote devices; `koinon install --plan` shows the
 steps an upgrade still needs. The command-line workflow remains available.
 
 ## Set up from the command line
@@ -147,7 +148,7 @@ steps an upgrade still needs. The command-line workflow remains available.
    Serve uses HTTPS port 443 unless you choose another (#665):
 
    ```sh
-   koinon remote enable --https-port 8443
+   koinon remote enable --https-port 10443
    ```
 
    Choose another port when something else on this computer takes 443, such as a
@@ -222,7 +223,7 @@ against the fingerprint before it sends the secret. Each daemon has its own Ed25
 `link-key.pem` in its state directory; the pairs are in `link.json`. Both files are private
 (mode 0600).
 
-Remote enable adds a raw TCP Serve mapping from the link port (47672 unless chosen) to a
+Remote enable adds a raw TCP Serve mapping from the link port to a
 loopback TLS listener (`tailscale serve --bg --tcp=PORT tcp://127.0.0.1:N`); remote disable
 removes it, closes link connections and cancels open invitations, and keeps the pairs. An
 invitation from before a disable or a restart never works again. The link
@@ -231,8 +232,17 @@ the handshake, except the pairing step of an open invitation. A daemon reaches a
 computer at its saved Tailscale addresses, and refreshes them from `tailscale status` when they
 fail; it never looks up a name through the system's resolver.
 
+The link port is 47672 unless you choose another with `koinon link name --port PORT` or in
+Settings, Computers, **Change this computer's name or link port**. A paired computer learns
+a new port only when you unpair and pair again.
+
 The tailnet policy must allow TCP on the link port between your computers, as for the
-dashboard's HTTPS port.
+dashboard's HTTPS port. `koinon remote status` shows an example entry only for the HTTPS
+port; for the link port, an entry has this form, with each computer's own Tailscale addresses:
+
+```json
+{"action":"accept","src":["autogroup:member"],"proto":"tcp","dst":["100.64.0.2:47672","[fd7a:115c:a1e0::2]:47672"]}
+```
 
 **Status.** `koinon link status` and the Computers section show this computer's name and
 fingerprint, the link listener and its Serve mapping, the open invitations, each paired
@@ -261,7 +271,7 @@ lost). **Cancel** stops a queued message. A message that may have arrived is res
 other computer first, and the result decides: one that arrived stays received there; the later
 messages to that computer wait until then. `koinon link queue` and `koinon link
 cancel-message LINK_ID` do the same with the maintainer secret. The queue holds 1,000
-messages and 16 MiB for each computer; a full queue refuses new sends and drops nothing.
+messages and 16 MiB for each computer (10,000 and 64 MiB in all); a full queue refuses new sends and drops nothing.
 Finished messages are listed for 30 days. Unpair cancels the messages that were not sent yet;
 a new pairing never sends the old ones. You send as the maintainer only on this computer.
 
@@ -395,6 +405,9 @@ return screen after sign-in, without submitting the prior action.
 | Saved loopback port is occupied | Free the saved port and repeat enable, or disable successfully then enable to choose an available backend port. The daemon's local API remains available. |
 | Network policy denies the phone (the page times out) | The tailnet access policy must allow TCP 443, or the chosen HTTPS port, to this computer's IPv4 and IPv6 Tailscale addresses from the phone. `koinon remote status` shows an example entry with this computer's addresses. Also check the phone's network and account. Host status cannot prove phone permission. |
 | Sign-in QR expired, was already used, or its result is unknown | Create a new sign-in QR on the signed-in computer, or use the Koinon password at the ordinary dashboard URL. |
+| Join answers `link_unreachable` | The other computer did not answer on its link port. Check that it is on, connected to the tailnet and has remote access on, and that the tailnet policy allows TCP on its link port (Connect your computers). |
+| Join answers `link_key_mismatch` or `link_invitation_refused` | Make a new invitation on the other computer and paste it again. |
+| A link step answers `link_remote_required` | Turn remote access on with `koinon remote enable` on this computer. |
 | Host is configured but phone fails | Check host wake state, both Tailscale connections, network policy, and the URL from status. Complete the cellular test separately. |
 
 The [verification record](sprints/2026-11-11-remote-dashboard/verification.md) separates automated,

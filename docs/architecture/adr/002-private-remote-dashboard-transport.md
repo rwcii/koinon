@@ -3,7 +3,7 @@ adr: "002"
 title: "Private Remote Dashboard Transport"
 status: accepted
 created: "2026-11-11"
-updated: "2026-11-12"
+updated: "2026-11-13"
 authors:
   - "Andrew Deugarte (@andyde8)"
 reviewers: []
@@ -222,14 +222,15 @@ source for this authentication amendment. This changes browser QR sign-in,
 while retaining the private transport, CLI URL-only QR, existing password,
 remote session boundary, and absent agent API. PDR 010, Refinement 5 separately
 extends remote browser idle time to seven days while keeping the seven-day
-absolute limit; local browser and maintainer-token idle time remains 24 hours.
+absolute limit; local browser and maintainer-token idle time remains 24 hours. Decision 5
+replaces these remote limits with a fixed 48 hours from sign-in.
 
 A signed-in browser makes a session-bound CSRF-protected POST to create a random
 remote ticket and a PNG QR. The ticket is hashed in daemon memory, expires after
 two minutes, and is bound to the configured external origin. An atomic redemption
 permits one remote session. Disable, secret change, or daemon restart removes
 outstanding tickets. The two-minute ticket lifetime is separate from the
-established session's seven-day idle and absolute limits. The raw ticket, QR
+established session's limits (a fixed 48 hours from sign-in since Decision 5). The raw ticket, QR
 credential, and redemption body are not
 persisted in the ownership journal, audit targets, or logs.
 
@@ -243,7 +244,8 @@ additional requirements attributed to Andrew Deugarte (@andyde8).
 Only a dashboard session on the host (`dashboard`) issues tickets; a `remote:` session
 gets a refusal and the remote view shows no QR control. A ticket from a remote session
 would start a new session with a new `created` time, so a chain of tickets would renew
-remote access past the seven-day absolute maximum (PDR 009, Decision 2) and could fill
+remote access past its absolute maximum (PDR 009, Decision 2; the fixed 48-hour deadline
+since Decision 5) and could fill
 the 16-entry login table without the secret (review of PR #644).
 
 The QR image comes from `github.com/skip2/go-qrcode` at
@@ -278,7 +280,7 @@ applies to all dashboard pages through the common headers; it adds no script
 origin. The QR script accepts only PNG responses, rejects non-positive or greater
 than 300-second lifetime headers, and clears expired object URLs. Ticket creation
 and redemption use ten-second request deadlines. Successful redemption navigation
-is pinned to the read-only, same-origin `/dashboard/sessions` route, without a
+is pinned to the read-only, same-origin `/dashboard/attention` route, without a
 query or fragment. These frontend guardrails bound image lifetime, waiting, and
 navigation; they are implementation choices supporting the authorized flow, not
 human-mandated limits or a change to the server's two-minute ticket lifetime.
