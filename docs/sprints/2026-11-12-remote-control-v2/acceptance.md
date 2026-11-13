@@ -45,7 +45,8 @@ and distinguish new failures from those reproduced on unchanged source.
 
 In addition to the existing native installation/upgrade/removal checks, record
 remote-session and receipt behavior across graceful restart, abrupt death,
-reboot, upgrade from the pinned release and downgrade. Verify fixed deadlines
+reboot and upgrade from the pinned release (a downgrade to v0.10.x is not possible:
+v0.11.0 moves the store to schema 38). Verify fixed deadlines
 and committed revocations on disk, then check them in real browser requests.
 Compile/vet and cross-platform builds do not establish these lifecycle results.
 

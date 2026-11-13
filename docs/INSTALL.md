@@ -876,9 +876,10 @@ without a request, 7 days after it was made, or when the daemon restarts; then l
 with the secret, or run `koinon dashboard` for a new link. A login on the private remote
 surface (`koinon remote`, docs/REMOTE-DASHBOARD.md) instead has a fixed 48-hour
 window from sign-in and survives routine restart/upgrade within that window.
-First upgrade to remote control v2 requires fresh sign-in. Versioned remote
-session/receipt records preserve the schema 37 catalog for older readers; rollback
-requires sign-in again. Schema 29 originally added the secret's salted-key table;
+First upgrade to remote control v2 requires fresh sign-in. Its versioned remote
+session and receipt records add no table. The same release, v0.11.0, moves the store
+to schema 38 for messages between computers (#670), and a v0.10.x binary refuses a
+schema 38 store, so a v0.11.0 store cannot go back to v0.10.x. Schema 29 originally added the secret's salted-key table;
 upgrading a pre-secret store starts with no secret set.
 
 The daemon applies supported Go schema migrations transactionally and refuses an unknown

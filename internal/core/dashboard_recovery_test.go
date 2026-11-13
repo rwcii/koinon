@@ -37,7 +37,7 @@ function browser(saved={}, broken=false, sessionID="synthetic-session", clock={}
  const hostTime=clock.hostTime || Date.now();
  class PhoneDate extends Date {static now(){return clock.clientTime === undefined ? Date.now() : clock.clientTime;}}
  const performance={now(){return clock.elapsed || 0;}};
- const document={body:{dataset:{remote:'true',remoteSession:sessionID,hostTime:String(hostTime)}},visibilityState:'visible',
+ const document={body:{dataset:{remote:'true',remoteSession:sessionID,hostTime:String(hostTime),authReason:clock.authReason||''}},visibilityState:'visible',
  getElementById(id){return {'recovery-status':status,'save-drafts':toggle,'clear-drafts':clear}[id]||null;},
  querySelectorAll(selector){return selector.startsWith('textarea')?[field]:[];},addEventListener(n,f){events[n]=f;},
  createElement(){return {addEventListener(n,f){this[n]=f;},remove(){this.removed=true;}};}};
@@ -67,6 +67,11 @@ function browser(saved={}, broken=false, sessionID="synthetic-session", clock={}
   if(change==='action')stale.field.form.getAttribute=()=>'/dashboard/actions/room-post';
   stale.buttons[0].click();assert.equal(stale.field.value,'',change+' must invalidate a stale offer');
  }
+ // A refused full page load that names a revocation clears the drafts; an expiry keeps them.
+ const revokedPage=browser(Object.fromEntries(b.storage),false,'',{authReason:'device_revoked'});
+ assert.equal(JSON.parse(revokedPage.storage.get(revokedPage.prefix+'drafts')||'[]').length,0,'a revoked page load kept drafts');
+ const expiredPage=browser(Object.fromEntries(b.storage),false,'',{authReason:'session_expired'});
+ assert.match(expiredPage.storage.get(expiredPage.prefix+'drafts')||'',/private draft/,'an expired page load dropped drafts');
  // Unrelated private memory/editor bodies must never be persisted by message-draft opt-in.
  const memory=browser();memory.toggle.checked=true;memory.toggle.change();
  memory.field.form.getAttribute=()=>'/dashboard/actions/memory-record';memory.field.value='private memory record';

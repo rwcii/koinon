@@ -397,9 +397,11 @@ from credential revocation; Tailscale mapping ownership and conflict rules remai
 
 Engineering choice: versioned, namespaced JSON records live in the existing
 non-STRICT `settings` table. SQLite retains JSON text under its INTEGER affinity;
-known timing readers select timing keys explicitly. This preserves schema37 and
-its exact catalog for previous binaries. Older binaries ignore these v2 rows and
-still require sign-in; their in-memory sessions cannot use v2 credentials.
+known timing readers select timing keys explicitly. The v2 records add no table,
+and older binaries ignore these rows; their in-memory sessions cannot use v2
+credentials. The store schema does not stay at 37: v0.11.0, which ships v2, also
+moves the store to schema 38 for the link's messages (#670 chunk 03), and v0.10.x
+refuses a schema 38 store.
 A typed-table migration can replace this representation when rollback compatibility
 can be changed deliberately. Never use a WAL-attached sidecar for cross-database
 receipt/mutation atomicity.

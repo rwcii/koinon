@@ -242,8 +242,19 @@ func (s *Store) markAttentionRead(ctx context.Context, browser string, direct, r
 	if err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO settings(name,value,updated_at) VALUES(?,?,?) ON CONFLICT(name) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`, "remote.v2.attention:"+browser, string(value), s.now().UnixMilli()); err != nil {
+	now := s.now().UnixMilli()
+	if _, err = tx.ExecContext(ctx, `INSERT INTO settings(name,value,updated_at) VALUES(?,?,?) ON CONFLICT(name) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`, "remote.v2.attention:"+browser, string(value), now); err != nil {
+		return tx.fail(err)
+	}
+	// A browser's read position lasts attentionCursorLife after its last mark: longer than a
+	// remote login and its kept row, so every live browser keeps its own. Older positions,
+	// such as those of ended local logins, are deleted here (#673 review M7).
+	if _, err = tx.ExecContext(ctx, `DELETE FROM settings WHERE name GLOB 'remote.v2.attention:*' AND updated_at < ?`, now-attentionCursorLife.Milliseconds()); err != nil {
 		return tx.fail(err)
 	}
 	return tx.Commit()
 }
+
+// attentionCursorLife is how long a browser's Attention read position is kept after its
+// last mark: the 48-hour remote login plus the 7 days that its session row is kept.
+const attentionCursorLife = remoteSessionLifetime + 7*24*time.Hour

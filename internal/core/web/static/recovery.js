@@ -28,6 +28,9 @@
   }
   function remove(key) { try { window.localStorage.removeItem(prefix + key); } catch (_) { tell("Browser storage could not be cleared."); } }
   function clearDrafts() { remove("drafts"); }
+  // A refused page that names a revocation clears this origin's drafts, also when the
+  // browser sees it only through a full page load, as after reopening a tab (#673 review M8).
+  if (/^(device_revoked|password_changed|remote_disabled|origin_changed)$/.test(document.body.dataset.authReason || "")) { clearDrafts(); }
   function opted() { return read("save-drafts", false) === true; }
   function drafts() {
     return read("drafts", []).filter(function (d) { return d && typeof d.text === "string" && d.at <= Date.now() && Date.now() - d.at < week; });
@@ -160,6 +163,8 @@
       body.set("operation_id", operation.id); body.set("operation_created_at", String(Math.floor(operation.hostAt))); return operation;
     },
     conflict:function (operation) { if (operation) { operation.disputed = true; savePending(); } },
+    // A refusal saved nothing, so its operation is no longer pending (#673 review M5).
+    refused:function (operation) { if (operation) { pending = pending.filter(function (p) { return p.id !== operation.id; }); savePending(); showPending(); } },
     completed:function (form, target, response, operation) {
       if (target.pathname === "/dashboard/logout") { clearDrafts(); remove("pending"); return; }
       // A redirect with a notice can be a refusal; only accepted receipts clear drafts.

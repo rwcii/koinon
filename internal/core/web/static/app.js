@@ -171,10 +171,27 @@
           return;
         }
         var replyURL = new URL(response.url || target.toString(), window.location.href);
-        if (operation && replyURL.searchParams.has("notice") && !/^(sent|room_posted|decision_(approved|declined|feedback|completed|acknowledged))$/.test(replyURL.searchParams.get("notice"))) {
-          message("Conflict. Your text is kept. Inspect the current target before submitting another action.");
-          if (recovery) { if (recovery.conflict) { recovery.conflict(operation); } recovery.resolve(); }
-          return;
+        var code = replyURL.searchParams.get("notice");
+        if (operation && replyURL.searchParams.has("notice") && !/^(sent|room_posted|decision_(approved|declined|feedback|completed|acknowledged))$/.test(code)) {
+          if (/^(stale_revision|decided)$/.test(code)) {
+            message("Conflict. Your text is kept. Inspect the current target before submitting another action.");
+            if (recovery) { if (recovery.conflict) { recovery.conflict(operation); } recovery.resolve(); }
+            return;
+          }
+          // Any other notice is the host's refusal: nothing was saved. Show its reason and
+          // keep the text (#673 review M5).
+          if (recovery && recovery.refused) { recovery.refused(operation); }
+          var shown = typeof response.text === "function" ? response.text() : Promise.resolve("");
+          return shown.then(function (html) {
+            var reason = "";
+            try {
+              if (typeof DOMParser === "function") {
+                var node = new DOMParser().parseFromString(html, "text/html").querySelector("p.notice");
+                reason = node ? node.textContent : "";
+              }
+            } catch (error) { reason = ""; }
+            message("Refused: " + (reason || code) + " Nothing was saved; your text is kept.");
+          });
         }
         return Promise.resolve(recovery ? recovery.completed(form, target, response, operation) : null).then(function () {
         var destination = new URL(response.url, window.location.href);

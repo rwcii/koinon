@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestAttentionBrowserCursorsDoNotAcknowledge(t *testing.T) {
@@ -156,5 +157,39 @@ func TestAttentionReadCursorRespectsStorageAdmission(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatal("blocked read cursor was persisted")
+	}
+}
+
+// A browser's read position is kept after its last mark for attentionCursorLife, then
+// deleted, so ended logins leave no permanent rows (#673 review M7).
+func TestAttentionReadPositionsExpire(t *testing.T) {
+	s, _ := testStore(t)
+	ctx := context.Background()
+	clock := time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)
+	s.now = func() time.Time { return clock }
+	if err := s.markAttentionRead(ctx, "ended-browser", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	clock = clock.Add(attentionCursorLife - time.Minute)
+	if err := s.markAttentionRead(ctx, "live-browser", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	count := func(name string) int {
+		t.Helper()
+		var n int
+		if err := s.db.QueryRow(`SELECT count(*) FROM settings WHERE name=?`, "remote.v2.attention:"+name).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if count("ended-browser") != 1 {
+		t.Fatal("a read position inside its life was deleted")
+	}
+	clock = clock.Add(2 * time.Minute)
+	if err := s.markAttentionRead(ctx, "live-browser", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if count("ended-browser") != 0 || count("live-browser") != 1 {
+		t.Fatalf("expired position kept or live one lost: ended %d live %d", count("ended-browser"), count("live-browser"))
 	}
 }

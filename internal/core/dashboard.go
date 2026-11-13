@@ -97,6 +97,9 @@ type dashboardPage struct {
 	Remote          bool
 	RemoteSessionID string
 	SessionExpires  int64
+	// AuthReason is why a remote page was refused, so the browser clears drafts after a
+	// revocation that it sees only through a full page load (#673 review M8).
+	AuthReason string
 }
 
 func dashboardTemplates() (map[string]*template.Template, error) {
@@ -230,7 +233,8 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 			target = dashboardReturn(r.PostForm.Get("return"))
 		}
 		form, _ := d.store.maintainerSecretSet(r.Context())
-		render(w, r, status, dashboardPage{View: "login", Title: "Not signed in", Data: loginData{Reason: reason, Form: form, Network: networkDashboard(r) || remoteOrigin(r) != "", Return: target}})
+		render(w, r, status, dashboardPage{View: "login", Title: "Not signed in", AuthReason: w.Header().Get("X-Koinon-Auth-Reason"),
+			Data: loginData{Reason: reason, Form: form, Network: networkDashboard(r) || remoteOrigin(r) != "", Return: target}})
 	}
 	// authedLimit requires a live login session and, for a state-changing request, its
 	// CSRF token; it reads a form body of at most limit bytes.

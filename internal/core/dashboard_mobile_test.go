@@ -146,6 +146,17 @@ function read(request, text='new data') { request.resolve({ok:true, status:200, 
     assert.equal(completed,0);assert.equal(resolved,1);assert.equal(disputed,1);
     assert.match(conflicted.nodes['action-result'].textContent,/Conflict.*text is kept/);
   }
+  // A refusal shows the host's reason, is no longer pending and is never called a conflict.
+  for (const notice of ['peer_not_found','storage_blocked']) {
+    let resolved=0,refused=0,disputed=0;
+    const declined=browser({prepare(){return {id:'synthetic-operation'};},resolve(){resolved++;},conflict(){disputed++;},refused(){refused++;},completed(){}});
+    const declinedForm=declined.form();declined.submit(declinedForm);
+    declined.requests[0].resolve({ok:true,status:200,redirected:true,url:'https://host.example.ts.net/dashboard/messages?notice='+notice});await settle();
+    assert.equal(declined.navigations.length,0,notice+' must retain the live form');
+    assert.equal(declinedForm.fields[2][1],'unsent draft');
+    assert.equal(refused,1);assert.equal(resolved,0);assert.equal(disputed,0);
+    assert.match(declined.nodes['action-result'].textContent,new RegExp('Refused: '+notice+'.*text is kept'));
+  }
   console.log('mobile refresh and write contract passed');
 })().catch(error => { console.error(error); process.exitCode=1; });
 `

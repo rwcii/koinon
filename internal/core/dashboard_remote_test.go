@@ -131,6 +131,12 @@ func TestRemoteSessionInvalidation(t *testing.T) {
 	if _, ok := d.auth.session(r); ok {
 		t.Fatal("disable retained session")
 	}
+	// The refused page names the revocation for the browser's draft cleanup (#673 review M8).
+	page := httptest.NewRecorder()
+	d.dashboard.ServeHTTP(page, r)
+	if page.Code != http.StatusUnauthorized || !strings.Contains(page.Body.String(), `data-auth-reason="remote_disabled"`) {
+		t.Fatalf("refused page: %d, no data-auth-reason in %.300s", page.Code, page.Body.String())
+	}
 	id, _ = d.auth.start(dashboardClient(r))
 	r.Header.Del("Cookie")
 	r.AddCookie(&http.Cookie{Name: cookieName(r), Value: id})
