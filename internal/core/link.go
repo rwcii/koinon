@@ -258,8 +258,13 @@ func (d *Daemon) openLinkLocked(held net.Listener) error {
 	return nil
 }
 
-// closeLinkLocked closes the link listener, every link connection and the monitor.
+// closeLinkLocked closes the link listener, every link connection and the monitor. It takes
+// the outbox lock first: a queue write of the closing generation that already passed its
+// generation check commits before the close ends that generation, and every later one sees
+// the closed generation and stores nothing (#676 review).
 func (d *Daemon) closeLinkLocked() {
+	d.link.outbox.Lock()
+	defer d.link.outbox.Unlock()
 	d.link.mu.Lock()
 	defer d.link.mu.Unlock()
 	if d.link.listener != nil {

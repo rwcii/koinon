@@ -514,8 +514,10 @@ func (d *Daemon) linkPrepareHead(gen uint64, id string) (linkHead, bool, error) 
 
 // linkStore runs one outbox write of generation gen under the outbox lock, only while gen is
 // the open link's and the current link state lists pair id as paired: an old generation's
-// worker, and a worker whose pair was unpaired, store nothing. An unpair writes the link state
-// before it retires the queue under the same lock, so no attempt begins after an unpair.
+// worker, and a worker whose pair was unpaired, store nothing. The close of the link takes the
+// same lock before it ends the generation, so the check holds through the commit. An unpair
+// writes the link state before it retires the queue under the same lock, so no attempt begins
+// after an unpair.
 func (d *Daemon) linkStore(gen uint64, id string, write func(ctx context.Context) error) bool {
 	d.link.outbox.Lock()
 	defer d.link.outbox.Unlock()
