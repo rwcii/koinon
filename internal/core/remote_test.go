@@ -26,6 +26,10 @@ type syntheticTailscale struct {
 	noSelf    bool
 	// writes are the Serve writes in order, as "--https=PORT TARGET".
 	writes []string
+	// ips are the host's Tailscale addresses and peers the tailnet's other devices, for the
+	// daemon link (#670).
+	ips   []string
+	peers map[string]any
 }
 
 func (s *syntheticTailscale) Run(_ context.Context, args ...string) ([]byte, error) {
@@ -44,7 +48,11 @@ func (s *syntheticTailscale) Run(_ context.Context, args ...string) ([]byte, err
 		if !s.noHTTPS {
 			certs = append(certs, strings.TrimSuffix(dns, "."))
 		}
-		return json.Marshal(map[string]any{"BackendState": "Running", "Self": map[string]any{"Online": true, "DNSName": dns}, "CertDomains": certs})
+		status := map[string]any{"BackendState": "Running", "Self": map[string]any{"Online": true, "DNSName": dns, "TailscaleIPs": s.ips}, "CertDomains": certs}
+		if s.peers != nil {
+			status["Peer"] = s.peers
+		}
+		return json.Marshal(status)
 	}
 	if len(args) == 3 && args[0] == "serve" && args[1] == "status" {
 		return json.Marshal(s.config)
@@ -52,6 +60,19 @@ func (s *syntheticTailscale) Run(_ context.Context, args ...string) ([]byte, err
 	s.mutations++
 	if s.fail {
 		return nil, errors.New("synthetic failure")
+	}
+	if len(args) == 4 && args[0] == "serve" && args[1] == "--bg" && strings.HasPrefix(args[2], "--tcp=") && strings.HasPrefix(args[3], "tcp://") {
+		s.writes = append(s.writes, args[2]+" "+args[3])
+		if s.config.TCP == nil {
+			s.config.TCP = map[string]remote.TCPConfig{}
+		}
+		s.config.TCP[strings.TrimPrefix(args[2], "--tcp=")] = remote.TCPConfig{TCPForward: strings.TrimPrefix(args[3], "tcp://")}
+		return nil, nil
+	}
+	if len(args) == 3 && args[0] == "serve" && strings.HasPrefix(args[1], "--tcp=") && args[2] == "off" {
+		s.writes = append(s.writes, args[1]+" off")
+		delete(s.config.TCP, strings.TrimPrefix(args[1], "--tcp="))
+		return nil, nil
 	}
 	if len(args) != 5 || args[0] != "serve" || args[1] != "--bg" || !strings.HasPrefix(args[2], "--https=") || args[3] != "--set-path=/" {
 		return nil, errors.New("unexpected command")

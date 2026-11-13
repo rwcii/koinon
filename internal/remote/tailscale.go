@@ -319,6 +319,9 @@ type Status struct {
 	// example (#653). Only addresses in Tailscale's ranges are kept.
 	TailscaleIPs []string    `json:"tailscale_ips,omitempty"`
 	Serve        ServeConfig `json:"-"`
+	// Peers are the other tailnet devices with a valid name and address, for the daemon
+	// link's address refresh (#670).
+	Peers []Peer `json:"-"`
 }
 
 func (s Status) Ready() error {
@@ -380,11 +383,12 @@ func (m Manager) Inspect(ctx context.Context) (Status, error) {
 			TailscaleIPs json.RawMessage
 		}
 		CertDomains []string
+		Peer        json.RawMessage
 	}
 	if decode(data, &raw) != nil {
 		return Status{}, diagnostic("tailscale_status_invalid", "update Tailscale; its status output could not be read")
 	}
-	s := Status{BackendState: raw.BackendState}
+	s := Status{BackendState: raw.BackendState, Peers: peersFrom(raw.Peer)}
 	if raw.Self != nil {
 		s.Online = raw.Self.Online
 		s.DNSName = strings.TrimSuffix(raw.Self.DNSName, ".")

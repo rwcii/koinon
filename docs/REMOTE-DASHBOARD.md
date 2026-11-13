@@ -199,6 +199,55 @@ certificate (#665). There are three ways to choose this:
   remote access cannot be enabled, nothing else changes.
 - From a script: `koinon install --dashboard-address none`, then `koinon remote enable`.
 
+## Connect your computers
+
+Remote access also connects your own computers, each with its own Koinon, so that their agent
+sessions can exchange messages (#670, LINK-670-PAIR in ADR 002, Decision 4). This release
+pairs computers and shows their state; messages between them come in the next parts.
+
+1. Turn remote access on on both computers.
+2. On each, choose its name once: Settings, **Computers**, **Name this computer**, or
+   `koinon link name`. The field holds the short host name; the long name or another name is
+   possible. Use lower-case letters, digits, hyphens and dots. Agents on your other computers
+   address this computer's agents as `AGENT@NAME`.
+3. On one computer, **Copy invitation** (or `koinon link invite`). The invitation is one line
+   that starts with `koinon-link-1:`, with a QR code. It works once, for 10 minutes. Keep it
+   private.
+4. On the other computer, **Paste invitation** and **Connect** (or `koinon link join` and paste
+   it). The paired computer shows as connected on both.
+
+The invitation holds the inviting computer's tailnet name, Tailscale addresses, link port,
+key fingerprint and name, and a random secret. The joining daemon checks the other key
+against the fingerprint before it sends the secret. Each daemon has its own Ed25519 key in
+`link-key.pem` in its state directory; the pairs are in `link.json`. Both files are private
+(mode 0600).
+
+Remote enable adds a raw TCP Serve mapping from the link port (47672 unless chosen) to a
+loopback TLS listener (`tailscale serve --bg --tcp=PORT tcp://127.0.0.1:N`); remote disable
+removes it, closes link connections and cancels open invitations, and keeps the pairs. An
+invitation from before a disable or a restart never works again. The link
+uses TLS 1.3 with each daemon's own key; a connection whose key is not paired is refused in
+the handshake, except the pairing step of an open invitation. A daemon reaches a paired
+computer at its saved Tailscale addresses, and refreshes them from `tailscale status` when they
+fail; it never looks up a name through the system's resolver.
+
+The tailnet policy must allow TCP on the link port between your computers, as for the
+dashboard's HTTPS port.
+
+**Status.** `koinon link status` and the Computers section show this computer's name and
+fingerprint, the link listener and its Serve mapping, the open invitations, each paired
+computer as connected (an authenticated connection in the last few minutes), offline or
+pending, and the last key that the listener refused. `koinon remote status` adds the link's
+port, listener and Serve state.
+
+**Unpair, cancel, rename.** Unpair removes the pair on this computer at once, closes its
+connections and tells the other computer, which removes it too. When the other computer does
+not answer, or remote access is off here, it shows the pair as rejected at its next
+connection. A pairing
+that stopped halfway leaves a pending pair on one side; Cancel removes it. Rename sets this
+computer's name for a paired computer; an empty name returns to its advertised name. A new
+key on the other computer needs unpair and a new invitation.
+
 ## URL, restarts, and configuration ownership
 
 Serve provides `https://MACHINE.TAILNET.ts.net/dashboard/` on HTTPS port 443, or

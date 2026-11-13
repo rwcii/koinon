@@ -759,6 +759,27 @@ Remote access; a code works once, for two minutes. A remote login lasts at most 
 Settings page offers the same setup steps. See docs/REMOTE-DASHBOARD.md for the setup,
 restarts, a changed Tailscale name and diagnostics.
 
+### Connect your computers
+
+Pair this computer with Koinon on your other computers (#670). Both need remote access on
+(`koinon remote enable`). The changes need the maintainer secret: give `--secret-file PATH`,
+or type it when the command asks.
+
+```sh
+koinon link name             # choose this computer's name once; Enter takes the short host name
+koinon link name devbox --port 47672   # the same without a question; the port is the link's Serve TCP port
+koinon link invite           # on one computer: prints a one-time invitation and its QR, valid 10 minutes
+koinon link join             # on the other: paste the invitation, or give it as the first line of standard input
+koinon link status           # this computer's name and fingerprint, and each paired computer; --json for the report
+koinon link rename PAIR NAME # this computer's name for a paired computer; without NAME, its advertised name
+koinon link unpair PAIR      # remove the pair here at once, and on the other computer when it answers
+koinon link cancel PAIR      # remove a pending pair; cancel invitations removes the open invitations
+```
+
+PAIR is the paired computer's name or ID from `koinon link status`. The dashboard's Settings
+page has the same steps under **Computers**. See
+[connect your computers](REMOTE-DASHBOARD.md#connect-your-computers).
+
 ### Act as the maintainer from another program
 
 `koinon mcp --maintainer` is a stdio MCP server that acts as the maintainer, for a client that

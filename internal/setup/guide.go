@@ -334,6 +334,13 @@ facts from .koinon/skills/NAME.md.
   registers at its first tool call and takes the participant address by succession
   (Participants).
 
+## Other Koinon computers
+The maintainer pairs this computer with Koinon on the maintainer's other computers, in the
+dashboard's Settings, Computers, or with koinon link (#670). koinon link status shows this
+computer's name, its fingerprint and each paired computer: connected, offline or pending,
+with the time. A session that holds the maintainer secret can pair with koinon link invite and
+koinon link join --secret-file PATH, as the maintainer's own step.
+
 ## Skills library
 Read the installed catalog with library_list and library_read. The command path is
 koinon library list/read --as FAMILY:NATIVE_SESSION_ID (DeepSeek examples below).
