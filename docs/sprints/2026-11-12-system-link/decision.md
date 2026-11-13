@@ -179,6 +179,25 @@ sessions on two computers cannot exchange messages today.
 - **Review when:** messages that arrive very late cause harm, or agents need the read state of
   a message on another computer.
 
+### REL-NEXT-VERSION: the release number for this work
+
+- **Decided by:** Robert Capps.
+- **Date:** 2026-11-13, revision 1, approved.
+- **Context:** the number of the next release from develop after v0.10.3. That release holds
+  this deliverable (#670: `koinon link`, messages between computers) and moves the store to
+  schema 38, which a v0.10.x binary refuses, so an upgrade cannot go back. v0.10.1 to v0.10.3
+  were patch releases. The options were v0.10.4, v0.11.0 and v1.0.0. The card's context also
+  cited an agent memory note of a 2026-11-01 direction to clear the number with the
+  maintainer.
+- **Decision:** v0.11.0. Robert's note: "yes, 0.11.0 is the release version".
+- **Reason and scope:** a new feature and a one-way schema change; a patch number would hide
+  that an upgrade cannot go back to v0.10.x. v1.0.0 would say that the product is stable,
+  which nobody decided. This covers this release only. REL-SCOPE-673 (in
+  [the remote control v2 decision record](../2026-11-12-remote-control-v2/decision.md)) adds
+  #673 to the same release.
+- **Alternatives considered:** v0.10.4 (keeps the v0.10 line, hides the feature and the schema
+  change); v1.0.0 (claims stability).
+
 ## Acceptance criteria
 
 1. On two of the maintainer's computers with Remote on, **Copy invitation** on one and
