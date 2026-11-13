@@ -376,7 +376,8 @@ the invitation. The raw TCP Serve probe on a tailnet host is in
 
 ## 5. Decision: Remote control v2 durable authentication and atomic receipts
 
-**Source:** Andrew Deugarte's direct implementation request, 2026-11-12.
+**Source:** Andrew Deugarte's direct implementation request, 2026-11-12. Decided by Robert
+Capps for release v0.11.0, 2026-11-13 (REL-SCOPE-673, in the sprint decision record).
 [PDR 010 §9](../../product/pdr/010-private-remote-dashboard-access.md#9-refinement-remote-control-v2-fixed-sign-in-and-recovery)
 records the retention question, alternatives and his quoted fixed-48-hour answer.
 The architecture below implements that scope; it does not introduce a separate
@@ -435,3 +436,4 @@ Serve mapping and records recoverable lifecycle transitions.
 | 2026-11-13 | Decision 4: the link carries the receiver directory and name updates (#670 chunk 02). |
 | 2026-11-13 | Decision 4: the link carries agent direct messages, queued at the sender (#670 chunk 03). |
 | 2026-11-12 | Record Andrew's v2 implementation authorization, fixed 48-hour policy, durable sessions and explicit recovery scope. |
+| 2026-11-13 | Decision 5: Robert Capps takes the v2 policy choices as his and puts v2 in v0.11.0 (REL-SCOPE-673). |

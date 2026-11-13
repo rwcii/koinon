@@ -63,3 +63,26 @@ and only the preview route will be removed after testing. This authorizes that
 temporary route and preview process lifecycle only; it does not authorize replacing
 the shared daemon or altering other Serve mappings. Before/after mapping evidence
 is kept privately. Revisit when preview testing ends and the route is removed.
+
+## REL-SCOPE-673: remote control v2 in v0.11.0 — 2026-11-13
+
+- **Decided by:** Robert Capps.
+- **Date:** 2026-11-13, revision 2, approved. Andrew Deugarte (@andyde8) proposed the
+  design and the policy choices above.
+- **Context:** whether release v0.11.0 (REL-NEXT-VERSION) contains this pull request. The
+  first revision recommended a release without it, because its device and retention
+  acceptance was open, its policy choices were recorded as Andrew's, and the maintainers'
+  team had not reviewed it. Robert answered that revision: "this is the next release. Why
+  defer it?", and in the terminal: "673 comes with .11". The options were to release without
+  it, or to include it with his decision on its policy choices, a cross-family review and one
+  real-device check.
+- **Decision:** Robert approved the inclusion. He takes as his own decisions the fixed 48-hour
+  remote sign-in that survives a restart, and crash survival with its combined
+  storage-failure, process-loss and clock-rollback limit (both above). Before the merge,
+  codex-koinon reviews the head that is merged with develop, and Robert signs in on an iPhone,
+  restarts the daemon and checks the sign-in after one hour. The Android Chrome, overnight and
+  48-hour checks stay open in #672 after the release.
+- **Reason and scope:** v0.11.0 ships remote control v2 with the maintainer's decision, a
+  review by a second agent family and one real-device check. This covers this release; the
+  checks that stay open are not waived for later releases.
+- **Review when:** an Android, overnight or 48-hour check in #672 fails.
