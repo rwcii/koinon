@@ -83,7 +83,9 @@ func (d *Daemon) answerDeliver(pin string, f link.Frame, gen uint64) (link.Frame
 		digest = body.Digest
 	} else {
 		var body linkDeliverBody
-		if f.Decode(&body) != nil || body.Seq < 1 || !validXID(body.XID) || body.Family == "" || len(body.Family) > 64 ||
+		// An empty or non-agent family is a stored origin refusal, not a malformed frame, so
+		// the stream goes on (A6).
+		if f.Decode(&body) != nil || body.Seq < 1 || !validXID(body.XID) || len(body.Family) > 64 ||
 			body.Recipient == "" || len(body.Recipient) > 256 || body.Sender == "" || len(body.Sender) > 256 ||
 			len(body.Body) == 0 || len(body.Body) > maxBody || !utf8.Valid(body.Body) {
 			return link.Frame{}, true, ErrInvalid
@@ -213,6 +215,26 @@ func (d *Daemon) linkRetirePair(id string) error {
 	return d.store.linkRetire(ctx, id)
 }
 
+// linkRetireIfGone retires a pair's queue when the current link state, read under the outbox
+// lock, does not list the pair. A snapshot read earlier can precede a new pairing and its first
+// send; this read cannot, because every send reads the link state under the same lock.
+func (d *Daemon) linkRetireIfGone(id string) error {
+	d.link.outbox.Lock()
+	defer d.link.outbox.Unlock()
+	d.link.mu.Lock()
+	s, err := link.ReadState(d.root)
+	d.link.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	if slices.ContainsFunc(s.Pairs, func(p link.Pair) bool { return p.ID == id }) {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), linkIOTimeout)
+	defer cancel()
+	return d.store.linkRetire(ctx, id)
+}
+
 // linkReconcile retires the queue of every pair that the link state no longer lists, then
 // starts a worker for each paired computer with unfinished messages. It runs when the link
 // opens.
@@ -232,7 +254,7 @@ func (d *Daemon) linkReconcile(gen uint64) {
 	}
 	for _, id := range ids {
 		if !slices.ContainsFunc(s.Pairs, func(p link.Pair) bool { return p.ID == id }) {
-			d.linkRetirePair(id)
+			d.linkRetireIfGone(id)
 		}
 	}
 	d.linkKickPending(gen)
@@ -377,7 +399,7 @@ func (d *Daemon) linkDeliverBatch(gen uint64, life context.Context, id string) (
 	if i < 0 {
 		// A pair that is gone without an unpair here (a pending pair that expired or was
 		// cancelled) ends its queue as an unpair does.
-		d.linkRetirePair(id)
+		d.linkRetireIfGone(id)
 		return false, false, nil
 	}
 	p := s.Pairs[i]
@@ -422,7 +444,7 @@ func (d *Daemon) linkDeliverBatch(gen uint64, life context.Context, id string) (
 		}
 		switch reply.Result {
 		case "received", "refused", "cancelled":
-			if !d.linkStore(gen, func(ctx context.Context) error {
+			if !d.linkStore(gen, id, func(ctx context.Context) error {
 				_, err := d.store.linkSettle(ctx, id, h.Seq, h.Digest, reply.Result, reply.Reason)
 				return err
 			}) {
@@ -430,7 +452,7 @@ func (d *Daemon) linkDeliverBatch(gen uint64, life context.Context, id string) (
 			}
 			progress = true
 		case "retry":
-			d.linkStore(gen, func(ctx context.Context) error {
+			d.linkStore(gen, id, func(ctx context.Context) error {
 				_, err := d.store.linkRetried(ctx, id, h.Seq, h.Digest)
 				return err
 			})
@@ -473,7 +495,7 @@ func (d *Daemon) linkCall(session linkSession, op string, body any, out *linkDel
 func (d *Daemon) linkPrepareHead(gen uint64, id string) (linkHead, bool, error) {
 	var h linkHead
 	var found bool
-	ok := d.linkStore(gen, func(ctx context.Context) error {
+	ok := d.linkStore(gen, id, func(ctx context.Context) error {
 		var err error
 		if h, found, err = d.store.linkNextHead(ctx, id); err != nil || !found {
 			return err
@@ -491,11 +513,19 @@ func (d *Daemon) linkPrepareHead(gen uint64, id string) (linkHead, bool, error) 
 }
 
 // linkStore runs one outbox write of generation gen under the outbox lock, only while gen is
-// the open link's and the pair still exists; an old generation's worker stores nothing.
-func (d *Daemon) linkStore(gen uint64, write func(ctx context.Context) error) bool {
+// the open link's and the current link state lists pair id as paired: an old generation's
+// worker, and a worker whose pair was unpaired, store nothing. An unpair writes the link state
+// before it retires the queue under the same lock, so no attempt begins after an unpair.
+func (d *Daemon) linkStore(gen uint64, id string, write func(ctx context.Context) error) bool {
 	d.link.outbox.Lock()
 	defer d.link.outbox.Unlock()
 	if _, err := d.linkLifeOf(gen); err != nil {
+		return false
+	}
+	d.link.mu.Lock()
+	s, err := link.ReadState(d.root)
+	d.link.mu.Unlock()
+	if err != nil || !slices.ContainsFunc(s.Pairs, func(p link.Pair) bool { return p.ID == id && p.State == link.Paired }) {
 		return false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), linkIOTimeout)
@@ -509,9 +539,15 @@ type LinkQueue struct {
 	Pair     string       `json:"pair"`
 	Computer string       `json:"computer"`
 	Messages []LinkQueued `json:"messages"`
+	// Waiting and Finished count all of the computer's messages; Truncated says that
+	// Messages leaves out older finished ones.
+	Waiting   int  `json:"waiting"`
+	Finished  int  `json:"finished"`
+	Truncated bool `json:"truncated,omitempty"`
 }
 
-// linkQueueShown is the most entries shown for one computer.
+// linkQueueShown is the most finished entries shown for one computer. Every waiting message
+// is shown, at most the per-computer limit.
 const linkQueueShown = 200
 
 // linkQueues lists the queue of each paired computer, or of the one that ref names.
@@ -532,14 +568,15 @@ func (d *Daemon) linkQueues(ctx context.Context, ref string) ([]LinkQueue, error
 	}
 	queues := []LinkQueue{}
 	for _, p := range pairs {
-		rows, err := d.store.linkQueue(ctx, p.ID, linkQueueShown)
+		rows, waiting, finished, err := d.store.linkQueue(ctx, p.ID, int(linkQueuePairCount), linkQueueShown)
 		if err != nil {
 			return nil, err
 		}
 		if rows == nil {
 			rows = []LinkQueued{}
 		}
-		queues = append(queues, LinkQueue{Pair: p.ID, Computer: p.Effective, Messages: rows})
+		queues = append(queues, LinkQueue{Pair: p.ID, Computer: p.Effective, Messages: rows, Waiting: waiting, Finished: finished,
+			Truncated: len(rows) < waiting+finished})
 	}
 	return queues, nil
 }

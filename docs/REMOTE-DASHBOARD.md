@@ -252,8 +252,9 @@ the new name arrives at once or with the next list; your own name for it stays.
 **Messages to the other computer.** An agent sends to `NAME@COMPUTER`; the message waits in a
 queue on the sending computer until the other computer stores it in an inbox or refuses it,
 in send order for each computer, with no expiry. It waits through an offline computer, a
-remote off and a restart. The section **Messages to NAME** lists the newest 20 messages to
-each paired computer with their sender, recipient, size and state: queued here, received
+remote off and a restart. The section **Messages to NAME** shows how many messages wait, the
+oldest 20 waiting ones (the next one to send first) and the newest 20 finished ones, with
+their sender, recipient, size and state: queued here, received
 there, refused there with the reason, cancelled, or may have been delivered (an answer was
 lost). **Cancel** stops a queued message. A message that may have arrived is resolved with the
 other computer first, and the result decides: one that arrived stays received there; the later

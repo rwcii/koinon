@@ -405,7 +405,7 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N]
        koinon remote enable [--https-port PORT] [--state-dir DIR] [--address 127.0.0.1:PORT] [--json]
        koinon remote status|disable [--state-dir DIR] [--address 127.0.0.1:PORT] [--json]
        koinon link status [--state-dir DIR] [--address 127.0.0.1:PORT] [--json]
-       koinon link name [NAME] [--port PORT] | invite | join | unpair PAIR | cancel PAIR|invitations | rename PAIR [NAME]
+       koinon link name [NAME] [--port PORT] | invite | join | unpair PAIR | cancel PAIR|invitations | rename PAIR [NAME] | queue [COMPUTER] | cancel-message LINK_ID
                    [--secret-file PATH] [--state-dir DIR] [--address 127.0.0.1:PORT] [--json]
        koinon dashboard [--state-dir DIR] [--address 127.0.0.1:PORT] [--no-open]
        koinon maintainer secret set|generate|clear [--state-dir DIR] [--address 127.0.0.1:PORT]

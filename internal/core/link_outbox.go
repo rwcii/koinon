@@ -68,8 +68,9 @@ var (
 	ErrLinkReplyLocal    = Refusal{"link_reply_local", "reply_to names a message from this computer; send to its sender by name"}
 )
 
-// linkUnfinished are the states whose message still waits for its result.
-const linkUnfinished = `('queued','sending','uncertain')`
+// linkLive selects the messages that still wait for their result. A retired message (unpair)
+// has a finished time even when it may have been delivered: it is history, never a head again.
+const linkLive = `state IN ('queued','sending','uncertain') AND finished_at=0`
 
 // LinkQueued is one entry of the queue to another computer, without its body.
 type LinkQueued struct {
@@ -133,7 +134,7 @@ func (s *Store) linkEnqueue(ctx context.Context, caller Key, pairID, computer, n
 	var pairCount, pairBytes, totalCount, totalBytes int64
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*),COALESCE(SUM(length(CAST(body AS BLOB))),0),
 		COALESCE(SUM(pair_id=?),0),COALESCE(SUM(CASE WHEN pair_id=? THEN length(CAST(body AS BLOB)) ELSE 0 END),0)
-		FROM link_outbox WHERE state IN `+linkUnfinished, pairID, pairID).Scan(&totalCount, &totalBytes, &pairCount, &pairBytes); err != nil {
+		FROM link_outbox WHERE `+linkLive, pairID, pairID).Scan(&totalCount, &totalBytes, &pairCount, &pairBytes); err != nil {
 		return Outcome{}, err
 	}
 	size := int64(len(body))
@@ -245,7 +246,7 @@ func (s *Store) linkNextHead(ctx context.Context, pairID string) (linkHead, bool
 	var seq sql.NullInt64
 	var digest sql.NullString
 	err = tx.QueryRowContext(ctx, `SELECT id,xid,seq,digest,recipient,sender_name,sender_family,body,state,cancel_requested
-		FROM link_outbox WHERE pair_id=? AND state IN `+linkUnfinished+` ORDER BY id LIMIT 1`, pairID).
+		FROM link_outbox WHERE pair_id=? AND `+linkLive+` ORDER BY id LIMIT 1`, pairID).
 		Scan(&h.ID, &h.XID, &seq, &digest, &h.Recipient, &h.Sender, &h.Family, &h.Body, &h.State, &h.Cancel)
 	if errors.Is(err, sql.ErrNoRows) {
 		return linkHead{}, false, nil
@@ -286,7 +287,7 @@ func (s *Store) linkSettle(ctx context.Context, pairID string, seq int64, digest
 	defer tx.Rollback()
 	now := s.now().UnixMilli()
 	res, err := tx.ExecContext(ctx, `UPDATE link_outbox SET state=?,reason=?,updated_at=?,finished_at=?
-		WHERE pair_id=? AND seq=? AND digest=? AND state IN ('sending','uncertain')`, result, reason, now, now, pairID, seq, digest)
+		WHERE pair_id=? AND seq=? AND digest=? AND state IN ('sending','uncertain') AND finished_at=0`, result, reason, now, now, pairID, seq, digest)
 	if err != nil {
 		return false, tx.fail(err)
 	}
@@ -305,7 +306,7 @@ func (s *Store) linkAttempt(ctx context.Context, pairID string, seq int64, diges
 	// An attempt that begins while an earlier one is still unresolved makes the earlier result
 	// unknown for good: a delayed old handler can still commit it.
 	return s.linkMark(ctx, `UPDATE link_outbox SET unknown=CASE WHEN state='uncertain' THEN 1 ELSE unknown END,
-		state='uncertain',updated_at=? WHERE pair_id=? AND seq=? AND digest=? AND state IN ('sending','uncertain')`, pairID, seq, digest)
+		state='uncertain',updated_at=? WHERE pair_id=? AND seq=? AND digest=? AND state IN ('sending','uncertain') AND finished_at=0`, pairID, seq, digest)
 }
 
 // linkRetried moves the head back to sending after a matching retry of an attempt that
@@ -313,7 +314,7 @@ func (s *Store) linkAttempt(ctx context.Context, pairID string, seq int64, diges
 // cancel, the head stays uncertain until a matching terminal result.
 func (s *Store) linkRetried(ctx context.Context, pairID string, seq int64, digest string) (bool, error) {
 	return s.linkMark(ctx, `UPDATE link_outbox SET state='sending',updated_at=? WHERE pair_id=? AND seq=? AND digest=?
-		AND state='uncertain' AND cancel_requested=0 AND unknown=0`, pairID, seq, digest)
+		AND state='uncertain' AND cancel_requested=0 AND unknown=0 AND finished_at=0`, pairID, seq, digest)
 }
 
 func (s *Store) linkMark(ctx context.Context, query, pairID string, seq int64, digest string) (bool, error) {
@@ -346,7 +347,8 @@ func (s *Store) linkCancel(ctx context.Context, xid string) (string, LinkQueued,
 	now := s.now().UnixMilli()
 	var pair, state string
 	var seq sql.NullInt64
-	err = tx.QueryRowContext(ctx, `SELECT pair_id,state,seq FROM link_outbox WHERE xid=?`, xid).Scan(&pair, &state, &seq)
+	var finished int64
+	err = tx.QueryRowContext(ctx, `SELECT pair_id,state,seq,finished_at FROM link_outbox WHERE xid=?`, xid).Scan(&pair, &state, &seq, &finished)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", LinkQueued{}, ErrLinkMessageGone
 	}
@@ -354,6 +356,8 @@ func (s *Store) linkCancel(ctx context.Context, xid string) (string, LinkQueued,
 		return "", LinkQueued{}, err
 	}
 	switch {
+	case finished != 0:
+		// A finished or retired message does not change.
 	case state == "queued" && !seq.Valid:
 		_, err = tx.ExecContext(ctx, `UPDATE link_outbox SET state='cancelled',reason='cancelled',updated_at=?,finished_at=? WHERE xid=?`, now, now, xid)
 	case state == "sending" || state == "uncertain":
@@ -400,10 +404,18 @@ func linkQueuedRows(ctx context.Context, q querier, where string, args ...any) (
 	return out, rows.Err()
 }
 
-// linkQueue lists a pair's queue: its unfinished messages and the finished ones that
-// retention keeps, oldest first, at most limit of them.
-func (s *Store) linkQueue(ctx context.Context, pairID string, limit int) ([]LinkQueued, error) {
-	return linkQueuedRows(ctx, s.db, `id IN (SELECT id FROM link_outbox WHERE pair_id=? ORDER BY id DESC LIMIT ?)`, pairID, limit)
+// linkQueue lists a pair's queue: every message that still waits, oldest first, up to live of
+// them (the head is always first), and the newest finished ones, up to finished of them, in
+// queue order; and the counts of both.
+func (s *Store) linkQueue(ctx context.Context, pairID string, live, finished int) ([]LinkQueued, int, int, error) {
+	var waiting, done int
+	if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(`+linkLive+`),0),COALESCE(SUM(NOT (`+linkLive+`)),0)
+		FROM link_outbox WHERE pair_id=?`, pairID).Scan(&waiting, &done); err != nil {
+		return nil, 0, 0, err
+	}
+	rows, err := linkQueuedRows(ctx, s.db, `id IN (SELECT id FROM link_outbox WHERE pair_id=? AND `+linkLive+` ORDER BY id LIMIT ?)
+		OR id IN (SELECT id FROM link_outbox WHERE pair_id=? AND NOT (`+linkLive+`) ORDER BY id DESC LIMIT ?)`, pairID, live, pairID, finished)
+	return rows, waiting, done, err
 }
 
 // linkRetire ends a pair's queue at unpair (LINK-670-OFFLINE item 7): a message without a
@@ -417,7 +429,7 @@ func (s *Store) linkRetire(ctx context.Context, pairID string) error {
 	defer tx.Rollback()
 	now := s.now().UnixMilli()
 	if _, err := tx.ExecContext(ctx, `UPDATE link_outbox SET state=CASE WHEN seq IS NULL THEN 'cancelled' ELSE 'uncertain' END,
-		reason='unpaired',updated_at=?,finished_at=? WHERE pair_id=? AND state IN `+linkUnfinished, now, now, pairID); err != nil {
+		reason='unpaired',updated_at=?,finished_at=? WHERE pair_id=? AND `+linkLive, now, now, pairID); err != nil {
 		return tx.fail(err)
 	}
 	if _, err := tx.ExecContext(ctx, `DELETE FROM link_streams WHERE pair_id=?`, pairID); err != nil {
@@ -429,7 +441,7 @@ func (s *Store) linkRetire(ctx context.Context, pairID string) error {
 // linkPairIDs lists the pairs that have live queue entries or streams, for the
 // reconciliation with the link state after a crash between an unpair's two writes.
 func (s *Store) linkPairIDs(ctx context.Context) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT pair_id FROM link_outbox WHERE state IN `+linkUnfinished+`
+	rows, err := s.db.QueryContext(ctx, `SELECT pair_id FROM link_outbox WHERE `+linkLive+`
 		UNION SELECT pair_id FROM link_streams`)
 	if err != nil {
 		return nil, err
@@ -448,7 +460,7 @@ func (s *Store) linkPairIDs(ctx context.Context) ([]string, error) {
 
 // linkPending lists the pairs with unfinished messages, for the delivery workers.
 func (s *Store) linkPending(ctx context.Context) (map[string]bool, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT pair_id FROM link_outbox WHERE state IN `+linkUnfinished)
+	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT pair_id FROM link_outbox WHERE `+linkLive)
 	if err != nil {
 		return nil, err
 	}
@@ -592,6 +604,11 @@ func (s *Store) linkInsert(ctx context.Context, tx *writeTx, in linkDelivery) (l
 	}
 	now := s.now().UnixMilli()
 	family, sessionID, err := s.resolveRecipient(ctx, tx, now, in.Recipient)
+	// The maintainer's inbox stays on each computer (LINK-670-WHAT item 5): only an agent's
+	// inbox receives from the link.
+	if err == nil && !slices.Contains(SupportedFamilies(), family) {
+		return linkResult{Result: "refused", Reason: "link_recipient_local"}, nil
+	}
 	if err == nil {
 		var seq int64
 		if seq, err = s.nextInboxSeq(ctx, tx, now, family, sessionID); err == nil {

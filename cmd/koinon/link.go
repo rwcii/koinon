@@ -259,7 +259,11 @@ func printLinkQueues(out io.Writer, queues []core.LinkQueue) {
 		fmt.Fprintln(out, "Paired computers: none")
 	}
 	for _, q := range queues {
-		fmt.Fprintf(out, "%s: %d messages\n", q.Computer, len(q.Messages))
+		line := fmt.Sprintf("%s: %d waiting, %d finished", q.Computer, q.Waiting, q.Finished)
+		if q.Truncated {
+			line += fmt.Sprintf(" (older finished messages not shown; %d shown)", len(q.Messages))
+		}
+		fmt.Fprintln(out, line)
 		for _, m := range q.Messages {
 			line := fmt.Sprintf("  %s  %s  %s  %d bytes  %s", m.LinkID, m.Recipient, linkStateText(m.State), m.Bytes,
 				time.UnixMilli(m.Created).UTC().Format("2006-01-02 15:04:05Z"))

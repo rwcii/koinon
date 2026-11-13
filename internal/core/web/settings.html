@@ -55,6 +55,7 @@
 </tr>{{end}}</tbody></table>
 <p><small>Connected means an authenticated connection in the last few minutes. An empty name returns to the advertised name.</small></p>
 {{range .Pairs}}{{if .Queue}}<h3>Messages to {{.Name}}</h3>
+<p>{{.Waiting}} waiting, oldest first; then the newest finished. <code>koinon link queue {{.Name}}</code> lists every waiting message.</p>
 <table><thead><tr><th>To</th><th>From</th><th>State</th><th>Queued</th><th>Size</th><th>Change</th></tr></thead><tbody>{{range .Queue}}<tr>
 <td><code>{{.Recipient}}</code></td><td><code>{{.Sender}}</code></td>
 <td>{{if eq .State "may_have_been_delivered"}}may have been delivered{{else if eq .State "queued"}}queued here{{else if eq .State "received"}}received there{{else if eq .State "refused"}}refused there{{else}}{{.State}}{{end}}{{with .Reason}}<br><small>{{.}}</small>{{end}}{{if .Cancel}}<br><small>cancel requested</small>{{end}}</td>

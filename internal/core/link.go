@@ -1235,11 +1235,14 @@ type LinkPairStatus struct {
 	Observed   linkObservation `json:"observed"`
 	Created    int64           `json:"created"`
 	Expires    int64           `json:"expires,omitempty"`
-	// Queue holds the newest messages to this computer, at most linkStatusQueue of them.
-	Queue []LinkQueued `json:"queue,omitempty"`
+	// Queue holds the oldest waiting messages to this computer, its head first, and the newest
+	// finished ones, at most linkStatusQueue of each; Waiting counts every waiting message.
+	Queue   []LinkQueued `json:"queue,omitempty"`
+	Waiting int          `json:"waiting,omitempty"`
 }
 
-// linkStatusQueue is the most queued messages that the status shows for one computer.
+// linkStatusQueue is the most waiting, and the most finished, messages that the status shows
+// for one computer.
 const linkStatusQueue = 20
 
 // LinkStatus is this computer's link setup, its listener and Serve mapping, and its pairs.
@@ -1326,10 +1329,11 @@ func (d *Daemon) linkStatus(ctx context.Context) LinkStatus {
 		case o.State == "":
 			o.State = "offline"
 		}
-		// The newest messages to this computer, without bodies (#670 chunk 03).
-		queue, _ := d.store.linkQueue(ctx, p.ID, linkStatusQueue)
+		// The oldest waiting messages to this computer, its head first, and the newest
+		// finished ones, without bodies (#670 chunk 03).
+		queue, waiting, _, _ := d.store.linkQueue(ctx, p.ID, linkStatusQueue, linkStatusQueue)
 		result.Pairs = append(result.Pairs, LinkPairStatus{ID: p.ID, Name: p.Effective, Advertised: p.Advertised, Override: p.Override != "", State: p.State,
-			Role: p.Role, Observed: o, Created: p.Created, Expires: p.Expires, Queue: queue})
+			Role: p.Role, Observed: o, Created: p.Created, Expires: p.Expires, Queue: queue, Waiting: waiting})
 	}
 	return result
 }
