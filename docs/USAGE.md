@@ -777,7 +777,14 @@ koinon link cancel PAIR      # remove a pending pair; cancel invitations removes
 ```
 
 PAIR is the paired computer's name or ID from `koinon link status`. The dashboard's Settings
-page has the same steps under **Computers**. See
+page has the same steps under **Computers**.
+
+Once paired, each computer reads the other's list of agent sessions every 30 seconds. `peers`
+and the dashboard's Sessions page show them as `NAME@COMPUTER`, for example
+`codex-koinon@devbox`, with the time the list was read; `peer_status codex-koinon@devbox`
+reads one. A bare name always means a session on this computer. Sending to another computer
+comes with the message queue; until then a send to a paired computer answers
+`link_messages_pending`. See
 [connect your computers](REMOTE-DASHBOARD.md#connect-your-computers).
 
 ### Act as the maintainer from another program

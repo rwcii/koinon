@@ -323,7 +323,10 @@ Tailscale addresses, refreshed from `tailscale status --json` by an exact tailne
 and never resolves a name through the operating system.
 
 Invite, join, unpair and rename need the maintainer: the dashboard login, or a maintainer token
-on the agent API (PDR 009). Implementation: `internal/core/link.go`, `internal/core/link_routes.go`,
+on the agent API (PDR 009). On a paired connection the link also carries `directory` and
+`name-update` (#670 chunk 02): each computer reads the other's receivers, without session IDs,
+paths or credentials, into memory as a display hint; the link exposes no store or control
+operation. Implementation: `internal/core/link.go`, `internal/core/link_routes.go`,
 `internal/link`, and `remote.Manager.EnsureTCP` and `RemoveTCP` in `internal/remote/link.go`.
 
 **Provenance (LINK-670-PAIR):**
@@ -383,3 +386,4 @@ Serve mapping and records recoverable lifecycle transitions.
 | 2026-11-11 | Clarify remote-only seven-day idle time and its separation from ticket expiry. |
 | 2026-11-12 | Accepted by Robert Capps (#645). Name the proposer as Andrew Deugarte (@andyde8). Only a host dashboard session issues tickets. Record the QR library and its alternatives (review of PR #644). |
 | 2026-11-12 | Decision 4: the link between Koinon computers is part of Remote (LINK-670-PAIR, Robert Capps, #670). |
+| 2026-11-13 | Decision 4: the link carries the receiver directory and name updates (#670 chunk 02). |

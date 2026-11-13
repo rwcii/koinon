@@ -147,6 +147,18 @@ type Peer struct {
 	HostVerifiedAt int64  `json:"host_verified_at,omitempty"`
 	// Self marks the calling session's own row (#348), by its resolved family and ID.
 	Self bool `json:"self,omitempty"`
+	// A remote row is a receiver on a paired computer (#670): Name and Address are
+	// NAME@COMPUTER, Computer is this computer's name for it, SeenAt is the time of its last
+	// directory, Stale says that the directory is not current, DirectoryTruncated that the
+	// other computer left entries out, and ActivityState and ActivityAt are its observed
+	// activity with the other computer's observation time.
+	Remote             bool   `json:"remote,omitempty"`
+	Computer           string `json:"computer,omitempty"`
+	SeenAt             int64  `json:"seen_at,omitempty"`
+	Stale              bool   `json:"stale,omitempty"`
+	DirectoryTruncated bool   `json:"directory_truncated,omitempty"`
+	ActivityState      string `json:"activity_state,omitempty"`
+	ActivityAt         int64  `json:"activity_at,omitempty"`
 }
 
 // Peers lists every session for an active caller.

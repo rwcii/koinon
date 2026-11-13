@@ -474,6 +474,29 @@ type sessionsData struct {
 	Counts map[string]int64
 	Sort   dashboardSort
 	Next   string
+	// Computers are the receivers of paired computers, one group each (#670).
+	Computers []remoteGroup
+}
+
+// remoteGroup is one paired computer's receivers from its last directory.
+type remoteGroup struct {
+	Computer  string
+	SeenAt    int64
+	Stale     bool
+	Truncated bool
+	Rows      []Peer
+}
+
+// remoteGroups groups the remote rows by computer, in pair order.
+func remoteGroups(rows []Peer) []remoteGroup {
+	var groups []remoteGroup
+	for _, r := range rows {
+		if n := len(groups); n == 0 || groups[n-1].Computer != r.Computer {
+			groups = append(groups, remoteGroup{Computer: r.Computer, SeenAt: r.SeenAt, Stale: r.Stale, Truncated: r.DirectoryTruncated})
+		}
+		groups[len(groups)-1].Rows = append(groups[len(groups)-1].Rows, r)
+	}
+	return groups
 }
 
 type messagesData struct {
@@ -553,7 +576,8 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 			return nil, err
 		}
 		now := d.store.now().UnixMilli()
-		result := sessionsData{Rows: make([]sessionRow, 0, len(sessions)), Search: q.Get("q"), Status: q.Get("status"), Counts: counts, Sort: order, Next: next}
+		result := sessionsData{Rows: make([]sessionRow, 0, len(sessions)), Search: q.Get("q"), Status: q.Get("status"), Counts: counts, Sort: order, Next: next,
+			Computers: remoteGroups(d.remoteRows())}
 		for _, s := range sessions {
 			result.Rows = append(result.Rows, sessionRow{Session: s, Work: claims[s.Family+":"+s.ID], Observed: d.store.sessionObservations(pull, s), Participant: byAddress[s.Address],
 				Cycle: d.store.contextRowOf(s, enables[Key{s.Family, s.ID}], now)})

@@ -14,7 +14,7 @@
 {{if .Data.Next}}<p><a href="{{.Data.Sort.Next .Data.Next}}">Older messages</a></p>{{end}}{{end}}
 {{define "actions"}}<details class="action" open><summary>Send as maintainer</summary>
 <form method="post" action="/dashboard/actions/send"><input type="hidden" name="csrf" value="{{.CSRF}}">{{template "back" .}}
-<label>To <input name="to" required maxlength="256" placeholder="peer name or alias" list="peer-names" autocomplete="off"></label>
+<label>To <input name="to" required maxlength="510" placeholder="peer name or alias" list="peer-names" autocomplete="off"></label>
 <datalist id="peer-names">{{range .Data.Peers}}<option value="{{.Name}}">{{.Label}}</option>{{end}}</datalist>
 <label class="wide">Message <textarea name="body" required maxlength="65536" rows="4"></textarea></label>
 <button type="submit">Send</button></form>

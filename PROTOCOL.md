@@ -108,6 +108,7 @@ refuses every other key in the handshake with the `bad_certificate` alert, befor
 application data, and records it as the last refused key. On the TLS stream each frame is a
 4-byte big-endian length and a JSON object (`op`, `body`, or `error` and `detail`), at most 64
 KiB, with unknown fields refused; a connection carries at most 64 frames. The operations are
+`directory` and `name-update` (below),
 `pair-hello` (`secret`, `name`, `dns`, `ips`, `port`; only an unpaired key with an open
 invitation's secret, which is used at once; the reply `hello-ok` has the pair `id` and `name`),
 `pair-confirm` (`id`), `ping` (`id`) and `unpair` (`id`). Each open of the link starts a generation: a
@@ -131,6 +132,38 @@ bytes, valid 10 minutes. A join checks the pin before it sends the secret; a ref
 ping intervals after an authenticated connection, `offline` (with the error), `pending`, or
 `rejected` (`link_key_mismatch`, or `link_key_refused` when the other computer refused this
 key).
+
+The directory (#670 chunk 02, LINK-670-WHAT items 2 and 3): `directory` (`id`, the pair ID) is
+answered only for a paired key whose pair has that ID, with `directory-ok`: `name` (the
+advertised name) and `entries`, each `name` (peer name), `address` (the held participant
+address, or absent), `family`, `role`, `repository` (the repository directory's base name,
+never a path), `activity` and `activity_at` (the daemon's own current activity observation and
+its time in milliseconds); every active agent session that can receive, sub-agents included,
+not the maintainer, ordered by family and name, at most 256 entries and 48 KiB, with
+`truncated` true when some were left out. After each successful `ping` the monitor asks for
+it; the reply commits only in the generation in which the pass began and for the same pair ID
+and pin, and is kept in memory per pair with its time; unpair drops it, and a closed link keeps
+it, marked stale. A reply whose `name` differs from the pair's advertised name updates it, as
+`name-update` (`id`, `name`) does: a computer whose name changes sends it to each paired
+computer, best effort, and the receiver sets the pair's advertised name and, without an
+override, its effective name or the next free `NAME-N`, in one write that changes no other
+pair. Entries with a malformed field are dropped.
+
+`NAME@COMPUTER` is split at the last `@`: NAME has 1 to 256 bytes and no `@`, COMPUTER has the
+advertised-name grammar, and the address has at most 510 bytes; a recipient without `@` is
+local. `POST /v1/peers` and the maintainer's `peers` add a row for each cached entry: `name`
+NAME@COMPUTER with the peer name, `address` NAME@COMPUTER with the held address or the peer
+name, `remote` true, `computer`, `seen_at` (milliseconds), `stale` when the directory is older
+than 3 ping intervals or the link is closed, `directory_truncated`, `family`, `role`,
+`repository`, `activity_state` and `activity_at`. `POST /v1/peers/status` and `peer-status`
+answer NAME@COMPUTER from the cache (by peer name or address), with `observed_at` the
+directory's time and the activity observation with source `remote`, or
+`link_computer_unknown`, `peer_not_found` or `link_address_invalid`; they open no connection.
+`POST /v1/messages/send` to NAME@COMPUTER checks the body and the caller, then answers
+`link_computer_unknown` (no pair has that name; no lookup, no connection) or
+`link_messages_pending` (a paired computer: chunk 02 has no message queue, chunk 03 adds it);
+it stores and sends nothing. The maintainer's `send` and the dashboard's send to NAME@COMPUTER
+answer `link_maintainer_remote` (LINK-670-WHAT item 5). Recipient fields take 510 bytes.
 
 | Route | Operation |
 | --- | --- |

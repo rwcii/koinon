@@ -78,6 +78,9 @@ type linkRuntime struct {
 	// the authority: link.json keeps a copy, and a hash there that is not here is not valid,
 	// so a close, a failed write or a restart revokes every earlier invitation.
 	invites map[string]int64
+	// directories are the last directory of each pair, by pair ID (#670 chunk 02). They
+	// stay after a close, shown as stale, and go at unpair.
+	directories map[string]linkCache
 	// dial connects to a paired computer, and now is the link's clock; tests set them
 	// before Remote opens the link.
 	dial func(ctx context.Context, address string) (net.Conn, error)
@@ -426,6 +429,27 @@ func (d *Daemon) linkOperation(pin string, f link.Frame) (link.Frame, bool, erro
 		d.observe(body.ID, "connected", "")
 		reply, err := link.NewFrame(map[string]string{"pair-confirm": "confirm-ok", "ping": "pong"}[f.Op], struct{}{})
 		return reply, false, err
+	case "directory":
+		var body linkPairID
+		if f.Decode(&body) != nil {
+			return link.Frame{}, true, ErrInvalid
+		}
+		dir, err := d.answerDirectory(pin, body.ID)
+		if err != nil {
+			return link.Frame{}, true, err
+		}
+		reply, err := link.NewFrame("directory-ok", dir)
+		return reply, false, err
+	case "name-update":
+		var body linkNameUpdate
+		if f.Decode(&body) != nil {
+			return link.Frame{}, true, ErrInvalid
+		}
+		if err := d.acceptNameUpdate(pin, body.ID, body.Name); err != nil {
+			return link.Frame{}, true, err
+		}
+		reply, err := link.NewFrame("name-ok", struct{}{})
+		return reply, false, err
 	case "unpair":
 		var body linkPairID
 		if f.Decode(&body) != nil {
@@ -517,6 +541,7 @@ func (d *Daemon) removeLinkPair(pin, id string) error {
 	}
 	s.Pairs = slices.Delete(s.Pairs, i, i+1)
 	delete(d.link.observed, id)
+	d.dropDirectoryLocked(id)
 	err = link.WriteState(d.root, s)
 	d.link.mu.Unlock()
 	if err == nil {
@@ -722,6 +747,9 @@ func (d *Daemon) linkPass(stop chan struct{}, gen uint64) {
 		session, err := d.connectPair(ctx, gen, p)
 		if err == nil {
 			err = session.call("ping", linkPairID{ID: p.ID}, "pong", nil)
+			if err == nil && p.State == link.Paired {
+				d.pollDirectory(session, gen, p)
+			}
 			session.close()
 		}
 		cancel()
@@ -958,6 +986,7 @@ func (d *Daemon) linkUnpair(ctx context.Context, ref string) error {
 	p := s.Pairs[i]
 	s.Pairs = slices.Delete(s.Pairs, i, i+1)
 	delete(d.link.observed, p.ID)
+	d.dropDirectoryLocked(p.ID)
 	err = link.WriteState(d.root, s)
 	d.link.mu.Unlock()
 	if err != nil {
@@ -1030,6 +1059,22 @@ func (d *Daemon) linkRename(ref, name string) error {
 // linkSetup sets this computer's advertised name and link port, journals the link's Serve
 // mapping and opens it. Remote must be on.
 func (d *Daemon) linkSetup(ctx context.Context, name string, port int) error {
+	d.link.mu.Lock()
+	before, readErr := link.ReadState(d.root)
+	d.link.mu.Unlock()
+	err := d.linkSetupName(ctx, name, port)
+	// A changed name goes to the paired computers (#670 chunk 02).
+	if err == nil && readErr == nil && before.Name != "" && before.Name != link.NormalizeName(name) {
+		d.wg.Add(1)
+		go func() {
+			defer d.wg.Done()
+			d.announceName()
+		}()
+	}
+	return err
+}
+
+func (d *Daemon) linkSetupName(ctx context.Context, name string, port int) error {
 	name = link.NormalizeName(name)
 	if err := link.ValidateName(name); err != nil {
 		return ErrLinkNameInvalid
