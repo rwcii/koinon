@@ -84,7 +84,7 @@ agent)
 stop)
 	[ $# -eq 1 ] || usage
 	[ -x "$BIN" ] || die "no $BIN: nothing of this check to stop in $DIR"
-	if running; then k remote disable; fi
+	if running; then k remote disable; fi  # its output shows Serve and the link listener off
 	if [ -s "$DIR/serve.pid" ]; then
 		pid=$(cat "$DIR/serve.pid")
 		kill "$pid" 2>/dev/null || true
@@ -97,7 +97,6 @@ stop)
 	fi
 	rm -rf "$DIR"
 	echo "stopped; removed $DIR"
-	tailscale serve status || true
 	;;
 *) usage ;;
 esac
