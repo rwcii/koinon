@@ -23,7 +23,7 @@ import (
 // terminal, which the command exchanges for a maintainer token. An invitation is never an
 // argument: join reads it from the terminal or the first line of standard input.
 
-const linkUsage = "use koinon link status|name [NAME]|invite|join|unpair PAIR|cancel PAIR|invitations|rename PAIR [NAME]"
+const linkUsage = "use koinon link status|name [NAME]|invite|join|unpair PAIR|cancel PAIR|invitations|rename PAIR [NAME]|queue [COMPUTER]|cancel-message LINK_ID"
 
 // linkCallTimeout covers a join or unpair, which waits for the other computer.
 const linkCallTimeout = 45 * time.Second
@@ -38,7 +38,7 @@ func linkCommand(ctx context.Context, args []string, in io.Reader, out io.Writer
 		return usageError{"invalid_request", linkUsage}
 	}
 	action := args[0]
-	maxArgs := map[string]int{"status": 0, "name": 1, "invite": 0, "join": 0, "unpair": 1, "cancel": 1, "rename": 2}
+	maxArgs := map[string]int{"status": 0, "name": 1, "invite": 0, "join": 0, "unpair": 1, "cancel": 1, "rename": 2, "queue": 1, "cancel-message": 1}
 	most, ok := maxArgs[action]
 	if !ok {
 		return usageError{"invalid_request", linkUsage}
@@ -67,7 +67,7 @@ func linkCommand(ctx context.Context, args []string, in io.Reader, out io.Writer
 		positional = append(positional, flags.Arg(0))
 		rest = flags.Args()[1:]
 	}
-	need := map[string]int{"unpair": 1, "cancel": 1, "rename": 1}[action]
+	need := map[string]int{"unpair": 1, "cancel": 1, "rename": 1, "cancel-message": 1}[action]
 	if len(positional) < need || len(positional) > most {
 		return usageError{"invalid_request", linkUsage}
 	}
@@ -173,6 +173,12 @@ func linkCommand(ctx context.Context, args []string, in io.Reader, out io.Writer
 		body["invitation"] = strings.TrimSpace(text)
 	case "unpair", "cancel":
 		body["pair"] = positional[0]
+	case "queue":
+		if len(positional) == 1 {
+			body["pair"] = positional[0]
+		}
+	case "cancel-message":
+		body["link_id"] = positional[0]
 	case "rename":
 		body["pair"] = positional[0]
 		if len(positional) == 2 {
@@ -226,8 +232,43 @@ func linkCommand(ctx context.Context, args []string, in io.Reader, out io.Writer
 		fmt.Fprintln(out, "Cancelled.")
 	case "rename":
 		fmt.Fprintln(out, "Renamed.")
+	case "queue":
+		var queues []core.LinkQueue
+		if err := json.Unmarshal(reply.Result, &queues); err != nil {
+			return err
+		}
+		printLinkQueues(out, queues)
+	case "cancel-message":
+		var q core.LinkQueued
+		if err := json.Unmarshal(reply.Result, &q); err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "%s to %s: %s\n", q.LinkID, q.Recipient, linkStateText(q.State))
 	}
 	return nil
+}
+
+// linkStateText is a queued message's state in words.
+func linkStateText(state string) string {
+	return map[string]string{"queued": "queued here", "received": "received there", "refused": "refused there",
+		"cancelled": "cancelled", "may_have_been_delivered": "may have been delivered"}[state]
+}
+
+func printLinkQueues(out io.Writer, queues []core.LinkQueue) {
+	if len(queues) == 0 {
+		fmt.Fprintln(out, "Paired computers: none")
+	}
+	for _, q := range queues {
+		fmt.Fprintf(out, "%s: %d messages\n", q.Computer, len(q.Messages))
+		for _, m := range q.Messages {
+			line := fmt.Sprintf("  %s  %s  %s  %d bytes  %s", m.LinkID, m.Recipient, linkStateText(m.State), m.Bytes,
+				time.UnixMilli(m.Created).UTC().Format("2006-01-02 15:04:05Z"))
+			if m.Reason != "" {
+				line += "  " + m.Reason
+			}
+			fmt.Fprintln(out, line)
+		}
+	}
 }
 
 // readInvitationLine reads the first line of standard input, at most 4 KiB.

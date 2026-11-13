@@ -460,7 +460,8 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 		}
 		run(w, r, "send", target, "messages", url.Values{"to": {"maintainer"}}, valid, func(ctx context.Context) error {
 			if link.IsRemoteAddress(to) {
-				return d.remoteSend(ctx, nil, to, body)
+				_, err := d.linkSend(ctx, nil, to, body, 0)
+				return err
 			}
 			_, err := d.store.send(ctx, maintainerKey, to, body, true)
 			return err

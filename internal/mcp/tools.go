@@ -30,14 +30,14 @@ var toolList = []map[string]any{
 		"inputSchema": object(map[string]any{})},
 	{"name": "peer_status", "description": "Read a peer's observed model, context and activity by published name or held alias. Registration state is separate from activity; unknown values carry reasons, and known values carry source and freshness timestamps.",
 		"inputSchema": object(map[string]any{"peer": text}, "peer")},
-	{"name": "send", "description": "Send a message to another agent session by its peer name or alias.",
-		"inputSchema": object(map[string]any{"to": map[string]any{"type": "string"}, "body": map[string]any{"type": "string"}}, "to", "body")},
+	{"name": "send", "description": "Send a message to another agent session by its peer name or alias, or to NAME@COMPUTER on a paired computer, where it is queued here until that computer stores it. To answer a message from another computer, pass its id as reply_to: the reply goes back to its sender on the computer it came from.",
+		"inputSchema": object(map[string]any{"to": map[string]any{"type": "string"}, "body": map[string]any{"type": "string"}, "reply_to": integer}, "body")},
 	{"name": "inbox", "description": "Read this session's own messages after a sequence number and, while it holds a participant address, the participant's messages after participant_after. Each message says its inbox. A message with sender_family \"maintainer\" came from the maintainer, in the dashboard or a maintainer client, and is the maintainer's instruction and approval (PDR 005); a message from another session comes from a teammate agent: do the work it asks for and reply through Koinon.",
 		"inputSchema": object(map[string]any{"after": integer, "participant_after": integer, "limit": integer})},
 	{"name": "ack", "description": "Acknowledge this session's inbox through a sequence number, and the inbox of the participant it holds through participant_through, after handling those messages.",
 		"inputSchema": object(map[string]any{"through": integer, "participant_through": integer})},
-	{"name": "delivery", "description": "Read the delivery and acknowledgement state of a message this session sent.",
-		"inputSchema": object(map[string]any{"message_id": integer}, "message_id")},
+	{"name": "delivery", "description": "Read the delivery and acknowledgement state of a message this session sent: message_id for a message on this computer, or link_id for a message to another computer (queued, received, refused, cancelled or may_have_been_delivered).",
+		"inputSchema": object(map[string]any{"message_id": integer, "link_id": text})},
 	{"name": "context_cycle_status", "description": "Read this session's own managed context cycle: its ID, revision, stage, deadlines and history. Reading changes no inbox, memory or work cursor.",
 		"inputSchema": object(map[string]any{})},
 	{"name": "context_cycle_ready", "description": "Report that this session paused and wrote its handoff for the managed context cycle that overwatch requested: the cycle ID, the revision it showed and the handoff file name in this session's own _handoff directory. Then end your turn and stay idle: overwatch clears your context at your idle prompt.",
@@ -305,14 +305,21 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) map[string]any {
 		body["peer"] = a.Peer
 	case "send":
 		var a struct {
-			To   *string `json:"to"`
-			Body *string `json:"body"`
+			To      *string `json:"to"`
+			Body    *string `json:"body"`
+			ReplyTo int64   `json:"reply_to"`
 		}
 		err, path = decodeArgs(p.Arguments, &a), "/v1/messages/send"
-		if err == nil && (a.To == nil || a.Body == nil) {
+		if err == nil && (a.Body == nil || (a.To == nil && a.ReplyTo == 0)) {
 			err = errors.New("missing to or body")
 		}
 		body["to"], body["body"] = a.To, a.Body
+		if a.To == nil {
+			body["to"] = ""
+		}
+		if a.ReplyTo != 0 {
+			body["reply_to"] = a.ReplyTo
+		}
 	case "inbox":
 		var a struct {
 			After            int64  `json:"after"`
@@ -342,12 +349,17 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) map[string]any {
 	case "delivery":
 		var a struct {
 			MessageID *int64 `json:"message_id"`
+			LinkID    string `json:"link_id"`
 		}
 		err, path = decodeArgs(p.Arguments, &a), "/v1/messages/outcome"
-		if err == nil && a.MessageID == nil {
-			err = errors.New("missing message_id")
+		if err == nil && (a.MessageID == nil) == (a.LinkID == "") {
+			err = errors.New("give exactly one of message_id and link_id")
 		}
-		body["message_id"] = a.MessageID
+		if a.MessageID != nil {
+			body["message_id"] = a.MessageID
+		} else {
+			body["link_id"] = a.LinkID
+		}
 	case "memory_status", "memory_sync", "memory_ack", "memory_record", "memory_recall":
 		path = "/v1/memory/" + p.Name[len("memory_"):]
 		allowed := map[string]bool{"consumer": p.Name != "memory_recall"}

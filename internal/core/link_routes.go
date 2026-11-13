@@ -119,6 +119,21 @@ func (d *Daemon) linkMaintainerRoutes(mux *http.ServeMux) {
 			return nil, d.linkCancel(q.Pair)
 		})
 	})
+	maintainerRoute(d, mux, "link-queue", 16384, func(ctx context.Context, w http.ResponseWriter, q struct {
+		maintainerToken
+		Pair string `json:"pair"`
+	}) {
+		queues, err := d.linkQueues(ctx, q.Pair)
+		maintainerRead(w, queues, err)
+	})
+	maintainerRoute(d, mux, "link-cancel-message", 16384, func(ctx context.Context, w http.ResponseWriter, q struct {
+		maintainerToken
+		LinkID string `json:"link_id"`
+	}) {
+		d.linkAct(ctx, w, "link-cancel-message", linkTarget("message", q.LinkID), q.LinkID != "", func(ctx context.Context) (any, error) {
+			return d.linkCancelMessage(ctx, q.LinkID)
+		})
+	})
 	maintainerRoute(d, mux, "link-rename", 16384, func(ctx context.Context, w http.ResponseWriter, q struct {
 		maintainerToken
 		Pair string `json:"pair"`
@@ -134,18 +149,20 @@ func (d *Daemon) linkMaintainerRoutes(mux *http.ServeMux) {
 // step that its message names.
 func init() {
 	for code, text := range map[string]string{
-		"link_named":        "This computer's name and link port were saved, and the link is open.",
-		"link_joined":       "The computers are paired.",
-		"link_unpaired":     "The computer was unpaired. The other computer removes the pair when it answers, or shows it as rejected at its next connection.",
-		"link_cancelled":    "The pending pair or the open invitations were cancelled.",
-		"link_renamed":      "The computer's name on this computer was saved.",
-		"link_audit_failed": "The change was made, but its audit record could not be written.",
+		"link_named":             "This computer's name and link port were saved, and the link is open.",
+		"link_joined":            "The computers are paired.",
+		"link_unpaired":          "The computer was unpaired. The other computer removes the pair when it answers, or shows it as rejected at its next connection.",
+		"link_cancelled":         "The pending pair or the open invitations were cancelled.",
+		"link_renamed":           "The computer's name on this computer was saved.",
+		"link_message_cancelled": "The message was cancelled, or its cancel waits for the other computer's answer.",
+		"link_audit_failed":      "The change was made, but its audit record could not be written.",
 	} {
 		noticeText[code] = text
 	}
 	for _, r := range []Refusal{ErrLinkRemoteOff, ErrLinkNotSetUp, ErrLinkNoPair, ErrLinkSelf, ErrLinkPaired, ErrLinkNameUsed,
 		ErrLinkPortRange, ErrLinkUnreachable, ErrLinkWrongKey, ErrLinkInvitation, ErrLinkLimit, ErrLinkNameInvalid, ErrLinkTextInvalid,
-		ErrLinkComputerUnknown, ErrLinkMessagesPending, ErrLinkMaintainerRemote, ErrLinkAddressInvalid} {
+		ErrLinkComputerUnknown, ErrLinkMaintainerRemote, ErrLinkAddressInvalid, ErrLinkQueueFull, ErrLinkMessageGone,
+		ErrLinkReplyPairGone, ErrLinkReplyTarget, ErrLinkReplyLocal} {
 		noticeText[r.Code] = "Refused: " + r.Message + "."
 	}
 }
@@ -232,6 +249,11 @@ func (d *Daemon) dashboardLinkRoutes(mux *http.ServeMux, authed func(func(http.R
 	act("link-cancel", pair, "link_cancelled", func(ctx context.Context, r *http.Request) error {
 		return d.linkCancel(r.PostFormValue("pair"))
 	})
+	act("link-cancel-message", func(r *http.Request) string { return linkTarget("message", r.PostFormValue("link_id")) }, "link_message_cancelled",
+		func(ctx context.Context, r *http.Request) error {
+			_, err := d.linkCancelMessage(ctx, r.PostFormValue("link_id"))
+			return err
+		})
 	act("link-rename", func(r *http.Request) string {
 		return pair(r) + linkTarget(" name", r.PostFormValue("name"))
 	}, "link_renamed", func(ctx context.Context, r *http.Request) error {

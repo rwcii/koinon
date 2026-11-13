@@ -112,6 +112,10 @@ func (s *Store) cull(ctx context.Context, counts *RetentionCounts) error {
 	if err := s.cullDecisionReplays(ctx); err != nil {
 		return err
 	}
+	// Finished messages to other computers are kept 30 days (#670 chunk 03).
+	if err := s.cullLinkOutbox(ctx); err != nil {
+		return err
+	}
 	// Archived decision items move to the deep-archive log; nothing is deleted (#206).
 	if err := s.archiveDecisions(ctx); err != nil {
 		return err

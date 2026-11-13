@@ -87,6 +87,16 @@ type linkRuntime struct {
 	// before Remote opens the link.
 	dial func(ctx context.Context, address string) (net.Conn, error)
 	now  func() time.Time
+	// outbox orders the queue's enqueue, head, attempt, result, cancel and retirement (#670
+	// chunk 03). Lock order: outbox, then mu, then the store.
+	outbox sync.Mutex
+	// workers are the delivery workers of the open generation, by pair ID, each with its
+	// wake channel.
+	workers map[string]chan struct{}
+	// backoff is the first wait of a worker after a busy answer or a lost connection, and
+	// hook a fault point; tests set them.
+	backoff time.Duration
+	hook    func(point string) error
 }
 
 func (d *Daemon) linkNow() time.Time {
@@ -239,9 +249,12 @@ func (d *Daemon) openLinkLocked(held net.Listener) error {
 	}
 	stop := make(chan struct{})
 	d.link.stop = stop
-	d.wg.Add(2)
+	d.link.workers = map[string]chan struct{}{}
+	d.wg.Add(3)
 	go d.acceptLink(listener, d.link.gen)
 	go d.monitorLink(stop, d.link.gen)
+	// A crash between an unpair's two writes is finished here, and the queue resumes.
+	go d.linkReconcile(d.link.gen)
 	return nil
 }
 
@@ -265,7 +278,7 @@ func (d *Daemon) closeLinkLocked() {
 		d.link.end()
 	}
 	d.link.gen++
-	d.link.life, d.link.end, d.link.invites = nil, nil, nil
+	d.link.life, d.link.end, d.link.invites, d.link.workers = nil, nil, nil, nil
 }
 
 // linkLifeOf returns the context of generation gen while it is the open link's, or
@@ -459,6 +472,8 @@ func (d *Daemon) linkOperation(pin string, f link.Frame, gen uint64) (link.Frame
 		}
 		reply, err := link.NewFrame("name-ok", struct{}{})
 		return reply, false, err
+	case "deliver", "cancel":
+		return d.answerDeliver(pin, f, gen)
 	case "unpair":
 		var body linkPairID
 		if f.Decode(&body) != nil {
@@ -565,6 +580,7 @@ func (d *Daemon) removeLinkPair(pin, id string, gen uint64) error {
 	d.link.mu.Unlock()
 	if err == nil {
 		d.closeLinkPin(pin)
+		d.linkRetirePair(id)
 	}
 	return err
 }
@@ -1012,6 +1028,9 @@ func (d *Daemon) linkUnpair(ctx context.Context, ref string) error {
 		return err
 	}
 	d.closeLinkPin(p.Pin)
+	if err := d.linkRetirePair(p.ID); err != nil {
+		return err
+	}
 	// Best effort: the other computer also refuses this key at its next connection.
 	notify, cancel := context.WithTimeout(ctx, 2*linkIOTimeout)
 	defer cancel()
@@ -1072,7 +1091,11 @@ func (d *Daemon) linkRename(ref, name string) error {
 		}
 		s.Pairs[i].Override, s.Pairs[i].Effective = name, name
 	}
-	return link.WriteState(d.root, s)
+	if err := link.WriteState(d.root, s); err != nil {
+		return err
+	}
+	d.showPairName(s.Pairs[i])
+	return nil
 }
 
 // linkSetup sets this computer's advertised name and link port, journals the link's Serve
@@ -1212,7 +1235,12 @@ type LinkPairStatus struct {
 	Observed   linkObservation `json:"observed"`
 	Created    int64           `json:"created"`
 	Expires    int64           `json:"expires,omitempty"`
+	// Queue holds the newest messages to this computer, at most linkStatusQueue of them.
+	Queue []LinkQueued `json:"queue,omitempty"`
 }
+
+// linkStatusQueue is the most queued messages that the status shows for one computer.
+const linkStatusQueue = 20
 
 // LinkStatus is this computer's link setup, its listener and Serve mapping, and its pairs.
 type LinkStatus struct {
@@ -1298,8 +1326,10 @@ func (d *Daemon) linkStatus(ctx context.Context) LinkStatus {
 		case o.State == "":
 			o.State = "offline"
 		}
+		// The newest messages to this computer, without bodies (#670 chunk 03).
+		queue, _ := d.store.linkQueue(ctx, p.ID, linkStatusQueue)
 		result.Pairs = append(result.Pairs, LinkPairStatus{ID: p.ID, Name: p.Effective, Advertised: p.Advertised, Override: p.Override != "", State: p.State,
-			Role: p.Role, Observed: o, Created: p.Created, Expires: p.Expires})
+			Role: p.Role, Observed: o, Created: p.Created, Expires: p.Expires, Queue: queue})
 	}
 	return result
 }
