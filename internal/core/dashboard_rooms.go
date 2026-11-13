@@ -137,7 +137,10 @@ func (d *Daemon) roomActions(mux *http.ServeMux, authed func(int64, func(http.Re
 		run(w, r, "room-post", "room "+roomTarget(room)+" bytes "+strconv.Itoa(len(body)), "rooms", query, valid,
 			func(ctx context.Context) error {
 				if op := operationOf(ctx); op != nil {
-					key, deadline = op.ID, float64(op.ExpiresAt)/1000
+					// The receipt answers a retry of the operation for its whole window, so
+					// the room retry row needs only the ordinary retry window, like an
+					// agent's post (#673 review L6).
+					key, deadline = op.ID, min(float64(op.ExpiresAt)/1000, float64(op.CreatedAt)/1000+d.store.limits().idemTTL)
 				}
 				_, err := d.store.DashboardRoomPost(ctx, room, body, key, deadline)
 				return err

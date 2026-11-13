@@ -128,11 +128,11 @@ func TestOperationReceiptRoomAndVerdict(t *testing.T) {
 	rctx := func() context.Context {
 		return receiptTestContext(s, "synthetic-room-operation", "browser", "room-post", room, "synthetic post")
 	}
-	first, e := s.DashboardRoomPost(rctx(), room, "synthetic post", "synthetic-room-operation", s.clock()+operationReceiptWindow.Seconds())
+	first, e := s.DashboardRoomPost(rctx(), room, "synthetic post", "synthetic-room-operation", s.clock()+s.limits().idemTTL-60)
 	if e != nil {
 		t.Fatal(e)
 	}
-	again, e := s.DashboardRoomPost(rctx(), room, "synthetic post", "synthetic-room-operation", s.clock()+operationReceiptWindow.Seconds())
+	again, e := s.DashboardRoomPost(rctx(), room, "synthetic post", "synthetic-room-operation", s.clock()+s.limits().idemTTL-60)
 	if e != nil || again.Seq != first.Seq {
 		t.Fatalf("room replay %+v %v", again, e)
 	}
@@ -293,6 +293,22 @@ func TestOperationReceiptRemoteActionAndReauthentication(t *testing.T) {
 	w = call("POST", "/dashboard/actions/send", form, cookie)
 	if w.Code != 303 || !strings.Contains(w.Header().Get("Location"), "notice=idempotency_conflict") {
 		t.Fatalf("changed content %d %s", w.Code, w.Header().Get("Location"))
+	}
+	// #673 review L6: a remote room post keeps its room retry row only for the ordinary
+	// retry window; its receipt answers later retries.
+	room := mustRoom(t, d.store, "synthetic remote room")
+	post := url.Values{"room_id": {room}, "body": {"synthetic remote post"}, "key": {"form-key"}, "deadline": {strconv.FormatFloat(d.store.clock()+60, 'f', 0, 64)},
+		"operation_id": {"synthetic-room-http-operation"}, "operation_created_at": {strconv.FormatInt(d.store.now().UnixMilli(), 10)}, "csrf": {d.auth.csrf(cookie.Value)}}
+	w = call("POST", "/dashboard/actions/room-post", post, cookie)
+	if w.Code != 303 || !strings.Contains(w.Header().Get("Location"), "notice=room_posted") {
+		t.Fatalf("room post %d %s", w.Code, w.Header().Get("Location"))
+	}
+	var deadline float64
+	if e = d.store.db.QueryRow(`SELECT deadline FROM room_replays WHERE key='synthetic-room-http-operation'`).Scan(&deadline); e != nil {
+		t.Fatal(e)
+	}
+	if deadline > d.store.clock()+d.store.limits().idemTTL {
+		t.Fatalf("room retry row kept past the retry window: %.0f > %.0f", deadline, d.store.clock()+d.store.limits().idemTTL)
 	}
 }
 

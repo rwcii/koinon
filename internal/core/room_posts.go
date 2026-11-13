@@ -147,7 +147,7 @@ func (s *Store) roomPost(ctx context.Context, caller Key, maintainer bool, roomI
 	if deadline <= clock && operationOf(ctx) == nil {
 		return RoomPostResult{}, ErrRoomPostLate
 	}
-	if deadline > clock+s.limits().idemTTL && operationOf(ctx) == nil {
+	if deadline > clock+s.limits().idemTTL {
 		return RoomPostResult{}, Refusal{"invalid_request", fmt.Sprintf("the retry deadline must be a Unix time in seconds at most %.0f s ahead", s.limits().idemTTL)}
 	}
 	print := roomPostFingerprint(roomID, body, deadline)
