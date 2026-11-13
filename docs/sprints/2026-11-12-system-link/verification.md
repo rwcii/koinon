@@ -42,9 +42,11 @@ options.
   Linux and a macOS computer before the last chunk merges. The build moves a store to schema
   38, which the installed release cannot read. The options were a temporary second Koinon from
   the PR build on each computer, and an install of the PR build as the real Koinon on both.
-- **Decision:** run a temporary second Koinon from the PR build on the Linux host and on the
-  Mac, with its own state directory and ports; the maintainer runs the Mac steps; record the
-  commands and results here with synthetic names; at the end each side turns Remote off, which
+- **Decision:** Robert answered "Approved" to the recommendation to run a temporary second
+  Koinon from the PR build on each computer for the live check (card LINK-670-LIVE, revision
+  2). The check runs a temporary second Koinon from the PR build on the Linux host and on the
+  Mac, with its own state directory and ports; the maintainer runs the Mac steps; the commands
+  and results are recorded here with synthetic names; at the end each side turns Remote off, which
   removes its Serve mappings, stops the daemon and deletes its directory.
 - **Reason and scope:** this check only. The real stores stay on the release; the check covers
   the PR build, not an installed upgrade.
