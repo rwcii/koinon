@@ -20,6 +20,17 @@ import (
 
 const linkCallTimeout = 2*linkIOTimeout + 4*time.Second
 
+// linkWaits are the link actions that can wait for the other computer, Tailscale or Serve up
+// to linkCallTimeout, longer than the servers' 10-second write timeout (#677).
+var linkWaits = map[string]bool{"link-name": true, "link-invite": true, "link-join": true, "link-unpair": true}
+
+// linkWaitWrite lets such an action write its answer up to linkCallTimeout plus 5 seconds
+// after it starts, so that a late refusal reaches the caller and does not end as a closed
+// connection. A writer without deadlines keeps its own.
+func linkWaitWrite(w http.ResponseWriter) {
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(linkCallTimeout + 5*time.Second))
+}
+
 // LinkInvitationResult is a new invitation and how long it is valid.
 type LinkInvitationResult struct {
 	Invitation     string `json:"invitation"`
@@ -51,6 +62,9 @@ var ErrLinkAuditFailed = Refusal{"link_audit_failed", "the change was made, but 
 // linkAct runs one link change as a maintainer action and records it as accepted with the
 // token's origin: the change is in the link's files, not in the store.
 func (d *Daemon) linkAct(ctx context.Context, w http.ResponseWriter, action, target string, valid bool, apply func(ctx context.Context) (any, error)) {
+	if linkWaits[action] {
+		linkWaitWrite(w)
+	}
 	d.maintainerAct(ctx, w, action, target, valid, func(ctx context.Context) (any, error) {
 		result, err := apply(ctx)
 		if err != nil {
@@ -212,6 +226,9 @@ func (d *Daemon) dashboardLinkRoutes(mux *http.ServeMux, authed func(func(http.R
 	}
 	act := func(name string, target func(*http.Request) string, done string, apply func(ctx context.Context, r *http.Request) error) {
 		mux.HandleFunc("POST /dashboard/actions/"+name, authed(func(w http.ResponseWriter, r *http.Request, _ string) {
+			if linkWaits[name] {
+				linkWaitWrite(w)
+			}
 			ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), linkCallTimeout)
 			defer cancel()
 			t := target(r)
@@ -260,6 +277,7 @@ func (d *Daemon) dashboardLinkRoutes(mux *http.ServeMux, authed func(func(http.R
 		return d.linkRename(r.PostFormValue("pair"), r.PostFormValue("name"))
 	})
 	mux.HandleFunc("POST /dashboard/actions/link-invite", authed(func(w http.ResponseWriter, r *http.Request, _ string) {
+		linkWaitWrite(w)
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), linkCallTimeout)
 		defer cancel()
 		ctx, pending := withAudit(ctx, "link-invite", "link invitation")

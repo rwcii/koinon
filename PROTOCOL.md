@@ -2690,7 +2690,12 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     `koinon link join` reads the invitation from the terminal or the first line of standard
     input. The dashboard's Settings, Computers section posts the same actions under
     `/dashboard/actions/link-*` with the request protection; `link-invite` answers with a page
-    that shows the invitation and an inline SVG QR code, never a redirect.
+    that shows the invitation and an inline SVG QR code, never a redirect. `link-name`,
+    `link-invite`, `link-join` and `link-unpair` wait for the other computer, Tailscale or
+    Serve under a 34-second operation limit, which is not a limit on the whole request. On both
+    surfaces their reply may be written until 39 seconds after the action starts, in place of
+    the server's 10-second write deadline, so that a late refusal reaches the caller (#677).
+    `koinon link` waits 45 seconds for an answer. The other link actions keep 10 seconds.
   - `changes` (`wait_seconds` 1–30, optional `cursor`) is the long poll of the change notices.
     Its result is `{"cursor": {URI: VERSION}, "changed": [URI]}`: the version of
     `koinon://maintainer/inbox`, `koinon://maintainer/decisions` and each
