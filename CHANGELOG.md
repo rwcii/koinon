@@ -5,6 +5,17 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-11-13 — Messages between your Koinon computers, and remote sign-in that lasts 48 hours across restarts
+
+This release pairs your Koinon computers through Tailscale (#670): agents see the sessions on
+your other computers as `NAME@COMPUTER` and send them messages, which wait in a queue while a
+computer is offline. Remote control v2 (#673, contributed by Andrew Deugarte, @andyde8) keeps a
+phone signed in for a fixed 48 hours across restarts and upgrades, lists and forgets signed-in
+devices, checks the result of an action after a lost connection, and opens on a new Attention
+page. The remote dashboard can use another HTTPS port, the first install can open the dashboard
+on the tailnet only, and Linux remote setup can grant the Tailscale operator step with one
+answer. The store moves to schema 38.
+
 - `koinon link join`, and **Connect** in Settings, Computers, now show why a join failed when
   the other computer does not answer, for example `link_unreachable` when the tailnet policy
   blocks the link port. Before, the daemon's answer was cut after 10 seconds and the command
@@ -57,18 +68,22 @@ into a dated release section when promoted to `main`.
   offers **Use this computer and the tailnet only**, which enables remote access, removes the
   network address and closes it at once.
 
-- Remote control v2 keeps remote browser sign-in for a fixed 48 hours across routine
-  restarts and upgrades, adds named browser-session revocation, reconnect recovery,
-  opt-in private browser drafts, transactional receipts for messages, room posts
-  and verdicts, and an Attention landing page with per-browser unread cursors.
-  Remote diagnostics distinguish observed requests, storage health and authentication
-  end reasons. Failed expiry writes stay visible and retry after storage recovers,
-  including from host diagnostics after the browser drops its cookie. Small host-clock
-  corrections preserve valid sessions; action receipts use host time rather than the
-  phone clock. Failed logout and device revocations remain visible and retryable while the daemon runs. At the 32-device limit, sign-in says how to forget a device, and a QR code scanned at the limit stays valid until it expires. Local browser and maintainer API-token policies are unchanged.
-  Actual phone retention and platform lifecycle acceptance remain separately verified.
-  Draft recovery rechecks the recipient, form and saved text when selected, preserving
-  newer edits and respecting draft clearing, opt-out and observed revocation.
+- Remote control v2 (#673, contributed by Andrew Deugarte, @andyde8). A remote browser
+  sign-in now lasts a fixed 48 hours from sign-in, also across daemon restarts, upgrades and
+  reboots; a small host-clock correction keeps it. Settings, **Signed-in remote devices**,
+  lists each remote browser with its name, and you can rename or forget one or forget all.
+  At the 32-device limit, sign-in says how to forget a device, and a QR code scanned at the
+  limit stays valid until it expires. After a lost connection, the phone checks the result
+  of a message, room post or verdict by its receipt, so that it does not send it twice;
+  receipts use the host clock and are kept 7 days. Opt-in private drafts on the phone keep
+  unsent text; a selected draft is checked again for its recipient, form and text, and
+  drafts are cleared at an opt-out or an observed revocation. The new **Attention** page is
+  the remote landing page, with unread marks for each browser. Remote diagnostics show
+  observed requests, storage health and why each sign-in ended. A failed expiry write stays
+  visible and is retried when storage recovers. A failed logout or device revocation stays
+  visible and is retried while the daemon runs; after a restart, forget the device again.
+  Local browser logins and maintainer API tokens do not change. Real-phone checks: an iPhone
+  test before the release; Android Chrome, overnight and 48-hour checks are open in #672.
 
 - `koinon remote enable --https-port PORT` publishes the remote dashboard on another
   Tailscale Serve HTTPS port, for a computer where another program, such as a container
@@ -99,6 +114,23 @@ into a dated release section when promoted to `main`.
   blocked the phone, which then timed out. Koinon cannot read the policy: Tailscale's debug
   reads of the packet filter disagree with the filter in effect, so Koinon names the rule and
   does not claim a block.
+
+Upgrade from v0.10.3 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary, rewrites the skill entries and moves the store to schema 38. A
+v0.10.x binary refuses a schema 38 store, so you cannot go back to v0.10.x after the upgrade
+(docs/INSTALL.md). The restart ends current dashboard logins, remote logins too: log in again
+with the Koinon password, or run `koinon dashboard` for a one-time link. From v0.11.0 on, a
+remote sign-in survives later restarts and upgrades for its 48 hours. Homebrew then shows the
+steps that `koinon install --plan` finds; run them, and run `koinon install --plan` again to
+check. A running `koinon mcp` server runs the new release without a session restart.
+
+Upgrade notes:
+
+- To pair two computers, upgrade both to v0.11.0 and turn remote access on on both. The
+  tailnet access policy must allow TCP on the link port (47672 by default) between them, as
+  for the dashboard's HTTPS port (docs/REMOTE-DASHBOARD.md).
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
 
 ## 2026-11-12 — Bulk session actions work again, and Linux remote setup names the Tailscale operator step
 
