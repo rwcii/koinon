@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -124,32 +123,11 @@ func (s *Store) attention(ctx context.Context, browser string, origins ...string
 	if err != nil {
 		return data, err
 	}
-	rows, err = tx.QueryContext(ctx, `SELECT value FROM settings WHERE name GLOB 'remote.v2.receipt:*' AND updated_at>? ORDER BY updated_at DESC LIMIT 20`, data.At)
-	if err != nil {
-		return data, err
+	origin := ""
+	if len(origins) > 0 {
+		origin = origins[0]
 	}
-	for rows.Next() {
-		var raw string
-		var receipt OperationReceipt
-		if err = rows.Scan(&raw); err != nil {
-			rows.Close()
-			return data, err
-		}
-		if err = json.Unmarshal([]byte(raw), &receipt); err != nil {
-			rows.Close()
-			return data, err
-		}
-		if receipt.Version != 1 {
-			rows.Close()
-			return data, fmt.Errorf("unsupported stored operation receipt version %d", receipt.Version)
-		}
-		if len(origins) == 0 || origins[0] == "" || receipt.Origin == origins[0] {
-			data.Receipts = append(data.Receipts, receipt)
-		}
-	}
-	err = rows.Err()
-	rows.Close()
-	if err != nil {
+	if data.Receipts, err = recentReceipts(ctx, tx, data.At, origin, 20); err != nil {
 		return data, err
 	}
 

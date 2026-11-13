@@ -409,7 +409,7 @@ func TestOperationReceiptFutureToleranceCannotReviveReclaimedID(t *testing.T) {
 	if _, err := s.send(makeContext(id, originalAt), maintainerKey, peer.Name, "synthetic future-tolerance message", true); errorCode(err) != "retry_deadline_expired" {
 		t.Fatalf("expired receipt replayed during future tolerance: %v", err)
 	}
-	recent, err := s.recentOperationReceipts(context.Background(), 100)
+	recent, err := recentReceipts(context.Background(), s.db, s.now().UnixMilli(), "", 100)
 	if err != nil {
 		t.Fatal(err)
 	}

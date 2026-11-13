@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -191,5 +192,40 @@ func TestAttentionReadPositionsExpire(t *testing.T) {
 	}
 	if count("ended-browser") != 0 || count("live-browser") != 1 {
 		t.Fatalf("expired position kept or live one lost: ended %d live %d", count("ended-browser"), count("live-browser"))
+	}
+}
+
+// #673 review L4 and L7: an expired receipt is not listed, also while its row is kept
+// for the future tolerance, and newer receipts of other origins do not hide this origin's.
+func TestAttentionReceiptsExpiryAndOrigin(t *testing.T) {
+	s, _ := testStore(t)
+	now := s.now().UnixMilli()
+	put := func(id, origin string, created, expires, kept int64) {
+		t.Helper()
+		raw, err := json.Marshal(OperationReceipt{Version: 1, ID: id, Origin: origin, State: "accepted", CreatedAt: created, ExpiresAt: expires})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = s.db.Exec(`INSERT INTO settings(name,value,updated_at) VALUES(?,?,?)`, "remote.v2.receipt:"+id, string(raw), kept); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put("expired-kept", "https://phone.example.ts.net", now-1000, now-1, now+60000)
+	put("mine", "https://phone.example.ts.net", now-500, now+10000, now+10000)
+	for i := 0; i < 25; i++ {
+		put(fmt.Sprintf("other-%02d", i), "https://other.example.ts.net", now, now+20000, now+20000+int64(i))
+	}
+	data, err := s.attention(context.Background(), "phone", "https://phone.example.ts.net")
+	if err != nil || len(data.Receipts) != 1 || data.Receipts[0].ID != "mine" {
+		t.Fatalf("receipts for this origin: %+v %v", data.Receipts, err)
+	}
+	data, err = s.attention(context.Background(), "phone")
+	if err != nil || len(data.Receipts) != 20 {
+		t.Fatalf("all receipts: %d %v", len(data.Receipts), err)
+	}
+	for _, r := range data.Receipts {
+		if r.ID == "expired-kept" {
+			t.Fatal("expired receipt listed as accepted")
+		}
 	}
 }

@@ -207,11 +207,18 @@ func (t *writeTx) operationRefusal(err error) error {
 	return err
 }
 
-func (s *Store) recentOperationReceipts(ctx context.Context, limit int) ([]OperationReceipt, error) {
+// recentReceipts lists the visible receipts, newest first. The expiry and the origin
+// are selected before the limit, so an expired future-tolerance tombstone is never shown
+// as accepted and other origins' receipts cannot hide this origin's (#673 review L4, L7).
+// A row of another version is kept, so that the version check below fails closed.
+func recentReceipts(ctx context.Context, q querier, now int64, origin string, limit int) ([]OperationReceipt, error) {
 	if limit < 1 || limit > 100 {
 		limit = 20
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT value FROM settings WHERE name GLOB 'remote.v2.receipt:*' AND updated_at>? ORDER BY updated_at DESC LIMIT ?`, s.now().UnixMilli(), limit)
+	rows, err := q.QueryContext(ctx, `SELECT value FROM settings WHERE name GLOB 'remote.v2.receipt:*' AND updated_at>?
+		AND (COALESCE(json_extract(value,'$.version'),0)!=1
+			OR (CAST(json_extract(value,'$.expires_at') AS INTEGER)>? AND (?='' OR json_extract(value,'$.origin')=?)))
+		ORDER BY updated_at DESC LIMIT ?`, now, now, origin, origin, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -228,9 +235,6 @@ func (s *Store) recentOperationReceipts(ctx context.Context, limit int) ([]Opera
 		}
 		if p.Version != 1 {
 			return nil, ErrInvalid
-		}
-		if s.now().UnixMilli() >= p.ExpiresAt {
-			continue // expired future-tolerance tombstones are not recent actions
 		}
 		out = append(out, p)
 	}
