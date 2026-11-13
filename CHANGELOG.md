@@ -5,6 +5,31 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Paired computers share the list of their agent sessions (#670, second part). `peers` (MCP,
+  CLI and the agent API) and the dashboard's Sessions page list each paired computer's sessions
+  as `NAME@COMPUTER`: NAME is the session's participant address or peer name there, COMPUTER
+  is this computer's name for that computer. Each entry has its family, role, repository name
+  (never a path), observed activity, the time the list was read, and a mark when the list is
+  not current. `peer_status NAME@COMPUTER` reads it. A computer's new name reaches its paired
+  computers at once or with the next list; a name that collides here gets the next free
+  `NAME-2`, and your own name for a computer stays. A send to `NAME@COMPUTER` answers
+  `link_messages_pending` for a paired computer until message delivery arrives, and
+  `link_computer_unknown` for a name that no pair has; the maintainer sends only on this
+  computer.
+
+- Pair your Koinon computers (#670, first part). With remote access on on both, **Copy
+  invitation** in Settings, Computers on one computer, and **Paste invitation** and **Connect**
+  on the other; or `koinon link invite` and `koinon link join`, which take the maintainer
+  secret from `--secret-file` or the terminal and read the invitation from the terminal or
+  standard input. The invitation works once, for 10 minutes. Each computer advertises a name
+  that you choose once (`koinon link name`, the short host name by default). The daemons talk
+  TLS 1.3 with each other's pinned key through a raw TCP Tailscale Serve mapping on the link
+  port (47672 by default), which remote enable adds and remote disable removes; disable also
+  closes the link and cancels open invitations, and keeps the pairs. `koinon link status`, the
+  Computers section and `koinon remote status` show each paired computer as connected, offline
+  or pending, the link listener and its mapping, and the last refused key. Unpair, Cancel and
+  Rename are in the same places. Messages between computers come in the next parts.
+
 - The first `koinon install` at a terminal now offers a third answer for where the dashboard
   opens: on this computer and your tailnet, through Tailscale Serve, with no network address
   (#665). It asks the Serve HTTPS port, offers the maintainer secret when none is set, and

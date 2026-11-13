@@ -221,3 +221,20 @@ whitespace, original-spec hash, unstaged state and private-content checks were
 rechecked after documentation completion. The private patch includes new files,
 excludes the supplied spec, and validates with reverse `git apply --check`; a
 separate exact spec copy is preserved privately.
+
+
+## Integration with computer linking
+
+The merge of `develop` through `5371611` retains both Attention and Computers
+routes. Remote disable clears durable link invitations before attempting browser
+revocation, so a failed session write cannot skip invitation cleanup. The new
+`TestRemoteDisableRevocationFailureStillClearsLinkInvitations` injects that write
+failure, checks both surfaces close and invitations disappear, then verifies a
+retry durably revokes the browser cookie.
+
+Focused combined Remote/Link/DurableRemote/OperationReceipt race tests passed in
+73.725s. The new integration regression passed in 8.289s. Vet passed. The published
+computer-link decision keeps ADR 002 Decision 4; the unmerged v2 decision becomes
+Decision 5. Both original records and all existing link references are retained.
+Previous CI/review statuses remain tied to their original head; the merge head
+requires its own checks and review before it can be called verified.

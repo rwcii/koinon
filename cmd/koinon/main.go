@@ -73,6 +73,8 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		}
 	case "remote":
 		return remoteCommand(ctx, args[1:], in, out)
+	case "link":
+		return linkCommand(ctx, args[1:], in, out)
 	case "dashboard":
 		return dashboardCommand(ctx, args[1:], out)
 	case "maintainer":
@@ -399,6 +401,9 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N]
        koinon status [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon remote enable [--https-port PORT] [--state-dir DIR] [--address 127.0.0.1:PORT] [--json]
        koinon remote status|disable [--state-dir DIR] [--address 127.0.0.1:PORT] [--json]
+       koinon link status [--state-dir DIR] [--address 127.0.0.1:PORT] [--json]
+       koinon link name [NAME] [--port PORT] | invite | join | unpair PAIR | cancel PAIR|invitations | rename PAIR [NAME]
+                   [--secret-file PATH] [--state-dir DIR] [--address 127.0.0.1:PORT] [--json]
        koinon dashboard [--state-dir DIR] [--address 127.0.0.1:PORT] [--no-open]
        koinon maintainer secret set|generate|clear [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon mcp [--state-dir DIR] [--address 127.0.0.1:PORT]

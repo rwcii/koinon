@@ -34,6 +34,8 @@ type settingsData struct {
 	Context []ContextFamilyPolicy
 	Modes   []string
 	Remote  *dashboardRemoteData
+	// Link is the Computers section (#670).
+	Link *LinkStatus
 }
 
 // loginData is the login page's reason, and whether it shows the secret form.
@@ -110,6 +112,12 @@ func dashboardTemplates() (map[string]*template.Template, error) {
 				return "—"
 			}
 			return time.Unix(0, int64(f*1e9)).UTC().Format("2006-01-02 15:04:05Z")
+		},
+		"unix": func(v int64) string {
+			if v == 0 {
+				return "—"
+			}
+			return time.Unix(v, 0).UTC().Format("2006-01-02 15:04:05Z")
 		},
 		"list": func(values ...string) []string { return values },
 		"decisionCard": func(page dashboardPage, item DecisionItem, lookup bool) decisionCard {
@@ -334,6 +342,7 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 	d.dashboardAccessRoutes(mux, authed)
 
 	d.dashboardAttentionRoutes(mux, authed)
+	d.dashboardLinkRoutes(mux, authed)
 	mux.HandleFunc("GET /dashboard/{$}", authed(func(w http.ResponseWriter, r *http.Request, _ string) {
 		target := "/dashboard/sessions"
 		if remoteOrigin(r) != "" {
@@ -499,6 +508,29 @@ type sessionsData struct {
 	Counts map[string]int64
 	Sort   dashboardSort
 	Next   string
+	// Computers are the receivers of paired computers, one group each (#670).
+	Computers []remoteGroup
+}
+
+// remoteGroup is one paired computer's receivers from its last directory.
+type remoteGroup struct {
+	Computer  string
+	SeenAt    int64
+	Stale     bool
+	Truncated bool
+	Rows      []Peer
+}
+
+// remoteGroups groups the remote rows by computer, in pair order.
+func remoteGroups(rows []Peer) []remoteGroup {
+	var groups []remoteGroup
+	for _, r := range rows {
+		if n := len(groups); n == 0 || groups[n-1].Computer != r.Computer {
+			groups = append(groups, remoteGroup{Computer: r.Computer, SeenAt: r.SeenAt, Stale: r.Stale, Truncated: r.DirectoryTruncated})
+		}
+		groups[len(groups)-1].Rows = append(groups[len(groups)-1].Rows, r)
+	}
+	return groups
 }
 
 type messagesData struct {
@@ -581,7 +613,8 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 			return nil, err
 		}
 		now := d.store.now().UnixMilli()
-		result := sessionsData{Rows: make([]sessionRow, 0, len(sessions)), Search: q.Get("q"), Status: q.Get("status"), Counts: counts, Sort: order, Next: next}
+		result := sessionsData{Rows: make([]sessionRow, 0, len(sessions)), Search: q.Get("q"), Status: q.Get("status"), Counts: counts, Sort: order, Next: next,
+			Computers: remoteGroups(d.remoteRows())}
 		for _, s := range sessions {
 			result.Rows = append(result.Rows, sessionRow{Session: s, Work: claims[s.Family+":"+s.ID], Observed: d.store.sessionObservations(pull, s), Participant: byAddress[s.Address],
 				Cycle: d.store.contextRowOf(s, enables[Key{s.Family, s.ID}], now)})
@@ -609,8 +642,12 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 		return result, err
 	case "settings":
 		at, err := d.store.settingsUpdatedAt(ctx)
+		var linkState *LinkStatus
+		if q.Get("fragment") != "1" {
+			linkState = d.dashboardLinkState(ctx)
+		}
 		return settingsData{Current: d.store.Settings(), Default: DefaultSettings, UpdatedAt: at, Context: d.store.ContextPolicy(),
-			Modes: []string{ContextObserve, ContextNativeCompaction, ContextHandoffCycle}}, err
+			Modes: []string{ContextObserve, ContextNativeCompaction, ContextHandoffCycle}, Link: linkState}, err
 	case "decisions":
 		return d.store.dashboardDecisions(ctx, q)
 	case "audit":

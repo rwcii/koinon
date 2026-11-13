@@ -28,8 +28,9 @@ directories and a fake Tailscale adapter; the TLS between them is real.
 - Invite, join, unpair and rename need the maintainer login (dashboard) or the maintainer
   secret (CLI) on that computer. Agents that hold the secret can act. No ancestry check
   (PDR 009).
-- The invitation holds the tailnet name and link port, the key pin, the advertised name and a
-  random single-use secret of at least 128 bits, with a 10-minute expiry. `koinon link join`
+- The invitation holds the tailnet name, the Tailscale IPv4 and IPv6 addresses that are
+  available, the link port, the key pin, the advertised name and a random single-use secret of
+  at least 128 bits, with a 10-minute expiry. `koinon link join`
   reads it from the terminal or standard input, never from argv. The joining daemon verifies
   the pin before it sends the secret or accepts the pair. Both pins commit only after both
   sides have verified each other.
@@ -44,6 +45,16 @@ directories and a fake Tailscale adapter; the TLS between them is real.
   sessions, stops reconnects and cancels open invitations at once; pairs stay. A disable whose
   record write fails keeps links closed (the runtime off state, as for the dashboard). Restart
   with Remote off opens no link listener.
+- Endpoints (evidence: the probe in `verification.md`): a daemon dials the saved Tailscale
+  addresses of a paired computer, never a name through the operating system's resolver. When no
+  saved address connects, it reads `tailscale status --json` through the remote adapter, matches
+  the peer's full tailnet name exactly (lower case, no trailing dot; never a short name or a
+  substring), takes its valid Tailscale IPv4 and IPv6 addresses (one family is enough), and
+  tries them with bounded backoff. A missing, ambiguous or malformed peer entry does not replace
+  good saved addresses. A changed address never replaces the pin and never skips its check
+  before the invitation secret or a message is sent. Tests: no DNS but a saved address
+  connects; a stale address refreshed from a fake status; one address family missing; a wrong
+  pin at a new address fails before any secret or body.
 - The link listener accepts only TLS 1.3 with a client certificate. `VerifyConnection` checks
   the pin on every connection, resumed sessions included (or resumption is off). An unpaired
   key gets only the pairing exchange of an open invitation; everything else is refused before

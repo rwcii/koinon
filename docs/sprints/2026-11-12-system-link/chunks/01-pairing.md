@@ -18,7 +18,8 @@ Private files in the state directory, mode 0600, owner-checked, written atomical
 
 - `link-key.pem`: the Ed25519 key and its self-signed certificate.
 - `link.json`: version, advertised name, link port, and the pairs: pair ID, generation,
-  advertised name, effective name, override, pin, tailnet name and port, state (`pending` or
+  advertised name, effective name, override, pin, tailnet name, Tailscale addresses and link
+  port, state (`pending` or
   `paired`), created time. Pending records carry the invitation side and expiry.
 - Open invitations stay in memory and in `link.json` as hashes of the secret only.
 
@@ -35,8 +36,9 @@ first, then removes the mapping; the runtime off state rules apply as for the da
 `crypto/tls` with TLS 1.3 only, `RequireAnyClientCert`, and `VerifyConnection` that accepts a
 pinned key or, while an invitation is open, the pairing exchange only. A small framed protocol
 on the TLS stream (length-prefixed JSON) with operations `pair-hello`, `pair-confirm` and
-`ping` in this chunk. The client side dials the paired computer's tailnet name and link port
-and checks the server's pin in `VerifyConnection`.
+`ping` in this chunk. The client side dials the paired computer's saved Tailscale addresses
+and link port, refreshes them from `tailscale status --json` peers (the adapter decodes
+`Peer` entries: `DNSName`, `TailscaleIPs`), and checks the server's pin in `VerifyConnection`.
 
 ## Interfaces
 

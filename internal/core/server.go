@@ -37,6 +37,7 @@ type Config struct {
 
 type Daemon struct {
 	remote            remoteRuntime
+	link              linkRuntime
 	release           string
 	store             *Store
 	secret            string
@@ -486,6 +487,7 @@ func (d *Daemon) handler() http.Handler {
 		})
 	}
 	d.remoteRoutes(mux)
+	d.linkRoutes(mux)
 	d.messageRoutes(mux)
 	d.memoryRoutes(mux)
 	d.workRoutes(mux)
@@ -500,6 +502,7 @@ func (d *Daemon) handler() http.Handler {
 	d.decisionRoutes(mux)
 	d.maintainerRoutes(mux)
 	d.maintainerSessionRoutes(mux)
+	d.linkMaintainerRoutes(mux)
 	mux.HandleFunc("POST /v1/dashboard/links", func(w http.ResponseWriter, r *http.Request) {
 		if err := decode(w, r, &struct{}{}); err != nil {
 			failure(w, err)

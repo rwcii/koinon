@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/rwcii/koinon/internal/link"
 	"net/http"
 	"net/url"
 	"os"
@@ -461,12 +462,15 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 
 	mux.HandleFunc("POST /dashboard/actions/send", authed(sendFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
 		to, body := r.PostForm.Get("to"), r.PostForm.Get("body")
-		valid := to != "" && len(to) <= 256 && !strings.ContainsAny(to, "\x00\r\n") && body != "" && len(body) <= maxBody && utf8.ValidString(body)
+		valid := to != "" && len(to) <= link.MaxAddressBytes && !strings.ContainsAny(to, "\x00\r\n") && body != "" && len(body) <= maxBody && utf8.ValidString(body)
 		target := "to " + to + " bytes " + strconv.Itoa(len(body))
-		if len(to) > 256 || strings.ContainsAny(to, "\x00\r\n") {
+		if len(to) > link.MaxAddressBytes || strings.ContainsAny(to, "\x00\r\n") {
 			target = "invalid recipient"
 		}
 		run(w, r, "send", target, "messages", url.Values{"to": {"maintainer"}}, valid, func(ctx context.Context) error {
+			if link.IsRemoteAddress(to) {
+				return d.remoteSend(ctx, nil, to, body)
+			}
 			_, err := d.store.send(ctx, maintainerKey, to, body, true)
 			return err
 		}, "sent", nil)

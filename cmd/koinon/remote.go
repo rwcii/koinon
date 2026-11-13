@@ -221,6 +221,9 @@ func printRemoteStatus(out io.Writer, status core.RemoteStatus, action string, a
 	if status.Tailscale != nil {
 		fmt.Fprintf(out, "Tailscale: %s\n", status.Tailscale.BackendState)
 	}
+	if status.LinkPort != 0 {
+		fmt.Fprintf(out, "Computer link: port %d, listener %s, Serve %s (koinon link status)\n", status.LinkPort, status.LinkListener, status.LinkServe)
+	}
 	if status.URL != "" {
 		if status.Configured {
 			fmt.Fprintln(out, status.URL)

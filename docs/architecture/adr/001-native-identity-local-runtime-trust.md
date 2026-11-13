@@ -41,7 +41,8 @@ uninstaller.
 Every decision here is shipped behavior with no maintainer decision found, so the record is a
 draft: it states what Koinon currently does and why. The private Tailscale Serve dashboard
 surface, accepted by Robert Capps on 2026-11-12 (#645), is recorded in [ADR 002](002-private-remote-dashboard-transport.md);
-it retains the loopback agent API boundary and the existing LAN dashboard.
+it retains the loopback agent API boundary and the existing LAN dashboard. Its Decision 4 adds
+a second loopback listener for the link between the maintainer's Koinon computers (#670).
 
 ---
 
@@ -243,6 +244,14 @@ step. "Not now" keeps the network setting and reports `dashboard_secret_required
 step. `--no-start` saves the answer and skips the secret, the start and the restart. One
 buffered reader serves every question of an install, so no answer typed ahead is lost.
 
+**Changed 2026-11-12 (#670, ADR 002 Decision 4, LINK-670-PAIR):** while Remote is on and the
+link is set up, the daemon also opens a link listener on `127.0.0.1`, reached through a raw TCP
+Tailscale Serve mapping. It serves no agent API route: it accepts only TLS 1.3 with a client
+key that is paired, or the pairing operation of an open invitation. Since #670 chunk 02 it
+also answers a paired key's request for the receiver directory (names, family, role,
+repository name and activity; no session ID, path or credential). The agent API stays on
+loopback with its bearer secret.
+
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
@@ -438,3 +447,5 @@ agent.
 | 2026-10-26 | Decision 1: the maintainer kept the `identity_unavailable` refusal (493-1, #493) |
 | 2026-11-11 | Link the private remote surface in ADR 002 and PDR 010. |
 | 2026-11-12 | The remote surface is accepted by Robert Capps (#645); Decision 4 records the `blob:` image source of the content security policy. |
+| 2026-11-12 | Decision 2: the link listener for paired Koinon computers (ADR 002 Decision 4, #670). |
+| 2026-11-13 | Decision 2: the link listener also answers the receiver directory (#670 chunk 02). |

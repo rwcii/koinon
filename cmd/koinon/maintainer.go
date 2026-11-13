@@ -88,9 +88,22 @@ func readNewSecret(in io.Reader, tell *os.File) (string, error) {
 // readNewSecretFrom reads the two entries from in, the reader of the terminal fd, with echo
 // off on fd. in can be the buffered reader that the command's other questions share.
 func readNewSecretFrom(fd int, in io.Reader, tell *os.File) (string, error) {
-	restore, err := platform.NoEcho(fd)
+	entries, err := readHidden(fd, in, tell, "New maintainer secret: ", "Repeat it: ")
 	if err != nil {
 		return "", err
+	}
+	if entries[0] != entries[1] {
+		return "", usageError{"invalid_request", "the two entries differ; nothing was changed"}
+	}
+	return entries[0], nil
+}
+
+// readHidden reads one secret line for each prompt from in, the reader of the terminal fd,
+// with echo off on fd.
+func readHidden(fd int, in io.Reader, tell *os.File, prompts ...string) ([]string, error) {
+	restore, err := platform.NoEcho(fd)
+	if err != nil {
+		return nil, err
 	}
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
@@ -111,8 +124,8 @@ func readNewSecretFrom(fd int, in io.Reader, tell *os.File) (string, error) {
 		case <-done:
 		}
 	}()
-	var entries [2]string
-	for i, prompt := range []string{"New maintainer secret: ", "Repeat it: "} {
+	entries := make([]string, len(prompts))
+	for i, prompt := range prompts {
 		fmt.Fprint(tell, prompt)
 		entries[i], err = core.ReadSecretLine(in)
 		fmt.Fprintln(tell)
@@ -123,13 +136,10 @@ func readNewSecretFrom(fd int, in io.Reader, tell *os.File) (string, error) {
 			if b, ok := in.(*bufio.Reader); ok {
 				b.Discard(b.Buffered())
 			}
-			return "", err
+			return nil, err
 		}
 	}
-	if entries[0] != entries[1] {
-		return "", usageError{"invalid_request", "the two entries differ; nothing was changed"}
-	}
-	return entries[0], nil
+	return entries, nil
 }
 
 // maintainerFlags are the options of koinon mcp --maintainer (PDR 009, Decision 3).
