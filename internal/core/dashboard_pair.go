@@ -92,10 +92,15 @@ func (a *dashboardAuth) redeemRemoteTicket(token, origin string) (string, bool, 
 	if !found || ticket.origin != origin {
 		return "", false, nil
 	}
-	delete(a.tickets, hash)
+	// A full device list keeps the code: after the maintainer forgets a device, the same
+	// code can be scanned again until it expires (#673 review L9).
 	if err := a.startRemoteLocked(sessionHash, origin); err != nil {
+		if !errors.Is(err, ErrRemoteCapacity) {
+			delete(a.tickets, hash)
+		}
 		return "", false, err
 	}
+	delete(a.tickets, hash)
 	return id, true, nil
 }
 
@@ -155,7 +160,7 @@ func (d *Daemon) dashboardPairRoutes(mux *http.ServeMux,
 		id, ok, err := d.auth.redeemRemoteTicket(r.PostForm.Get("ticket"), origin)
 		if err != nil {
 			if errors.Is(err, ErrRemoteCapacity) {
-				http.Error(w, "Signed-in device limit reached. Forget a device in Remote access settings on the host or an existing signed-in browser, then get a new code.", http.StatusConflict)
+				http.Error(w, "Signed-in device limit reached. Forget a device in Remote access settings on the host or an existing signed-in browser, then scan this code again.", http.StatusConflict)
 				return
 			}
 			http.Error(w, "Sign-in unavailable. Get a new code on your computer.", http.StatusInternalServerError)

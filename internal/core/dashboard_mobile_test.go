@@ -157,6 +157,10 @@ function read(request, text='new data') { request.resolve({ok:true, status:200, 
     assert.equal(refused,1);assert.equal(resolved,0);assert.equal(disputed,0);
     assert.match(declined.nodes['action-result'].textContent,new RegExp('Refused: '+notice+'.*text is kept'));
   }
+  // #673 review L9: the device limit text of a password sign-in reaches the page.
+  const full = browser(); full.submit(full.form('/dashboard/login'));
+  full.requests[0].resolve({ok:false,status:409,text:async()=>'Signed-in device limit reached. Forget a device, then try again.'}); await settle(); await settle();
+  assert.match(full.nodes['action-result'].textContent,/^Signed-in device limit reached/);
   console.log('mobile refresh and write contract passed');
 })().catch(error => { console.error(error); process.exitCode=1; });
 `

@@ -166,6 +166,10 @@
           return;
         }
         if (response.status === 403 && recovery) { recovery.authenticated(true); message("Form expired. Your text is kept; refresh the form token, then submit explicitly."); return; }
+        if (response.status === 409 && target.pathname === "/dashboard/login" && typeof response.text === "function") {
+          // The device limit text is the host's own plain text; show it (#673 review L9).
+          return response.text().then(function (text) { message(text.trim() || "Signed-in device limit reached."); });
+        }
         if (!response.ok) {
           message("The request was refused (HTTP " + response.status + "). Check the latest state before trying again.");
           return;

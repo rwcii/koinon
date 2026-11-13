@@ -112,3 +112,43 @@ func TestRemoteDevicesRouteStatus(t *testing.T) {
 		}
 	}
 }
+
+// #673 review L9: a full device list keeps the QR code, so that it can be scanned again
+// after the maintainer forgets a device.
+func TestRemoteTicketKeptAtCapacity(t *testing.T) {
+	a, _, _ := durableAuth(t)
+	const origin = "https://host.example.ts.net"
+	var first string
+	for i := 0; i < maxRemoteSessions; i++ {
+		token, err := a.start("remote:" + origin)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if i == 0 {
+			first = token
+		}
+	}
+	issuer, err := a.start("dashboard")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticket, _, err := a.newRemoteTicket(origin, issuer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := a.redeemRemoteTicket(ticket, origin); ok || err != ErrRemoteCapacity {
+		t.Fatal(ok, err)
+	}
+	if len(a.tickets) != 1 {
+		t.Fatal("a full device list used up the QR code")
+	}
+	if err := a.revokeRemote(a.remoteSessionID(first), "device_revoked"); err != nil {
+		t.Fatal(err)
+	}
+	if id, ok, err := a.redeemRemoteTicket(ticket, origin); !ok || err != nil || id == "" {
+		t.Fatal("kept code not usable after a device was forgotten", ok, err)
+	}
+	if _, ok, _ := a.redeemRemoteTicket(ticket, origin); ok {
+		t.Fatal("code redeemed twice")
+	}
+}
