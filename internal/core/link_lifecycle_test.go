@@ -213,7 +213,7 @@ func TestLinkInvitationInFileOnlyIsRefused(t *testing.T) {
 		t.Fatalf("status counts a revoked invitation: %d", st.Invitations)
 	}
 	hello := linkHello{Secret: invitation.Secret, Name: "alpha", DNS: "alpha.example-tailnet.ts.net", IPs: []string{"100.64.0.1"}, Port: 47672}
-	if _, err := b.d.acceptInvitation(unknown, hello); !errors.Is(err, ErrLinkInvitation) {
+	if _, err := b.d.acceptInvitation(unknown, hello, b.d.openGen()); !errors.Is(err, ErrLinkInvitation) {
 		t.Fatalf("a revoked invitation was accepted: %v", err)
 	}
 	if len(b.state(t).Pairs) != 0 {

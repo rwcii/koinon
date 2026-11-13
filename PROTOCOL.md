@@ -147,14 +147,17 @@ it, marked stale. A reply whose `name` differs from the pair's advertised name u
 `name-update` (`id`, `name`) does: a computer whose name changes sends it to each paired
 computer, best effort, and the receiver sets the pair's advertised name and, without an
 override, its effective name or the next free `NAME-N`, in one write that changes no other
-pair. Entries with a malformed field are dropped.
+pair. Entries with a malformed field are dropped. Every inbound operation that writes
+(`pair-hello`, `pair-confirm`, `ping`, `unpair`, `name-update`) commits only while the generation
+of its connection is the open link's; a name-update from this computer goes in the generation
+that the setup left open.
 
 `NAME@COMPUTER` is split at the last `@`: NAME has 1 to 256 bytes and no `@`, COMPUTER has the
 advertised-name grammar, and the address has at most 510 bytes; a recipient without `@` is
 local. `POST /v1/peers` and the maintainer's `peers` add a row for each cached entry: `name`
 NAME@COMPUTER with the peer name, `address` NAME@COMPUTER with the held address or the peer
 name, `remote` true, `computer`, `seen_at` (milliseconds), `stale` when the directory is older
-than 3 ping intervals or the link is closed, `directory_truncated`, `family`, `role`,
+than 3 ping intervals, the link is closed or the pair is not observed as connected, `directory_truncated`, `family`, `role`,
 `repository`, `activity_state` and `activity_at`. `POST /v1/peers/status` and `peer-status`
 answer NAME@COMPUTER from the cache (by peer name or address), with `observed_at` the
 directory's time and the activity observation with source `remote`, or

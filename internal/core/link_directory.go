@@ -52,6 +52,7 @@ type linkDirectory struct {
 // milliseconds.
 type linkCache struct {
 	pin string
+	gen uint64
 	dir linkDirectory
 	at  int64
 }
@@ -172,13 +173,16 @@ func (d *Daemon) renamePairLocked(s *link.State, i int, name string) bool {
 }
 
 // acceptNameUpdate is the name-update operation of a paired key.
-func (d *Daemon) acceptNameUpdate(pin, id, name string) error {
+func (d *Daemon) acceptNameUpdate(pin, id, name string, gen uint64) error {
 	name = link.NormalizeName(name)
 	if link.ValidateName(name) != nil {
 		return ErrLinkNameInvalid
 	}
 	d.link.mu.Lock()
 	defer d.link.mu.Unlock()
+	if d.link.gen != gen {
+		return ErrLinkRemoteOff
+	}
 	s, err := link.ReadState(d.root)
 	if err != nil {
 		return err
@@ -241,7 +245,7 @@ func (d *Daemon) pollDirectory(session linkSession, gen uint64, p link.Pair) {
 	if d.link.directories == nil {
 		d.link.directories = map[string]linkCache{}
 	}
-	d.link.directories[p.ID] = linkCache{pin: p.Pin, dir: dir, at: d.linkNow().UnixMilli()}
+	d.link.directories[p.ID] = linkCache{pin: p.Pin, gen: gen, dir: dir, at: d.linkNow().UnixMilli()}
 }
 
 // dropDirectoryLocked forgets a pair's directory, at unpair. The link lock is held.
@@ -249,13 +253,9 @@ func (d *Daemon) dropDirectoryLocked(id string) {
 	delete(d.link.directories, id)
 }
 
-// announceName sends this computer's new name to each paired computer in the open
-// generation, best effort; the directory carries it too.
-func (d *Daemon) announceName() {
-	_, gen, err := d.linkLife()
-	if err != nil {
-		return
-	}
+// announceName sends this computer's new name to each paired computer in generation gen,
+// which the setup took when it succeeded, best effort; the directory carries it too.
+func (d *Daemon) announceName(gen uint64) {
 	d.link.mu.Lock()
 	s, err := link.ReadState(d.root)
 	d.link.mu.Unlock()
@@ -273,6 +273,16 @@ func (d *Daemon) announceName() {
 		}
 		cancel()
 	}
+}
+
+// cacheStaleLocked says whether a pair's directory is not current: the link is closed, the
+// directory is older than linkConnectedFor, or the pair is not observed as connected now. The
+// link lock is held.
+func (d *Daemon) cacheStaleLocked(p link.Pair, c linkCache, now int64) bool {
+	if d.link.listener == nil || now-c.at > linkConnectedFor.Milliseconds() {
+		return true
+	}
+	return d.link.observed[p.ID].State != "connected"
 }
 
 // remoteRows are the cached receivers of the paired computers as peer rows: name and address
@@ -295,7 +305,7 @@ func (d *Daemon) remoteRows() []Peer {
 		if !ok || c.pin != p.Pin || p.State != link.Paired {
 			continue
 		}
-		stale := d.link.listener == nil || now-c.at > linkConnectedFor.Milliseconds()
+		stale := d.cacheStaleLocked(p, c, now)
 		for _, e := range c.dir.Entries {
 			rows = append(rows, remoteRow(p.Effective, e, c, stale))
 		}
@@ -340,7 +350,7 @@ func (d *Daemon) remotePeerStatus(to string) (PeerStatus, error) {
 		return PeerStatus{}, ErrPeerNotFound
 	}
 	e := c.dir.Entries[j]
-	stale := d.link.listener == nil || d.linkNow().UnixMilli()-c.at > linkConnectedFor.Milliseconds()
+	stale := d.cacheStaleLocked(p, c, d.linkNow().UnixMilli())
 	unknown := PeerObservation{Reason: "remote_computer"}
 	activity := PeerObservation{Known: e.Activity != "", Reason: "remote_computer", Source: "remote", At: e.ActivityAt, State: e.Activity,
 		StaleAfterMS: linkConnectedFor.Milliseconds()}

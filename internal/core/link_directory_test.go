@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os/exec"
 	"path/filepath"
@@ -260,7 +261,7 @@ func TestLinkNamesFollowTheOtherComputer(t *testing.T) {
 	if err := b.d.remoteDisable(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := b.d.linkSetupName(ctx, "beta-y", 0); err != ErrLinkRemoteOff {
+	if _, err := b.d.linkSetupName(ctx, "beta-y", 0); err != ErrLinkRemoteOff {
 		t.Fatalf("setup while off: %v", err)
 	}
 	if err := b.d.remoteEnable(ctx, 0); err != nil {
@@ -327,7 +328,7 @@ func TestLinkDirectoryBoundsAndAccess(t *testing.T) {
 	}
 	inv, _ := link.ParseInvitation(text)
 	idA, _ := a.d.linkIdentity()
-	ok, err := g.d.acceptInvitation(idA.Pin, linkHello{Secret: inv.Secret, Name: "alpha", DNS: "alpha.example-tailnet.ts.net", IPs: []string{"100.64.0.1"}, Port: 47672})
+	ok, err := g.d.acceptInvitation(idA.Pin, linkHello{Secret: inv.Secret, Name: "alpha", DNS: "alpha.example-tailnet.ts.net", IPs: []string{"100.64.0.1"}, Port: 47672}, g.d.openGen())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -343,6 +344,23 @@ func TestLinkDirectoryCommitsOnlyInItsGeneration(t *testing.T) {
 	pairHosts(t, b, a)
 	joinAs(t, b.d.store, "codex", "synthetic-b", linkRepo(t, "gen"), "")
 	ctx := context.Background()
+	// Only a dial with the test's marker connects: the monitor of the new generation waits
+	// until the test ends, so the only directory read is the test's own.
+	type marker struct{}
+	held := make(chan struct{})
+	t.Cleanup(func() { close(held) })
+	a.d.link.mu.Lock()
+	a.d.link.dial = func(dialCtx context.Context, address string) (net.Conn, error) {
+		if dialCtx.Value(marker{}) == nil {
+			select {
+			case <-held:
+			case <-dialCtx.Done():
+			}
+			return nil, errors.New("held for the test")
+		}
+		return n.dial(dialCtx, address)
+	}
+	a.d.link.mu.Unlock()
 	old := a.d.openGen()
 	if err := a.d.remoteDisable(ctx); err != nil {
 		t.Fatal(err)
@@ -351,14 +369,72 @@ func TestLinkDirectoryCommitsOnlyInItsGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := a.state(t).Pairs[0]
-	session, err := a.d.connectPair(ctx, a.d.openGen(), p)
+	marked := context.WithValue(ctx, marker{}, true)
+	session, err := a.d.connectPair(marked, a.d.openGen(), p)
 	if err != nil {
 		t.Fatal(err)
 	}
 	a.d.pollDirectory(session, old, p)
+	a.d.link.mu.Lock()
+	_, cached := a.d.link.directories[p.ID]
+	a.d.link.mu.Unlock()
+	if cached {
+		t.Fatal("a poll of a closed generation committed")
+	}
+	// The same read in the open generation commits.
+	a.d.pollDirectory(session, a.d.openGen(), p)
 	session.close()
-	if rows := a.d.remoteRows(); len(rows) != 0 {
-		t.Fatalf("a poll of a closed generation committed: %+v", rows)
+	a.d.link.mu.Lock()
+	c, cached := a.d.link.directories[p.ID]
+	a.d.link.mu.Unlock()
+	if !cached || c.gen != a.d.openGen() {
+		t.Fatalf("a poll of the open generation did not commit: %+v", c)
+	}
+}
+
+// The directory follows the holder of a participant address on the other computer: an
+// unheld address is not advertised or resolved, a new holder takes it, and the earlier
+// peer name stays distinct.
+func TestLinkDirectoryFollowsTheAddressHolder(t *testing.T) {
+	n := &linkNet{}
+	a := newLinkHost(t, n, "alpha", "100.64.0.1")
+	b := newLinkHost(t, n, "beta", "100.64.0.2")
+	pairHosts(t, b, a)
+	ctx := context.Background()
+	repo := linkRepo(t, "holder")
+	first := joinAs(t, b.d.store, "codex", "synthetic-first", repo, "review")
+	if !first.HoldsAddress {
+		t.Fatalf("fixture: %+v", first)
+	}
+	address := first.Address + "@beta"
+	a.d.passNow()
+	status, err := a.d.remotePeerStatus(address)
+	if err != nil || status.Name != first.Name+"@beta" {
+		t.Fatalf("first holder: %+v %v", status, err)
+	}
+	if _, err := b.d.store.Mutate(ctx, Mutation{Family: first.Family, ID: first.ID, IfRevision: first.Revision}, true); err != nil {
+		t.Fatal(err)
+	}
+	a.d.passNow()
+	if _, err := a.d.remotePeerStatus(address); !errors.Is(err, ErrPeerNotFound) {
+		t.Fatalf("unheld address resolved: %v", err)
+	}
+	for _, r := range a.d.remoteRows() {
+		if r.Address == address || r.Name == first.Name+"@beta" {
+			t.Fatalf("unheld address or retired session advertised: %+v", r)
+		}
+	}
+	second := joinAs(t, b.d.store, "codex", "synthetic-second", repo, "review")
+	if !second.HoldsAddress || second.Address != first.Address || second.Name == first.Name {
+		t.Fatalf("fixture: %+v", second)
+	}
+	a.d.passNow()
+	status, err = a.d.remotePeerStatus(address)
+	if err != nil || status.Name != second.Name+"@beta" || status.Address != address {
+		t.Fatalf("new holder: %+v %v", status, err)
+	}
+	if _, err := a.d.remotePeerStatus(first.Name + "@beta"); !errors.Is(err, ErrPeerNotFound) {
+		t.Fatalf("the earlier peer name resolves: %v", err)
 	}
 }
 

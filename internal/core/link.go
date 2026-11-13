@@ -376,7 +376,7 @@ func (d *Daemon) serveLink(raw net.Conn, gen uint64) {
 		if err != nil {
 			return
 		}
-		reply, closeAfter, err := d.linkOperation(pin, f)
+		reply, closeAfter, err := d.linkOperation(pin, f, gen)
 		if err != nil {
 			linkRefuse(conn, err)
 			return
@@ -405,14 +405,16 @@ type linkHelloOK struct {
 }
 
 // linkOperation runs one request of a connection whose client key is pin.
-func (d *Daemon) linkOperation(pin string, f link.Frame) (link.Frame, bool, error) {
+// linkOperation answers one frame of a connection of generation gen; each operation that
+// writes commits only while gen is the open link's generation.
+func (d *Daemon) linkOperation(pin string, f link.Frame, gen uint64) (link.Frame, bool, error) {
 	switch f.Op {
 	case "pair-hello":
 		var hello linkHello
 		if f.Decode(&hello) != nil {
 			return link.Frame{}, true, ErrInvalid
 		}
-		ok, err := d.acceptInvitation(pin, hello)
+		ok, err := d.acceptInvitation(pin, hello, gen)
 		if err != nil {
 			return link.Frame{}, true, err
 		}
@@ -423,7 +425,7 @@ func (d *Daemon) linkOperation(pin string, f link.Frame) (link.Frame, bool, erro
 		if f.Decode(&body) != nil {
 			return link.Frame{}, true, ErrInvalid
 		}
-		if err := d.confirmLinkPair(pin, body.ID); err != nil {
+		if err := d.confirmLinkPair(pin, body.ID, gen); err != nil {
 			return link.Frame{}, true, err
 		}
 		d.observe(body.ID, "connected", "")
@@ -445,7 +447,7 @@ func (d *Daemon) linkOperation(pin string, f link.Frame) (link.Frame, bool, erro
 		if f.Decode(&body) != nil {
 			return link.Frame{}, true, ErrInvalid
 		}
-		if err := d.acceptNameUpdate(pin, body.ID, body.Name); err != nil {
+		if err := d.acceptNameUpdate(pin, body.ID, body.Name, gen); err != nil {
 			return link.Frame{}, true, err
 		}
 		reply, err := link.NewFrame("name-ok", struct{}{})
@@ -455,7 +457,7 @@ func (d *Daemon) linkOperation(pin string, f link.Frame) (link.Frame, bool, erro
 		if f.Decode(&body) != nil {
 			return link.Frame{}, true, ErrInvalid
 		}
-		if err := d.removeLinkPair(pin, body.ID); err != nil {
+		if err := d.removeLinkPair(pin, body.ID, gen); err != nil {
 			return link.Frame{}, true, err
 		}
 		reply, err := link.NewFrame("unpair-ok", struct{}{})
@@ -466,7 +468,7 @@ func (d *Daemon) linkOperation(pin string, f link.Frame) (link.Frame, bool, erro
 
 // acceptInvitation consumes one open invitation for a new key and records the pair as
 // pending until the joining computer confirms it.
-func (d *Daemon) acceptInvitation(pin string, hello linkHello) (linkHelloOK, error) {
+func (d *Daemon) acceptInvitation(pin string, hello linkHello, gen uint64) (linkHelloOK, error) {
 	name := link.NormalizeName(hello.Name)
 	if link.ValidateName(name) != nil || remote.NormalizeDNSName(hello.DNS) != hello.DNS || hello.DNS == "" || !remote.ValidHTTPSPort(hello.Port) {
 		return linkHelloOK{}, ErrInvalid
@@ -476,6 +478,9 @@ func (d *Daemon) acceptInvitation(pin string, hello linkHello) (linkHelloOK, err
 	}
 	d.link.mu.Lock()
 	defer d.link.mu.Unlock()
+	if d.link.gen != gen {
+		return linkHelloOK{}, ErrLinkRemoteOff
+	}
 	s, err := link.ReadState(d.root)
 	if err != nil {
 		return linkHelloOK{}, err
@@ -506,9 +511,12 @@ func (d *Daemon) acceptInvitation(pin string, hello linkHello) (linkHelloOK, err
 }
 
 // confirmLinkPair checks that pin holds pair id; a pending pair of this key is confirmed.
-func (d *Daemon) confirmLinkPair(pin, id string) error {
+func (d *Daemon) confirmLinkPair(pin, id string, gen uint64) error {
 	d.link.mu.Lock()
 	defer d.link.mu.Unlock()
+	if d.link.gen != gen {
+		return ErrLinkRemoteOff
+	}
 	s, err := link.ReadState(d.root)
 	if err != nil {
 		return err
@@ -527,8 +535,12 @@ func (d *Daemon) confirmLinkPair(pin, id string) error {
 }
 
 // removeLinkPair removes pair id of key pin, at the other computer's unpair.
-func (d *Daemon) removeLinkPair(pin, id string) error {
+func (d *Daemon) removeLinkPair(pin, id string, gen uint64) error {
 	d.link.mu.Lock()
+	if d.link.gen != gen {
+		d.link.mu.Unlock()
+		return ErrLinkRemoteOff
+	}
 	s, err := link.ReadState(d.root)
 	if err != nil {
 		d.link.mu.Unlock()
@@ -1062,22 +1074,23 @@ func (d *Daemon) linkSetup(ctx context.Context, name string, port int) error {
 	d.link.mu.Lock()
 	before, readErr := link.ReadState(d.root)
 	d.link.mu.Unlock()
-	err := d.linkSetupName(ctx, name, port)
-	// A changed name goes to the paired computers (#670 chunk 02).
+	gen, err := d.linkSetupName(ctx, name, port)
+	// A changed name goes to the paired computers (#670 chunk 02), in the generation that the
+	// setup left open.
 	if err == nil && readErr == nil && before.Name != "" && before.Name != link.NormalizeName(name) {
 		d.wg.Add(1)
 		go func() {
 			defer d.wg.Done()
-			d.announceName()
+			d.announceName(gen)
 		}()
 	}
 	return err
 }
 
-func (d *Daemon) linkSetupName(ctx context.Context, name string, port int) error {
+func (d *Daemon) linkSetupName(ctx context.Context, name string, port int) (uint64, error) {
 	name = link.NormalizeName(name)
 	if err := link.ValidateName(name); err != nil {
-		return ErrLinkNameInvalid
+		return 0, ErrLinkNameInvalid
 	}
 	if port == 0 {
 		// Absent keeps the saved port; the default is for the first setup.
@@ -1085,7 +1098,7 @@ func (d *Daemon) linkSetupName(ctx context.Context, name string, port int) error
 		saved, err := link.ReadState(d.root)
 		d.link.mu.Unlock()
 		if err != nil {
-			return err
+			return 0, err
 		}
 		port = saved.Port
 		if port == 0 {
@@ -1093,11 +1106,24 @@ func (d *Daemon) linkSetupName(ctx context.Context, name string, port int) error
 		}
 	}
 	if !remote.ValidHTTPSPort(port) {
-		return ErrLinkPortRange
+		return 0, ErrLinkPortRange
 	}
 	rt := &d.remote
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
+	if err := d.linkSetupLocked(ctx, name, port); err != nil {
+		return 0, err
+	}
+	// The generation that the setup left open, taken under the remote lock.
+	d.link.mu.Lock()
+	defer d.link.mu.Unlock()
+	return d.link.gen, nil
+}
+
+// linkSetupLocked saves the name and port, journals the mapping and opens the link. The
+// remote lock is held.
+func (d *Daemon) linkSetupLocked(ctx context.Context, name string, port int) error {
+	rt := &d.remote
 	if rt.config == nil || !rt.config.Enabled || rt.server == nil {
 		return ErrLinkRemoteOff
 	}

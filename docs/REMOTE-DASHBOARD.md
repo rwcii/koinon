@@ -245,7 +245,8 @@ agent sessions every 30 seconds and keeps the last answer: for each session its 
 address or peer name, family, role, repository name, observed activity and its time. No
 session ID, folder path, host or process data crosses. The dashboard's Sessions page shows
 them in a group per computer, `On NAME`, with the time the list was read; a list older than
-about 90 seconds, or from while the link is closed, is marked not current. A computer lists at
+about 90 seconds, of a computer that is not connected now, or from while the link is closed, is
+marked not current. A computer lists at
 most 256 sessions and says when it left some out. When the other computer changes its name,
 the new name arrives at once or with the next list; your own name for it stays.
 
