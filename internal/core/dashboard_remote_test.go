@@ -113,6 +113,10 @@ func TestRemoteDashboardBoundary(t *testing.T) {
 
 func TestRemoteSessionInvalidation(t *testing.T) {
 	d, _ := startTestDaemon(t)
+	d.store.secretCost = 1000
+	if _, err := d.changeSecret(context.Background(), "set", testSecret); err != nil {
+		t.Fatal(err)
+	}
 	id, err := d.auth.start("remote:https://host.example.ts.net")
 	if err != nil {
 		t.Fatal(err)
@@ -126,6 +130,12 @@ func TestRemoteSessionInvalidation(t *testing.T) {
 	d.auth.endRemote()
 	if _, ok := d.auth.session(r); ok {
 		t.Fatal("disable retained session")
+	}
+	// The refused page names the revocation for the browser's draft cleanup (#673 review M8).
+	page := httptest.NewRecorder()
+	d.dashboard.ServeHTTP(page, r)
+	if page.Code != http.StatusUnauthorized || !strings.Contains(page.Body.String(), `data-auth-reason="remote_disabled"`) {
+		t.Fatalf("refused page: %d, no data-auth-reason in %.300s", page.Code, page.Body.String())
 	}
 	id, _ = d.auth.start(dashboardClient(r))
 	r.Header.Del("Cookie")

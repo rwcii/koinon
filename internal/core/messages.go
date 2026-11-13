@@ -249,16 +249,23 @@ func (s *Store) send(ctx context.Context, caller Key, to, body string, dashboard
 	if to == "" || len(to) > 256 || body == "" || len(body) > maxBody || !utf8.ValidString(body) {
 		return Outcome{}, ErrInvalid
 	}
+	if result, found, err := operationLookup[Outcome](ctx, s.db, s.now().UnixMilli()); found || err != nil {
+		return result, err
+	}
 	tx, err := s.begin(ctx, ordinary)
 	if err != nil {
 		return Outcome{}, err
 	}
 	defer tx.Rollback()
 	tx.audited = true
+	if result, found, err := operationReplay[Outcome](tx); found || err != nil {
+		return result, err
+	}
 	outcome, err := s.sendTx(ctx, tx, caller, to, body, dashboard)
 	if err != nil {
 		return Outcome{}, err
 	}
+	tx.operationResult(outcome)
 	return outcome, tx.Commit()
 }
 

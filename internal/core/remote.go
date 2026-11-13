@@ -42,13 +42,15 @@ func validRemoteConfig(c *RemoteConfig) bool {
 }
 
 type RemoteStatus struct {
-	Configured bool           `json:"configured"`
-	URL        string         `json:"url,omitempty"`
-	Listener   string         `json:"listener"`
-	Serve      string         `json:"serve"`
-	Tailscale  *remote.Status `json:"tailscale,omitempty"`
-	Error      string         `json:"error,omitempty"`
-	Phone      string         `json:"phone"`
+	Configured     bool           `json:"configured"`
+	URL            string         `json:"url,omitempty"`
+	Listener       string         `json:"listener"`
+	Serve          string         `json:"serve"`
+	Tailscale      *remote.Status `json:"tailscale,omitempty"`
+	Error          string         `json:"error,omitempty"`
+	Phone          string         `json:"phone"`
+	Sessions       map[string]any `json:"sessions,omitempty"`
+	LastReconciled int64          `json:"last_reconciled,omitempty"`
 	// PolicyHint and PolicyRule say what the tailnet access policy must allow when the
 	// host is ready but the phone is unverified (#653). Koinon cannot read the policy.
 	PolicyHint string `json:"policy_hint,omitempty"`
@@ -68,14 +70,15 @@ func policyHint(port int) string {
 const policyRuleNote = "autogroup:member is every member of the tailnet; replace it with a user, group or devices for narrower access."
 
 type remoteRuntime struct {
-	mu       sync.Mutex
-	surface  sync.RWMutex
-	active   bool
-	config   *RemoteConfig
-	server   *http.Server
-	listener net.Listener
-	problem  string
-	manager  remote.Manager
+	mu             sync.Mutex
+	surface        sync.RWMutex
+	active         bool
+	config         *RemoteConfig
+	server         *http.Server
+	listener       net.Listener
+	lastReconciled int64
+	problem        string
+	manager        remote.Manager
 	// offUnrecorded holds a disable whose record write failed: the surface stays
 	// closed and the reconciler retries the write instead of opening it again.
 	offUnrecorded bool
@@ -181,9 +184,6 @@ func (d *Daemon) closeRemoteLocked() {
 		rt.listener.Close()
 		rt.listener = nil
 	}
-	if d.auth != nil {
-		d.auth.endRemote()
-	}
 }
 
 // Conflicting exposure or a changed external identity ends this surface's logins.
@@ -191,6 +191,12 @@ func (d *Daemon) remoteSecurityFailureLocked(err error) {
 	var diagnostic *remote.Diagnostic
 	if errors.As(err, &diagnostic) && (diagnostic.Code == "tailscale_identity_changed" || diagnostic.Code == "tailscale_serve_conflict") {
 		d.closeRemoteLocked()
+		// A browser cookie may have reached the conflicting handler or the old name, so the
+		// logins end, also when the same origin comes back later (#673 review M2). A failed
+		// write keeps every remote login denied until the diagnostics retry succeeds.
+		if d.auth != nil {
+			_ = d.auth.revokeRemote("", "origin_changed")
+		}
 	}
 }
 
@@ -291,6 +297,11 @@ func (d *Daemon) remoteEnableLocked(ctx context.Context, port int) error {
 		return err
 	}
 	if rt.config != nil && rt.config.Mapping != c.Mapping {
+		if d.auth != nil {
+			if err := d.auth.revokeRemote("", "origin_changed"); err != nil {
+				return err
+			}
+		}
 		d.closeRemoteLocked()
 	}
 	c.Enabled, c.Owned = true, true
@@ -298,6 +309,13 @@ func (d *Daemon) remoteEnableLocked(ctx context.Context, port int) error {
 		return err
 	}
 	rt.config = c
+	if d.auth != nil {
+		if err := d.auth.reconcileRemoteOrigin(c.Mapping.Origin); err != nil {
+			d.closeRemoteLocked()
+			rt.problem = err.Error()
+			return err
+		}
+	}
 	if err := d.openRemoteListenerLocked(held); err != nil {
 		err = errors.Join(err, rt.manager.Remove(ctx, c.Mapping))
 		rt.problem = err.Error()
@@ -309,6 +327,9 @@ func (d *Daemon) remoteEnableLocked(ctx context.Context, port int) error {
 		err = d.enableLinkLocked(ctx)
 	}
 	rt.problem = ""
+	if err == nil {
+		rt.lastReconciled = d.store.now().UnixMilli()
+	}
 	if err != nil {
 		rt.problem = err.Error()
 		d.remoteSecurityFailureLocked(err)
@@ -380,41 +401,55 @@ func (d *Daemon) remoteDisableLocked(ctx context.Context) error {
 	// and revokes its invitations, before any Serve cleanup that can fail.
 	d.closeRemoteLocked()
 	inviteErr := d.clearInvites()
-	c, err := ReadRemoteConfig(d.root)
-	if err != nil {
-		rt.offUnrecorded = true
+	// A failed browser revocation does not stop the disable: the saved record turns off
+	// and the mappings go, so that a restart cannot open Remote again. The revocation is
+	// retried from diagnostics, and a start with Remote off revokes again (#673 review M1).
+	var revokeErr error
+	if d.auth != nil {
+		revokeErr = d.auth.revokeRemote("", "remote_disabled")
+	}
+	fail := func(err error) error {
+		err = errors.Join(err, revokeErr)
 		rt.problem = err.Error()
 		return err
 	}
+	c, err := ReadRemoteConfig(d.root)
+	if err != nil {
+		rt.offUnrecorded = true
+		return fail(err)
+	}
 	if c == nil {
+		if revokeErr != nil {
+			return fail(nil)
+		}
 		return nil
 	}
 	c.Enabled = false
 	if err := writeRemoteConfig(d.root, c); err != nil {
 		rt.offUnrecorded = true
-		rt.problem = err.Error()
-		return err
+		return fail(err)
 	}
 	rt.offUnrecorded = false
 	rt.config = c
 	if c.Owned {
 		if err := rt.manager.Remove(ctx, c.Mapping); err != nil {
-			rt.problem = err.Error()
-			return err
+			return fail(err)
 		}
 		c.Owned = false
 		if err := writeRemoteConfig(d.root, c); err != nil {
-			rt.problem = err.Error()
-			return err
+			return fail(err)
 		}
 	}
 	if err := d.disableLinkLocked(ctx, c); err != nil {
-		rt.problem = err.Error()
-		return err
+		return fail(err)
 	}
 	if inviteErr != nil {
-		rt.problem = "link invitations are revoked, but link.json could not be updated: " + inviteErr.Error()
-		return inviteErr
+		err := fail(inviteErr)
+		rt.problem = "link invitations are revoked, but link.json could not be updated: " + err.Error()
+		return err
+	}
+	if revokeErr != nil {
+		return fail(nil)
 	}
 	rt.problem = ""
 	return nil
@@ -424,7 +459,10 @@ func (d *Daemon) remoteStatus(ctx context.Context) RemoteStatus {
 	rt := &d.remote
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	result := RemoteStatus{Listener: "off", Phone: "unverified", Error: rt.problem, Serve: "off"}
+	result := RemoteStatus{Listener: "off", Phone: "unverified", Error: rt.problem, Serve: "off", LastReconciled: rt.lastReconciled}
+	if d.auth != nil {
+		result.Sessions = d.auth.remoteDiagnostics()
+	}
 	if rt.config != nil {
 		result.Configured = rt.config.Enabled
 		result.URL = rt.config.Mapping.Origin + "/dashboard/"
@@ -521,9 +559,23 @@ func (d *Daemon) restoreRemote(ctx context.Context) {
 		return
 	}
 	if rt.config != nil && (c == nil || rt.config.Mapping != c.Mapping) {
+		if d.auth != nil {
+			if err := d.auth.revokeRemote("", "origin_changed"); err != nil {
+				d.closeRemoteLocked()
+				rt.problem = err.Error()
+				return
+			}
+		}
 		d.closeRemoteLocked()
 	}
 	if c != nil && c.Enabled && rt.offUnrecorded {
+		if d.auth != nil {
+			if err := d.auth.revokeRemote("", "remote_disabled"); err != nil {
+				d.closeRemoteLocked()
+				rt.problem = err.Error()
+				return
+			}
+		}
 		c.Enabled = false
 		if err := writeRemoteConfig(d.root, c); err != nil {
 			d.closeRemoteLocked()
@@ -535,6 +587,19 @@ func (d *Daemon) restoreRemote(ctx context.Context) {
 	rt.config = c
 	if c == nil {
 		return
+	}
+	if d.auth != nil {
+		var revokeErr error
+		if !c.Enabled {
+			revokeErr = d.auth.revokeRemote("", "remote_disabled")
+		} else {
+			revokeErr = d.auth.reconcileRemoteOrigin(c.Mapping.Origin)
+		}
+		if revokeErr != nil {
+			d.closeRemoteLocked()
+			rt.problem = revokeErr.Error()
+			return
+		}
 	}
 	if !c.Enabled {
 		d.closeRemoteLocked()
@@ -570,6 +635,9 @@ func (d *Daemon) restoreRemote(ctx context.Context) {
 		}
 	}
 	rt.problem = ""
+	if err == nil {
+		rt.lastReconciled = d.store.now().UnixMilli()
+	}
 	if err != nil {
 		rt.problem = err.Error()
 		d.remoteSecurityFailureLocked(err)

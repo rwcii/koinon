@@ -179,6 +179,15 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 	run := func(w http.ResponseWriter, r *http.Request, action, target, view string, query url.Values, valid bool,
 		apply func(ctx context.Context) error, accepted string, refusal func(error) string) {
 		ctx, pending := withAudit(r.Context(), action, target)
+		if action == "send" || action == "room-post" || strings.HasPrefix(action, "decision-") {
+			var err error
+			ctx, err = d.operationContext(r, ctx, "", action, target, accepted)
+			if err != nil {
+				d.store.auditRefusal(r.Context(), pending, errorCode(err))
+				done(w, r, view, query, errorCode(err))
+				return
+			}
+		}
 		if !valid {
 			d.store.auditRefusal(ctx, pending, "invalid_request")
 			done(w, r, view, query, "invalid_request")
@@ -468,6 +477,9 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 		}, "sent", nil)
 	}))
 
+	d.operationReceiptRoutes(mux, func(next func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
+		return authed(actionFormLimit, next)
+	})
 	d.memoryActions(mux, authed)
 	d.workActions(mux, authed, run)
 	d.roomActions(mux, authed, run)

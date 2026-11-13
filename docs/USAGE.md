@@ -755,7 +755,8 @@ koinon remote disable    # stop the listener, end remote logins, remove only Koi
 
 Remote access needs a maintainer secret. On the phone, sign in at the URL with the secret,
 or scan the one-time sign-in QR that the dashboard on this computer shows under Settings,
-Remote access; a code works once, for two minutes. A remote login lasts at most 7 days. The
+Remote access; a code works once, for two minutes. A remote login lasts a fixed 48 hours
+from sign-in and survives routine daemon restarts within that original window. The
 Settings page offers the same setup steps. See docs/REMOTE-DASHBOARD.md for the setup,
 restarts, a changed Tailscale name and diagnostics.
 
@@ -927,3 +928,13 @@ empty` and names the two remedies: run `koinon setup FAMILY` (with `--state-dir 
 custom root) to record the CLI, or start with `--cli ABS_PATH`. An invalid file refuses with
 `invalid launcher configuration`, and a relative entry with `configured CLI path must be
 absolute`; neither is changed.
+
+
+Remote browser control v2 opens **Attention** by default. Sign-in lasts a fixed
+48 hours across routine daemon restarts and upgrades. Settings lists signed-in
+remote browsers and lets you rename or forget them. Optional **Save drafts on this
+browser** is off initially and stores private text locally for seven days.
+Messages, room posts and verdicts have host receipts for explicit recovery after
+an interrupted response; reconnect never submits automatically. See
+[the remote dashboard guide](REMOTE-DASHBOARD.md#remote-control-v2) for recovery,
+privacy and device verification limits.

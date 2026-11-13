@@ -141,6 +141,7 @@ func Start(c Config) (*Daemon, error) {
 	if d.auth, err = newDashboardAuth(func() time.Time { return d.store.now() }); err != nil {
 		return nil, err
 	}
+	d.auth.store = d.store
 	if d.dashboard, err = d.dashboardHandler(); err != nil {
 		return nil, err
 	}

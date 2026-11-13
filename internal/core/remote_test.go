@@ -186,9 +186,8 @@ func TestRemoteLifecycle(t *testing.T) {
 	if status := restarted.remoteStatus(ctx); status.Listener != "ready" {
 		t.Fatal(status)
 	}
-	hash, _ := tokenHash(id)
-	if _, ok := restarted.auth.sessions[hash]; ok {
-		t.Fatal("restart retained session")
+	if _, ok := restarted.auth.session(remoteRequest(id)); !ok {
+		t.Fatal("restart lost durable remote session")
 	}
 	if err := restarted.remoteDisable(ctx); err != nil {
 		t.Fatal(err)
@@ -349,6 +348,9 @@ func TestRemoteUnsafeExposureEndsSessions(t *testing.T) {
 				t.Fatal(err)
 			}
 			id, _ := d.auth.start("remote:https://host.example.ts.net")
+			if _, ok := d.auth.session(remoteRequest(id)); !ok {
+				t.Fatal("the remote login does not work before the exposure")
+			}
 			fake.mu.Lock()
 			if kind == "identity" {
 				fake.dns = "renamed.example.ts.net."
@@ -376,6 +378,11 @@ func TestRemoteUnsafeExposureEndsSessions(t *testing.T) {
 			fake.noHTTPS = false
 			fake.config.AllowFunnel = nil
 			fake.mu.Unlock()
+			// The durable login stays ended when the same origin is safe again (#673 review M2).
+			d.restoreRemote(ctx)
+			if _, ok := d.auth.session(remoteRequest(id)); ok {
+				t.Fatal("a login from before the unsafe exposure works again")
+			}
 			if err := d.remoteDisable(ctx); err != nil {
 				t.Fatal(err)
 			}
@@ -489,11 +496,7 @@ func TestRemoteSignedOutIsNotIdentityChange(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "tailscale_disconnected") {
 		t.Fatal(err)
 	}
-	hash, _ := tokenHash(id)
-	d.auth.mu.Lock()
-	_, live := d.auth.sessions[hash]
-	d.auth.mu.Unlock()
-	if !live {
+	if _, live := d.auth.session(remoteRequest(id)); !live {
 		t.Fatal("signed-out inspection invalidated login as identity change")
 	}
 	fake.mu.Lock()

@@ -158,7 +158,7 @@ func TestDashboardPairPreviewThenSingleUseSecureSession(t *testing.T) {
 	}
 	form := url.Values{"ticket": {ticket}, "return": {"https://evil.example/steal"}}
 	redeemed := pairRequest(h, "POST", origin, "/dashboard/pair?return=/dashboard/actions/remote-disable", origin, form, nil)
-	if redeemed.Code != 303 || redeemed.Header().Get("Location") != "/dashboard/sessions" {
+	if redeemed.Code != 303 || redeemed.Header().Get("Location") != "/dashboard/attention" {
 		t.Fatalf("redemption: %d %s", redeemed.Code, redeemed.Body.String())
 	}
 	cookies := redeemed.Result().Cookies()
@@ -249,9 +249,11 @@ func TestDashboardPairMalformedAndExpiredCodes(t *testing.T) {
 func TestDashboardPairConcurrentRedemptionCreatesOneSession(t *testing.T) {
 	d, _, local, h, origin := pairFixture(t)
 	ticket := pairMint(t, d, local.cookie)
-	d.auth.mu.Lock()
-	before := len(d.auth.sessions)
-	d.auth.mu.Unlock()
+	beforeDevices, err := d.auth.remoteDevices(local.cookie)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := len(beforeDevices)
 	start := make(chan struct{})
 	responses := make(chan *httptest.ResponseRecorder, 12)
 	var group sync.WaitGroup
@@ -277,9 +279,11 @@ func TestDashboardPairConcurrentRedemptionCreatesOneSession(t *testing.T) {
 			t.Fatal("unexpected losing redemption", got.Code)
 		}
 	}
-	d.auth.mu.Lock()
-	after := len(d.auth.sessions)
-	d.auth.mu.Unlock()
+	afterDevices, err := d.auth.remoteDevices(local.cookie)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := len(afterDevices)
 	if accepted != 1 || after != before+1 {
 		t.Fatalf("accepted=%d sessions before=%d after=%d", accepted, before, after)
 	}

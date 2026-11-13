@@ -57,6 +57,19 @@ into a dated release section when promoted to `main`.
   offers **Use this computer and the tailnet only**, which enables remote access, removes the
   network address and closes it at once.
 
+- Remote control v2 keeps remote browser sign-in for a fixed 48 hours across routine
+  restarts and upgrades, adds named browser-session revocation, reconnect recovery,
+  opt-in private browser drafts, transactional receipts for messages, room posts
+  and verdicts, and an Attention landing page with per-browser unread cursors.
+  Remote diagnostics distinguish observed requests, storage health and authentication
+  end reasons. Failed expiry writes stay visible and retry after storage recovers,
+  including from host diagnostics after the browser drops its cookie. Small host-clock
+  corrections preserve valid sessions; action receipts use host time rather than the
+  phone clock. Failed logout and device revocations remain visible and retryable while the daemon runs. At the 32-device limit, sign-in says how to forget a device, and a QR code scanned at the limit stays valid until it expires. Local browser and maintainer API-token policies are unchanged.
+  Actual phone retention and platform lifecycle acceptance remain separately verified.
+  Draft recovery rechecks the recipient, form and saved text when selected, preserving
+  newer edits and respecting draft clearing, opt-out and observed revocation.
+
 - `koinon remote enable --https-port PORT` publishes the remote dashboard on another
   Tailscale Serve HTTPS port, for a computer where another program, such as a container
   that publishes `443:443`, takes port 443 (#665). Koinon saves the port. The URL, the QR

@@ -223,6 +223,9 @@ func (t *writeTx) Commit() error {
 	t.done = true
 	// A dashboard action's audit record joins the transaction that makes its change.
 	audit, err := t.writeAudit()
+	if err == nil {
+		err = t.writeOperationReceipt()
+	}
 	// The debt is read after the mutation: a work control has cleared the credit it
 	// spends, and a start has added the credits it promises.
 	var pages, debt int64

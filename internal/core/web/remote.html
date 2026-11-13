@@ -64,12 +64,21 @@
 </section>
 <details data-remote-diagnostics><summary>Connection details</summary>
 <dl>
-<dt>Remote access</dt><dd>{{if .Status.Configured}}Enabled{{else}}Off{{end}}</dd>
+<dt>Host configured</dt><dd>{{if .Status.Configured}}Yes{{else}}No{{end}}</dd>
 <dt>Computer listener</dt><dd>{{.Status.Listener}}</dd>
 <dt>Tailscale</dt><dd>{{with .Status.Tailscale}}{{.BackendState}}{{if not .Online}} · offline{{end}}{{else}}unavailable{{end}}</dd>
 <dt>Serve mapping</dt><dd>{{.Status.Serve}}</dd>
-<dt>Phone access</dt><dd>Unverified — try it on your phone with Wi-Fi off</dd>
+<dt>Phone connected at (server time)</dt><dd>{{with .Status.Sessions}}{{if index . "phone_connected_at"}}{{ms (index . "phone_connected_at")}}{{else}}Not observed{{end}}{{else}}Unavailable{{end}}</dd>
+<dt>Cellular access</dt><dd>Unverified — try it on your phone with Wi-Fi off</dd>
+<dt>Last successful reconciliation (server time)</dt><dd>{{if .Status.LastReconciled}}{{ms .Status.LastReconciled}}{{else}}Not observed{{end}}</dd>
+{{with .Status.Sessions}}
+{{if index . "revocation_incomplete"}}<dt>Device revocation</dt><dd>Revocation incomplete; private storage could not be updated. Retry forgetting the device.</dd>{{end}}
+<dt>Private session storage</dt><dd>{{index . "store_health"}}</dd>
+<dt>Unexpired remote sessions (host observation)</dt><dd>{{if index . "active_sessions"}}{{index . "active_sessions"}}{{else if eq (index . "store_health") "healthy"}}0{{else}}Unavailable{{end}}</dd>
+<dt>Latest observed sign-in end reason</dt><dd>{{if index . "last_auth_end_reason"}}{{index . "last_auth_end_reason"}}{{else}}None observed{{end}}</dd>
+{{end}}
 </dl>
+<p><small>A browser request proves reachability at its recorded time. It does not identify the network used or prove a person is online. Session deadlines use the host clock.</small></p>
 {{if .Status.Error}}<p>{{.Status.Error}}</p>{{end}}
 {{if .Status.PolicyHint}}<p>{{.Status.PolicyHint}}</p>{{if .Status.PolicyRule}}<p><code>{{.Status.PolicyRule}}</code></p>{{end}}{{end}}
 {{if .Prerequisite}}<p>{{.Prerequisite}}</p>{{end}}

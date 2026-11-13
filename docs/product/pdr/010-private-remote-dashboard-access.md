@@ -108,6 +108,10 @@ Decision 4 below amends the browser QR sign-in flow; the CLI QR remains URL-only
 | Writes | Submission prevents repeated taps while running. Lost responses say “Result unknown; check the latest state before trying again.” Reconnect and login read current state and never replay a prior write automatically. Existing revision and idempotency rules still apply. |
 | Login recovery | An expired login opens sign-in with a safe relative read-only dashboard return screen; it does not resubmit the previous action. |
 
+For remote browser sessions, §9 replaces the restart, lifetime and drafts rows above: a
+remote sign-in lasts a fixed 48 hours and survives a routine restart or upgrade, and
+draft recovery after a reload is an explicit opt-in.
+
 Network policy must permit the intended maintainer devices. The host must remain
 awake, online, and running Koinon and Tailscale. Account, certificate, and platform
 steps can require interaction outside Koinon, and diagnostics identify that step.
@@ -412,6 +416,50 @@ the dashboard off the LAN. The switch changes nothing when remote access cannot 
 so a person who uses the dashboard from another computer keeps a way in. Opening a network address stays an install
 step.
 
+
+## 9. Refinement: Remote control v2 fixed sign-in and recovery
+
+**Decided by:** Andrew Deugarte, 2026-11-12, direct conversation.
+
+**Context:** How long should remote browser sign-in last? The draft considered
+90-day/year retention and the earlier seven-day policy; Andrew first requested
+about 24 hours, then changed the requested fixed window to 48 hours. The choice
+was the duration, rather than adding a sliding extension or changing local/API
+policy.
+
+**Decision:** Andrew said, “Let's make it 48 actually,” then explicitly authorized
+implementation: “The confirmed session policy is a fixed 48 hours from sign-in,
+with no automatic extension. Remote login should survive routine restarts and
+upgrades within that original window. Local browser and maintainer API-token
+policies stay unchanged.” These words were verified against the direct
+conversation before recording this clarification.
+
+**Reason and scope:** Retain phone sign-in within that fixed window across routine
+restart/upgrade. This supersedes the earlier remote seven-day proposal. It covers
+remote browser sessions and the requested v2 implementation; it does not change
+local browser or maintainer API-token lifetimes. The later crash-survival and
+failed-persistence decision is recorded with its question, options and answer in
+[the v2 continuation](../../sprints/2026-11-12-remote-control-v2/decision.md).
+
+Remote sessions are browser sessions with explicit individual/all revocation,
+labels and a separate 32-session engineering capacity. Activity does not extend
+the deadline. Password replacement (even while stopped), remote disable and origin
+change revoke remote credentials and pending tickets. Routine shutdown and temporary
+network loss preserve the fixed window. Public sign-in remains generic.
+
+Reconnect refreshes reads and CSRF without write replay. Browser draft recovery is
+optional, off initially, private and explicit, with seven-day retention and documented
+offline-erasure limits. Messages, room posts and verdicts have transactional host
+receipts and explicit same-ID recovery; external terminal/process side effects do
+not gain exactly-once claims. Remote starts on Attention with browser-specific read
+cursors, distinct from agent acknowledgement. Observed diagnostics do not prove
+cellular access or actual device retention.
+
+The 32-session bound, storage representation, jitter and UI labels are engineering
+choices supporting the authorized spec, not separately dictated maintainer policy.
+Review when field device acceptance exposes retention/recovery issues or capacity
+requires revision. Actual phone/platform evidence is tracked in the v2 sprint.
+
 ## Conclusion
 
 Remote access reuses the dashboard's actions and login while making setup
@@ -431,3 +479,4 @@ unverified connectivity and action outcomes stay labeled as such.
 | 2026-11-12 | Record Robert Capps's decision TAILSCALE-AUTO-656 (#656): the terminal runs the Linux operator step after confirmation; the tailnet policy step stays manual. |
 | 2026-11-12 | Record Robert Capps's request for a chosen Serve HTTPS port (#665). |
 | 2026-11-12 | Record Robert Capps's request for a "localhost and tailnet only" choice (#665). |
+| 2026-11-12 | Record Andrew's v2 implementation authorization, fixed 48-hour policy, durable sessions and explicit recovery scope. |

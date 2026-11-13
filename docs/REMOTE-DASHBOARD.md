@@ -44,9 +44,10 @@ actual remote connection, rather than the screen width.
 
 ### Staying signed in
 
-A remote browser session allows seven days without activity and ends at most
-seven days after sign-in. Browser-cookie loss, logout, remote disable, password
-change, or daemon restart can end access earlier. Local browser and maintainer
+A remote browser session ends exactly 48 hours after sign-in. Activity and reconnects
+never extend it. Its hashed credential survives routine daemon restarts, reboot and
+upgrades in the private SQLite store. Browser-cookie loss, logout, revocation,
+remote disable, origin change or password change can end access earlier. Local browser and maintainer
 API-token sessions retain their 24-hour idle limit and seven-day maximum.
 
 The QR's two-minute lifetime applies only to starting a sign-in. Once redeemed,
@@ -56,7 +57,7 @@ the remote session has the longer lifetime above.
 
 A sign-in QR works once and expires after two minutes. Only the dashboard on the
 computer that runs Koinon creates one; the remote view has no **Show sign-in QR**, so
-a remote session cannot renew itself past its seven days. If a code expires, has
+a remote session cannot renew itself past its fixed 48 hours. If a code expires, has
 already been used, or the browser loses the response, create another QR from the
 signed-in computer or use the password form. A failed redemption is not retried
 automatically. Without JavaScript, use the ordinary password form.
@@ -296,8 +297,9 @@ port; the enabled ownership record stays, so the next start recreates the same
 URL and port. If that cleanup fails, shutdown reports the error and retains the
 record. A saved port conflict is reported instead of silently selecting another
 port; restoration removes the owned forwarding so it does not knowingly point to
-the occupying service. Upgrade retains this state. Logins end on daemon restart,
-so sign in again after upgrade or reboot.
+the occupying service. Upgrade retains this state. Remote logins keep their original
+48-hour deadline across daemon restart, upgrade and reboot; sign in again only
+when that window ends or credentials are revoked.
 
 An abrupt process kill, or unavailable Tailscale during shutdown cleanup, can
 leave the mapping pointing at a released loopback port until reconciliation.
@@ -368,8 +370,9 @@ pages read every five seconds and refresh on foregrounding or reconnecting. Data
 is labeled stale after 15 seconds without a successful displayed-data refresh.
 An open form or unsent field holds content replacement, preserving the current
 screen and draft. A successful connectivity read while content is held does not
-make the displayed data current. Drafts live only in page memory; a browser reload
-or discarded tab can lose them. Private pages are not cached for offline use.
+make the displayed data current. Drafts live in page memory by default; a browser
+reload or discarded tab can lose them unless optional browser draft saving is
+enabled (see Remote control v2 below). Private pages are not cached for offline use.
 
 A submitted form disables repeated submission while it runs. If its response is
 lost, the page says **Result unknown; check the latest state before trying
@@ -396,3 +399,67 @@ return screen after sign-in, without submitting the prior action.
 
 The [verification record](sprints/2026-11-11-remote-dashboard/verification.md) separates automated,
 source, real proxy, platform, and physical-device evidence.
+
+
+## Remote control v2
+
+The remote landing page is **Attention**: pending maintainer decisions and their
+oldest age, unread maintainer direct messages and canonical room posts, cached
+agent problems, and recent action receipts. Unknown activity is labeled. Counts
+and source links come from one SQLite snapshot; the receipts are this origin's
+unexpired ones. **Mark displayed snapshot read on this browser** advances only this
+browser session's cursors; it never acknowledges an agent inbox
+or resolves a decision. Follow the links for the full dashboard.
+
+**Settings → Signed-in remote devices** lists signed-in remote browser sessions, their
+labels, creation, expiry and last observed request. Rename or forget one browser, or
+**Forget all remote devices**, which also cancels open sign-in QR codes. These are
+browser sessions, not hardware identities or proof of a person being online.
+**Signed in until** shows the server deadline. First upgrade to v2 requires fresh
+sign-in; old seven-day cookies cannot start a durable session. Local browser and
+maintainer token policy stays unchanged. A full remote pool (32 sessions) requires
+forgetting an existing browser in **Settings → Signed-in remote devices** on the host or
+another signed-in device; new sign-in never silently evicts the everyday phone. The
+sign-in page shows this, and a QR code scanned at the limit stays valid until it
+expires, so scan it again after forgetting a device.
+
+While visible, failed reads back off through 1, 2, 5, 10 and 30 seconds with
+jitter; foreground and network-return checks are immediate. Hidden pages stop
+polling. A network timeout means **Cannot reach host**, with the last applied
+refresh time, not sign-out. Only explicit authentication rejection shows sign-in.
+Opening **Sign in again** in another tab keeps the existing form and unsent text;
+after sign-in, return and refresh. Fresh CSRF tokens are loaded without submitting
+forms. A refused old form token requires explicit submission after refresh.
+
+**Save drafts on this browser** is off initially. Opting in saves only unsent
+message and decision-feedback text, scoped to host, session, screen and target,
+for seven days. **Recover draft** is explicit, including after a new sign-in.
+Disable the option or clear drafts to remove saved text. Successful receipt-backed
+submission, logout and observed revocation clear the relevant drafts. A revoked
+offline browser retains its private local text until it reconnects. Browser storage
+failures leave forms usable and display a recovery warning. This storage is private
+text on that browser; it contains no passwords, cookies or QR tickets.
+
+Remote message sends, room posts and decision verdicts carry a client operation
+ID. Their receipt and mutation commit in one database transaction. A lost response
+can be checked through the authenticated receipt lookup, including after a new
+sign-in. Accepted means recorded by the host; delivery and acknowledgement are
+separate. Reusing an ID with changed content conflicts. An authoritative missing
+receipt offers an explicit same-ID retry during its seven-day window; reconnect
+never resubmits. Attention lists pending operations and links to inspect targets.
+After seven days, inspect the target and dismiss recovery before starting another
+action. At 10,000 unexpired receipts, new receipt-backed actions report capacity
+until old receipts expire; retained receipts remain available for lookup. Launch, terminal input, stop/restart and remote disable retain unknown-result
+behavior because their external side effects are outside these transactions.
+
+Private remote status reports observed session count, storage health, last
+reconciliation and last authentication-ending reason. The session count, last
+reason, **Phone connected at** and a revocation that could not be saved are
+observations of the current daemon run and reset at restart. A failed revocation is
+retried at each status read while the daemon runs; after a restart, forget that
+device again. Without a maintainer secret, remote status reports no sessions, not a
+storage fault. Invalid stored session rows are counted and deny only their own
+cookie; **Forget all remote devices** deletes them. **Phone connected at** is a
+server observation of an authenticated browser request; it does not prove cellular
+use. Cellular and installed-home-screen verification require actual device tests.
+No authenticated pages are cached and no background write queue is installed.

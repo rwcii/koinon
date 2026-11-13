@@ -2610,7 +2610,8 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   (#454), is `HttpOnly`, `SameSite=Strict`, `Path=/dashboard/`, has no `Domain` and has
   `Max-Age=604800` (7 days), so it survives a browser restart. A session ends after 24 hours without a request,
   7 days after it started, at logout, when 16 newer sessions exist, or when the daemon restarts
-  (#435). The daemon keeps only SHA-256 hashes of tokens and session IDs, in memory.
+  (#435). The daemon keeps only SHA-256 hashes of tokens and session IDs. Local/API
+  records stay in memory; remote browser records are durable under the v2 policy below.
 - **Maintainer secret** (PDR 009). `koinon maintainer secret set|generate|clear` sends
   `POST /v1/maintainer/secret` with `{"action": "set"|"generate"|"clear", "secret": TEXT}`;
   `secret` is given only for `set` and is valid UTF-8 of at least 12 characters and at most 1024
@@ -2774,12 +2775,13 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   certificate SHA-256 fingerprint and any required step; it opens the loopback one-time link.
   On the separate Serve surface the cookie is named `koinon_remote_dashboard`,
   has `Secure`, `HttpOnly`, `SameSite=Strict`, and `Path=/dashboard/`, and has no
-  Domain. Its in-memory session is bound to the remote origin; a local session ID
+  Domain. Its `Max-Age` is the time left until the login's 48-hour deadline. Its durable
+  hashed session is bound to the remote origin; a local session ID
   copied into its cookie, or a remote ID copied into a local cookie, authenticates
   neither crossover. Remote sessions start with the maintainer secret or a one-time
-  sign-in ticket; a local one-time link is refused. A remote login allows 7 days without a
-  request and 7 days in all. Restart, secret change, remote disable, and origin change end
-  remote logins and outstanding tickets. Actions use the same handlers and audit/verdict
+  sign-in ticket; a local one-time link is refused. A remote login lasts exactly 48 hours from sign-in, without extension. Routine
+  restart retains that deadline. Secret change, remote disable and origin change end
+  remote logins and outstanding tickets; restart ends outstanding tickets only. Actions use the same handlers and audit/verdict
   attribution as the local dashboard.
   - `POST /dashboard/remote/ticket` (request protection above) issues a sign-in ticket. Only a
     dashboard session on the host issues one; a remote session, a maintainer token, remote
@@ -2791,7 +2793,7 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     Each ticket writes the audit record `remote_pair_ticket remote dashboard`.
   - On the remote surface only, `GET /dashboard/pair` shows the sign-in page and consumes
     nothing; `POST /dashboard/pair` with one form field `ticket` consumes the ticket and starts
-    one remote session (303 to `/dashboard/sessions`), and writes `maintainer_login remote QR`.
+    one remote session (303 to `/dashboard/attention`), and writes `maintainer_login remote QR`.
     A malformed form is 400, an unknown, used or expired ticket 401. Elsewhere both are 404.
   - `GET /dashboard/remote/status?fragment=1` returns the Settings remote panel as HTML; without
     `fragment=1` it is 303 to `/dashboard/settings?remote_status=1#remote-access`.
@@ -3429,3 +3431,62 @@ moves no participant, claim or cursor. Reporter evidence is transient and is exc
 peer status, dashboard values, stored observations and logs. Hook output and the user's status-
 line command's exit result are unchanged. These observations remain subject to the existing
 source validation and freshness windows.
+
+
+### Remote control v2 browser contracts
+
+See PDR 010 and ADR 002. Remote cookies authenticate only their configured origin,
+for a fixed 48 hours from original authentication, with durable hashed records.
+Local/API sessions keep their existing policy. Ordinary listener shutdown preserves
+remote credentials; password/origin change, disable and explicit revocation do not.
+
+Authenticated, origin-checked browser routes (all POSTs also require current CSRF):
+
+- `GET /dashboard/session`: JSON `csrf`, nonsecret `session_id`, `expires_at` and
+  `server_time` (Unix milliseconds). Loading it refreshes the browser's host-time
+  anchor without extending expiry or submitting a form.
+- `GET /dashboard/remote/devices`: JSON `devices`, `current`, `csrf`. Each device has
+  `id`, `label`, `created_at`, `last_observed`, `expires_at`, `this_browser`.
+- `POST /dashboard/remote/devices`: form `action=rename|revoke|revoke-all`, `id`
+  for one device and `label` for rename (1 to 80 characters, one line). Success follows
+  durable commit. A wrong form answers 400, and an unknown, revoked or expired device ID
+  answers 404 `remote_device_not_found`. Storage failure answers 503 with an
+  incomplete-revocation error and immediately denies memory access; the daemon retries the
+  saved revocation at each status read while it runs, so forget the device again after a
+  restart that came before the retry. `revoke-all` also cancels outstanding sign-in
+  tickets; one device's revoke keeps them.
+- `GET /dashboard/attention`: one source snapshot of waiting decisions, browser
+  unread cursors, observed problems and the newest 20 unexpired receipts of this origin. `POST /dashboard/actions/attention-read`
+  with `direct` and `room` source heads advances only this browser's read cursors.
+- Receipt-supported remote `send`, `room-post` and decision verdict forms accept
+  `operation_id` (16–128 alphanumeric/underscore/hyphen characters) and
+  `operation_created_at` (original host-time Unix milliseconds). Browser code
+  derives it from the rendered host timestamp and monotonic elapsed time, retains
+  it unchanged with the ID across retries, and does not use the phone wall clock.
+  The host allows up to one minute of future tolerance on this original timestamp;
+  this freshness bound prevents a reclaimed ID from acquiring a far-future retry
+  window. An absent ID whose original timestamp is seven days old is refused.
+  A retained receipt is checked first, so its full window remains available.
+  The host stamps receipt creation at first acceptance and retains it for seven
+  days from that host time. An expired receipt can remain as an invisible
+  tombstone for the future-tolerance remainder, so reclamation cannot make the
+  same unchanged ID fresh. Legacy browser pending metadata without the original
+  host timestamp stays unknown and requires explicit target inspection/dismissal;
+  recovery never silently replaces its ID or timestamp. The host-wide ID namespace
+  survives reauthentication; content digest/type/target/origin mismatch conflicts.
+  Mutation and accepted receipt, or a supported revision-conflict receipt, commit
+  together. Forms without these fields retain ordinary action behavior.
+- `GET /dashboard/receipts?id=ID`: authenticated JSON `found`, `authoritative`,
+  `server_time`, optional `receipt` or `expired`. Lookup requires the same remote
+  origin; another origin's receipt answers 409. Receipt fields include `id`, attribution
+  `session_id`, `origin`, `type`, `target`, digest, fixed seven-day
+  `created_at`/`expires_at`, `state`, `code`, opaque `result_target` and the optional
+  original `result`. Acceptance is distinct from message delivery/acknowledgement.
+
+`X-Koinon-Auth-Reason` on rejected authenticated reads identifies available
+`session_expired`, `device_revoked`, `password_changed`, `remote_disabled`,
+`origin_changed` or `unknown_credential` evidence; a logout ends the session with
+`device_revoked`, and a cleared maintainer secret with `password_changed`. Missing
+historical state stays unknown. Public sign-in copy remains generic. Receipts and pending IDs never
+authorize a write, bypass CSRF or permit automatic retries. Remote `/v1/` remains
+unavailable. Private diagnostics exclude raw credentials and message bodies.

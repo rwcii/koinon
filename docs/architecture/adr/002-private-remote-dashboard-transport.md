@@ -106,7 +106,8 @@ The implementation follows these boundaries from the authorized specification:
   local cookie does not authorize the local surface, or vice versa. Writes retain
   Origin and session-bound CSRF checks.
 - Remote browser idle time is seven days, with the existing seven-day absolute
-  maximum (PDR 010, Refinement 5). Local browser and maintainer-token idle time
+  maximum (PDR 010, Refinement 5). Decision 5 replaces this lifetime and the restart
+  rule below for remote browsers: a fixed 48 hours that survives a routine restart. Local browser and maintainer-token idle time
   remains 24 hours under PDR 009. Restart,
   secret change, remote disable, and external-origin change end the relevant
   logins. An identity or Serve/Funnel conflict observed at status or the
@@ -373,6 +374,51 @@ TLS session resumption after unpair; a refused unpaired key shown in status; the
 the invitation. The raw TCP Serve probe on a tailnet host is in
 [the verification record](../../sprints/2026-11-12-system-link/verification.md).
 
+
+## 5. Decision: Remote control v2 durable authentication and atomic receipts
+
+**Source:** Andrew Deugarte's direct implementation request, 2026-11-12. Decided by Robert
+Capps for release v0.11.0, 2026-11-13 (REL-SCOPE-673, in the sprint decision record).
+[PDR 010 §9](../../product/pdr/010-private-remote-dashboard-access.md#9-refinement-remote-control-v2-fixed-sign-in-and-recovery)
+records the retention question, alternatives and his quoted fixed-48-hour answer.
+The architecture below implements that scope; it does not introduce a separate
+lifetime decision. See also `docs/REMOTE-CONTROL-V2-SPEC.md`.
+
+Use the existing private SQLite database and opaque bearer cookie; persist only
+its hash, a noncredential session ID, origin, credential-generation binding,
+fixed deadline, observations, label and revocation state. The generation is a
+domain-separated digest of the actual maintainer secret record's random salt;
+it detects replacement while the daemon is stopped without saving the password
+or a reusable credential. Issuance/revocation commit before success. Storage
+failure denies access immediately and reports incomplete durable revocation.
+
+The per-start CSRF key stays ephemeral. Surviving browsers fetch fresh tokens
+without replacing unsent text or replaying actions. Listener shutdown is separated
+from credential revocation; Tailscale mapping ownership and conflict rules remain.
+
+Engineering choice: versioned, namespaced JSON records live in the existing
+non-STRICT `settings` table. SQLite retains JSON text under its INTEGER affinity;
+known timing readers select timing keys explicitly. The v2 records add no table,
+and older binaries ignore these rows; their in-memory sessions cannot use v2
+credentials. The store schema does not stay at 37: v0.11.0, which ships v2, also
+moves the store to schema 38 for the link's messages (#670 chunk 03), and v0.10.x
+refuses a schema 38 store.
+A typed-table migration can replace this representation when rollback compatibility
+can be changed deliberately. Never use a WAL-attached sidecar for cross-database
+receipt/mutation atomicity.
+
+Receipt records share the mutation's database transaction and host operation-ID
+namespace. An engineering bound of 10,000 unexpired receipts rejects additional
+receipt-backed writes with capacity rather than evicting a promised seven-day
+receipt; retained-result lookup still works when ordinary write admission blocks. Seven-day deduplication checks type/target/origin and payload digest;
+reauthentication changes attribution, never the namespace. Message delivery and
+acknowledgement remain separate effects. Decision revision conflicts are retained
+as original outcomes. Attention cursors use a separate browser namespace and never
+change inbox acknowledgement. Private browser drafts are not daemon storage.
+
+Review when schema compatibility changes or production evidence calls for a new
+storage bound. Automated and actual phone/platform acceptance stay distinct.
+
 ## Conclusion
 
 Private remote browser access has a dedicated listener and credential surface,
@@ -392,3 +438,5 @@ Serve mapping and records recoverable lifecycle transitions.
 | 2026-11-12 | Decision 4: the link between Koinon computers is part of Remote (LINK-670-PAIR, Robert Capps, #670). |
 | 2026-11-13 | Decision 4: the link carries the receiver directory and name updates (#670 chunk 02). |
 | 2026-11-13 | Decision 4: the link carries agent direct messages, queued at the sender (#670 chunk 03). |
+| 2026-11-12 | Record Andrew's v2 implementation authorization, fixed 48-hour policy, durable sessions and explicit recovery scope. |
+| 2026-11-13 | Decision 5: Robert Capps takes the v2 policy choices as his and puts v2 in v0.11.0 (REL-SCOPE-673). |
