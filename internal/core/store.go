@@ -367,7 +367,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 37
+const schemaVersion = 38
 
 // workItemsV16Columns are the work item columns before schema 17, which its rebuild copies.
 const workItemsV16Columns = `store,work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,created_at,created_consumer,
@@ -944,6 +944,13 @@ func migrate(db *sql.DB, version, target int) error {
 		if _, err := tx.Exec(`ALTER TABLE context_enables ADD COLUMN kept_epoch TEXT NOT NULL DEFAULT '';
 			ALTER TABLE context_enables ADD COLUMN kept_revision INTEGER NOT NULL DEFAULT 0;
 			ALTER TABLE context_enables ADD COLUMN kept_read INTEGER NOT NULL DEFAULT 0 CHECK (kept_read IN (0,1));`); err != nil {
+			return err
+		}
+	}
+	if version < 38 && target >= 38 {
+		// Version 38: the queue to paired computers, the ordered stream of each pair, and the
+		// link origin of a received message (#670 chunk 03, LINK-670-OFFLINE).
+		if _, err := tx.Exec(linkOutboxTablesV38); err != nil {
 			return err
 		}
 	}

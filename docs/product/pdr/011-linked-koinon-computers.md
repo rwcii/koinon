@@ -3,7 +3,7 @@ pdr: "011"
 title: "Linked Koinon Computers"
 status: accepted
 created: "2026-11-12"
-updated: "2026-11-12"
+updated: "2026-11-13"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -103,8 +103,11 @@ maintainer secret is in PDR 009; Remote is in PDR 010.
 - **Review when:** agents need shared memory, work, rooms or decisions across computers, or the
   maintainer wants to write to the other computer from one dashboard.
 - **Shipped:** chunk 01 carries pairing, `ping` and `unpair`; chunk 02 carries the receiver
-  list of item 2 (`directory`) and `name-update`; item 5 holds. Items 1, 3 and 4 (messages) are
-  pending (chunk 03); until then a send to a paired computer answers `link_messages_pending`.
+  list of item 2 (`directory`) and `name-update`; item 5 holds. Chunk 03 carries items 1, 3 and
+  4: `deliver` and `cancel` put direct messages in the receiver's inbox with its ordinary wake,
+  each with its pair and the sender's `NAME@COMPUTER` and `origin` `link`; a sender family of
+  maintainer or overwatch is refused; the link has no other operation; bodies cross only on the
+  paired link and stay in each daemon's private store (the outbox, its streams and the inbox).
 
 ## 4. Decision 3: Addresses (LINK-670-ADDR)
 
@@ -135,7 +138,9 @@ maintainer secret is in PDR 009; Remote is in PDR 010.
   pair's local name, which **Rename** changes); in chunk 02, a name change reaches the paired
   computers, `NAME@COMPUTER` names their sessions in `peers`, `peer_status` and the dashboard,
   and an unknown COMPUTER is refused at the sender with no lookup and no connection (item 5).
-  Delivery to NAME and item 6 come with the messages (chunk 03).
+  Chunk 03: the other computer resolves NAME, a held address to its participant inbox; a queued
+  message and a reply (`reply_to`) stay bound to the pair, so a rename keeps them and a new
+  pairing under the same name never receives them (item 6).
 
 ## 5. Decision 4: Delivery when the other computer cannot be reached (LINK-670-OFFLINE)
 
@@ -152,7 +157,11 @@ maintainer secret is in PDR 009; Remote is in PDR 010.
   loses no message and keeps the order.
 - **Review when:** messages that arrive very late cause harm, or agents need the read state of
   a message on another computer.
-- **Shipped:** pending (chunk 03).
+- **Shipped:** chunk 03: the outbox and the ordered stream of each pair (schema 38), with the
+  states queued, received, refused, cancelled and may have been delivered; the maintainer's
+  cancel; limits of 1,000 messages and 16 MiB for each computer and 10,000 and 64 MiB in all
+  (engineering values), and finished entries kept 30 days (the proposed value). Evidence of the
+  live round trip between a Linux and a macOS computer is in the sprint's `verification.md`.
 
 ## Conclusion
 
@@ -166,3 +175,4 @@ computer keeps its own stores and controls.
 | --- | --- |
 | 2026-11-12 | Record LINK-670-WHO, WHAT, ADDR and OFFLINE, approved by Robert Capps; chunk 01 (pairing) shipped (#670, #674). |
 | 2026-11-13 | Chunk 02: the receiver directory and NAME@COMPUTER addresses shipped; delivery pending (#670). |
+| 2026-11-13 | Chunk 03: messages between paired computers shipped: the queue, its delivery order and states, replies on the pair, cancel and the limits (#670). |

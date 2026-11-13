@@ -20,7 +20,12 @@ import (
 // Dashboard action tests (sprint chunk 09): a real daemon on ephemeral loopback ports,
 // temporary state, synthetic sessions and a patched launcher.
 
-// undoSchemaThirtySeven removes the ready-timeout retry of the Enable records (READY-TIMEOUT-ENABLE-487 in PDR 006, Decision 2).
+// undoSchemaThirtyEight + undoSchemaThirtySeven removes the ready-timeout retry of the Enable records (READY-TIMEOUT-ENABLE-487 in PDR 006, Decision 2).
+// undoSchemaThirtyEight removes the queue to paired computers (#670 chunk 03).
+const undoSchemaThirtyEight = `DROP INDEX messages_link; ALTER TABLE messages DROP COLUMN link_sender;
+	ALTER TABLE messages DROP COLUMN link_xid; ALTER TABLE messages DROP COLUMN link_pair;
+	DROP TABLE link_streams; DROP TABLE link_outbox; `
+
 const undoSchemaThirtySeven = `ALTER TABLE context_enables DROP COLUMN kept_epoch; ALTER TABLE context_enables DROP COLUMN kept_revision;
 	ALTER TABLE context_enables DROP COLUMN kept_read; `
 
@@ -620,7 +625,7 @@ func TestSchemaSixMigrationAndRollback(t *testing.T) {
 	}
 	// A schema 6 database that already holds the name maintainer cannot migrate: the
 	// whole step rolls back and the database stays at 6.
-	if _, err := fixtureExec(s, undoSchemaThirtySeven+undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+undoSchemaTwentyOne+undoSchemaTwenty+undoSchemaNineteen+undoSchemaEighteen+undoSchemaSeventeen+undoSchemaSixteen+undoSchemaFifteen+undoSchemaFourteen+undoSchemaThirteen+undoSchemaTwelve+undoSchemaEleven+undoSchemaTen+undoSchemaNine+undoSchemaEight+undoSchemaSeven+`INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','codex','x'); PRAGMA user_version=6`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaThirtyEight+undoSchemaThirtySeven+undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+undoSchemaTwentyOne+undoSchemaTwenty+undoSchemaNineteen+undoSchemaEighteen+undoSchemaSeventeen+undoSchemaSixteen+undoSchemaFifteen+undoSchemaFourteen+undoSchemaThirteen+undoSchemaTwelve+undoSchemaEleven+undoSchemaTen+undoSchemaNine+undoSchemaEight+undoSchemaSeven+`INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','codex','x'); PRAGMA user_version=6`); err != nil {
 		t.Fatal(err)
 	}
 	s.db.Close()

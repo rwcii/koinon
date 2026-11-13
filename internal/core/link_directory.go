@@ -23,7 +23,6 @@ const (
 
 var (
 	ErrLinkComputerUnknown  = Refusal{"link_computer_unknown", "no paired computer has that name; see koinon link status"}
-	ErrLinkMessagesPending  = Refusal{"link_messages_pending", "this Koinon version does not send messages to other computers yet; the computer is paired"}
 	ErrLinkMaintainerRemote = Refusal{"link_maintainer_remote", "the maintainer sends only to sessions on this computer; use the other computer's dashboard"}
 	ErrLinkAddressInvalid   = Refusal{"link_address_invalid", "use NAME@COMPUTER: NAME as on that computer, COMPUTER as this computer's name for it"}
 )
@@ -192,9 +191,20 @@ func (d *Daemon) acceptNameUpdate(pin, id, name string, gen uint64) error {
 		return ErrLinkNoPair
 	}
 	if d.renamePairLocked(&s, i, name) {
-		return link.WriteState(d.root, s)
+		if err := link.WriteState(d.root, s); err != nil {
+			return err
+		}
+		d.showPairName(s.Pairs[i])
 	}
 	return nil
+}
+
+// showPairName shows a pair's effective name on the messages that came from it. The link
+// lock is held; the store comes after it in the lock order.
+func (d *Daemon) showPairName(p link.Pair) {
+	ctx, cancel := context.WithTimeout(context.Background(), linkIOTimeout/2)
+	defer cancel()
+	d.store.linkShowComputer(ctx, p.ID, p.Effective)
 }
 
 type linkNameUpdate struct {
@@ -239,8 +249,11 @@ func (d *Daemon) pollDirectory(session linkSession, gen uint64, p link.Pair) {
 	if !ok {
 		return
 	}
-	if d.renamePairLocked(&s, i, name) && link.WriteState(d.root, s) != nil {
-		return
+	if d.renamePairLocked(&s, i, name) {
+		if link.WriteState(d.root, s) != nil {
+			return
+		}
+		d.showPairName(s.Pairs[i])
 	}
 	if d.link.directories == nil {
 		d.link.directories = map[string]linkCache{}
@@ -359,34 +372,4 @@ func (d *Daemon) remotePeerStatus(to string) (PeerStatus, error) {
 		activity.Reason = ""
 	}
 	return PeerStatus{Peer: remoteRow(p.Effective, e, c, stale), ObservedAt: c.at, Model: unknown, Context: unknown, Activity: activity}, nil
-}
-
-// remoteSend is a send to NAME@COMPUTER. The caller and the body are checked as for any send.
-// An unknown COMPUTER is refused with no lookup and no connection. A known COMPUTER is refused
-// with link_messages_pending: chunk 02 of #670 has no message queue; chunk 03 adds it. The
-// maintainer sends only on this computer (LINK-670-WHAT item 5).
-func (d *Daemon) remoteSend(ctx context.Context, caller *Key, to, body string) error {
-	if body == "" || len(body) > maxBody || !utf8.ValidString(body) {
-		return ErrInvalid
-	}
-	if caller == nil {
-		return ErrLinkMaintainerRemote
-	}
-	if err := d.store.activeCaller(ctx, *caller, d.store.now().UnixMilli()); err != nil {
-		return err
-	}
-	_, computer, err := link.ParseAddress(to)
-	if err != nil {
-		return ErrLinkAddressInvalid
-	}
-	d.link.mu.Lock()
-	s, err := link.ReadState(d.root)
-	d.link.mu.Unlock()
-	if err != nil {
-		return err
-	}
-	if !slices.ContainsFunc(s.Pairs, func(p link.Pair) bool { return p.Effective == computer }) {
-		return ErrLinkComputerUnknown
-	}
-	return ErrLinkMessagesPending
 }

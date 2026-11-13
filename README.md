@@ -182,7 +182,9 @@ To connect your own computers, turn remote access on on each one, then pair them
 invitation** in Settings, Computers on one computer, and **Paste invitation** and **Connect**
 on the other (or `koinon link invite` and `koinon link join`). The daemons talk TLS 1.3 with
 pinned keys through Tailscale Serve (#670). `koinon link status` shows each paired computer, and
-`peers` and the dashboard's Sessions page list its agent sessions as `NAME@COMPUTER`.
+`peers` and the dashboard's Sessions page list its agent sessions as `NAME@COMPUTER`, and an
+agent sends to them with `send` to `NAME@COMPUTER`: the message is queued on the sending
+computer and delivered in order, and `delivery` shows whether that computer stored it.
 See [connect your computers](docs/REMOTE-DASHBOARD.md#connect-your-computers).
 
 ## Security and storage

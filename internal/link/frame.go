@@ -9,7 +9,7 @@ import (
 )
 
 // MaxFrameBytes bounds one frame on the link's TLS stream.
-const MaxFrameBytes = 64 << 10
+const MaxFrameBytes = 128 << 10
 
 // Frame is one request or reply on the link: an operation and its fields. Error is a code
 // and Step the next step, for a refused request.

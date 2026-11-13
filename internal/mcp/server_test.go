@@ -308,6 +308,19 @@ func TestCodexThreadsAreSeparateSessions(t *testing.T) {
 	if outcome, isError := h.tool("delivery", map[string]any{"message_id": id}, b); !isError || outcome["code"] != "message_not_found" {
 		t.Fatalf("other sender's outcome: %v", outcome)
 	}
+	// A message to another computer is read by link_id; exactly one of the two IDs (#670).
+	if outcome, isError := h.tool("delivery", map[string]any{"link_id": strings.Repeat("0", 32)}, a); !isError || outcome["code"] != "link_message_not_found" {
+		t.Fatalf("unknown link_id: %v", outcome)
+	}
+	for _, args := range []map[string]any{{}, {"message_id": id, "link_id": strings.Repeat("0", 32)}} {
+		if _, isError := h.tool("delivery", args, a); !isError {
+			t.Fatalf("delivery %v accepted", args)
+		}
+	}
+	// reply_to without to answers a message from another computer; this one is local.
+	if outcome, isError := h.tool("send", map[string]any{"body": "x", "reply_to": 1}, b); !isError || outcome["code"] != "link_reply_local" {
+		t.Fatalf("local reply_to: %v", outcome)
+	}
 }
 
 func TestIdentitySources(t *testing.T) {

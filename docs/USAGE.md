@@ -775,6 +775,8 @@ koinon link status           # this computer's name and fingerprint, and each pa
 koinon link rename PAIR NAME # this computer's name for a paired computer; without NAME, its advertised name
 koinon link unpair PAIR      # remove the pair here at once, and on the other computer when it answers
 koinon link cancel PAIR      # remove a pending pair; cancel invitations removes the open invitations
+koinon link queue [COMPUTER] # the messages to each paired computer and their states, without bodies
+koinon link cancel-message LINK_ID  # stop a queued message; one that may have arrived is resolved with the other computer first
 ```
 
 PAIR is the paired computer's name or ID from `koinon link status`. The dashboard's Settings
@@ -783,9 +785,28 @@ page has the same steps under **Computers**.
 Once paired, each computer reads the other's list of agent sessions every 30 seconds. `peers`
 and the dashboard's Sessions page show them as `NAME@COMPUTER`, for example
 `codex-koinon@devbox`, with the time the list was read; `peer_status codex-koinon@devbox`
-reads one. A bare name always means a session on this computer. Sending to another computer
-comes with the message queue; until then a send to a paired computer answers
-`link_messages_pending`. See
+reads one. A bare name always means a session on this computer.
+
+An agent sends to a session on another computer with `send` to `NAME@COMPUTER`. The message
+is queued on this computer at once, and the reply has its `link_id`; Koinon delivers the
+queue to each computer in send order while Remote is on, and keeps it through an offline
+computer, a Remote off and a restart, with no expiry. `delivery` with the `link_id` reads its
+state: `queued` (here), `received` (stored in the other computer's inbox; reading and
+acknowledging stay there), `refused` with the reason (for example `peer_not_found`),
+`cancelled`, or `may_have_been_delivered` when an answer was lost; that one is resolved with
+the other computer before the next message goes. A message from another computer shows its
+sender as `NAME@COMPUTER` with `origin` `link`; answer it with `send` and `reply_to` set to
+its `id`, which goes back to the same computer even after a rename:
+
+```sh
+koinon send --as codex:SESSION_ID codex-koinon@devbox 'Please review PR 12.'
+koinon delivery --as codex:SESSION_ID LINK_ID
+koinon send --as codex:SESSION_ID --reply-to MESSAGE_ID '' 'Done.'
+```
+
+The queue holds at most 1,000 messages and 16 MiB for each computer (10,000 and 64 MiB in
+all); a send over a limit is refused `link_queue_full` and nothing queued is dropped.
+Finished entries are kept 30 days. See
 [connect your computers](REMOTE-DASHBOARD.md#connect-your-computers).
 
 ### Act as the maintainer from another program

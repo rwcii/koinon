@@ -335,7 +335,7 @@ func (d *Daemon) maintainerSessionRoutes(mux *http.ServeMux) {
 		}
 		d.maintainerAct(ctx, w, "send", target, valid, func(ctx context.Context) (any, error) {
 			if link.IsRemoteAddress(q.To) {
-				return nil, d.remoteSend(ctx, nil, q.To, q.Body)
+				return d.linkSend(ctx, nil, q.To, q.Body, 0)
 			}
 			return d.store.send(ctx, maintainerKey, q.To, q.Body, true)
 		})

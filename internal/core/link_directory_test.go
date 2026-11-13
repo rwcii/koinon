@@ -121,11 +121,19 @@ func TestLinkDirectoryPeersStatusAndSend(t *testing.T) {
 		}
 	}
 
-	// send: the chunk 02 boundary; nothing is stored or sent.
-	for to, code := range map[string]string{"x@gamma": "link_computer_unknown", reviewer.Address + "@beta": "link_messages_pending",
-		"nobody@beta": "link_messages_pending", "a@b@beta": "link_address_invalid"} {
+	// send: an unknown computer or a malformed address is refused at the sender, with no
+	// connection; a known computer queues (chunk 03), and the other computer resolves NAME.
+	for to, code := range map[string]string{"x@gamma": "link_computer_unknown", "a@b@beta": "link_address_invalid"} {
 		if status, reply = callerPost(t, a, "/v1/messages/send", map[string]any{"caller": agentKey(local), "to": to, "body": "hello"}); status == 200 || reply["code"] != code {
 			t.Fatalf("send %s: %d %v", to, status, reply)
+		}
+	}
+	for _, to := range []string{reviewer.Address + "@beta", "nobody@beta"} {
+		if status, reply = callerPost(t, a, "/v1/messages/send", map[string]any{"caller": agentKey(local), "to": to, "body": "hello"}); status != 200 {
+			t.Fatalf("send %s: %d %v", to, status, reply)
+		}
+		if m, _ := reply["message"].(map[string]any); m["delivery_state"] != "queued" || m["link_id"] == "" || m["recipient"] != to {
+			t.Fatalf("send %s: %v", to, reply)
 		}
 	}
 	if status, reply = callerPost(t, a, "/v1/messages/send", map[string]any{"caller": Key{"codex", "synthetic-none"}, "to": "x@beta", "body": "hello"}); status == 200 {
@@ -465,10 +473,21 @@ func TestLinkLongAddresses(t *testing.T) {
 	if len(widest) != 510 {
 		t.Fatal("fixture")
 	}
-	for to, code := range map[string]string{full: "link_messages_pending", widest: "link_messages_pending"} {
-		if status, reply := callerPost(t, a, "/v1/messages/send", map[string]any{"caller": agentKey(local), "to": to, "body": "hello"}); status == 200 || reply["code"] != code {
+	// Both addresses queue whole; the other computer stores the first and refuses the
+	// second, whose NAME it does not know (chunk 03).
+	for to, want := range map[string]string{full: "received", widest: "refused"} {
+		status, reply := callerPost(t, a, "/v1/messages/send", map[string]any{"caller": agentKey(local), "to": to, "body": "hello"})
+		m, _ := reply["message"].(map[string]any)
+		if status != 200 || m["recipient"] != to {
 			t.Fatalf("send %d bytes: %d %v", len(to), status, reply)
 		}
+		if got := waitLinkState(t, a, local, m["link_id"].(string)); got["delivery_state"] != want {
+			t.Fatalf("send %d bytes: %v", len(to), got)
+		}
+	}
+	inbox := readInbox(t, b, reviewer)
+	if len(inbox) != 1 || inbox[0]["sender_name"] != fromName(local)+"@alpha" {
+		t.Fatalf("long address inbox: %v", inbox)
 	}
 	if status, reply := callerPost(t, a, "/v1/peers/status", map[string]any{"caller": agentKey(local), "peer": widest}); status == 200 || reply["code"] != "peer_not_found" {
 		t.Fatalf("510-byte status: %d %v", status, reply)

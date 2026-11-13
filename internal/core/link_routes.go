@@ -20,6 +20,17 @@ import (
 
 const linkCallTimeout = 2*linkIOTimeout + 4*time.Second
 
+// linkWaits are the link actions that can wait for the other computer, Tailscale or Serve up
+// to linkCallTimeout, longer than the servers' 10-second write timeout (#677).
+var linkWaits = map[string]bool{"link-name": true, "link-invite": true, "link-join": true, "link-unpair": true}
+
+// linkWaitWrite lets such an action write its answer up to linkCallTimeout plus 5 seconds
+// after it starts, so that a late refusal reaches the caller and does not end as a closed
+// connection. A writer without deadlines keeps its own.
+func linkWaitWrite(w http.ResponseWriter) {
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(linkCallTimeout + 5*time.Second))
+}
+
 // LinkInvitationResult is a new invitation and how long it is valid.
 type LinkInvitationResult struct {
 	Invitation     string `json:"invitation"`
@@ -51,6 +62,9 @@ var ErrLinkAuditFailed = Refusal{"link_audit_failed", "the change was made, but 
 // linkAct runs one link change as a maintainer action and records it as accepted with the
 // token's origin: the change is in the link's files, not in the store.
 func (d *Daemon) linkAct(ctx context.Context, w http.ResponseWriter, action, target string, valid bool, apply func(ctx context.Context) (any, error)) {
+	if linkWaits[action] {
+		linkWaitWrite(w)
+	}
 	d.maintainerAct(ctx, w, action, target, valid, func(ctx context.Context) (any, error) {
 		result, err := apply(ctx)
 		if err != nil {
@@ -119,6 +133,21 @@ func (d *Daemon) linkMaintainerRoutes(mux *http.ServeMux) {
 			return nil, d.linkCancel(q.Pair)
 		})
 	})
+	maintainerRoute(d, mux, "link-queue", 16384, func(ctx context.Context, w http.ResponseWriter, q struct {
+		maintainerToken
+		Pair string `json:"pair"`
+	}) {
+		queues, err := d.linkQueues(ctx, q.Pair)
+		maintainerRead(w, queues, err)
+	})
+	maintainerRoute(d, mux, "link-cancel-message", 16384, func(ctx context.Context, w http.ResponseWriter, q struct {
+		maintainerToken
+		LinkID string `json:"link_id"`
+	}) {
+		d.linkAct(ctx, w, "link-cancel-message", linkTarget("message", q.LinkID), q.LinkID != "", func(ctx context.Context) (any, error) {
+			return d.linkCancelMessage(ctx, q.LinkID)
+		})
+	})
 	maintainerRoute(d, mux, "link-rename", 16384, func(ctx context.Context, w http.ResponseWriter, q struct {
 		maintainerToken
 		Pair string `json:"pair"`
@@ -134,18 +163,20 @@ func (d *Daemon) linkMaintainerRoutes(mux *http.ServeMux) {
 // step that its message names.
 func init() {
 	for code, text := range map[string]string{
-		"link_named":        "This computer's name and link port were saved, and the link is open.",
-		"link_joined":       "The computers are paired.",
-		"link_unpaired":     "The computer was unpaired. The other computer removes the pair when it answers, or shows it as rejected at its next connection.",
-		"link_cancelled":    "The pending pair or the open invitations were cancelled.",
-		"link_renamed":      "The computer's name on this computer was saved.",
-		"link_audit_failed": "The change was made, but its audit record could not be written.",
+		"link_named":             "This computer's name and link port were saved, and the link is open.",
+		"link_joined":            "The computers are paired.",
+		"link_unpaired":          "The computer was unpaired. The other computer removes the pair when it answers, or shows it as rejected at its next connection.",
+		"link_cancelled":         "The pending pair or the open invitations were cancelled.",
+		"link_renamed":           "The computer's name on this computer was saved.",
+		"link_message_cancelled": "The message was cancelled, or its cancel waits for the other computer's answer.",
+		"link_audit_failed":      "The change was made, but its audit record could not be written.",
 	} {
 		noticeText[code] = text
 	}
 	for _, r := range []Refusal{ErrLinkRemoteOff, ErrLinkNotSetUp, ErrLinkNoPair, ErrLinkSelf, ErrLinkPaired, ErrLinkNameUsed,
 		ErrLinkPortRange, ErrLinkUnreachable, ErrLinkWrongKey, ErrLinkInvitation, ErrLinkLimit, ErrLinkNameInvalid, ErrLinkTextInvalid,
-		ErrLinkComputerUnknown, ErrLinkMessagesPending, ErrLinkMaintainerRemote, ErrLinkAddressInvalid} {
+		ErrLinkComputerUnknown, ErrLinkMaintainerRemote, ErrLinkAddressInvalid, ErrLinkQueueFull, ErrLinkMessageGone,
+		ErrLinkReplyPairGone, ErrLinkReplyTarget, ErrLinkReplyLocal} {
 		noticeText[r.Code] = "Refused: " + r.Message + "."
 	}
 }
@@ -195,6 +226,9 @@ func (d *Daemon) dashboardLinkRoutes(mux *http.ServeMux, authed func(func(http.R
 	}
 	act := func(name string, target func(*http.Request) string, done string, apply func(ctx context.Context, r *http.Request) error) {
 		mux.HandleFunc("POST /dashboard/actions/"+name, authed(func(w http.ResponseWriter, r *http.Request, _ string) {
+			if linkWaits[name] {
+				linkWaitWrite(w)
+			}
 			ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), linkCallTimeout)
 			defer cancel()
 			t := target(r)
@@ -232,12 +266,18 @@ func (d *Daemon) dashboardLinkRoutes(mux *http.ServeMux, authed func(func(http.R
 	act("link-cancel", pair, "link_cancelled", func(ctx context.Context, r *http.Request) error {
 		return d.linkCancel(r.PostFormValue("pair"))
 	})
+	act("link-cancel-message", func(r *http.Request) string { return linkTarget("message", r.PostFormValue("link_id")) }, "link_message_cancelled",
+		func(ctx context.Context, r *http.Request) error {
+			_, err := d.linkCancelMessage(ctx, r.PostFormValue("link_id"))
+			return err
+		})
 	act("link-rename", func(r *http.Request) string {
 		return pair(r) + linkTarget(" name", r.PostFormValue("name"))
 	}, "link_renamed", func(ctx context.Context, r *http.Request) error {
 		return d.linkRename(r.PostFormValue("pair"), r.PostFormValue("name"))
 	})
 	mux.HandleFunc("POST /dashboard/actions/link-invite", authed(func(w http.ResponseWriter, r *http.Request, _ string) {
+		linkWaitWrite(w)
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), linkCallTimeout)
 		defer cancel()
 		ctx, pending := withAudit(ctx, "link-invite", "link invitation")

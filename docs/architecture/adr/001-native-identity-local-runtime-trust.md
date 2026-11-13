@@ -249,8 +249,12 @@ link is set up, the daemon also opens a link listener on `127.0.0.1`, reached th
 Tailscale Serve mapping. It serves no agent API route: it accepts only TLS 1.3 with a client
 key that is paired, or the pairing operation of an open invitation. Since #670 chunk 02 it
 also answers a paired key's request for the receiver directory (names, family, role,
-repository name and activity; no session ID, path or credential). The agent API stays on
-loopback with its bearer secret.
+repository name and activity; no session ID, path or credential). Since #670 chunk 03 it
+also takes a paired key's `deliver` and `cancel` on that pair's ordered stream: a received
+message goes into the local inbox in one store transaction with the stream's mark. The queue to
+the other computers (`link_outbox`), the streams (`link_streams`) and the bodies are runtime
+data in the same private store as every other message. The agent API stays on loopback with
+its bearer secret.
 
 ### Alternatives Considered
 
@@ -449,3 +453,4 @@ agent.
 | 2026-11-12 | The remote surface is accepted by Robert Capps (#645); Decision 4 records the `blob:` image source of the content security policy. |
 | 2026-11-12 | Decision 2: the link listener for paired Koinon computers (ADR 002 Decision 4, #670). |
 | 2026-11-13 | Decision 2: the link listener also answers the receiver directory (#670 chunk 02). |
+| 2026-11-13 | Decision 2: the link listener takes messages of paired computers; the outbox and streams are in the private store (#670 chunk 03). |
