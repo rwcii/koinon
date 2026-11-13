@@ -73,7 +73,7 @@ func (d *Daemon) operationContext(r *http.Request, ctx context.Context, session,
 	data, _ := json.Marshal(fields)
 	digest := sha256.Sum256(data)
 	if session == "" {
-		if token, ok := d.auth.session(r); ok {
+		if token, ok := d.requestSession(r); ok {
 			session = d.auth.remoteSessionID(token)
 		}
 	}

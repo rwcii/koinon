@@ -162,8 +162,35 @@ func TestDurableRemoteStoreReopenAndCorruption(t *testing.T) {
 	if _, ok := b.session(remoteRequest(token)); ok {
 		t.Fatal("corrupt session accepted")
 	}
-	if _, err := b.start("remote:https://host.example.ts.net"); err == nil {
-		t.Fatal("issued login with corrupt session store")
+	// One invalid row denies only its own cookie: a new sign-in works, diagnostics count
+	// the row, and forget-all deletes it (#673 review M3).
+	fresh, err := b.start("remote:https://host.example.ts.net")
+	if err != nil {
+		t.Fatalf("one corrupt row blocked a new sign-in: %v", err)
+	}
+	if _, ok := b.session(remoteRequest(fresh)); !ok {
+		t.Fatal("the new sign-in does not work beside a corrupt row")
+	}
+	if got := b.remoteDiagnostics()["invalid_sessions"]; got != 1 {
+		t.Fatalf("invalid rows in diagnostics: %v", got)
+	}
+	if err := b.revokeRemote("", "device_revoked"); err != nil {
+		t.Fatal(err)
+	}
+	var left int
+	if err := reopened.db.QueryRow(`SELECT count(*) FROM settings WHERE name GLOB 'remote.v2.session:*' AND value='{"version":2}'`).Scan(&left); err != nil || left != 0 {
+		t.Fatalf("forget-all kept the corrupt row: %d %v", left, err)
+	}
+	// A row made under another lifetime is checked against its own creation time.
+	shorter, err := b.start("remote:https://host.example.ts.net")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reopened.db.Exec(`UPDATE settings SET value=json_set(value,'$.expires_at',json_extract(value,'$.created_at')+3600000) WHERE name GLOB 'remote.v2.session:*' AND json_extract(value,'$.revoked')=''`); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := b.session(remoteRequest(shorter)); !ok {
+		t.Fatal("a valid row with a shorter stored lifetime was refused")
 	}
 }
 
@@ -561,5 +588,40 @@ func TestDurableRemoteForgetAllPreservesExpiryReason(t *testing.T) {
 	}
 	if got := a.remoteRejectionReason(remoteRequest(token)); got != "session_expired" {
 		t.Fatal("forget-all rewrote original end reason", got)
+	}
+}
+
+// A remote login's observation is written at most once a minute, not on every request of the
+// phone's refresh (#673 review M4).
+func TestDurableRemoteObservationWritesAtMostOnceAMinute(t *testing.T) {
+	a, s, now := durableAuth(t)
+	token, err := a.start("remote:https://host.example.ts.net")
+	if err != nil {
+		t.Fatal(err)
+	}
+	written := func() int64 {
+		t.Helper()
+		var at int64
+		if err := s.db.QueryRow(`SELECT updated_at FROM settings WHERE name GLOB 'remote.v2.session:*'`).Scan(&at); err != nil {
+			t.Fatal(err)
+		}
+		return at
+	}
+	first := written()
+	for range 5 {
+		*now = now.Add(10 * time.Second)
+		if _, ok := a.session(remoteRequest(token)); !ok {
+			t.Fatal("login refused")
+		}
+	}
+	if got := written(); got != first {
+		t.Fatalf("requests within a minute wrote the row: %d, then %d", first, got)
+	}
+	*now = now.Add(15 * time.Second)
+	if _, ok := a.session(remoteRequest(token)); !ok {
+		t.Fatal("login refused")
+	}
+	if got := written(); got == first {
+		t.Fatal("a request after a minute did not write the observation")
 	}
 }

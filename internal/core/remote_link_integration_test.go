@@ -46,6 +46,10 @@ func TestRemoteDisableRevocationFailureStillClearsLinkInvitations(t *testing.T) 
 	if len(state.Invites) != 0 {
 		t.Fatal("failed browser revocation left durable link invitations")
 	}
+	// The saved record is off and the mappings are gone, so a restart keeps Remote closed.
+	if c, err := ReadRemoteConfig(host.root); err != nil || c == nil || c.Enabled || c.Owned || c.LinkOwned {
+		t.Fatalf("failed browser revocation left the saved configuration on: %+v %v", c, err)
+	}
 	d.remote.mu.Lock()
 	remoteClosed := d.remote.server == nil && d.remote.listener == nil
 	d.remote.mu.Unlock()

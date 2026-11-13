@@ -23,6 +23,17 @@ import (
 //go:embed web
 var webFiles embed.FS
 
+// authedSessionKey holds the login that authedLimit accepted for a request.
+type authedSessionKey struct{}
+
+// requestSession returns the request's accepted login, or authenticates it once.
+func (d *Daemon) requestSession(r *http.Request) (string, bool) {
+	if id, ok := r.Context().Value(authedSessionKey{}).(string); ok {
+		return id, true
+	}
+	return d.auth.session(r)
+}
+
 var dashboardViews = []string{"attention", "sessions", "messages", "rooms", "decisions", "memory", "work", "health", "settings", "audit"}
 
 // settingsData is the settings view: the values in force, the defaults and the time of
@@ -183,7 +194,7 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 		page.Host, _ = os.Hostname()
 		page.Remote = remoteOrigin(r) != ""
 		if page.Remote {
-			if token, ok := d.auth.session(r); ok {
+			if token, ok := d.requestSession(r); ok {
 				info := d.auth.sessionInfo(token)
 				page.RemoteSessionID = info.ID
 				page.SessionExpires = info.ExpiresAt
@@ -249,7 +260,8 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 				}
 			}
 			// Each action's audit record names the dashboard as its origin (PDR 009, Decision 4).
-			next(w, r.WithContext(withOrigin(r.Context(), "dashboard")), id)
+			// The request keeps its login, so the handler does not authenticate again (#673 review M4).
+			next(w, r.WithContext(context.WithValue(withOrigin(r.Context(), "dashboard"), authedSessionKey{}, id)), id)
 		}
 	}
 	authed := func(next func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
@@ -572,7 +584,7 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 	ctx, q, path := r.Context(), r.URL.Query(), "/dashboard/"+view
 	switch view {
 	case "attention":
-		id, _ := d.auth.session(r)
+		id, _ := d.requestSession(r)
 		return d.store.attention(ctx, d.attentionBrowser(id), remoteOrigin(r))
 	case "sessions":
 		order, err := parseSort(&sessionSort, path, q, viewFilters["sessions"]...)

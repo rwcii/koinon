@@ -348,6 +348,9 @@ func TestRemoteUnsafeExposureEndsSessions(t *testing.T) {
 				t.Fatal(err)
 			}
 			id, _ := d.auth.start("remote:https://host.example.ts.net")
+			if _, ok := d.auth.session(remoteRequest(id)); !ok {
+				t.Fatal("the remote login does not work before the exposure")
+			}
 			fake.mu.Lock()
 			if kind == "identity" {
 				fake.dns = "renamed.example.ts.net."
@@ -375,6 +378,11 @@ func TestRemoteUnsafeExposureEndsSessions(t *testing.T) {
 			fake.noHTTPS = false
 			fake.config.AllowFunnel = nil
 			fake.mu.Unlock()
+			// The durable login stays ended when the same origin is safe again (#673 review M2).
+			d.restoreRemote(ctx)
+			if _, ok := d.auth.session(remoteRequest(id)); ok {
+				t.Fatal("a login from before the unsafe exposure works again")
+			}
 			if err := d.remoteDisable(ctx); err != nil {
 				t.Fatal(err)
 			}

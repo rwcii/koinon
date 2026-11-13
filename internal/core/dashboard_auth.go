@@ -46,15 +46,17 @@ type dashboardAuth struct {
 	denied             map[[32]byte]string
 	denyAllRemote      bool
 	pendingRevocations map[string]string
-	authReason         string
-	storeHealth        string
-	lastPhone          int64
-	mu                 sync.Mutex
-	now                func() time.Time
-	csrfKey            []byte
-	links              map[[32]byte]time.Time
-	tickets            map[[32]byte]remoteTicket
-	sessions           map[[32]byte]*dashboardSession
+	// invalidRemote names the stored remote session rows that failed their checks.
+	invalidRemote []string
+	authReason    string
+	storeHealth   string
+	lastPhone     int64
+	mu            sync.Mutex
+	now           func() time.Time
+	csrfKey       []byte
+	links         map[[32]byte]time.Time
+	tickets       map[[32]byte]remoteTicket
+	sessions      map[[32]byte]*dashboardSession
 	// gate orders the maintainer secret's checks and changes (PDR 009).
 	gate secretGate
 }

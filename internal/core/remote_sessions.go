@@ -14,6 +14,9 @@ import (
 const remoteSessionLifetime = 48 * time.Hour
 const maxRemoteSessions = 32
 
+// remoteObserveEvery is how often a remote login's last observation is written.
+const remoteObserveEvery = time.Minute
+
 var ErrRemoteCapacity = errors.New("remote_session_capacity: forget a signed-in device before signing in another browser")
 var ErrRevocationIncomplete = errors.New("Revocation incomplete; private storage could not be updated")
 
@@ -50,31 +53,69 @@ type durableRemoteSession struct {
 
 const remoteSessionPrefix = "remote.v2.session:"
 
+// readRemoteLocked returns the valid session rows. A row that fails its checks is left out,
+// so its cookie is refused, and its name is kept in invalidRemote for diagnostics and for
+// forget-all, which deletes it; one bad row never blocks the other logins (#673 review M3).
+// A row's deadline is checked against its own creation time, not against the current
+// lifetime constant, so a later change of the lifetime does not invalidate older rows; a
+// row longer than the current lifetime is refused.
 func (a *dashboardAuth) readRemoteLocked() ([]durableRemoteSession, error) {
-	rows, err := a.store.db.Query(`SELECT value FROM settings WHERE name GLOB 'remote.v2.session:*'`)
+	rows, err := a.store.db.Query(`SELECT name, value FROM settings WHERE name GLOB 'remote.v2.session:*'`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var sessions []durableRemoteSession
+	var invalid []string
 	for rows.Next() {
-		var value string
+		var name, value string
 		var s durableRemoteSession
-		if err = rows.Scan(&value); err != nil {
+		if err = rows.Scan(&name, &value); err != nil {
 			return nil, err
 		}
-		if err = json.Unmarshal([]byte(value), &s); err != nil {
-			return nil, err
-		}
-		_, idOK := tokenHash(s.ID)
-		_, hashOK := tokenHash(s.Hash)
-		_, generationOK := tokenHash(s.Generation)
-		if s.Version != 2 || !idOK || !hashOK || !generationOK || s.ExpiresAt != s.CreatedAt+remoteSessionLifetime.Milliseconds() || s.LastObserved < s.CreatedAt {
-			return nil, ErrUnavailable
+		if !validRemoteRow(name, value, &s) {
+			invalid = append(invalid, name)
+			continue
 		}
 		sessions = append(sessions, s)
 	}
-	return sessions, rows.Err()
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	a.invalidRemote = invalid
+	return sessions, nil
+}
+
+// validRemoteRow decodes one stored session and checks its fields.
+func validRemoteRow(name, value string, s *durableRemoteSession) bool {
+	if json.Unmarshal([]byte(value), s) != nil {
+		return false
+	}
+	_, idOK := tokenHash(s.ID)
+	_, hashOK := tokenHash(s.Hash)
+	_, generationOK := tokenHash(s.Generation)
+	return s.Version == 2 && idOK && hashOK && generationOK && name == remoteSessionPrefix+s.ID &&
+		s.ExpiresAt > s.CreatedAt && s.ExpiresAt-s.CreatedAt <= remoteSessionLifetime.Milliseconds() &&
+		s.LastObserved >= s.CreatedAt
+}
+
+// deleteInvalidRemoteLocked removes the rows that readRemoteLocked left out.
+func (a *dashboardAuth) deleteInvalidRemoteLocked() error {
+	for _, name := range a.invalidRemote {
+		tx, err := a.store.begin(context.Background(), control)
+		if err != nil {
+			return err
+		}
+		if _, err = tx.Exec(`DELETE FROM settings WHERE name=?`, name); err != nil {
+			tx.Rollback()
+			return err
+		}
+		if err = tx.Commit(); err != nil {
+			return err
+		}
+	}
+	a.invalidRemote = nil
+	return nil
 }
 func (a *dashboardAuth) saveRemoteLocked(s durableRemoteSession) error {
 	return a.saveRemoteClassLocked(s, ordinary)
@@ -193,10 +234,15 @@ func (a *dashboardAuth) remoteSessionLocked(hash [32]byte, origin string) bool {
 			}
 			return false
 		}
-		s.LastObserved = now
-		if a.saveRemoteClassLocked(s, control) != nil {
-			a.storeHealth = "unavailable"
-			return false
+		// The observation bounds a clock rollback; it is written at most once a minute, not
+		// on every request of the phone's refresh (#673 review M4). A failed write still
+		// denies, as storage failure does.
+		if now-s.LastObserved >= remoteObserveEvery.Milliseconds() {
+			s.LastObserved = now
+			if a.saveRemoteClassLocked(s, control) != nil {
+				a.storeHealth = "unavailable"
+				return false
+			}
 		}
 		a.storeHealth = "healthy"
 		a.lastPhone = now
@@ -302,6 +348,9 @@ func (a *dashboardAuth) revokeRemoteLocked(id, reason string) (result error) {
 		} else {
 			delete(a.pendingRevocations, s.ID)
 		}
+	}
+	if id == "" && a.deleteInvalidRemoteLocked() != nil {
+		failed = true
 	}
 	if failed {
 		a.storeHealth = "unavailable"
@@ -462,6 +511,7 @@ func (a *dashboardAuth) remoteDiagnostics() map[string]any {
 	result["store_health"] = a.storeHealth
 	result["revocation_incomplete"] = len(a.pendingRevocations) > 0
 	result["active_sessions"] = count
+	result["invalid_sessions"] = len(a.invalidRemote)
 	return result
 }
 

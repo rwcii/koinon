@@ -191,6 +191,12 @@ func (d *Daemon) remoteSecurityFailureLocked(err error) {
 	var diagnostic *remote.Diagnostic
 	if errors.As(err, &diagnostic) && (diagnostic.Code == "tailscale_identity_changed" || diagnostic.Code == "tailscale_serve_conflict") {
 		d.closeRemoteLocked()
+		// A browser cookie may have reached the conflicting handler or the old name, so the
+		// logins end, also when the same origin comes back later (#673 review M2). A failed
+		// write keeps every remote login denied until the diagnostics retry succeeds.
+		if d.auth != nil {
+			_ = d.auth.revokeRemote("", "origin_changed")
+		}
 	}
 }
 
@@ -395,49 +401,55 @@ func (d *Daemon) remoteDisableLocked(ctx context.Context) error {
 	// and revokes its invitations, before any Serve cleanup that can fail.
 	d.closeRemoteLocked()
 	inviteErr := d.clearInvites()
+	// A failed browser revocation does not stop the disable: the saved record turns off
+	// and the mappings go, so that a restart cannot open Remote again. The revocation is
+	// retried from diagnostics, and a start with Remote off revokes again (#673 review M1).
+	var revokeErr error
 	if d.auth != nil {
-		if err := d.auth.revokeRemote("", "remote_disabled"); err != nil {
-			err = errors.Join(err, inviteErr)
-			rt.offUnrecorded = true
-			rt.problem = err.Error()
-			return err
-		}
+		revokeErr = d.auth.revokeRemote("", "remote_disabled")
+	}
+	fail := func(err error) error {
+		err = errors.Join(err, revokeErr)
+		rt.problem = err.Error()
+		return err
 	}
 	c, err := ReadRemoteConfig(d.root)
 	if err != nil {
 		rt.offUnrecorded = true
-		rt.problem = err.Error()
-		return err
+		return fail(err)
 	}
 	if c == nil {
+		if revokeErr != nil {
+			return fail(nil)
+		}
 		return nil
 	}
 	c.Enabled = false
 	if err := writeRemoteConfig(d.root, c); err != nil {
 		rt.offUnrecorded = true
-		rt.problem = err.Error()
-		return err
+		return fail(err)
 	}
 	rt.offUnrecorded = false
 	rt.config = c
 	if c.Owned {
 		if err := rt.manager.Remove(ctx, c.Mapping); err != nil {
-			rt.problem = err.Error()
-			return err
+			return fail(err)
 		}
 		c.Owned = false
 		if err := writeRemoteConfig(d.root, c); err != nil {
-			rt.problem = err.Error()
-			return err
+			return fail(err)
 		}
 	}
 	if err := d.disableLinkLocked(ctx, c); err != nil {
-		rt.problem = err.Error()
-		return err
+		return fail(err)
 	}
 	if inviteErr != nil {
-		rt.problem = "link invitations are revoked, but link.json could not be updated: " + inviteErr.Error()
-		return inviteErr
+		err := fail(inviteErr)
+		rt.problem = "link invitations are revoked, but link.json could not be updated: " + err.Error()
+		return err
+	}
+	if revokeErr != nil {
+		return fail(nil)
 	}
 	rt.problem = ""
 	return nil
