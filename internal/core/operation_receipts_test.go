@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -309,6 +310,27 @@ func TestOperationReceiptRemoteActionAndReauthentication(t *testing.T) {
 	}
 	if deadline > d.store.clock()+d.store.limits().idemTTL {
 		t.Fatalf("room retry row kept past the retry window: %.0f > %.0f", deadline, d.store.clock()+d.store.limits().idemTTL)
+	}
+	// #673 review L14: a remote lookup of another origin's receipt is a conflict, and an
+	// expired receipt that is still kept for the future tolerance is reported as expired.
+	put := func(id, from string, expires int64) {
+		t.Helper()
+		raw, err := json.Marshal(OperationReceipt{Version: 1, ID: id, Origin: from, State: "accepted", CreatedAt: expires - 1000, ExpiresAt: expires})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = d.store.db.Exec(`INSERT INTO settings(name,value,updated_at) VALUES(?,?,?)`, operationReceiptPrefix+id, string(raw), d.store.now().UnixMilli()+60000); err != nil {
+			t.Fatal(err)
+		}
+	}
+	put("synthetic-other-origin", "https://other.example.ts.net", d.store.now().UnixMilli()+60000)
+	if lookup = call("GET", "/dashboard/receipts?id=synthetic-other-origin", nil, cookie); lookup.Code != http.StatusConflict {
+		t.Fatalf("other origin lookup %d %s", lookup.Code, lookup.Body.String())
+	}
+	put("synthetic-expired-kept", origin, d.store.now().UnixMilli()-1)
+	lookup = call("GET", "/dashboard/receipts?id=synthetic-expired-kept", nil, cookie)
+	if lookup.Code != 200 || !strings.Contains(lookup.Body.String(), `"expired":true`) || !strings.Contains(lookup.Body.String(), `"found":false`) {
+		t.Fatalf("expired lookup %d %s", lookup.Code, lookup.Body.String())
 	}
 }
 
