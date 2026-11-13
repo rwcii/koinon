@@ -16,6 +16,12 @@
             status.textContent = "Form expired. Device controls refreshed; your label text is kept. Submit again explicitly.";
           });
         }
+        if (response.status === 401) {
+          // The body is the sign-in page, not a message (#673 review L3).
+          if (window.koinonRecovery) { window.koinonRecovery.unauthorized(response); }
+          status.textContent = "Sign-in required. Sign in again, then check the device list. This change was not saved.";
+          return;
+        }
         if (!response.ok) { return response.text().then(function (message) { throw new Error(message); }); }
         if ((kind === "revoke" && id === current) || (kind === "revoke-all" && document.body.dataset.remote === "true")) {
           if (window.koinonRecovery) { window.koinonRecovery.unauthorized({headers:{get:function () { return "device_revoked"; }}}); }

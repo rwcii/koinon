@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -201,6 +202,11 @@ func (a *dashboardAuth) remoteSessionLocked(hash [32]byte, origin string) bool {
 		return false
 	}
 	current, err := a.credentialGeneration()
+	if errors.Is(err, sql.ErrNoRows) {
+		// The maintainer secret was cleared: every remote login has ended (#673 review L2).
+		a.authReason = "password_changed"
+		return false
+	}
 	if err != nil {
 		a.storeHealth = "unavailable"
 		return false
@@ -269,9 +275,14 @@ func (a *dashboardAuth) persistRemoteDenialLocked(s durableRemoteSession, reason
 	return true
 }
 
+// revokeRemote is an explicit revocation. A revoke-all also cancels the open QR sign-in
+// tickets; a single device's revoke and a diagnostics retry keep them (#673 review L1).
 func (a *dashboardAuth) revokeRemote(id, reason string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if id == "" {
+		clear(a.tickets)
+	}
 	return a.revokeRemoteLocked(id, reason)
 }
 func (a *dashboardAuth) revokeRemoteLocked(id, reason string) (result error) {
@@ -297,7 +308,6 @@ func (a *dashboardAuth) revokeRemoteLocked(id, reason string) (result error) {
 			a.denyAllRemote = false
 		}
 	}()
-	clear(a.tickets)
 	for h, s := range a.sessions {
 		if strings.HasPrefix(s.client, "remote:") {
 			delete(a.sessions, h)
@@ -391,6 +401,9 @@ func (a *dashboardAuth) remoteDevices(token string) ([]RemoteDevice, error) {
 		return nil, ErrUnavailable
 	}
 	generation, err := a.credentialGeneration()
+	if errors.Is(err, sql.ErrNoRows) {
+		return []RemoteDevice{}, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -420,44 +433,56 @@ func (d *Daemon) dashboardDeviceRoutes(mux *http.ServeMux, authed func(func(http
 	}))
 	mux.HandleFunc("POST /dashboard/remote/devices", authed(func(w http.ResponseWriter, r *http.Request, id string) {
 		target := r.PostForm.Get("id")
+		action := r.PostForm.Get("action")
+		label := strings.TrimSpace(r.PostForm.Get("label"))
 		var err error
-		switch r.PostForm.Get("action") {
-		case "revoke":
-			if target == "" {
-				err = ErrInvalid
-			} else {
-				err = d.auth.revokeRemote(target, "device_revoked")
-			}
-		case "revoke-all":
+		switch {
+		case action == "revoke-all":
 			err = d.auth.revokeRemote("", "device_revoked")
-		case "rename":
-			label := strings.TrimSpace(r.PostForm.Get("label"))
-			if target == "" || label == "" || len(label) > 80 || strings.ContainsAny(label, "\r\n\x00") {
-				err = ErrInvalid
-			} else {
-				d.auth.mu.Lock()
-				var sessions []durableRemoteSession
-				sessions, err = d.auth.readRemoteLocked()
-				if err == nil {
-					for _, s := range sessions {
-						if s.ID == target && s.Revoked == "" {
-							s.Label = label
-							err = d.auth.saveRemoteLocked(s)
-							break
-						}
-					}
-				}
-				d.auth.mu.Unlock()
-			}
-		default:
+		case action != "revoke" && action != "rename", target == "",
+			action == "rename" && (label == "" || len(label) > 80 || strings.ContainsAny(label, "\r\n\x00")):
 			err = ErrInvalid
+		default:
+			err = d.auth.changeRemoteDevice(target, action, label)
 		}
-		if err != nil {
-			http.Error(w, err.Error(), 503)
-			return
+		// A wrong request is 400 and an unknown or ended device 404; only storage is 503
+		// (#673 review L3).
+		switch {
+		case errors.Is(err, ErrInvalid):
+			http.Error(w, "invalid request", http.StatusBadRequest)
+		case errors.Is(err, ErrRemoteDeviceNotFound):
+			http.Error(w, ErrRemoteDeviceNotFound.Error(), http.StatusNotFound)
+		case err != nil:
+			http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		default:
+			respond(w, 200, map[string]any{"ok": true})
 		}
-		respond(w, 200, map[string]any{"ok": true})
 	}))
+}
+
+// ErrRemoteDeviceNotFound is a revoke or rename of a device that is not signed in.
+var ErrRemoteDeviceNotFound = errors.New("remote_device_not_found: this device is not signed in; reload the list")
+
+// changeRemoteDevice revokes or renames one signed-in remote device.
+func (a *dashboardAuth) changeRemoteDevice(id, action, label string) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	sessions, err := a.readRemoteLocked()
+	if err != nil {
+		return err
+	}
+	now := a.now().UnixMilli()
+	for _, s := range sessions {
+		if s.ID != id || s.Revoked != "" || s.ExpiresAt <= now {
+			continue
+		}
+		if action == "revoke" {
+			return a.revokeRemoteLocked(id, "device_revoked")
+		}
+		s.Label = label
+		return a.saveRemoteLocked(s)
+	}
+	return ErrRemoteDeviceNotFound
 }
 
 // These observations describe host requests, not cellular connectivity or a
@@ -487,6 +512,10 @@ func (a *dashboardAuth) remoteDiagnostics() map[string]any {
 		return result
 	}
 	generation, err := a.credentialGeneration()
+	if errors.Is(err, sql.ErrNoRows) {
+		result["secret_set"], result["active_sessions"], result["invalid_sessions"] = false, 0, len(a.invalidRemote)
+		return result
+	}
 	if err != nil {
 		result["store_health"] = "unavailable"
 		return result

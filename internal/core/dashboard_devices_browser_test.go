@@ -57,6 +57,11 @@ function read(request,csrf){request.resolve({ok:true,status:200,json:async()=>de
  requests[4].resolve({ok:false,status:503});await settle();
  assert.match(status.textContent,/unavailable.*503/);assert.equal(label.value,'My edited label');
  assert.equal(requests.filter(r=>r.options.method==='POST').length,2);assert.equal(navigations.length,0);
+ // A 401 shows a sign-in message, never the sign-in page's HTML (#673 review L3).
+ rename.click();assert.equal(requests[5].options.method,'POST');
+ requests[5].resolve({ok:false,status:401,headers:{get(){return 'session_expired'}},text:async()=> '<!doctype html><title>Sign in</title>'});await settle();
+ assert.match(status.textContent,/^Sign-in required/);assert.doesNotMatch(status.textContent,/</);
+ assert.equal(requests.length,6);assert.equal(navigations.length,0);
  console.log('device CSRF refresh preserves labels and requires explicit resubmit');
 })().catch(error=>{console.error(error);process.exitCode=1});
 `
