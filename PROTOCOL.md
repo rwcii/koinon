@@ -129,9 +129,11 @@ bytes, valid 10 minutes. A join checks the pin before it sends the secret; a ref
 `link_name_invalid`, `link_name_used`, `link_port_invalid`, `link_invitation_invalid`,
 `link_invitation_self`, `link_invitation_refused`, `link_already_paired`, `link_key_mismatch`,
 `link_unreachable`, `link_limit`, `link_pair_not_found`. A pair is shown as `connected` for 3
-ping intervals after an authenticated connection, `offline` (with the error), `pending`, or
+ping intervals after an authenticated connection of the open link's generation, `offline` (with
+the error), `pending`, or
 `rejected` (`link_key_mismatch`, or `link_key_refused` when the other computer refused this
-key).
+key). An observation counts only in the generation of its connection: one that ends after
+its generation closed is dropped.
 
 The directory (#670 chunk 02, LINK-670-WHAT items 2 and 3): `directory` (`id`, the pair ID) is
 answered only for a paired key whose pair has that ID, with `directory-ok`: `name` (the
@@ -157,7 +159,8 @@ advertised-name grammar, and the address has at most 510 bytes; a recipient with
 local. `POST /v1/peers` and the maintainer's `peers` add a row for each cached entry: `name`
 NAME@COMPUTER with the peer name, `address` NAME@COMPUTER with the held address or the peer
 name, `remote` true, `computer`, `seen_at` (milliseconds), `stale` when the directory is older
-than 3 ping intervals, the link is closed or the pair is not observed as connected, `directory_truncated`, `family`, `role`,
+than 3 ping intervals or was read in an earlier generation, the link is closed or the pair is
+not observed as connected in the open generation, `directory_truncated`, `family`, `role`,
 `repository`, `activity_state` and `activity_at`. `POST /v1/peers/status` and `peer-status`
 answer NAME@COMPUTER from the cache (by peer name or address), with `observed_at` the
 directory's time and the activity observation with source `remote`, or

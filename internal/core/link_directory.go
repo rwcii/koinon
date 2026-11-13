@@ -276,13 +276,14 @@ func (d *Daemon) announceName(gen uint64) {
 }
 
 // cacheStaleLocked says whether a pair's directory is not current: the link is closed, the
-// directory is older than linkConnectedFor, or the pair is not observed as connected now. The
-// link lock is held.
+// directory was read in an earlier generation or is older than linkConnectedFor, or the pair
+// is not observed as connected in this generation. The link lock is held.
 func (d *Daemon) cacheStaleLocked(p link.Pair, c linkCache, now int64) bool {
-	if d.link.listener == nil || now-c.at > linkConnectedFor.Milliseconds() {
+	if d.link.listener == nil || c.gen != d.link.gen || now-c.at > linkConnectedFor.Milliseconds() {
 		return true
 	}
-	return d.link.observed[p.ID].State != "connected"
+	o := d.link.observed[p.ID]
+	return o.gen != d.link.gen || o.State != "connected"
 }
 
 // remoteRows are the cached receivers of the paired computers as peer rows: name and address

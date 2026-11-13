@@ -126,3 +126,79 @@ func TestLinkOldInboundNameUpdateCannotCommit(t *testing.T) {
 		t.Fatalf("old generation %d name-update committed in new generation %d: %+v", old, a.d.openGen(), p)
 	}
 }
+
+// blockLinkDials holds every new link dial of h until its context ends.
+func blockLinkDials(h *linkHost) {
+	h.d.link.mu.Lock()
+	h.d.link.dial = func(ctx context.Context, _ string) (net.Conn, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	h.d.link.mu.Unlock()
+}
+
+// A directory read before disable stays stale after enable until the new generation has
+// connected: a connection of the old generation is not a connection now (#675 F2).
+func TestLinkReopenDoesNotReviveCurrentDirectory(t *testing.T) {
+	_, a, b := pairedLinkHosts(t)
+	joinAs(t, b.d.store, "codex", "synthetic-review-reopen", linkRepo(t, "reopen"), "")
+	a.d.passNow()
+	before := a.d.remoteRows()
+	if len(before) != 1 || before[0].Stale {
+		t.Fatalf("initial: %+v", before)
+	}
+	// No dial of either computer can connect, so nothing in the new generation explains
+	// a current receiver after the enable.
+	blockLinkDials(a)
+	blockLinkDials(b)
+	old := a.d.openGen()
+	ctx := context.Background()
+	if err := a.d.remoteDisable(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if rows := a.d.remoteRows(); len(rows) != 1 || !rows[0].Stale {
+		t.Fatalf("off: %+v", rows)
+	}
+	if err := a.d.remoteEnable(ctx, 0); err != nil {
+		t.Fatal(err)
+	}
+	if rows := a.d.remoteRows(); len(rows) != 1 || !rows[0].Stale {
+		t.Fatalf("directory of generation %d is current in generation %d without a new connection: before=%+v rows=%+v", old, a.d.openGen(), before, rows)
+	}
+	for _, p := range a.d.linkStatus(ctx).Pairs {
+		if p.Observed.State == "connected" {
+			t.Fatalf("pair shows connected in generation %d from a connection of generation %d: %+v", a.d.openGen(), old, p)
+		}
+	}
+}
+
+// An observation that arrives after its generation closed does not count in the next one: a
+// late "connected" of the old generation leaves an offline pair offline (#675 F2).
+func TestLinkLateObservationOfOldGenerationIsDropped(t *testing.T) {
+	_, a, b := pairedLinkHosts(t)
+	joinAs(t, b.d.store, "codex", "synthetic-review-late", linkRepo(t, "late"), "")
+	a.d.passNow()
+	ctx := context.Background()
+	if err := b.d.remoteDisable(ctx); err != nil {
+		t.Fatal(err)
+	}
+	old := a.d.openGen()
+	if err := a.d.remoteDisable(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.d.remoteEnable(ctx, 0); err != nil {
+		t.Fatal(err)
+	}
+	a.d.passNow()
+	p := a.state(t).Pairs[0]
+	a.d.observe(old, p.ID, "connected", "")
+	a.d.link.mu.Lock()
+	o := a.d.link.observed[p.ID]
+	a.d.link.mu.Unlock()
+	if o.State != "offline" {
+		t.Fatalf("a late observation of generation %d changed the pair in generation %d: %+v", old, a.d.openGen(), o)
+	}
+	if rows := a.d.remoteRows(); len(rows) != 1 || !rows[0].Stale {
+		t.Fatalf("offline pair has current receivers after a late observation: %+v", rows)
+	}
+}

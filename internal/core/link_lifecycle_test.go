@@ -47,7 +47,12 @@ func TestLinkUnpairWhileOwnRemoteOffStaysLocal(t *testing.T) {
 
 func TestLinkMonitorDialEndsAtDisable(t *testing.T) {
 	n, a, b := pairedLinkHosts(t)
-	_ = b
+	// The join left both computers observing the pair as connected. Beta's generation does
+	// not change, so an authenticated ping after alpha's disable would show there again.
+	id := b.state(t).Pairs[0].ID
+	b.d.link.mu.Lock()
+	delete(b.d.link.observed, id)
+	b.d.link.mu.Unlock()
 	entered, release := make(chan struct{}), make(chan struct{})
 	a.d.link.mu.Lock()
 	a.d.link.dial = func(ctx context.Context, address string) (net.Conn, error) {
@@ -65,9 +70,9 @@ func TestLinkMonitorDialEndsAtDisable(t *testing.T) {
 	}
 	close(release)
 	<-finished
-	a.d.link.mu.Lock()
-	observation := a.d.link.observed[a.state(t).Pairs[0].ID]
-	a.d.link.mu.Unlock()
+	b.d.link.mu.Lock()
+	observation := b.d.link.observed[id]
+	b.d.link.mu.Unlock()
 	if observation.State == "connected" {
 		t.Fatal("monitor completed a new authenticated TLS ping after Remote disable returned")
 	}

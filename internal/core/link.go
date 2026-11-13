@@ -52,6 +52,8 @@ type linkObservation struct {
 	State string `json:"state"`
 	At    int64  `json:"at,omitempty"`
 	Error string `json:"error,omitempty"`
+	// gen is the link generation of the connection that this observation saw.
+	gen uint64
 }
 
 // LinkRejection is the last unexpected key that this computer's link listener refused.
@@ -331,13 +333,18 @@ func (d *Daemon) acceptLink(l net.Listener, gen uint64) {
 	}
 }
 
-func (d *Daemon) observe(id, state, problem string) {
+// observe records what a connection of generation gen saw. An observation of a closed
+// generation is dropped, so a late one never counts in a later generation.
+func (d *Daemon) observe(gen uint64, id, state, problem string) {
 	d.link.mu.Lock()
 	defer d.link.mu.Unlock()
+	if d.link.gen != gen {
+		return
+	}
 	if d.link.observed == nil {
 		d.link.observed = map[string]linkObservation{}
 	}
-	d.link.observed[id] = linkObservation{State: state, At: d.linkNow().Unix(), Error: problem}
+	d.link.observed[id] = linkObservation{State: state, At: d.linkNow().Unix(), Error: problem, gen: gen}
 }
 
 func linkRefuse(conn net.Conn, err error) {
@@ -428,7 +435,7 @@ func (d *Daemon) linkOperation(pin string, f link.Frame, gen uint64) (link.Frame
 		if err := d.confirmLinkPair(pin, body.ID, gen); err != nil {
 			return link.Frame{}, true, err
 		}
-		d.observe(body.ID, "connected", "")
+		d.observe(gen, body.ID, "connected", "")
 		reply, err := link.NewFrame(map[string]string{"pair-confirm": "confirm-ok", "ping": "pong"}[f.Op], struct{}{})
 		return reply, false, err
 	case "directory":
@@ -767,13 +774,13 @@ func (d *Daemon) linkPass(stop chan struct{}, gen uint64) {
 		cancel()
 		switch {
 		case err == nil:
-			d.observe(p.ID, "connected", "")
+			d.observe(gen, p.ID, "connected", "")
 		case errors.Is(err, ErrLinkWrongKey):
-			d.observe(p.ID, "rejected", ErrLinkWrongKey.Code)
+			d.observe(gen, p.ID, "rejected", ErrLinkWrongKey.Code)
 		case linkKeyRefused(err):
-			d.observe(p.ID, "rejected", ErrLinkKeyRefused.Code)
+			d.observe(gen, p.ID, "rejected", ErrLinkKeyRefused.Code)
 		default:
-			d.observe(p.ID, "offline", errorCode(err))
+			d.observe(gen, p.ID, "offline", errorCode(err))
 		}
 	}
 }
@@ -970,7 +977,7 @@ func (d *Daemon) linkJoin(ctx context.Context, text string) (link.Pair, error) {
 	}
 	// The other computer's pair is pending until this confirm, or until the next ping.
 	if session.call("pair-confirm", linkPairID{ID: p.ID}, "confirm-ok", nil) == nil {
-		d.observe(p.ID, "connected", "")
+		d.observe(gen, p.ID, "connected", "")
 	}
 	return p, nil
 }
@@ -1238,6 +1245,7 @@ func (d *Daemon) linkStatus(ctx context.Context) LinkStatus {
 	d.remote.mu.Unlock()
 	d.link.mu.Lock()
 	open := d.link.listener != nil
+	gen := d.link.gen
 	observed := map[string]linkObservation{}
 	for k, v := range d.link.observed {
 		observed[k] = v
@@ -1284,7 +1292,8 @@ func (d *Daemon) linkStatus(ctx context.Context) LinkStatus {
 			o = linkObservation{State: "pending", At: p.Created}
 		case !open:
 			o = linkObservation{State: "offline", At: o.At, Error: ErrLinkRemoteOff.Code}
-		case o.State == "connected" && now-o.At > int64(linkConnectedFor/time.Second):
+		case o.State == "connected" && (now-o.At > int64(linkConnectedFor/time.Second) || o.gen != gen):
+			// A connection of an earlier generation is not a connection now.
 			o.State = "offline"
 		case o.State == "":
 			o.State = "offline"
