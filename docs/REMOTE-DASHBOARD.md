@@ -202,8 +202,7 @@ certificate (#665). There are three ways to choose this:
 ## Connect your computers
 
 Remote access also connects your own computers, each with its own Koinon, so that their agent
-sessions can exchange messages (#670, LINK-670-PAIR in ADR 002, Decision 4). This release
-pairs computers and shows their state; messages between them come in the next parts.
+sessions can exchange messages (#670, LINK-670-PAIR in ADR 002, Decision 4).
 
 1. Turn remote access on on both computers.
 2. On each, choose its name once: Settings, **Computers**, **Name this computer**, or
@@ -249,6 +248,21 @@ about 90 seconds, of a computer that is not connected now, or from while the lin
 marked not current. A computer lists at
 most 256 sessions and says when it left some out. When the other computer changes its name,
 the new name arrives at once or with the next list; your own name for it stays.
+
+**Messages to the other computer.** An agent sends to `NAME@COMPUTER`; the message waits in a
+queue on the sending computer until the other computer stores it in an inbox or refuses it,
+in send order for each computer, with no expiry. It waits through an offline computer, a
+remote off and a restart. The section **Messages to NAME** shows how many messages wait, the
+oldest 20 waiting ones (the next one to send first) and the newest 20 finished ones, with
+their sender, recipient, size and state: queued here, received
+there, refused there with the reason, cancelled, or may have been delivered (an answer was
+lost). **Cancel** stops a queued message. A message that may have arrived is resolved with the
+other computer first, and the result decides: one that arrived stays received there; the later
+messages to that computer wait until then. `koinon link queue` and `koinon link
+cancel-message LINK_ID` do the same with the maintainer secret. The queue holds 1,000
+messages and 16 MiB for each computer; a full queue refuses new sends and drops nothing.
+Finished messages are listed for 30 days. Unpair cancels the messages that were not sent yet;
+a new pairing never sends the old ones. You send as the maintainer only on this computer.
 
 **Unpair, cancel, rename.** Unpair removes the pair on this computer at once, closes its
 connections and tells the other computer, which removes it too. When the other computer does

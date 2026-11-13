@@ -181,6 +181,16 @@ func TestMessageCommands(t *testing.T) {
 	if _, err := command("", "ack", "--as", "opencode:synthetic-b", "3"); !errors.As(err, &refused) || refused.Code != "ack_beyond_last" {
 		t.Fatalf("ack beyond last: %v", err)
 	}
+	// delivery takes a message ID or a link ID (#670 chunk 03).
+	if outcome, err := command("", "delivery", "--as", "codex:synthetic-a", "1"); err != nil || outcome["message"].(map[string]any)["id"] != float64(1) {
+		t.Fatalf("delivery: %v %v", outcome, err)
+	}
+	if _, err := command("", "delivery", "--as", "codex:synthetic-a", strings.Repeat("0", 32)); !errors.As(err, &refused) || refused.Code != "link_message_not_found" {
+		t.Fatalf("delivery by link ID: %v", err)
+	}
+	if _, err := command("", "send", "--as", "opencode:synthetic-b", "--reply-to", "1", "", "answer"); !errors.As(err, &refused) || refused.Code != "link_reply_local" {
+		t.Fatalf("reply to a local message: %v", err)
+	}
 	for _, args := range [][]string{{"peers"}, {"peers", "--as", "codex"}, {"peer-status", "--as", "codex:synthetic-a"}, {"peer-status", recipient}, {"send", "--as", "codex:synthetic-a", recipient}, {"ack", "--as", "codex:synthetic-a", "two"}} {
 		if _, err := command("", args...); err == nil || errors.As(err, &refused) {
 			t.Fatalf("invalid command accepted: %v %v", args, err)

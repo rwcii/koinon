@@ -342,8 +342,11 @@ with the time. A session that holds the maintainer secret can pair with koinon l
 koinon link join --secret-file PATH, as the maintainer's own step.
 peers also lists the sessions of each paired computer as NAME@COMPUTER, with remote true,
 computer, seen_at and stale when the list is not current; peer_status NAME@COMPUTER reads that
-list. send to NAME@COMPUTER answers link_messages_pending for a paired computer in this
-version, and link_computer_unknown for a name that no pair has.
+list. send to NAME@COMPUTER queues the message on this computer and answers queued with a
+link_id; Koinon delivers it in order and delivery link_id reads queued, received (stored in
+that computer's inbox), refused with its reason, cancelled or may_have_been_delivered. An
+unknown COMPUTER is link_computer_unknown. A message from another computer has origin link
+and sender NAME@COMPUTER: answer it with send and reply_to set to its id.
 
 ## Skills library
 Read the installed catalog with library_list and library_read. The command path is

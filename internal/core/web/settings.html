@@ -53,7 +53,16 @@
 <label>Name here <input name="name" maxlength="253" value="{{if .Override}}{{.Name}}{{end}}" placeholder="{{.Advertised}}"></label> <button type="submit">Rename</button></form>
 <form method="post" action="/dashboard/actions/link-unpair"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="pair" value="{{.ID}}"><button type="submit">Unpair</button></form>{{end}}</td>
 </tr>{{end}}</tbody></table>
-<p><small>Connected means an authenticated connection in the last few minutes. An empty name returns to the advertised name.</small></p>{{end}}
+<p><small>Connected means an authenticated connection in the last few minutes. An empty name returns to the advertised name.</small></p>
+{{range .Pairs}}{{if .Queue}}<h3>Messages to {{.Name}}</h3>
+<p>{{.Waiting}} waiting, oldest first; then the newest finished. <code>koinon link queue {{.Name}}</code> lists every waiting message.</p>
+<table><thead><tr><th>To</th><th>From</th><th>State</th><th>Queued</th><th>Size</th><th>Change</th></tr></thead><tbody>{{range .Queue}}<tr>
+<td><code>{{.Recipient}}</code></td><td><code>{{.Sender}}</code></td>
+<td>{{if eq .State "may_have_been_delivered"}}may have been delivered{{else if eq .State "queued"}}queued here{{else if eq .State "received"}}received there{{else if eq .State "refused"}}refused there{{else}}{{.State}}{{end}}{{with .Reason}}<br><small>{{.}}</small>{{end}}{{if .Cancel}}<br><small>cancel requested</small>{{end}}</td>
+<td>{{ms .Created}}</td><td>{{.Bytes}} bytes</td>
+<td>{{if or (eq .State "queued") (and (eq .State "may_have_been_delivered") (not .Cancel) (not .Finished))}}<form method="post" action="/dashboard/actions/link-cancel-message"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="link_id" value="{{.LinkID}}"><button type="submit">Cancel</button></form>{{end}}</td>
+</tr>{{end}}</tbody></table>{{end}}{{end}}
+<p><small>A message to another computer waits here, in order, until that computer stores it or refuses it. Cancel stops a queued message; a message that may already have arrived is resolved with the other computer first, and later messages to that computer wait until then.</small></p>{{end}}
 {{with .Rejected}}<p>Last refused key: <code>{{.Fingerprint}}</code> at {{unix .At}}. A computer that you did not pair tried to connect, or one that you unpaired.</p>{{end}}
 {{with .Error}}<p>{{.}}</p>{{end}}
 </details>{{end}}

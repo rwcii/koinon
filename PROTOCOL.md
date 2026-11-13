@@ -106,9 +106,9 @@ The listener takes TLS 1.3 only, with a client certificate required and session 
 `VerifyConnection` admits a paired or pending key, or any key while an invitation is open, and
 refuses every other key in the handshake with the `bad_certificate` alert, before any
 application data, and records it as the last refused key. On the TLS stream each frame is a
-4-byte big-endian length and a JSON object (`op`, `body`, or `error` and `detail`), at most 64
+4-byte big-endian length and a JSON object (`op`, `body`, or `error` and `detail`), at most 128
 KiB, with unknown fields refused; a connection carries at most 64 frames. The operations are
-`directory` and `name-update` (below),
+`directory` and `name-update` (below), `deliver` and `cancel` (Messages, below),
 `pair-hello` (`secret`, `name`, `dns`, `ips`, `port`; only an unpaired key with an open
 invitation's secret, which is used at once; the reply `hello-ok` has the pair `id` and `name`),
 `pair-confirm` (`id`), `ping` (`id`) and `unpair` (`id`). Each open of the link starts a generation: a
@@ -165,11 +165,70 @@ not observed as connected in the open generation, `directory_truncated`, `family
 answer NAME@COMPUTER from the cache (by peer name or address), with `observed_at` the
 directory's time and the activity observation with source `remote`, or
 `link_computer_unknown`, `peer_not_found` or `link_address_invalid`; they open no connection.
-`POST /v1/messages/send` to NAME@COMPUTER checks the body and the caller, then answers
+Messages (#670 chunk 03, LINK-670-WHAT items 1, 3 and 4, LINK-670-OFFLINE).
+`POST /v1/messages/send` to NAME@COMPUTER checks the body and the caller, refuses
 `link_computer_unknown` (no pair has that name; no lookup, no connection) or
-`link_messages_pending` (a paired computer: chunk 02 has no message queue, chunk 03 adds it);
-it stores and sends nothing. The maintainer's `send` and the dashboard's send to NAME@COMPUTER
-answer `link_maintainer_remote` (LINK-670-WHAT item 5). Recipient fields take 510 bytes.
+`link_address_invalid`, and otherwise stores the message in this daemon's outbox before it
+answers: `message` has `recipient` NAME@COMPUTER, `delivery_state` `queued`, `link_id` (the
+cross-node ID, 32 hex characters), and `id` and `seq` 0. NAME is resolved by the other
+computer. With `reply_to` (a received message's `id` that the caller can read in its own or
+its held participant's inbox), the reply goes to that message's sender on the pair it came
+from; `to` is then empty or that NAME@COMPUTER (`link_reply_target` otherwise, or for a message
+the caller cannot read); a pair that was unpaired since, also one paired again under the same
+name, refuses `link_reply_pair_gone`; a message from this computer refuses `link_reply_local`.
+The outbox holds at most 1,000 unfinished messages and 16 MiB of their bodies for each paired
+computer, and 10,000 and 64 MiB in all; a send over a limit is refused `link_queue_full` and
+nothing queued is dropped. `POST /v1/messages/outcome` with `link_id` in place of `message_id`
+(exactly one of them) reads the state for the session that sent it, or the current holder of
+the participant address that sent it, otherwise `link_message_not_found`: `queued` (here, not
+yet answered), `received` (the other computer stored it in an inbox; its wake, read and ack
+stay there), `refused` with `delivery_reason` (`peer_not_found`, `alias_unheld`,
+`recipient_inactive`, `link_origin_refused`, `link_recipient_local`), `cancelled`, or
+`may_have_been_delivered`. The
+maintainer's `send` and the dashboard's send to NAME@COMPUTER answer `link_maintainer_remote`
+(LINK-670-WHAT item 5). Recipient fields take 510 bytes.
+
+One worker for each paired computer delivers that pair's messages in send order while the
+link is open, one at a time, on the pair's stream (the pair ID; a new pairing is a new
+stream). A message gets the stream's next sequence when it becomes the head; the sequence and
+`digest` (SHA-256 over the length-prefixed sequence, cross-node ID, recipient, sender, family
+and body) are bound to it and never reused. Before each frame write the head is stored as
+`may_have_been_delivered`, so a crash, a Remote disable or a closed generation after the write
+never shows it as queued again. `deliver` (`id` the pair, `seq`, `xid`, `recipient`, `sender`
+the sender's name on its computer, `family`, `body` as bytes in base64, `digest`) and `cancel`
+(`id`, `seq`, `digest`) are answered with `deliver-ok` (`id`, `seq`, `digest`, `result`,
+`reason`); the sender takes only an answer whose three values match its head. The receiver
+answers only a paired key for its own pair ID, in the open generation, and keeps for each
+incoming stream its high-water mark, the last result and the last digest:
+
+- at high-water + 1, one transaction stores the result, the digest and the new mark: `received`
+  with the inbox row (sender `NAME@COMPUTER`, `origin` `link`, the sender's family, which must
+  be an agent family: an empty one, the maintainer's, overwatch's or the daemon's own is
+  `refused` `link_origin_refused`), or `refused` for an unknown, unheld or inactive NAME, or
+  `link_recipient_local` for a NAME that is not an agent's inbox, such as `maintainer`
+  (LINK-670-WHAT item 5); a `cancel` stores `cancelled` and inserts nothing;
+- at the mark, the stored result again, when the digest is the stored one;
+- below it, `stale`, which resolves nothing; a gap, a changed digest, or a cross-node ID that
+  an inbox row of the pair already holds is `link_protocol_error`, and nothing is stored;
+- a busy or full store answers `retry` and stores nothing.
+
+A refusal settles its message and the next one goes. `retry` and a lost or mismatched answer
+leave the head in place: it is sent again with the same sequence and digest after a wait of
+1 second, doubling to 60 seconds. A head that was already `may_have_been_delivered` before an
+attempt keeps that state until a matching `received`, `refused` or `cancelled`, so a `retry`
+never hides a delayed earlier attempt. The maintainer's cancel (`link-cancel-message`, the
+dashboard's **Cancel**) ends a message without a sequence at once (`cancelled`); a head with a
+sequence shows `may_have_been_delivered` and is resolved by `cancel` for its sequence: the
+stored result decides, so a body that arrived first stays `received`. Later messages to that
+computer wait until then. Unpair cancels the pair's messages without a sequence (reason
+`unpaired`), leaves an attempted head `may_have_been_delivered` and deletes the pair's
+streams; each open of the link finishes this for a pair that the link state no longer lists.
+A retired message is finished and never a head again, and a worker whose pair is no longer in
+the link state stores nothing more and sends no further frame. Remote off pauses delivery
+only; a restart keeps the queue, its order and its IDs. The worker
+connects again before a connection's frame limit. Finished outbox entries are deleted 30 days
+after their result; unfinished ones never age out. Inbox ack, message retention and purge do
+not touch the streams. A rename of a pair changes the shown sender of its received messages.
 
 | Route | Operation |
 | --- | --- |
@@ -180,10 +239,10 @@ answer `link_maintainer_remote` (LINK-670-WHAT item 5). Recipient fields take 51
 | `POST /v1/sessions/retire` | Mark an active session retired, retaining its record. |
 | `POST /v1/peers` | Each session's `name`, held `alias`, `family`, `state`, `repository`, optional `role` and `address`, true-only `holds_address` and `subagent`, and optional `succession` and fresh `naming`, for an active caller; never a wake target, directory or session ID. The caller's own row has true-only `self`, matched by its family and session; when the list is truncated, that row follows the listed rows, before the maintainer row. |
 | `POST /v1/peers/status` | Resolve a published peer name or held alias and read public identity plus observed model, context and activity for an active caller. |
-| `POST /v1/messages/send` | Store one message for the session that a peer name or alias names. |
+| `POST /v1/messages/send` | Store one message for the session that a peer name or alias names, or queue one to NAME@COMPUTER on a paired computer; `reply_to` answers a message from another computer on its pair. |
 | `POST /v1/inbox/read` | Read session and held participant inboxes after their independent sequences. |
 | `POST /v1/inbox/ack` | Acknowledge handled session and held participant messages through independent sequences. |
-| `POST /v1/messages/outcome` | Read the delivery and acknowledgement state of a message the caller sent. |
+| `POST /v1/messages/outcome` | Read the delivery and acknowledgement state of a message the caller sent, by `message_id`, or by `link_id` for a message to another computer. |
 | `POST /v1/wake/agy-stop` | Offer a due notice for this Antigravity conversation at its native Stop boundary. |
 | `POST /v1/launches` | Retain a launcher target and return its generated launch ID. |
 | `POST /v1/launches/job` | Record a pending Claude background launch's native job ID once. |
@@ -202,7 +261,7 @@ answer `link_maintainer_remote` (LINK-670-WHAT item 5). Recipient fields take 51
 | `GET /v1/remote/status` | Remote configuration, URL, listener readiness, observed Tailscale/Serve state, actionable error when present, and phone reachability `unverified`. When Serve is ready, `policy_hint` says that the tailnet policy must allow TCP on the remote HTTPS port (443 unless chosen) to the host, and `policy_rule` is an example policy entry with the host's Tailscale addresses (`tailscale.tailscale_ips`), absent when no valid address is known. Local bearer API only. |
 | `POST /v1/remote/enable` | JSON object with an optional `https_port` (#665): Serve's HTTPS port, 1 to 65535; absent or 0 keeps the saved port, or 443 for a first enable; another value or type is `invalid_request` before any change. The remote origin is `https://HOST.TAILNET.ts.net`, with `:PORT` when the port is not 443, and every remote URL, QR code, ticket and Host and Origin check uses it. A new port on an owned mapping first takes the disable steps for the old one. Check setup, persist ownership intent, start the dashboard-only listener, and ensure the private Serve root mapping. Local bearer API only. |
 | `POST /v1/remote/disable` | Empty JSON object; stop the remote surface, invalidate its sessions, persist disabled intent, and remove only its exact owned mapping. The surface stays closed when the record cannot be written; the reconciler then retries the write instead of opening it. Local bearer API only. |
-| `GET /v1/link/status` | The link (#670): `configured`, `name` (or `suggest_short` and `suggest_long` before setup), `port`, `fingerprint`, `remote`, `listener`, `serve`, open `invitations`, `pairs` (`id`, `name`, `advertised`, `override`, `state`, `role`, `observed` with `state`, `at` and `error`, `created`) and `rejected` (`fingerprint`, `at`). `GET /v1/remote/status` adds `link_port`, `link_listener` and `link_serve`. Local bearer API only. |
+| `GET /v1/link/status` | The link (#670): `configured`, `name` (or `suggest_short` and `suggest_long` before setup), `port`, `fingerprint`, `remote`, `listener`, `serve`, open `invitations`, `pairs` (`id`, `name`, `advertised`, `override`, `state`, `role`, `observed` with `state`, `at` and `error`, `created`, `waiting` (the count of waiting messages to that computer) and `queue`: its oldest 20 waiting messages, the head first, and its newest 20 finished ones, as `link-queue` lists them) and `rejected` (`fingerprint`, `at`). `GET /v1/remote/status` adds `link_port`, `link_listener` and `link_serve`. Local bearer API only. |
 
 A refused `enable` or `disable` is 409 `{"ok": false, "code": ..., "error": ...}`. The code is
 `remote_secret_required` when no maintainer secret is set, the Tailscale diagnostic's own code
@@ -214,7 +273,7 @@ with one `[y/N]` question; on yes it runs `sudo tailscale set --operator=NAME` a
 argument list and posts `enable` once more (PDR 010, Decision 6).
 | `POST /v1/maintainer/secret` | Set, generate or clear the maintainer secret (`action`, `secret`); ends every dashboard login and maintainer token. |
 | `POST /v1/maintainer/session` | Exchange the maintainer secret for a maintainer token (`secret`, `client`); see Maintainer mode. |
-| `POST /v1/maintainer/ROUTE` | The maintainer's reads and actions with a maintainer token: `board-list`, `decision-get`, `decision-history`, `decision-verdict`, `inbox`, `ack`, `send`, `room-list`, `room-read`, `room-post`, `room-create`, `room-add`, `room-remove`, `peers`, `peer-status`, the link's `link-name`, `link-invite`, `link-join`, `link-unpair`, `link-cancel` and `link-rename`, and the long poll `changes`; see Maintainer mode. |
+| `POST /v1/maintainer/ROUTE` | The maintainer's reads and actions with a maintainer token: `board-list`, `decision-get`, `decision-history`, `decision-verdict`, `inbox`, `ack`, `send`, `room-list`, `room-read`, `room-post`, `room-create`, `room-add`, `room-remove`, `peers`, `peer-status`, the link's `link-name`, `link-invite`, `link-join`, `link-unpair`, `link-cancel`, `link-rename`, `link-queue` and `link-cancel-message`, and the long poll `changes`; see Maintainer mode. |
 | `GET /v1/participants` | Each participant's `address`, `family`, `repository`, optional `role`, active `holder` peer name, `conflict` and `last_event`, at most 1,000 with `truncated` (`koinon participant list`, #398). |
 | `POST /v1/participants/holder` | The maintainer's holder choice from the command line (`koinon participant holder`, #398): `address`, `peer` and an optional `if_revision`, the session's current revision when absent. It makes what the dashboard's **Make holder** makes and is audited as `participant-holder` by `cli`. It returns `holder` and `former`; refusals are `invalid_request`, `peer_not_found`, `not_participant`, `session_not_active` and `revision_changed`. |
 | `POST /v1/storage/recover` | Prove the write-ahead log empty again, return free pages and clear a blocked state. |
@@ -1266,6 +1325,14 @@ pane matches `%` followed by 1–9 digits. The optional `executable` (#418) is t
 that the session's own terminal runs, with the same path rules as the socket. Invalid values
 return `invalid_request`.
 
+Schema 38 (#670 chunk 03) adds `link_outbox` (the queue to paired computers: cross-node ID,
+pair, sender, recipient NAME, the pair's name at send, body, sequence and digest once at the
+head, state, reason, the cancel request, the sticky earlier-unknown flag, and its times),
+`link_streams` (each pair's outgoing next sequence and incoming high-water mark, last result
+and last digest), and the nullable `link_pair`, `link_xid` and `link_sender` on `messages`
+with a unique index on (`link_pair`, `link_xid`). Local messages keep null. A schema 37
+binary refuses the upgraded store.
+
 Schema 37 adds `kept_epoch` (text), `kept_revision` and `kept_read` (0 or 1) to
 `context_enables`, all with defaults, for the ready-timeout retry
 (READY-TIMEOUT-ENABLE-487 in PDR 006, Decision 2). A schema 36 binary refuses the upgraded store.
@@ -1405,7 +1472,8 @@ native inbox and its currently held participant inbox. It reads only outcomes of
 its native session sent; another sender's message reads as
 `message_not_found`.
 
-- Send takes `caller`, `to` (a peer name or alias) and `body` (1–65,536 bytes of UTF-8; the
+- Send takes `caller`, `to` (a peer name or alias, or NAME@COMPUTER: see Messages under the
+  link), an optional `reply_to`, and `body` (1–65,536 bytes of UTF-8; the
   request may be up to 6 × 64 KiB + 4 KiB, for JSON escaping). The message, the sender's session
   and sender name (participant address while held, otherwise peer name), and the next
   sequence number of the receiving inbox are stored in one
@@ -2609,7 +2677,13 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     `link-invite`, whose result has `invitation` and `expires_seconds`; `link-join`
     (`invitation`), whose result has the pair's `id`, `name` and `advertised`; `link-unpair`
     (`pair`, a name or ID); `link-cancel` (`pair`, or `invitations` for every open invitation);
-    `link-rename` (`pair`, `name`, empty for the advertised name). The refusals are the link's.
+    `link-rename` (`pair`, `name`, empty for the advertised name); `link-queue` (`pair`, empty
+    for every paired computer), a read whose result lists each computer's `pair`, `computer`,
+    the counts `waiting` and `finished`, `truncated` when older finished messages are left out,
+    and `messages`: every waiting message, oldest first, then the newest 200 finished ones
+    (`link_id`, `recipient`, `sender`, `bytes`, `state`, `reason`, `cancel_requested`,
+    `created_at`, `updated_at`, `finished_at`; no body); and
+    `link-cancel-message` (`link_id`), whose result is that entry. The refusals are the link's.
     Each writes its accepted or refused record with the action's name and the target `name
     NAME`, `link invitation` or `pair PAIR`; no record holds an invitation. `koinon link`
     exchanges the secret from `--secret-file` or the terminal as client `koinon-link`, and
