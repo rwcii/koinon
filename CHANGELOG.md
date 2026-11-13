@@ -19,7 +19,8 @@ answer. The store moves to schema 38.
 - `koinon link join`, and **Connect** in Settings, Computers, now show why a join failed when
   the other computer does not answer, for example `link_unreachable` when the tailnet policy
   blocks the link port. Before, the daemon's answer was cut after 10 seconds and the command
-  reported that the daemon was unavailable or too old (#677). The same holds for naming,
+  reported that the daemon was unavailable or too old (#677). The `link_unreachable` message
+  also names the tailnet policy for the link port. The same holds for naming,
   inviting and unpairing.
 
 - Agents send messages to sessions on your other Koinon computers (#670, third part). `send`
@@ -55,9 +56,10 @@ answer. The store moves to schema 38.
   that you choose once (`koinon link name`, the short host name by default). The daemons talk
   TLS 1.3 with each other's pinned key through a raw TCP Tailscale Serve mapping on the link
   port (47672 by default), which remote enable adds and remote disable removes; disable also
-  closes the link and cancels open invitations, and keeps the pairs. `koinon link status`, the
-  Computers section and `koinon remote status` show each paired computer as connected, offline
-  or pending, the link listener and its mapping, and the last refused key. Unpair, Cancel and
+  closes the link and cancels open invitations, and keeps the pairs. `koinon link status` and
+  the Computers section show each paired computer as connected, offline or pending, the link
+  listener and its mapping, and the last refused key; `koinon remote status` shows the link's
+  port, listener and Serve mapping. Unpair, Cancel and
   Rename are in the same places. Messages between computers come in the next parts.
 
 - The first `koinon install` at a terminal now offers a third answer for where the dashboard
@@ -79,11 +81,11 @@ answer. The store moves to schema 38.
   unsent text; a selected draft is checked again for its recipient, form and text, and
   drafts are cleared at an opt-out or an observed revocation. The new **Attention** page is
   the remote landing page, with unread marks for each browser. Remote diagnostics show
-  observed requests, storage health and why each sign-in ended. A failed expiry write stays
+  observed requests, storage health and why the last sign-in ended. A failed expiry write stays
   visible and is retried when storage recovers. A failed logout or device revocation stays
   visible and is retried while the daemon runs; after a restart, forget the device again.
-  Local browser logins and maintainer API tokens do not change. Real-phone checks: an iPhone
-  test before the release; Android Chrome, overnight and 48-hour checks are open in #672.
+  Local browser logins and maintainer API tokens do not change. The Android Chrome, overnight
+  and 48-hour checks on real phones are open in #672.
 
 - `koinon remote enable --https-port PORT` publishes the remote dashboard on another
   Tailscale Serve HTTPS port, for a computer where another program, such as a container

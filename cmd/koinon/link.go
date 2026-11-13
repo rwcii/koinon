@@ -23,7 +23,7 @@ import (
 // terminal, which the command exchanges for a maintainer token. An invitation is never an
 // argument: join reads it from the terminal or the first line of standard input.
 
-const linkUsage = "use koinon link status|name [NAME]|invite|join|unpair PAIR|cancel PAIR|invitations|rename PAIR [NAME]|queue [COMPUTER]|cancel-message LINK_ID"
+const linkUsage = "use koinon link status|name [NAME]|invite|join|unpair PAIR|cancel PAIR|cancel invitations|rename PAIR [NAME]|queue [COMPUTER]|cancel-message LINK_ID"
 
 // linkCallTimeout covers a join or unpair, which waits for the other computer.
 const linkCallTimeout = 45 * time.Second

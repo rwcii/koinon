@@ -3,7 +3,7 @@ pdr: "010"
 title: "Private Remote Dashboard Access"
 status: accepted
 created: "2026-11-11"
-updated: "2026-11-12"
+updated: "2026-11-13"
 authors:
   - "Andrew Deugarte (@andyde8)"
 reviewers: []
@@ -301,7 +301,7 @@ The new ticket flow needs its own verification.
 
 ## 5. Refinement: Longer remote browser sessions
 
-**Requested by:** Andrew Deugarte (@andyde8), 2026-11-11. **Decided by:** Robert Capps, 2026-11-12 (#645), for this record as a whole: “yes we take it.”
+**Requested by:** Andrew Deugarte (@andyde8), 2026-11-11. **Decided by:** Robert Capps, 2026-11-12 (#645), for this record as a whole: “yes we take it.” Superseded for remote browsers by §9.
 
 **Context:** After phone sign-in, Andrew reported being signed out after putting
 his phone away for five minutes and asked for a longer session and a
@@ -419,7 +419,13 @@ step.
 
 ## 9. Refinement: Remote control v2 fixed sign-in and recovery
 
-**Decided by:** Andrew Deugarte, 2026-11-12, direct conversation.
+**Requested by:** Andrew Deugarte (@andyde8), 2026-11-12, direct conversation.
+**Decided by:** Robert Capps, 2026-11-13, board card REL-SCOPE-673 (approved, revision 2),
+for release v0.11.0. Robert Capps takes as his own decisions the fixed 48-hour sign-in that
+survives a restart, and crash survival with its storage-failure, process-loss and
+clock-rollback limit. His words: "this is the next release. Why defer it?" and "673 comes
+with .11". The [sprint decision record](../../sprints/2026-11-12-remote-control-v2/decision.md)
+holds the context and the open real-phone checks (#672).
 
 **Context:** How long should remote browser sign-in last? The draft considered
 90-day/year retention and the earlier seven-day policy; Andrew first requested
@@ -480,3 +486,4 @@ unverified connectivity and action outcomes stay labeled as such.
 | 2026-11-12 | Record Robert Capps's request for a chosen Serve HTTPS port (#665). |
 | 2026-11-12 | Record Robert Capps's request for a "localhost and tailnet only" choice (#665). |
 | 2026-11-12 | Record Andrew's v2 implementation authorization, fixed 48-hour policy, durable sessions and explicit recovery scope. |
+| 2026-11-13 | Record Robert Capps's decision REL-SCOPE-673: §9 ships in v0.11.0 as his decision; Andrew stays the proposer. §5 is superseded for remote browsers. |

@@ -338,8 +338,8 @@ facts from .koinon/skills/NAME.md.
 The maintainer pairs this computer with Koinon on the maintainer's other computers, in the
 dashboard's Settings, Computers, or with koinon link (#670). koinon link status shows this
 computer's name, its fingerprint and each paired computer: connected, offline or pending,
-with the time. A session that holds the maintainer secret can pair with koinon link invite and
-koinon link join --secret-file PATH, as the maintainer's own step.
+with the time. A session that holds the maintainer secret can pair with koinon link invite
+--secret-file PATH and koinon link join --secret-file PATH, as the maintainer's own step.
 peers also lists the sessions of each paired computer as NAME@COMPUTER, with remote true,
 computer, seen_at and stale when the list is not current; peer_status NAME@COMPUTER reads that
 list. send to NAME@COMPUTER queues the message on this computer and answers queued with a

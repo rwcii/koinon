@@ -1,6 +1,7 @@
 # Remote control v2 specification
 
-Status: Draft proposal, 2026-11-12. Baseline: fetched `origin/develop` at
+Status: implemented in v0.11.0 (#673). PDR 010 §9 and ADR 002 Decision 5 record the
+behavior; this file stays as the design source. Drafted 2026-11-12. Baseline: fetched `origin/develop` at
 `dfcca45bfcbb31ddc8ad91954a26f8024e8d6128`.
 
 ## Purpose and source
@@ -19,8 +20,8 @@ the request authorizes specification work, not acceptance of every proposal.
 
 Current behavior is defined by [PDR 010](product/pdr/010-private-remote-dashboard-access.md)
 and [ADR 002](architecture/adr/002-private-remote-dashboard-transport.md).
-This draft does not amend those accepted records. Record the selected v2 behavior
-and mechanism there during implementation, with their decision sources under WDR 001.
+The selected v2 behavior and mechanism are recorded there, with their decision sources
+under WDR 001.
 
 ## Baseline and proposed outcome
 
@@ -263,8 +264,7 @@ private message text, QR fragments and session token hashes.
 These are dependency increments, not a committed number of PRs. Use the project's
 sprint workflow for an implementation spanning multiple PRs. Keep the one-open-PR
 policy and independent review gates. Update usage, protocol, changelog and affected
-accepted records alongside implementation. The present change is a draft document;
-it does not change released behavior or warrant a release-note feature claim.
+accepted records alongside implementation. The CHANGELOG entry for v0.11.0 describes the shipped behavior.
 
 ## Acceptance criteria
 

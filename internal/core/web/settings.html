@@ -49,7 +49,7 @@
 <label>Name <input name="name" required maxlength="253" pattern="[a-z0-9]([a-z0-9.\-]*[a-z0-9])?" value="{{.Name}}"></label>
 <label>Link port <input name="port" type="number" min="1" max="65535" value="{{.Port}}"></label>
 <button type="submit">Save</button></form>
-<p><small>Your paired computers keep the name that they saw at pairing until you pair again.</small></p></details>
+<p><small>A new name reaches your paired computers at once or with the next list. A new link port reaches them only after you unpair and pair again.</small></p></details>
 {{end}}
 {{if .Pairs}}<h3>Paired computers</h3>
 <table><thead><tr><th>Name</th><th>State</th><th>Since</th><th>Change</th></tr></thead><tbody>{{range .Pairs}}<tr>

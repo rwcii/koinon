@@ -619,7 +619,7 @@ staging files.
 - In system mode on macOS, the LaunchDaemon plist that carries the marker: `sudo launchctl
   bootout system/<label>`, then `sudo rm`. A plist without the marker is kept, and the error
   gives the commands that remove it (`service_artifact_unowned`).
-- The remote dashboard's recorded Serve mapping, after the daemon is stopped,
+- The remote dashboard's and the computer link's recorded Serve mappings, after the daemon is stopped,
   only while it still matches Koinon's owned target. Unrelated Serve mappings
   stay. A cleanup failure retains the journal and binary so repeating uninstall
   can finish it; inspect the reported step before retrying. If Tailscale is missing,
