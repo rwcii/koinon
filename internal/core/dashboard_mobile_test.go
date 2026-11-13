@@ -157,6 +157,21 @@ function read(request, text='new data') { request.resolve({ok:true, status:200, 
     assert.equal(refused,1);assert.equal(resolved,0);assert.equal(disputed,0);
     assert.match(declined.nodes['action-result'].textContent,new RegExp('Refused: '+notice+'.*text is kept'));
   }
+  // #673 review L10: a 403 saved nothing, so the operation ends as refused, and the
+  // response settles the operation before any receipt lookup.
+  {
+    const calls=[];
+    const stale=browser({prepare(){return {id:'synthetic-operation'};},settled(){calls.push('settled');},refused(){calls.push('refused');},authenticated(){calls.push('authenticated');},resolve(){calls.push('resolve');},completed(){}});
+    stale.submit(stale.form());
+    stale.requests[0].resolve({ok:false,status:403}); await settle();
+    assert.deepEqual(calls,['settled','refused','authenticated']);
+    assert.match(stale.nodes['action-result'].textContent,/Form expired/);
+    const lostCalls=[];
+    const lost=browser({prepare(){return {id:'synthetic-operation'};},settled(){lostCalls.push('settled');},resolve(){lostCalls.push('resolve');},completed(){}});
+    lost.submit(lost.form());
+    lost.requests[0].reject(new Error('lost response')); await settle();
+    assert.deepEqual(lostCalls,['settled','resolve']);
+  }
   // #673 review L9: the device limit text of a password sign-in reaches the page.
   const full = browser(); full.submit(full.form('/dashboard/login'));
   full.requests[0].resolve({ok:false,status:409,text:async()=>'Signed-in device limit reached. Forget a device, then try again.'}); await settle(); await settle();

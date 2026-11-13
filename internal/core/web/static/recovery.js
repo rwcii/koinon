@@ -4,7 +4,9 @@
   if (!document.body || document.body.dataset.remote !== "true") { return; }
   var session = document.body.dataset.remoteSession;
   var prefix = "koinon.remote.v2:" + window.location.origin + ":";
-  var week = 7 * 86400000, pending = [], checking = false;
+  // inflight names the operations whose POST has no response yet; a receipt lookup for
+  // them would report a send in progress as unknown (#673 review L10).
+  var week = 7 * 86400000, pending = [], checking = false, inflight = {};
   // Receipt timestamps come from the host. The phone wall clock is only for
   // local draft ordering; monotonic elapsed time tolerates phone clock changes.
   var hostAnchor = Number(document.body.dataset.hostTime), elapsedAnchor = performance.now();
@@ -33,7 +35,7 @@
   if (/^(device_revoked|password_changed|remote_disabled|origin_changed)$/.test(document.body.dataset.authReason || "")) { clearDrafts(); }
   function opted() { return read("save-drafts", false) === true; }
   function drafts() {
-    return read("drafts", []).filter(function (d) { return d && typeof d.text === "string" && d.at <= Date.now() && Date.now() - d.at < week; });
+    return read("drafts", []).filter(function (d) { return d && typeof d.text === "string" && Number.isFinite(d.at) && Math.abs(Date.now() - d.at) < week; });
   }
   function route() { return window.location.pathname + window.location.search; }
   function targetOf(form) {
@@ -90,7 +92,9 @@
   });
   function supported(path) { return /^\/dashboard\/actions\/(send|room-post|decision-(approve|feedback|complete|decline|acknowledge))$/.test(path); }
   function savePending() { write("pending", pending); }
-  pending = read("pending", []).filter(function (p) { return p && /^[a-f0-9-]{16,80}$/.test(p.id) && Number.isFinite(p.at); });
+  pending = read("pending", []).filter(function (p) {
+    return p && /^[a-f0-9-]{16,80}$/.test(p.id) && Number.isFinite(p.at) && typeof p.type === "string" && typeof p.target === "string";
+  });
   function showPending() {
     var panel = document.getElementById("attention-pending-actions");
     if (!panel) { return; }
@@ -104,9 +108,10 @@
     });
   }
   function resolve() {
-    if (checking || !pending.length || document.visibilityState !== "visible") { return; }
+    var settled = pending.filter(function (p) { return !inflight[p.id]; });
+    if (checking || !settled.length || document.visibilityState !== "visible") { return; }
     checking = true;
-    Promise.all(pending.map(function (operation) {
+    Promise.all(settled.map(function (operation) {
       return fetch("/dashboard/receipts?id=" + encodeURIComponent(operation.id), {credentials:"same-origin", cache:"no-store"})
         .then(function (response) { if (response.status === 401) { unauthorized(response); } if (!response.ok) { throw new Error("unavailable"); } return response.json(); })
         .then(function (receipt) {
@@ -159,9 +164,10 @@
         operation = {id:window.crypto.randomUUID(), at:Date.now(), hostAt:hostNow(), type:target.pathname, route:route(), target:body.get("reference") || body.get("room_id") || body.get("to") || ""};
         form.dataset.operationId = operation.id; pending.push(operation); savePending();
       }
-      operation.missing = false; savePending();
+      operation.missing = false; savePending(); inflight[operation.id] = true;
       body.set("operation_id", operation.id); body.set("operation_created_at", String(Math.floor(operation.hostAt))); return operation;
     },
+    settled:function (operation) { if (operation) { delete inflight[operation.id]; } },
     conflict:function (operation) { if (operation) { operation.disputed = true; savePending(); } },
     // A refusal saved nothing, so its operation is no longer pending (#673 review M5).
     refused:function (operation) { if (operation) { pending = pending.filter(function (p) { return p.id !== operation.id; }); savePending(); showPending(); } },

@@ -154,6 +154,7 @@
     var timeout = window.setTimeout(function () { controller.abort(); }, 20000);
     fetch(target.toString(), { method: "POST", body: body, credentials: "same-origin", cache: "no-store", redirect: "follow", signal: controller.signal })
       .then(function (response) {
+        if (recovery && operation && recovery.settled) { recovery.settled(operation); }
         if (response.status === 401) {
           if (recovery) { recovery.unauthorized(response); }
           message(target.pathname === "/dashboard/login" ? "Sign-in failed. Check your Koinon password and try again." :
@@ -165,7 +166,8 @@
           }
           return;
         }
-        if (response.status === 403 && recovery) { recovery.authenticated(true); message("Form expired. Your text is kept; refresh the form token, then submit explicitly."); return; }
+        // A 403 saved nothing: the operation ends as refused, not as unknown (#673 review L10).
+        if (response.status === 403 && recovery) { if (operation && recovery.refused) { recovery.refused(operation); } recovery.authenticated(true); message("Form expired. Your text is kept; refresh the form token, then submit explicitly."); return; }
         if (response.status === 409 && target.pathname === "/dashboard/login" && typeof response.text === "function") {
           // The device limit text is the host's own plain text; show it (#673 review L9).
           return response.text().then(function (text) { message(text.trim() || "Signed-in device limit reached."); });
@@ -208,7 +210,10 @@
         }
         });
       })
-      .catch(function () { message("Result unknown; check the latest state before trying again."); if (recovery && operation) { recovery.resolve(); } })
+      .catch(function () {
+        message("Result unknown; check the latest state before trying again.");
+        if (recovery && operation) { if (recovery.settled) { recovery.settled(operation); } recovery.resolve(); }
+      })
       .finally(function () {
         window.clearTimeout(timeout);
         delete form.dataset.busy;

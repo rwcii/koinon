@@ -38,9 +38,9 @@ function browser(saved={}, broken=false, sessionID="synthetic-session", clock={}
  class PhoneDate extends Date {static now(){return clock.clientTime === undefined ? Date.now() : clock.clientTime;}}
  const performance={now(){return clock.elapsed || 0;}};
  const document={body:{dataset:{remote:'true',remoteSession:sessionID,hostTime:String(hostTime),authReason:clock.authReason||''}},visibilityState:'visible',
- getElementById(id){return {'recovery-status':status,'save-drafts':toggle,'clear-drafts':clear}[id]||null;},
+ getElementById(id){return {'recovery-status':status,'save-drafts':toggle,'clear-drafts':clear,'attention-pending-actions':clock.panel}[id]||null;},
  querySelectorAll(selector){return selector.startsWith('textarea')?[field]:[];},addEventListener(n,f){events[n]=f;},
- createElement(){return {addEventListener(n,f){this[n]=f;},remove(){this.removed=true;}};}};
+ createElement(){return {addEventListener(n,f){this[n]=f;},remove(){this.removed=true;},append(){}};}};
  const window={location:new URL('https://synthetic.example/dashboard/messages'),crypto:{randomUUID(){return '12345678-1234-1234-1234-'+String(++nextID).padStart(12,'0');}},
  localStorage:{getItem(k){if(broken)throw Error('blocked');return storage.get(k)||null;},setItem(k,v){if(broken)throw Error('quota');storage.set(k,v);},removeItem(k){storage.delete(k);}},addEventListener(){}};
  class FormData {constructor(form){this.form=form;}get(name){return name==='to'?(this.form.recipient||'synthetic-peer'):null;}}
@@ -79,10 +79,13 @@ function browser(saved={}, broken=false, sessionID="synthetic-session", clock={}
  b.toggle.checked=false;b.toggle.change();assert.equal(b.storage.has(b.prefix+'drafts'),false);
  const body=new URLSearchParams({to:'synthetic-peer',body:'never store this message'}),form={dataset:{}};
  const op=b.api.prepare(form,new URL('https://synthetic.example/dashboard/actions/send'),body);assert.ok(op.id);assert.equal(body.get('operation_id'),op.id);assert.ok(!b.storage.get(b.prefix+'pending').includes('never store'));
+ // While the POST waits for its response, no receipt lookup runs for it (#673 review L10).
+ b.api.resolve();assert.equal(b.requests.length,0);assert.doesNotMatch(b.status.textContent,/unknown/i);
+ b.api.settled(op);
  assert.equal(b.api.prepare(form,new URL('https://synthetic.example/dashboard/actions/send'),body).blocked,true);assert.equal(b.requests.length,1);assert.equal(b.requests[0].opts.method,undefined);
  b.requests[0].resolve({ok:true,json:async()=>({found:false,authoritative:true})});await settle();
  const retry=b.api.prepare(form,new URL('https://synthetic.example/dashboard/actions/send'),body);assert.equal(retry.id,op.id);
- b.api.resolve();b.requests[1].resolve({ok:true,json:async()=>({state:'accepted'})});await settle();assert.match(b.status.textContent,/Accepted/);assert.equal(b.requests.filter(r=>r.opts.method==='POST').length,0);
+ b.api.settled(retry);b.api.resolve();b.requests[1].resolve({ok:true,json:async()=>({state:'accepted'})});await settle();assert.match(b.status.textContent,/Accepted/);assert.equal(b.requests.filter(r=>r.opts.method==='POST').length,0);
  const rejected=browser(Object.fromEntries(resumed.storage));rejected.api.unauthorized({headers:{get(){return 'device_revoked';}}});assert.equal(rejected.storage.has(rejected.prefix+'drafts'),false);
  const failed=browser({},true);assert.match(failed.status.textContent,/unavailable/);failed.field.value='still usable';failed.events.input({target:failed.field});assert.equal(failed.field.value,'still usable');
  const expired=browser({[b.prefix+'save-drafts']:'true',[b.prefix+'drafts']:JSON.stringify([{text:'old',at:Date.now()-8*86400000}])});assert.equal(expired.buttons.length,0);
@@ -120,7 +123,7 @@ function browser(saved={}, broken=false, sessionID="synthetic-session", clock={}
  const disputed=browser({[b.prefix+'save-drafts']:'true'});
  disputed.field.value='changed private draft';disputed.events.input({target:disputed.field});
  const disputedOperation=disputed.api.prepare({dataset:{}},new URL('https://synthetic.example/dashboard/actions/send'),new URLSearchParams({to:'synthetic-peer',body:'changed private draft'}));
- disputed.api.conflict(disputedOperation);disputed.api.resolve();
+ disputed.api.settled(disputedOperation);disputed.api.conflict(disputedOperation);disputed.api.resolve();
  disputed.requests[0].resolve({ok:true,json:async()=>({found:true,receipt:{state:'accepted'}})});await settle();
  assert.match(disputed.storage.get(b.prefix+'drafts'),/changed private draft/);
  // Accepted recovery of an earlier submission must preserve edits made afterwards.
@@ -141,7 +144,7 @@ function browser(saved={}, broken=false, sessionID="synthetic-session", clock={}
   assert.equal(original.at,hostTime+skew);
   // A later phone wall-clock jump cannot change the original ID/time on retry.
   clock.clientTime += 20*86400000; clock.elapsed=2000;
-  timed.api.resolve();timed.requests[0].resolve({ok:true,json:async()=>({found:false,authoritative:true,server_time:hostTime+2000})});await settle();
+  timed.api.settled(original);timed.api.resolve();timed.requests[0].resolve({ok:true,json:async()=>({found:false,authoritative:true,server_time:hostTime+2000})});await settle();
   const retry=timed.api.prepare(form,new URL('https://synthetic.example/dashboard/actions/send'),body);
   assert.equal(retry.id,original.id);assert.equal(Number(body.get('operation_created_at')),hostTime+1250);
   // A new page uses a new host anchor but preserves a pending action's original time.
@@ -175,6 +178,16 @@ function browser(saved={}, broken=false, sessionID="synthetic-session", clock={}
  // Valid JSON with the wrong storage shape is unavailable, rather than breaking forms.
  const malformed=browser({[b.prefix+'save-drafts']:'true',[b.prefix+'drafts']:'{}',[b.prefix+'pending']:'{}'});
  assert.match(malformed.status.textContent,/unavailable/);malformed.field.value='usable';malformed.events.input({target:malformed.field});assert.equal(malformed.field.value,'usable');
+ // A phone clock that moved back keeps a draft written before the change (#673 review L11).
+ const ahead={key:'ahead',session:'synthetic-session',route:'/dashboard/messages',target:'synthetic-peer',name:'body',text:'draft from a fast clock',at:Date.now()+3600000};
+ const slow=browser({[b.prefix+'save-drafts']:'true',[b.prefix+'drafts']:JSON.stringify([ahead])});
+ assert.equal(slow.buttons.length,1);assert.match(slow.storage.get(b.prefix+'drafts'),/draft from a fast clock/);
+ // A pending entry without a string type or target is dropped, and Attention still renders (#673 review L12).
+ const panel={children:[],replaceChildren(){this.children=[]},append(n){this.children.push(n)}};
+ const bad={id:'ffffffff-ffff-ffff-ffff-ffffffffffff',at:Date.now(),hostAt:Date.now(),target:'synthetic-peer'};
+ const good={id:'abababab-abab-abab-abab-abababababab',at:Date.now(),hostAt:Date.now(),type:'/dashboard/actions/send',target:'synthetic-peer'};
+ const attention=browser({[b.prefix+'pending']:JSON.stringify([bad,good])},false,'synthetic-session',{panel});
+ assert.equal(attention.requests.length,1);assert.match(attention.requests[0].url,/abababab/);assert.equal(panel.children.length,1);
  console.log('synthetic remote recovery passed');
 })().catch(e=>{console.error(e);process.exitCode=1;});
 `
