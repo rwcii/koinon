@@ -85,7 +85,7 @@ A signed action names one target and one operation:
 | `peers` | read | none |
 | `peer_status` | read | peer |
 | `changes` | read | versions (topic to version), wait_seconds (0 to 30) |
-| `outcome` | read | request |
+| `outcome` | read | request, created |
 | `session` | session | client (target: the node) |
 
 1. `decision_verdict` takes every verdict that the item's kind takes (`kindVerdicts`), with the
@@ -136,13 +136,17 @@ A signed action names one target and one operation:
       (`version`); `target` its own pin (`target`);
    2. the key has a current authorization (`key_unknown`, `key_removed`); the signature
       (`signature`);
-   3. for a write: a receipt for this authorization and request (Decision 4) is answered now,
-      whatever `created` is;
-   4. `created` within 5 minutes of the target's clock (`time`);
-   5. the operation and its own checks.
+   3. for a write, inside its store transaction: a receipt for this authorization and request
+      (Decision 4) is answered now, whatever `created` is; else `created` within 5 minutes of the
+      target's clock at that moment (`time`), then the operation and its own checks. The time
+      check runs in the same transaction as the commit, so a write that waited for the store
+      past its window does not run;
+   4. for a read: `created` within 5 minutes of the target's clock (`time`), then the read.
 4. The user name and client label come from the target's authorization, never from the envelope.
-5. The enrollment statement is an envelope with `op` `enroll`, `args` `{"user", "client"}`, the
-   target's pin and no request. `key add` takes it while `created` is within 10 minutes, because
+5. The enrollment statement is an envelope with `op` `enroll`, `args`
+   `{"user", "client", "public_key"}`, the target's pin and no request. `public_key` is the
+   standard base64 (with padding) of the raw 32-byte Ed25519 public key; `key add` refuses it
+   unless `key` is its key ID, then checks the signature with it and stores it. `key add` takes it while `created` is within 10 minutes, because
    it is carried to the target by hand; this is the only 10-minute window.
 
 Test vectors (synthetic key and target; generated with Go `crypto/ed25519`, checked with
@@ -158,9 +162,9 @@ snapshot_canonical: {"agent_text":"","commands":"","context":"- Line one\n- Line
 snapshot_sha256: 4dc4570ea265939f1a8c9e64e19dd9316dd7f438600410486cad57468e62a8ec
 
 op: enroll
-canonical: {"args":{"client":"koinon-voice","user":"maintainer"},"created":1794699000,"key":"SHA256:ZbYGc9btiEvwHCwiLYKtoHQPKawzVdapJcgfF/R6J7g","op":"enroll","target":"a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf","v":"koinon-maintainer-1"}
-signed_bytes_hex: 6b6f696e6f6e2d6d61696e7461696e65722d310a7b2261726773223a7b22636c69656e74223a226b6f696e6f6e2d766f696365222c2275736572223a226d61696e7461696e6572227d2c2263726561746564223a313739343639393030302c226b6579223a225348413235363a5a6259476339627469457677484377694c594b746f4851504b61777a566461704a636766462f52364a3767222c226f70223a22656e726f6c6c222c22746172676574223a2261306131613261336134613561366137613861396161616261636164616561666230623162326233623462356236623762386239626162626263626462656266222c2276223a226b6f696e6f6e2d6d61696e7461696e65722d31227d
-sig_b64: +Hu2NC+pgMxd11EElbi+Nl7buBnSGpF+76iTkS3vX/HVevpU6iy4OePvmQZua0nZ7Zi38aKuSYfIZRYXgYBlCA==
+canonical: {"args":{"client":"koinon-voice","public_key":"ebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ=","user":"maintainer"},"created":1794699000,"key":"SHA256:ZbYGc9btiEvwHCwiLYKtoHQPKawzVdapJcgfF/R6J7g","op":"enroll","target":"a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf","v":"koinon-maintainer-1"}
+signed_bytes_hex: 6b6f696e6f6e2d6d61696e7461696e65722d310a7b2261726773223a7b22636c69656e74223a226b6f696e6f6e2d766f696365222c227075626c69635f6b6579223a22656256574c6f2f6d56506c41654c4553364b6d4c703541666854726d6c623758344f4f52433630456c6d513d222c2275736572223a226d61696e7461696e6572227d2c2263726561746564223a313739343639393030302c226b6579223a225348413235363a5a6259476339627469457677484377694c594b746f4851504b61777a566461704a636766462f52364a3767222c226f70223a22656e726f6c6c222c22746172676574223a2261306131613261336134613561366137613861396161616261636164616561666230623162326233623462356236623762386239626162626263626462656266222c2276223a226b6f696e6f6e2d6d61696e7461696e65722d31227d
+sig_b64: 3mzi0yvfgymYoV3Wp6xVOwjOKuUQTP/9+hXAd23WytD8ykv/4vTF1Tpu3t4H8ZBkr7OtLJfr9NoNvVkhTKOqBQ==
 
 op: decision_verdict
 canonical: {"args":{"note":"ok <&> \"quoted\"","reference":"VEC-1","revision":3,"snapshot":"4dc4570ea265939f1a8c9e64e19dd9316dd7f438600410486cad57468e62a8ec","verdict":"approved"},"created":1794699000,"key":"SHA256:ZbYGc9btiEvwHCwiLYKtoHQPKawzVdapJcgfF/R6J7g","op":"decision_verdict","request":"vec-request-000001","target":"a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf","v":"koinon-maintainer-1"}
@@ -177,12 +181,17 @@ sig_b64: hXQ67DMFF3ElMgj3le+wUlKi0WDK1EglpgyI3EDN+b9EaF2tOQp11OjiUlKvM6KBLoe9+oe
 2. A write and its receipt are recorded in one transaction. The same request with the same
    digest gives the first result again, also after a restart or a lost answer. The same request
    with another digest is refused (`request_conflict`).
-3. `outcome` with `{"request"}` answers the receipt of that authorization: `recorded` with the
-   result, `refused` with the code, or `unknown_request` when there is none (never sent, sent
-   but not committed, or older than 7 days). On `unknown_request` the client sends the same
-   envelope again while it is within 7 days of its first sending: a committed write answers from
-   its receipt, an uncommitted one runs once. After 7 days the client reports the outcome as
-   unknown and does not send it again.
+3. `outcome` with `{"request", "created"}` (the request's own `created`) answers the receipt of
+   that authorization: `recorded` with the result, `refused` with the code, or `unknown_request`
+   with the target's clock `now` when there is none. Then:
+   - `now` more than 5 minutes after the request's `created`: final. The write did not run and
+     cannot run (item 3.3 of Decision 3 refuses it inside the transaction); the client says so,
+     and signs the action again under a new request ID only when the maintainer asks.
+   - `now` within those 5 minutes: the envelope can still be in flight. The client sends the
+     same envelope again; it runs once or answers from its receipt. If that answer is lost too,
+     the client asks `outcome` again after the window, which is then final.
+   - After the 7 days of a receipt, `outcome` cannot tell; the client reports the outcome as
+     unknown.
 4. Reads carry a request ID and `created`, so an old read is refused; they keep no receipt.
 5. A signed action is not queued (settled point 1; #695). The node answers:
    - `computer_offline`, with the target's last-seen time, only when it had no connection to the
