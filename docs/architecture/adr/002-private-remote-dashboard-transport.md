@@ -3,7 +3,7 @@ adr: "002"
 title: "Private Remote Dashboard Transport"
 status: accepted
 created: "2026-11-11"
-updated: "2026-11-13"
+updated: "2026-11-14"
 authors:
   - "Andrew Deugarte (@andyde8)"
 reviewers: []
@@ -359,6 +359,24 @@ or control operation. Implementation: `internal/core/link_messages.go`,
 - **Review when:** computers without Tailscale must link, or Tailscale Serve changes its TCP
   forwarding.
 
+**Amendment (LINK-GROUP-JOIN):**
+
+- **Decided by:** Robert Capps. **Date:** 2026-11-14, revision 1, approved on the decision
+  board (#683).
+- **Context:** with one invitation for each pair, 4 computers need 6 pairs and 12 secret
+  entries. The full context and options are in PDR 011, Decision 5.
+- **Decision:** after a join, the inviting computer introduces the new computer to each of its
+  other paired computers. The new computer gets their keys (pins), names and addresses in the
+  join's `confirm-ok` reply on the pinned link and accepts no other key from an introduction;
+  each other computer gets the new computer's from the inviting computer with `introduce`, and
+  accepts it only from a paired key. So a pair can now be made without the maintainer on its two
+  computers: the maintainer authorizes the join, and the join brings the group. Unpair stays
+  per pair; `link leave` removes every pair of a computer.
+- **Reason and scope:** one join for each new computer. A paired key is trusted to introduce
+  others, which LINK-670-WHO limits to the maintainer's own computers. The protection of each
+  link (TLS 1.3, pinned keys, the raw TCP Serve mapping) does not change.
+- **Review when:** as PDR 011, Decision 5.
+
 ### Alternatives Considered
 
 A link listener on any LAN, tailnet or VPN address (revision 4); LAN only; tailnet device
@@ -440,5 +458,6 @@ Serve mapping and records recoverable lifecycle transitions.
 | 2026-11-12 | Decision 4: the link between Koinon computers is part of Remote (LINK-670-PAIR, Robert Capps, #670). |
 | 2026-11-13 | Decision 4: the link carries the receiver directory and name updates (#670 chunk 02). |
 | 2026-11-13 | Decision 4: the link carries agent direct messages, queued at the sender (#670 chunk 03). |
+| 2026-11-14 | Decision 4, amendment LINK-GROUP-JOIN (Robert Capps, #683): the inviting computer introduces a new computer to its other paired computers. |
 | 2026-11-12 | Record Andrew's v2 implementation authorization, fixed 48-hour policy, durable sessions and explicit recovery scope. |
 | 2026-11-13 | Decision 5: Robert Capps takes the v2 policy choices as his and puts v2 in v0.11.0 (REL-SCOPE-673). |

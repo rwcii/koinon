@@ -22,7 +22,7 @@ const linkCallTimeout = 2*linkIOTimeout + 4*time.Second
 
 // linkWaits are the link actions that can wait for the other computer, Tailscale or Serve up
 // to linkCallTimeout, longer than the servers' 10-second write timeout (#677).
-var linkWaits = map[string]bool{"link-name": true, "link-invite": true, "link-join": true, "link-unpair": true}
+var linkWaits = map[string]bool{"link-name": true, "link-invite": true, "link-join": true, "link-unpair": true, "link-leave": true}
 
 // linkWaitWrite lets such an action write its answer up to linkCallTimeout plus 5 seconds
 // after it starts, so that a late refusal reaches the caller and does not end as a closed
@@ -37,11 +37,13 @@ type LinkInvitationResult struct {
 	ExpiresSeconds int64  `json:"expires_seconds"`
 }
 
-// LinkJoinResult is the pair that a join made.
+// LinkJoinResult is the pair that a join made, and the names of the computers that the other
+// computer introduced this one to (LINK-GROUP-JOIN).
 type LinkJoinResult struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Advertised string `json:"advertised"`
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	Advertised string   `json:"advertised"`
+	Introduced []string `json:"introduced,omitempty"`
 }
 
 func linkTarget(prefix, value string) string {
@@ -108,11 +110,11 @@ func (d *Daemon) linkMaintainerRoutes(mux *http.ServeMux) {
 		d.linkAct(ctx, w, "link-join", "link invitation", q.Invitation != "", func(ctx context.Context) (any, error) {
 			ctx, cancel := context.WithTimeout(ctx, linkCallTimeout)
 			defer cancel()
-			p, err := d.linkJoin(ctx, q.Invitation)
+			p, introduced, err := d.linkJoinIntroduced(ctx, q.Invitation)
 			if err != nil {
 				return nil, err
 			}
-			return LinkJoinResult{ID: p.ID, Name: p.Effective, Advertised: p.Advertised}, nil
+			return LinkJoinResult{ID: p.ID, Name: p.Effective, Advertised: p.Advertised, Introduced: introduced}, nil
 		})
 	})
 	maintainerRoute(d, mux, "link-unpair", 16384, func(ctx context.Context, w http.ResponseWriter, q struct {
@@ -123,6 +125,13 @@ func (d *Daemon) linkMaintainerRoutes(mux *http.ServeMux) {
 			ctx, cancel := context.WithTimeout(ctx, linkCallTimeout)
 			defer cancel()
 			return nil, d.linkUnpair(ctx, q.Pair)
+		})
+	})
+	maintainerRoute(d, mux, "link-leave", 16384, func(ctx context.Context, w http.ResponseWriter, q struct{ maintainerToken }) {
+		d.linkAct(ctx, w, "link-leave", "every pair", true, func(ctx context.Context) (any, error) {
+			ctx, cancel := context.WithTimeout(ctx, linkCallTimeout)
+			defer cancel()
+			return d.linkLeave(ctx)
 		})
 	})
 	maintainerRoute(d, mux, "link-cancel", 16384, func(ctx context.Context, w http.ResponseWriter, q struct {
@@ -166,6 +175,7 @@ func init() {
 		"link_named":             "This computer's name and link port were saved, and the link is open.",
 		"link_joined":            "The computers are paired.",
 		"link_unpaired":          "The computer was unpaired. The other computer removes the pair when it answers, or shows it as rejected at its next connection.",
+		"link_left":              "This computer was unpaired from every computer. Each removes its pair when it answers, or shows it as rejected at its next connection.",
 		"link_cancelled":         "The pending pair or the open invitations were cancelled.",
 		"link_renamed":           "The computer's name on this computer was saved.",
 		"link_message_cancelled": "The message was cancelled, or its cancel waits for the other computer's answer.",
@@ -262,6 +272,10 @@ func (d *Daemon) dashboardLinkRoutes(mux *http.ServeMux, authed func(func(http.R
 	})
 	act("link-unpair", pair, "link_unpaired", func(ctx context.Context, r *http.Request) error {
 		return d.linkUnpair(ctx, r.PostFormValue("pair"))
+	})
+	act("link-leave", func(*http.Request) string { return "every pair" }, "link_left", func(ctx context.Context, r *http.Request) error {
+		_, err := d.linkLeave(ctx)
+		return err
 	})
 	act("link-cancel", pair, "link_cancelled", func(ctx context.Context, r *http.Request) error {
 		return d.linkCancel(r.PostFormValue("pair"))

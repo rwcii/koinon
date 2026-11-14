@@ -111,7 +111,8 @@ KiB, with unknown fields refused; a connection carries at most 64 frames. The op
 `directory` and `name-update` (below), `deliver` and `cancel` (Messages, below),
 `pair-hello` (`secret`, `name`, `dns`, `ips`, `port`; only an unpaired key with an open
 invitation's secret, which is used at once; the reply `hello-ok` has the pair `id` and `name`),
-`pair-confirm` (`id`), `ping` (`id`) and `unpair` (`id`). Each open of the link starts a generation: a
+`pair-confirm` (`id`), `ping` (`id`), `unpair` (`id`), and `introduce` and `introduced`
+(Introductions, below). Each open of the link starts a generation: a
 connection is attached to it before its handshake (inbound) or before its handshake ends
 (outbound), and the close ends every dial, handshake and connection of that generation at
 once. Each join, unpair and monitor pass keeps the generation in which it began, through its
@@ -153,6 +154,33 @@ pair. Entries with a malformed field are dropped. Every inbound operation that w
 (`pair-hello`, `pair-confirm`, `ping`, `unpair`, `name-update`) commits only while the generation
 of its connection is the open link's; a name-update from this computer goes in the generation
 that the setup left open.
+
+Introductions (#683, LINK-GROUP-JOIN): when a pending pair of this computer's invitation becomes
+paired (`pair-confirm` or `ping`), the same `link.json` write adds to `intros` one introduction
+for each other paired pair: `id` (a new pair ID), `new` and `old` (the two pair IDs),
+`new_sent` and `created`; at most 256 wait. The `confirm-ok` reply has `introductions`: for each
+introduction that the new computer has not acknowledged, `id`, `name` (the advertised name),
+`dns`, `ips`, `port` and `pin` of the other computer; a joiner of an earlier version does not
+read the body. The new computer stores each as a paired pair with that ID, its effective name
+or the next free `NAME-N`, and `via` (the pair ID of the computer that introduced it); it skips
+an entry whose key or ID another pair has, an invalid entry, and its own or the sender's key.
+Then it sends `introduced` (`id`, its pair's ID; `ids`, the introductions that it holds):
+those get `new_sent`, the others are dropped; the reply is `introduced-ok`. During one hour
+after its join, the new computer sends `pair-confirm` again after each successful `ping` to
+the computer whose invitation it joined, and stores and acknowledges the reply in the same
+way; a computer drops an introduction that the new computer did not acknowledge within the
+hour. For each acknowledged introduction, the introducing computer sends `introduce` (`id`,
+`name`, `dns`, `ips`, `port`, `pin` of the new computer) to the other computer, from a single
+delivery that runs after each acknowledgement and each monitor pass of the open generation.
+The receiver accepts it only from a paired key (`link_pair_not_found`), refuses its own and
+the sender's key and a malformed entry (`invalid_request`) and a full pair list
+(`link_limit`), and answers `introduce-ok` with `added`: true when it stored the pair, with
+`via`, false when a pair already had that key. Any answer or refusal ends the introduction,
+except `link_remote_required`; a connection failure keeps it for the next pass. Unpair, cancel
+and leave drop the introductions of the removed pairs; one whose pair is gone is dropped.
+`koinon link status` shows `introductions` (the count that wait) and, for each pair that an
+introduction made, `introduced_by` (the effective name of the introducing pair while it
+exists). `link.json` without `intros` and `via` stays readable by earlier versions.
 
 `NAME@COMPUTER` is split at the last `@`: NAME has 1 to 256 bytes and no `@`, COMPUTER has the
 advertised-name grammar, and the address has at most 510 bytes; a recipient without `@` is
@@ -273,7 +301,7 @@ with one `[y/N]` question; on yes it runs `sudo tailscale set --operator=NAME` a
 argument list and posts `enable` once more (PDR 010, Decision 6).
 | `POST /v1/maintainer/secret` | Set, generate or clear the maintainer secret (`action`, `secret`); ends every dashboard login and maintainer token. |
 | `POST /v1/maintainer/session` | Exchange the maintainer secret for a maintainer token (`secret`, `client`); see Maintainer mode. |
-| `POST /v1/maintainer/ROUTE` | The maintainer's reads and actions with a maintainer token: `board-list`, `decision-get`, `decision-history`, `decision-verdict`, `inbox`, `ack`, `send`, `room-list`, `room-read`, `room-post`, `room-create`, `room-add`, `room-remove`, `peers`, `peer-status`, the link's `link-name`, `link-invite`, `link-join`, `link-unpair`, `link-cancel`, `link-rename`, `link-queue` and `link-cancel-message`, and the long poll `changes`; see Maintainer mode. |
+| `POST /v1/maintainer/ROUTE` | The maintainer's reads and actions with a maintainer token: `board-list`, `decision-get`, `decision-history`, `decision-verdict`, `inbox`, `ack`, `send`, `room-list`, `room-read`, `room-post`, `room-create`, `room-add`, `room-remove`, `peers`, `peer-status`, the link's `link-name`, `link-invite`, `link-join`, `link-unpair`, `link-leave`, `link-cancel`, `link-rename`, `link-queue` and `link-cancel-message`, and the long poll `changes`; see Maintainer mode. |
 | `GET /v1/participants` | Each participant's `address`, `family`, `repository`, optional `role`, active `holder` peer name, `conflict` and `last_event`, at most 1,000 with `truncated` (`koinon participant list`, #398). |
 | `POST /v1/participants/holder` | The maintainer's holder choice from the command line (`koinon participant holder`, #398): `address`, `peer` and an optional `if_revision`, the session's current revision when absent. It makes what the dashboard's **Make holder** makes and is audited as `participant-holder` by `cli`. It returns `holder` and `former`; refusals are `invalid_request`, `peer_not_found`, `not_participant`, `session_not_active` and `revision_changed`. |
 | `POST /v1/storage/recover` | Prove the write-ahead log empty again, return free pages and clear a blocked state. |
@@ -2676,8 +2704,11 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     as `peer_status` does (`peer_not_found`, `alias_unheld`).
   - The link (#670): `link-name` (`name`, `port`, 0 for the saved port or 47672);
     `link-invite`, whose result has `invitation` and `expires_seconds`; `link-join`
-    (`invitation`), whose result has the pair's `id`, `name` and `advertised`; `link-unpair`
-    (`pair`, a name or ID); `link-cancel` (`pair`, or `invitations` for every open invitation);
+    (`invitation`), whose result has the pair's `id`, `name` and `advertised`, and `introduced`,
+    the names of the computers of its introduction; `link-unpair` (`pair`, a name or ID);
+    `link-leave`, which removes every pair as one write and then tells each other computer as
+    `link-unpair` does, with the result `unpaired` (the count) and the target `every pair`;
+    `link-cancel` (`pair`, or `invitations` for every open invitation);
     `link-rename` (`pair`, `name`, empty for the advertised name); `link-queue` (`pair`, empty
     for every paired computer), a read whose result lists each computer's `pair`, `computer`,
     the counts `waiting` and `finished`, `truncated` when older finished messages are left out,

@@ -3,7 +3,7 @@ pdr: "011"
 title: "Linked Koinon Computers"
 status: accepted
 created: "2026-11-12"
-updated: "2026-11-13"
+updated: "2026-11-14"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -163,6 +163,49 @@ maintainer secret is in PDR 009; Remote is in PDR 010.
   (engineering values), and finished entries kept 30 days (the proposed value). Evidence of the
   live round trip between a Linux and a macOS computer is in the sprint's `verification.md`.
 
+## 6. Decision 5: One join adds a computer to the group (LINK-GROUP-JOIN)
+
+- **Decided by:** Robert Capps. **Date:** 2026-11-14, revision 1, approved on the decision
+  board (#683).
+- **Context:** a link connects two computers, and messages do not go through a third
+  computer, so a full set of links for n computers needs n(n−1)/2 pairs, each with an
+  invitation, a join and the secret on both computers: 6 pairs and 12 secret entries for 4
+  computers. Robert Capps, 2026-11-14, terminal: "is the current configuration of this tool
+  easy to use when there are more than 2 boxes in use? ie, do I need to set a link up to every
+  other node, of all 4 boxes? ie, run separate point to point links from each node to each
+  node." Then: "yes, file the issue and make the card". The options were introductions by the
+  inviting computer, messages that go through a central computer (fewer pairs, but routing, a
+  second queue for each hop and a central computer that must be on), and an invitation that
+  works for many joins in 10 minutes (fewer invitations, but still one pair for each two
+  computers).
+- **Decision:** when a computer joins, the inviting computer introduces it to all of its paired
+  computers.
+  1. A new computer joins with one invitation from any computer of the group, as before; the
+     join still needs the secret on both computers.
+  2. The inviting computer gives the new computer each other computer's name, tailnet name,
+     addresses, link port and key in the join's reply; the new computer accepts only those
+     keys. Then it gives each other computer the new computer's details on their pinned link.
+     Each pair has one new ID on both computers.
+  3. `link join` and the dashboard name the introduced computers; `link status` shows
+     "introduced by COMPUTER".
+  4. A computer that is off gets its introduction when it answers again, from the inviting
+     computer's queue.
+  5. Unpair stays per pair. `link leave` removes this computer from all its pairs.
+- **Reason and scope:** 4 computers need 3 joins and 6 secret entries, and each further
+  computer needs one join. Trust is transitive: a compromised paired computer can introduce an
+  unwanted key. Decision 1 limits links to computers that the maintainer owns, so this risk is
+  the same as before. This amends ADR 002, Decision 4, where invite, join and unpair each
+  needed the maintainer: an introduction adds pairs with no further step of the maintainer.
+- **Review when:** computers of other people must connect (Decision 1), or a paired computer
+  must not add pairs to the others.
+- **Shipped:** #683. The new computer gets the introductions in the `confirm-ok` reply and
+  acknowledges them with `introduced`; it asks again during one hour after the join when the
+  reply is lost, and an introduction that it never acknowledged is dropped after that hour. The
+  other computers get `introduce`. The waiting introductions are in `link.json`, so they
+  survive a restart. A computer of an earlier version refuses an introduction; the new computer
+  then shows it as rejected until the maintainer unpairs it there. The new computer's earlier
+  pairs are not introduced to the inviting group.
+
 ## Conclusion
 
 The maintainer pairs their own computers once; agents then reach sessions on them by
@@ -176,3 +219,4 @@ computer keeps its own stores and controls.
 | 2026-11-12 | Record LINK-670-WHO, WHAT, ADDR and OFFLINE, approved by Robert Capps; chunk 01 (pairing) shipped (#670, #674). |
 | 2026-11-13 | Chunk 02: the receiver directory and NAME@COMPUTER addresses shipped; delivery pending (#670). |
 | 2026-11-13 | Chunk 03: messages between paired computers shipped: the queue, its delivery order and states, replies on the pair, cancel and the limits (#670). |
+| 2026-11-14 | Decision 5, LINK-GROUP-JOIN, approved by Robert Capps: one join adds a computer to the group (#683). |

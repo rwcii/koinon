@@ -38,7 +38,7 @@
 </dl>
 <h3>Add a computer</h3>
 <form method="post" action="/dashboard/actions/link-invite"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit">Copy invitation</button>
-<small>Shows a one-time invitation with a QR code, valid for 10 minutes. Paste it on the other computer.</small></form>
+<small>Shows a one-time invitation with a QR code, valid for 10 minutes. Paste it on the other computer. This computer then introduces that computer to each of its paired computers, so one join adds a computer to the whole group.</small></form>
 <form method="post" action="/dashboard/actions/link-join"><input type="hidden" name="csrf" value="{{$.CSRF}}">
 <label>Paste invitation <textarea name="invitation" rows="3" required autocomplete="off" spellcheck="false"></textarea></label>
 <button type="submit">Connect</button></form>
@@ -53,7 +53,7 @@
 {{end}}
 {{if .Pairs}}<h3>Paired computers</h3>
 <table><thead><tr><th>Name</th><th>State</th><th>Since</th><th>Change</th></tr></thead><tbody>{{range .Pairs}}<tr>
-<td><code>{{.Name}}</code>{{if ne .Name .Advertised}}<br><small>advertises {{.Advertised}}</small>{{end}}</td>
+<td><code>{{.Name}}</code>{{if ne .Name .Advertised}}<br><small>advertises {{.Advertised}}</small>{{end}}{{with .IntroducedBy}}<br><small>introduced by {{.}}</small>{{end}}</td>
 <td>{{.Observed.State}}{{with .Observed.Error}}<br><small>{{.}}</small>{{end}}</td>
 <td>{{unix .Observed.At}}</td>
 <td>{{if eq .State "pending"}}<form method="post" action="/dashboard/actions/link-cancel"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="pair" value="{{.ID}}"><button type="submit">Cancel</button></form>
@@ -62,6 +62,9 @@
 <form method="post" action="/dashboard/actions/link-unpair"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="pair" value="{{.ID}}"><button type="submit">Unpair</button></form>{{end}}</td>
 </tr>{{end}}</tbody></table>
 <p><small>Connected means an authenticated connection in the last few minutes. An empty name returns to the advertised name.</small></p>
+{{if .Introductions}}<p>{{.Introductions}} introduction(s) wait for a paired computer to answer.</p>{{end}}
+<form method="post" action="/dashboard/actions/link-leave"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit">Unpair from every computer</button>
+<small>Removes every pair of this computer here at once; each other computer removes its pair when it answers.</small></form>
 {{range .Pairs}}{{if .Queue}}<h3>Messages to {{.Name}}</h3>
 <p>{{.Waiting}} waiting, oldest first; then the newest finished. <code>koinon link queue {{.Name}}</code> lists every waiting message.</p>
 <table><thead><tr><th>To</th><th>From</th><th>State</th><th>Queued</th><th>Size</th><th>Change</th></tr></thead><tbody>{{range .Queue}}<tr>

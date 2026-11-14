@@ -97,6 +97,9 @@ type linkRuntime struct {
 	// hook a fault point; tests set them.
 	backoff time.Duration
 	hook    func(point string) error
+	// introducing is true while a delivery of introductions runs, and introAgain asks it for
+	// one more round (LINK-GROUP-JOIN).
+	introducing, introAgain bool
 }
 
 func (d *Daemon) linkNow() time.Time {
@@ -450,11 +453,38 @@ func (d *Daemon) linkOperation(pin string, f link.Frame, gen uint64) (link.Frame
 		if f.Decode(&body) != nil {
 			return link.Frame{}, true, ErrInvalid
 		}
-		if err := d.confirmLinkPair(pin, body.ID, gen); err != nil {
+		intros, err := d.confirmLinkPair(pin, body.ID, gen)
+		if err != nil {
 			return link.Frame{}, true, err
 		}
 		d.observe(gen, body.ID, "connected", "")
-		reply, err := link.NewFrame(map[string]string{"pair-confirm": "confirm-ok", "ping": "pong"}[f.Op], struct{}{})
+		if f.Op == "ping" {
+			reply, err := link.NewFrame("pong", struct{}{})
+			return reply, false, err
+		}
+		// The computers that this computer introduces the new one to (LINK-GROUP-JOIN).
+		reply, err := link.NewFrame("confirm-ok", linkConfirmOK{Introductions: intros})
+		return reply, false, err
+	case "introduce":
+		var body linkIntroduce
+		if f.Decode(&body) != nil {
+			return link.Frame{}, true, ErrInvalid
+		}
+		ok, err := d.acceptIntroduce(pin, body, gen)
+		if err != nil {
+			return link.Frame{}, true, err
+		}
+		reply, err := link.NewFrame("introduce-ok", ok)
+		return reply, false, err
+	case "introduced":
+		var body linkIntroduced
+		if f.Decode(&body) != nil {
+			return link.Frame{}, true, ErrInvalid
+		}
+		if err := d.acceptIntroduced(pin, body, gen); err != nil {
+			return link.Frame{}, true, err
+		}
+		reply, err := link.NewFrame("introduced-ok", struct{}{})
 		return reply, false, err
 	case "directory":
 		var body linkPairID
@@ -538,15 +568,18 @@ func (d *Daemon) acceptInvitation(pin string, hello linkHello, gen uint64) (link
 }
 
 // confirmLinkPair checks that pin holds pair id; a pending pair of this key is confirmed.
-func (d *Daemon) confirmLinkPair(pin, id string, gen uint64) error {
+// When this computer made the invitation, the confirm adds an introduction to each other
+// paired computer (LINK-GROUP-JOIN). It returns the introductions that the computer of pair
+// id has not acknowledged.
+func (d *Daemon) confirmLinkPair(pin, id string, gen uint64) ([]linkIntroduce, error) {
 	d.link.mu.Lock()
 	defer d.link.mu.Unlock()
 	if d.link.gen != gen {
-		return ErrLinkRemoteOff
+		return nil, ErrLinkRemoteOff
 	}
 	s, err := link.ReadState(d.root)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for i, p := range s.Pairs {
 		if p.Pin != pin || p.ID != id {
@@ -554,11 +587,18 @@ func (d *Daemon) confirmLinkPair(pin, id string, gen uint64) error {
 		}
 		if p.State == link.Pending {
 			s.Pairs[i].State, s.Pairs[i].Expires = link.Paired, 0
-			return link.WriteState(d.root, s)
+			if p.Role == link.Inviter {
+				if err := addIntrosLocked(&s, i, d.linkNow().Unix()); err != nil {
+					return nil, err
+				}
+			}
+			if err := link.WriteState(d.root, s); err != nil {
+				return nil, err
+			}
 		}
-		return nil
+		return introsFor(s, id), nil
 	}
-	return ErrLinkNoPair
+	return nil, ErrLinkNoPair
 }
 
 // removeLinkPair removes pair id of key pin, at the other computer's unpair.
@@ -579,6 +619,7 @@ func (d *Daemon) removeLinkPair(pin, id string, gen uint64) error {
 		return ErrLinkNoPair
 	}
 	s.Pairs = slices.Delete(s.Pairs, i, i+1)
+	dropIntros(&s, id)
 	delete(d.link.observed, id)
 	d.dropDirectoryLocked(id)
 	err = link.WriteState(d.root, s)
@@ -766,6 +807,12 @@ func (d *Daemon) linkPass(stop chan struct{}, gen uint64) {
 				delete(d.link.invites, hash)
 			}
 		}
+		// An introduction that the new computer did not acknowledge in its window is dropped.
+		s.Intros = slices.DeleteFunc(s.Intros, func(i link.Intro) bool {
+			expired := !i.NewSent && i.Created+int64(introWindow/time.Second) <= now
+			changed = changed || expired
+			return expired
+		})
 		if changed {
 			link.WriteState(d.root, s)
 		}
@@ -789,6 +836,7 @@ func (d *Daemon) linkPass(stop chan struct{}, gen uint64) {
 			err = session.call("ping", linkPairID{ID: p.ID}, "pong", nil)
 			if err == nil && p.State == link.Paired {
 				d.pollDirectory(session, gen, p)
+				d.askIntroductions(session, gen, p)
 			}
 			session.close()
 		}
@@ -803,6 +851,9 @@ func (d *Daemon) linkPass(stop chan struct{}, gen uint64) {
 		default:
 			d.observe(gen, p.ID, "offline", errorCode(err))
 		}
+	}
+	if slices.ContainsFunc(s.Intros, func(i link.Intro) bool { return i.NewSent }) {
+		d.linkIntroKick()
 	}
 }
 
@@ -907,9 +958,26 @@ func (d *Daemon) linkInvite(ctx context.Context) (string, error) {
 
 // linkJoin pairs with the computer that made the invitation.
 func (d *Daemon) linkJoin(ctx context.Context, text string) (link.Pair, error) {
+	p, _, err := d.linkJoinIntroduced(ctx, text)
+	return p, err
+}
+
+// linkJoinIntroduced pairs with the computer that made the invitation, and returns the names
+// of the computers that it introduced this one to (LINK-GROUP-JOIN).
+func (d *Daemon) linkJoinIntroduced(ctx context.Context, text string) (link.Pair, []string, error) {
+	p, err := d.linkJoinPair(ctx, text)
+	return p.pair, p.introduced, err
+}
+
+type linkJoined struct {
+	pair       link.Pair
+	introduced []string
+}
+
+func (d *Daemon) linkJoinPair(ctx context.Context, text string) (linkJoined, error) {
 	invitation, err := link.ParseInvitation(text)
 	if err != nil {
-		return link.Pair{}, ErrLinkTextInvalid
+		return linkJoined{}, ErrLinkTextInvalid
 	}
 	d.remote.mu.Lock()
 	err = d.linkReadyLocked()
@@ -919,74 +987,74 @@ func (d *Daemon) linkJoin(ctx context.Context, text string) (link.Pair, error) {
 	}
 	d.remote.mu.Unlock()
 	if err != nil {
-		return link.Pair{}, err
+		return linkJoined{}, err
 	}
 	_, gen, err := d.linkLife()
 	if err != nil {
-		return link.Pair{}, err
+		return linkJoined{}, err
 	}
 	id, err := d.linkIdentity()
 	if err != nil {
-		return link.Pair{}, err
+		return linkJoined{}, err
 	}
 	if invitation.Pin == id.Pin {
-		return link.Pair{}, ErrLinkSelf
+		return linkJoined{}, ErrLinkSelf
 	}
 	d.link.mu.Lock()
 	s, err := link.ReadState(d.root)
 	d.link.mu.Unlock()
 	if err != nil {
-		return link.Pair{}, err
+		return linkJoined{}, err
 	}
 	if _, ok := s.PairByPin(invitation.Pin); ok {
-		return link.Pair{}, ErrLinkPaired
+		return linkJoined{}, ErrLinkPaired
 	}
 	if len(s.Pairs) >= link.MaxPairs {
-		return link.Pair{}, ErrLinkLimit
+		return linkJoined{}, ErrLinkLimit
 	}
 	dns, ips, err := d.ownTailnet(ctx)
 	if err != nil {
-		return link.Pair{}, err
+		return linkJoined{}, err
 	}
 	// The handshake checks the invitation's pin before the secret is sent.
 	session, err := d.connectLink(ctx, gen, invitation.IPs, invitation.Port, invitation.Pin)
 	if linkKeyRefused(err) {
 		// The other computer admits an unknown key only while an invitation is open.
-		return link.Pair{}, ErrLinkInvitation
+		return linkJoined{}, ErrLinkInvitation
 	}
 	if err != nil {
-		return link.Pair{}, err
+		return linkJoined{}, err
 	}
 	defer session.close()
 	var ok linkHelloOK
 	if err := session.call("pair-hello", linkHello{Secret: invitation.Secret, Name: s.Name, DNS: dns, IPs: ips, Port: port}, "hello-ok", &ok); err != nil {
 		if linkKeyRefused(err) {
-			return link.Pair{}, ErrLinkInvitation
+			return linkJoined{}, ErrLinkInvitation
 		}
 		var refusal Refusal
 		if errors.As(err, &refusal) {
-			return link.Pair{}, refusal
+			return linkJoined{}, refusal
 		}
-		return link.Pair{}, ErrLinkUnreachable
+		return linkJoined{}, ErrLinkUnreachable
 	}
 	if len(ok.ID) != 32 {
-		return link.Pair{}, errors.New("link_reply_invalid")
+		return linkJoined{}, errors.New("link_reply_invalid")
 	}
 	d.link.mu.Lock()
 	if d.link.gen != gen {
 		// The link closed during the exchange: no pair here; the other computer's pending
 		// pair expires.
 		d.link.mu.Unlock()
-		return link.Pair{}, ErrLinkRemoteOff
+		return linkJoined{}, ErrLinkRemoteOff
 	}
 	s, err = link.ReadState(d.root)
 	if err != nil {
 		d.link.mu.Unlock()
-		return link.Pair{}, err
+		return linkJoined{}, err
 	}
 	if _, exists := s.PairByPin(invitation.Pin); exists {
 		d.link.mu.Unlock()
-		return link.Pair{}, ErrLinkPaired
+		return linkJoined{}, ErrLinkPaired
 	}
 	p := link.Pair{ID: ok.ID, Advertised: invitation.Name, Effective: s.FreeName(invitation.Name, ""), Pin: invitation.Pin, DNSName: invitation.DNSName,
 		IPs: invitation.IPs, Port: invitation.Port, State: link.Paired, Role: link.Joiner, Created: d.linkNow().Unix()}
@@ -994,13 +1062,18 @@ func (d *Daemon) linkJoin(ctx context.Context, text string) (link.Pair, error) {
 	err = link.WriteState(d.root, s)
 	d.link.mu.Unlock()
 	if err != nil {
-		return link.Pair{}, err
+		return linkJoined{}, err
 	}
-	// The other computer's pair is pending until this confirm, or until the next ping.
-	if session.call("pair-confirm", linkPairID{ID: p.ID}, "confirm-ok", nil) == nil {
+	// The other computer's pair is pending until this confirm, or until the next ping. Its
+	// reply lists the computers that it introduces this one to; a lost reply is asked for
+	// again at the monitor passes (LINK-GROUP-JOIN).
+	var confirm linkConfirmOK
+	result := linkJoined{pair: p}
+	if session.call("pair-confirm", linkPairID{ID: p.ID}, "confirm-ok", &confirm) == nil {
 		d.observe(gen, p.ID, "connected", "")
+		result.introduced = d.storeIntroductions(session, gen, p.ID, confirm.Introductions)
 	}
-	return p, nil
+	return result, nil
 }
 
 // findPair finds a pair by ID or effective name.
@@ -1025,6 +1098,7 @@ func (d *Daemon) linkUnpair(ctx context.Context, ref string) error {
 	}
 	p := s.Pairs[i]
 	s.Pairs = slices.Delete(s.Pairs, i, i+1)
+	dropIntros(&s, p.ID)
 	delete(d.link.observed, p.ID)
 	d.dropDirectoryLocked(p.ID)
 	err = link.WriteState(d.root, s)
@@ -1036,14 +1110,19 @@ func (d *Daemon) linkUnpair(ctx context.Context, ref string) error {
 	if err := d.linkRetirePair(p.ID); err != nil {
 		return err
 	}
-	// Best effort: the other computer also refuses this key at its next connection.
+	d.notifyUnpair(ctx, gen, p)
+	return nil
+}
+
+// notifyUnpair tells the other computer of a removed pair, in generation gen. Best effort:
+// the other computer also refuses this key at its next connection.
+func (d *Daemon) notifyUnpair(ctx context.Context, gen uint64, p link.Pair) {
 	notify, cancel := context.WithTimeout(ctx, 2*linkIOTimeout)
 	defer cancel()
 	if session, err := d.connectLink(notify, gen, p.IPs, p.Port, p.Pin); err == nil {
 		session.call("unpair", linkPairID{ID: p.ID}, "unpair-ok", nil)
 		session.close()
 	}
-	return nil
 }
 
 // linkCancel removes a pending pair, or with ref "invitations" every open invitation.
@@ -1066,6 +1145,7 @@ func (d *Daemon) linkCancel(ref string) error {
 		return ErrLinkNoPair
 	}
 	delete(d.link.observed, s.Pairs[i].ID)
+	dropIntros(&s, s.Pairs[i].ID)
 	s.Pairs = slices.Delete(s.Pairs, i, i+1)
 	return link.WriteState(d.root, s)
 }
@@ -1240,6 +1320,9 @@ type LinkPairStatus struct {
 	Observed   linkObservation `json:"observed"`
 	Created    int64           `json:"created"`
 	Expires    int64           `json:"expires,omitempty"`
+	// IntroducedBy is the name of the paired computer that introduced this one
+	// (LINK-GROUP-JOIN), while that pair exists.
+	IntroducedBy string `json:"introduced_by,omitempty"`
 	// Queue holds the oldest waiting messages to this computer, its head first, and the newest
 	// finished ones, at most linkStatusQueue of each; Waiting counts every waiting message.
 	Queue   []LinkQueued `json:"queue,omitempty"`
@@ -1252,19 +1335,21 @@ const linkStatusQueue = 20
 
 // LinkStatus is this computer's link setup, its listener and Serve mapping, and its pairs.
 type LinkStatus struct {
-	Configured   bool             `json:"configured"`
-	Name         string           `json:"name,omitempty"`
-	SuggestShort string           `json:"suggest_short,omitempty"`
-	SuggestLong  string           `json:"suggest_long,omitempty"`
-	Port         int              `json:"port,omitempty"`
-	Fingerprint  string           `json:"fingerprint,omitempty"`
-	Remote       bool             `json:"remote"`
-	Listener     string           `json:"listener"`
-	Serve        string           `json:"serve"`
-	Invitations  int              `json:"invitations"`
-	Pairs        []LinkPairStatus `json:"pairs"`
-	Rejected     *LinkRejection   `json:"rejected,omitempty"`
-	Error        string           `json:"error,omitempty"`
+	Configured   bool   `json:"configured"`
+	Name         string `json:"name,omitempty"`
+	SuggestShort string `json:"suggest_short,omitempty"`
+	SuggestLong  string `json:"suggest_long,omitempty"`
+	Port         int    `json:"port,omitempty"`
+	Fingerprint  string `json:"fingerprint,omitempty"`
+	Remote       bool   `json:"remote"`
+	Listener     string `json:"listener"`
+	Serve        string `json:"serve"`
+	Invitations  int    `json:"invitations"`
+	// Introductions counts the introductions that this computer still delivers.
+	Introductions int              `json:"introductions,omitempty"`
+	Pairs         []LinkPairStatus `json:"pairs"`
+	Rejected      *LinkRejection   `json:"rejected,omitempty"`
+	Error         string           `json:"error,omitempty"`
 }
 
 func (d *Daemon) linkStatus(ctx context.Context) LinkStatus {
@@ -1321,6 +1406,7 @@ func (d *Daemon) linkStatus(ctx context.Context) LinkStatus {
 	d.link.mu.Lock()
 	result.Invitations = d.openInvitesLocked()
 	d.link.mu.Unlock()
+	result.Introductions = len(s.Intros)
 	for _, p := range s.Pairs {
 		o := observed[p.ID]
 		switch {
@@ -1337,8 +1423,12 @@ func (d *Daemon) linkStatus(ctx context.Context) LinkStatus {
 		// The oldest waiting messages to this computer, its head first, and the newest
 		// finished ones, without bodies (#670 chunk 03).
 		queue, waiting, _, _ := d.store.linkQueue(ctx, p.ID, linkStatusQueue, linkStatusQueue)
+		via := ""
+		if j := slices.IndexFunc(s.Pairs, func(q link.Pair) bool { return p.Via != "" && q.ID == p.Via }); j >= 0 {
+			via = s.Pairs[j].Effective
+		}
 		result.Pairs = append(result.Pairs, LinkPairStatus{ID: p.ID, Name: p.Effective, Advertised: p.Advertised, Override: p.Override != "", State: p.State,
-			Role: p.Role, Observed: o, Created: p.Created, Expires: p.Expires, Queue: queue, Waiting: waiting})
+			Role: p.Role, Observed: o, Created: p.Created, Expires: p.Expires, IntroducedBy: via, Queue: queue, Waiting: waiting})
 	}
 	return result
 }

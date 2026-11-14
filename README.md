@@ -180,7 +180,9 @@ Attention landing page. The host must stay awake and online. See
 
 To connect your own computers, turn remote access on on each one, then pair them once: **Copy
 invitation** in Settings, Computers on one computer, and **Paste invitation** and **Connect**
-on the other (or `koinon link invite` and `koinon link join`). The daemons talk TLS 1.3 with
+on the other (or `koinon link invite` and `koinon link join`). Make the invitation on a computer
+that is already paired: it introduces the new computer to each of its other paired computers, so
+one join adds a computer to the whole group (#683). The daemons talk TLS 1.3 with
 pinned keys through Tailscale Serve (#670). `koinon link status` shows each paired computer, and
 `peers` and the dashboard's Sessions page list its agent sessions as `NAME@COMPUTER`, and an
 agent sends to them with `send` to `NAME@COMPUTER`: the message is queued on the sending
