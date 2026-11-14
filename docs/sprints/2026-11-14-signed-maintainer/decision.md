@@ -95,7 +95,7 @@ A signed action names one target and one operation:
 | `room_post` | write | room, body |
 | `peers` | read | none |
 | `peer_status` | read | peer |
-| `changes` | read | versions (topic to version), wait_seconds (0 to 30); on the node, also the topic `computers` |
+| `changes` | read | versions (topic to the 20-digit version string it has), wait_seconds (0 to 30); on the node, also the topic `computers` |
 | `outcome` | read | request, created |
 | `session` | session | client (target: the node) |
 
@@ -141,7 +141,7 @@ A signed action names one target and one operation:
    The key ID is `SHA256:` and the standard base64 of the SHA-256 of the raw 32-byte public key,
    without padding, as OpenSSH writes fingerprints.
 2. Values in v1: object keys are ASCII; values are strings, integers between -(2^53-1) and
-   2^53-1, booleans, and objects of these (only `changes` `versions`, string to integer). No
+   2^53-1, booleans, and objects of these (only `changes` `versions`, string to string). No
    floats, null or arrays. `created` is an integer of Unix seconds. The target refuses any other
    value (`signature_refused`, `version`).
 3. The target checks in this order, and stops at the first refusal (`signature_refused` with a
@@ -274,6 +274,51 @@ sig_b64: 5RIpFZ7G+PMlGqvRQizOOmOaPK637OhJX9dCifNKOjIOXjvG4drxmGRLZVaViYYundattt/
    back. Then it reads each topic again from its own versions.
 5. When the session ends (`maintainer_token_expired`, a node restart, a dropped connection), the
    client signs a new `session` and goes on from the versions that it holds.
+
+## Answer shapes
+
+Every answer has the form of today's maintainer routes (`internal/core/maintainer_mcp.go`): a
+success is `{"ok": true, "result": …}`; a refusal is
+`{"ok": false, "code": "…", "error": "…", "details": {…}}`, with `details` only when it has
+fields. The `signed` tool and the Serve route return this object unchanged. The operations of
+Decision 2 that exist today keep their `result`. The new ones:
+
+```json
+{"ok": true, "result": {"state": "recorded", "result": {"…": "the write's own result"}}}
+{"ok": true, "result": {"state": "refused", "code": "stale_revision", "details": {"current_revision": 4}}}
+{"ok": true, "result": {"state": "unknown_request", "now": 1794699400}}
+{"ok": true, "result": {"state": "authorization_changed"}}
+```
+
+`outcome`, above: its four states are answers, not refusals; a refusal of the `outcome`
+envelope itself (for example `signature_refused`) is a refusal.
+
+```json
+{"ok": true, "result": {"versions": {"inbox": "00000000000000000012", "decisions": "00000000000000000040",
+  "ROOM_ID": "00000000000000000003", "computers": "00000000000000000007"}, "changed": ["decisions"]}}
+```
+
+`changes`, above: `versions` has every topic that exists on the target (`computers` only on the
+node), as today's route does with URIs; `changed` lists the topics whose version differs from
+the request's, also a topic that only one side has, sorted; it is `[]` when the wait ended with
+no change. A request with no `versions` answers at once with the current ones.
+
+```json
+{"ok": true, "result": {"node": {"pin": "…", "name": "mac-studio"},
+  "computers": [{"pin": "…", "name": "nebula", "state": "connected", "reason": "", "since": 1794696630},
+                {"pin": "…", "name": "build-server", "state": "offline", "reason": "link_unreachable", "since": 1794696623}]}}
+```
+
+`computers`, above: `since` is Unix seconds of the state's start.
+
+```json
+{"ok": false, "code": "computer_offline", "error": "…", "details": {"target": "PIN", "last_seen": 1794696623}}
+{"ok": false, "code": "outcome_unknown", "error": "…", "details": {"target": "PIN", "request": "…"}}
+{"ok": false, "code": "signature_refused", "error": "…", "details": {"reason": "time"}}
+```
+
+The node's own refusals, above: `computer_offline` and `outcome_unknown` come from the node;
+`signature_refused` comes from the target (or the node for its own pin), with its reason.
 
 ## Decision 7: identity on the record
 
