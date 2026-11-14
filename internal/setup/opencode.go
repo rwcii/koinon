@@ -19,9 +19,16 @@ import (
 // `mcp.servers.NAME`, and only with `--global`; without it, it writes a project file in the
 // working directory. OpenCode 2's `mcp list` prints no command, so setup reads the files.
 
-// openCodeFiles are the global configuration files in OpenCode's merge order: a later file
-// overrides an earlier one.
-var openCodeFiles = []string{"config.json", "opencode.json", "opencode.jsonc"}
+// openCodeFiles are the global configuration files that each OpenCode version loads, in its
+// order. OpenCode 1 merges an entry's fields from config.json, opencode.json and
+// opencode.jsonc; OpenCode 2 loads opencode.json and opencode.jsonc, and a later server object
+// replaces an earlier one whole (2.3.0 packages/core/src/config/discovery.ts).
+func openCodeFiles(global bool) []string {
+	if global {
+		return []string{"opencode.json", "opencode.jsonc"}
+	}
+	return []string{"config.json", "opencode.json", "opencode.jsonc"}
+}
 
 // openCodeGlobal reports whether this OpenCode CLI's `mcp add` takes --global (OpenCode 2).
 func openCodeGlobal(ctx context.Context, cli string) (bool, error) {
@@ -46,7 +53,7 @@ func openCodeAdd(global bool, binary string) []string {
 // enabled false, a disabled entry also counts.
 func openCodeConfigured(root string, global bool, binary string, enabled bool) (bool, error) {
 	entry := map[string]any{}
-	for _, name := range openCodeFiles {
+	for _, name := range openCodeFiles(global) {
 		data, err := os.ReadFile(filepath.Join(root, name))
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
@@ -76,6 +83,9 @@ func openCodeConfigured(root string, global bool, binary string, enabled bool) (
 		var fields map[string]any
 		if err := json.Unmarshal(raw, &fields); err != nil {
 			return false, fmt.Errorf("%s: mcp %s: %v", filepath.Join(root, name), serverName, err)
+		}
+		if global {
+			entry = map[string]any{}
 		}
 		for key, value := range fields {
 			entry[key] = value
@@ -116,7 +126,16 @@ func openCodeServer(ctx context.Context, o Options, cli string, report *Report) 
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return err
 	}
-	if out, err := runCLIIn(ctx, root, cli, openCodeAdd(global, o.Binary)...); err != nil {
+	// The CLI writes the chosen root: OpenCode 2 takes it as OPENCODE_CONFIG_DIR (2.3.0
+	// packages/util/src/global.ts); OpenCode 1 uses $XDG_CONFIG_HOME/opencode.
+	env := append(os.Environ(), "OPENCODE_CONFIG_DIR="+root)
+	if !global {
+		if filepath.Base(root) != "opencode" {
+			return fmt.Errorf("OpenCode 1 reads its global configuration from a directory named opencode; %s is not one", root)
+		}
+		env = append(os.Environ(), "XDG_CONFIG_HOME="+filepath.Dir(root))
+	}
+	if out, err := runCLIEnv(ctx, root, env, cli, openCodeAdd(global, o.Binary)...); err != nil {
 		return fmt.Errorf("opencode mcp add failed: %s", strings.TrimSpace(out))
 	}
 	if ok, err := openCodeConfigured(root, global, o.Binary, true); err != nil {

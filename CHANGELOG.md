@@ -10,8 +10,9 @@ into a dated release section when promoted to `main`.
   shows the server's command, so setup left an `opencode.json` in the directory where it ran
   and `koinon install --plan` asked for `koinon setup opencode` again after every run. Setup now
   passes `--global` to OpenCode 2, runs OpenCode in its global configuration directory, and
-  reads the entry from OpenCode's global files, in their merge order, for both versions;
-  `koinon uninstall` removes either version's entry. Remove an `opencode.json` that an earlier
+  reads the entry from the global files that each version loads, in its order;
+  `koinon uninstall` removes both versions' entries. `--opencode-config` now reaches OpenCode's
+  own `mcp add`. Remove an `opencode.json` that an earlier
   setup left in a project when it holds only the koinon server.
 
 ## 2026-11-14 — Computer links work where Tailscale runs in userspace networking mode

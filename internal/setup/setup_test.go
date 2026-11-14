@@ -61,7 +61,7 @@ func openCodeScript(log, state string, major int) string {
 	return `#!/bin/sh
 printf '%s\n' "$*" >> '` + log + `'
 KOINON_SYNTHETIC_OPENCODE=` + fmt.Sprint(major) + ` KOINON_SYNTHETIC_STATE='` + state + `' \
-KOINON_SYNTHETIC_XDG=$XDG_CONFIG_HOME KOINON_SYNTHETIC_PWD=$PWD exec '` + os.Args[0] + `' -test.run='^TestSyntheticOpenCode$' -- "$@"
+KOINON_SYNTHETIC_XDG=$XDG_CONFIG_HOME KOINON_SYNTHETIC_DIR=$OPENCODE_CONFIG_DIR KOINON_SYNTHETIC_PWD=$PWD exec '` + os.Args[0] + `' -test.run='^TestSyntheticOpenCode$' -- "$@"
 `
 }
 
@@ -99,6 +99,9 @@ func TestSyntheticOpenCode(t *testing.T) {
 		name := args[dash-1]
 		if major == "1" || global {
 			dir = filepath.Join(os.Getenv("KOINON_SYNTHETIC_XDG"), "opencode")
+		}
+		if major == "2" && global && os.Getenv("KOINON_SYNTHETIC_DIR") != "" {
+			dir = os.Getenv("KOINON_SYNTHETIC_DIR")
 		}
 		path := filepath.Join(dir, "opencode.json")
 		config := map[string]any{}
@@ -749,4 +752,66 @@ func TestRemoveOpenCodeEachVersion(t *testing.T) {
 			t.Errorf("%s: left %s", name, data)
 		}
 	}
+}
+
+// Review of #694: uninstall removes both versions' entries; OpenCode 2 loads only
+// opencode.json and opencode.jsonc, and a later server object replaces an earlier one whole;
+// setup writes the chosen configuration directory, not the ambient one.
+func TestOpenCodeReviewContract(t *testing.T) {
+	const binary = "/opt/synthetic/koinon"
+	enabled := `{"mcp":{"servers":{"koinon":{"type":"local","command":["` + binary + `","mcp"]}}}}`
+	t.Run("remove both shapes", func(t *testing.T) {
+		root := t.TempDir()
+		os.WriteFile(filepath.Join(root, "opencode.json"), []byte(`{"model":"kept","mcp":{"koinon":{"type":"local","command":["`+binary+`","mcp"]},"servers":{"koinon":{"type":"local","command":["`+binary+`","mcp"]},"other":{"type":"local","command":["other"]}}}}`), 0600)
+		if _, err := Remove(context.Background(), Options{Family: "opencode", Binary: binary, Opencode: root}); err != nil {
+			t.Fatal(err)
+		}
+		data, _ := os.ReadFile(filepath.Join(root, "opencode.json"))
+		if !sameJSON(data, []byte(`{"model":"kept","mcp":{"servers":{"other":{"type":"local","command":["other"]}}}}`)) {
+			t.Fatalf("left %s", data)
+		}
+	})
+	t.Run("v2 ignores config.json", func(t *testing.T) {
+		root := t.TempDir()
+		os.WriteFile(filepath.Join(root, "config.json"), []byte(enabled), 0600)
+		if got, err := openCodeConfigured(root, true, binary, true); err != nil || got {
+			t.Fatalf("config.json counted: %v %v", got, err)
+		}
+		os.WriteFile(filepath.Join(root, "config.json"), []byte(`{"mcp":`), 0600)
+		if _, err := openCodeConfigured(root, true, binary, true); err != nil {
+			t.Fatalf("unused config.json read: %v", err)
+		}
+	})
+	t.Run("v2 later server replaces", func(t *testing.T) {
+		root := t.TempDir()
+		os.WriteFile(filepath.Join(root, "opencode.json"), []byte(strings.Replace(enabled, `"type"`, `"disabled":true,"type"`, 1)), 0600)
+		os.WriteFile(filepath.Join(root, "opencode.jsonc"), []byte(enabled), 0600)
+		if got, err := openCodeConfigured(root, true, binary, true); err != nil || !got {
+			t.Fatalf("whole replacement: %v %v", got, err)
+		}
+	})
+	t.Run("chosen root", func(t *testing.T) {
+		cli, _ := syntheticOpenCode(t, 2)
+		xdgOpenCode(t, t.TempDir())
+		root := filepath.Join(t.TempDir(), "opencode")
+		o := Options{Family: "opencode", CLI: cli, Binary: binary, StateDir: filepath.Join(t.TempDir(), "state"), Opencode: root}
+		if _, err := Run(context.Background(), o); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := openCodeConfigured(root, true, binary, true); err != nil || !got {
+			t.Fatalf("chosen root not written: %v %v", got, err)
+		}
+		// OpenCode 2 takes any directory as OPENCODE_CONFIG_DIR; OpenCode 1 needs .../opencode.
+		o.Opencode = filepath.Join(t.TempDir(), "chosen-config")
+		if _, err := Run(context.Background(), o); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := openCodeConfigured(o.Opencode, true, binary, true); err != nil || !got {
+			t.Fatalf("chosen-config not written: %v %v", got, err)
+		}
+		o.CLI, _ = syntheticOpenCode(t, 1)
+		if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "named opencode") {
+			t.Fatalf("OpenCode 1 root not named opencode: %v", err)
+		}
+	})
 }

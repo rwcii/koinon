@@ -301,11 +301,16 @@ func runCLI(ctx context.Context, cli string, args ...string) (string, error) {
 
 // runCLIIn is runCLI in the working directory dir; an empty dir is the current one.
 func runCLIIn(ctx context.Context, dir, cli string, args ...string) (string, error) {
+	return runCLIEnv(ctx, dir, nil, cli, args...)
+}
+
+// runCLIEnv is runCLIIn with the environment env; nil keeps this process's environment.
+func runCLIEnv(ctx context.Context, dir string, env []string, cli string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	var out bytes.Buffer
 	cmd := exec.CommandContext(ctx, cli, args...)
-	cmd.Dir = dir
+	cmd.Dir, cmd.Env = dir, env
 	cmd.Stdout, cmd.Stderr = &out, &out
 	cmd.Stdin = nil
 	err := cmd.Run()
