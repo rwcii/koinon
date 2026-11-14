@@ -43,33 +43,39 @@ board as card LINK-693-SIGNED.
 1. The client creates one Ed25519 key pair per user and install. The private key stays with the
    client (Koinon Voice: the macOS Keychain). Koinon never holds it.
 2. The key ID is `SHA256:` and the base64 SHA-256 of the 32-byte public key.
-3. Each computer keeps its own authorized keys: key ID, public key, user name, client label,
-   added time, added by (`dashboard` or `secret`), and removed time. A user name matches
-   `^[a-z][a-z0-9._-]{0,31}$`.
-4. Only that computer's own maintainer login or secret adds or removes a key:
-   `koinon maintainer key add --user NAME --client LABEL --statement FILE`,
-   `koinon maintainer key remove KEY_ID`, `koinon maintainer key list`, and the same in Settings.
-   The statement is the enrollment statement of Decision 3, signed by the key, so a mistyped
-   or unusable key cannot be added. A signed action never adds, removes or changes a key.
-5. A group join or introduction (PDR 011 Decision 5) carries no keys. The maintainer adds the
+3. Each computer keeps its own authorized keys. Each addition is one authorization with a new
+   random authorization ID, the key ID, the public key, the user name, the client label, the
+   added time, how it was added (`dashboard` or `secret`) and its removed time. A user name
+   matches `^[a-z][a-z0-9._-]{0,31}$`; a client label matches `^[a-z0-9][a-z0-9-]{0,31}$`.
+4. Enrollment, on each computer, with that computer's own maintainer login or secret:
+   1. On the target, `koinon link status` prints its pin as `Fingerprint`; Settings shows it too.
+      This is the only source of a pin for enrollment, so the pin is read on the computer itself.
+   2. The client signs an enrollment statement for that pin (Decision 3.4), for example
+      `koinon-voice key enroll --target PIN --user NAME`.
+   3. On the target, `koinon maintainer key add --statement FILE` (or Settings → Keys) checks the
+      statement and stores the authorization. `koinon maintainer key list` and
+      `koinon maintainer key remove KEY_ID` complete the set.
+   A signed action never adds, removes or changes a key.
+5. A group join or introduction (PDR 011 Decision 5) carries no keys. The maintainer enrolls the
    key on each computer.
-6. Removal is stored before the command returns, and it is checked inside the transaction of
+6. A removal is stored before the command returns, and it is checked inside the transaction of
    each action, so an action that waits for the store after a removal is refused. A key that is
-   removed and added again gets no earlier request back (Decision 4).
+   removed and added again gets a new authorization ID, and none of the earlier
+   authorization's receipts (Decision 4.1).
 7. A maintainer secret reset, Remote off and unpair do not remove keys. Remote off and unpair
    stop the transport only.
 
 ## Decision 2: which actions cross
 
-A signed action names one target and one operation. The operations are the maintainer tools of
-`internal/mcp/maintainer.go` that Koinon Voice needs:
+A signed action names one target and one operation:
 
 | Operation | Kind | Arguments signed |
 | --- | --- | --- |
+| `computers` | read | none (target: the node) |
 | `board_list` | read | filter, after, limit |
 | `decision_get` | read | reference |
 | `decision_history` | read | reference, after, limit |
-| `decision_verdict` | write | reference, revision, snapshot digest, verdict, note |
+| `decision_verdict` | write | reference, revision, snapshot, verdict, note |
 | `inbox` | read | after, limit |
 | `ack` | write | through |
 | `send` | write | to, body, reply_to |
@@ -78,18 +84,28 @@ A signed action names one target and one operation. The operations are the maint
 | `room_post` | write | room, body |
 | `peers` | read | none |
 | `peer_status` | read | peer |
-| `changes` | read | topic versions, wait seconds |
+| `changes` | read | versions (topic to version), wait_seconds (0 to 30) |
+| `outcome` | read | request |
+| `session` | session | client (target: the node) |
 
-`peers` and `peer_status` for another computer give only what PDR 011 Decision 2 item 2 lets
-cross (name or address, family, role, repository label, activity and its time), and the stall
-signal that the target's own maintainer view has; no native session ID, folder path, process
-data or credential. No other operation crosses. Pairing, unpairing, keys, the maintainer secret, Remote, room
-membership and settings stay with the computer's own login. Each operation keeps its local
-checks: revision, state, kind, recipient resolution, note and credential filters, audit.
-
-The snapshot digest is the SHA-256 of the item's revision snapshot as `decision_get` returned
-it. The target refuses a verdict whose digest differs from its own (`snapshot_changed`), so a
-node that showed other text than the target holds cannot get a verdict signed for it.
+1. `decision_verdict` takes every verdict that the item's kind takes (`kindVerdicts`), with the
+   target's checks: `stale_revision` with `current_revision`, `not_found`, `decided`,
+   `invalid_verdict`, `feedback_required`, `hidden_command`.
+2. `snapshot` is the hex SHA-256 of the item's snapshot at that revision: the RFC 8785 bytes of
+   the object `{"reference", "revision", "kind", "title", "where", "context", "recommendation",
+   "agent_text", "commands"}`, with the values that `decision_get` returns. The client computes
+   it from the fields that it shows the maintainer, and never copies a digest from an answer.
+   The target computes it from its own row and refuses a difference (`snapshot_changed`). So a
+   node that showed other text than the target holds cannot get a verdict for it.
+3. `peers` and `peer_status` for another computer give only what PDR 011 Decision 2 item 2 lets
+   cross (name or address, family, role, repository label, activity and its time) and the stall
+   signal that the target's own maintainer view has; no native session ID, folder path, process
+   data or credential.
+4. `computers` gives the node's own pin and name, and for each pair its pin, name, connection
+   state (`connected`, `offline`), reason and time, as `koinon link status` shows them.
+5. No other operation crosses. Pairing, unpairing, keys, the maintainer secret, Remote, room
+   membership and settings stay with the computer's own login. Each operation keeps its local
+   note and credential filters, recipient resolution and audit.
 
 ## Decision 3: the signed envelope
 
@@ -101,60 +117,91 @@ node that showed other text than the target holds cannot get a verdict signed fo
   "op": "decision_verdict",
   "args": {"reference": "…", "revision": 3, "snapshot": "<hex>", "verdict": "approved", "note": ""},
   "request": "<16-128 of [A-Za-z0-9_-]>",
-  "created": 1794699000
+  "created": 1794699000,
+  "sig": "<base64>"
 }
 ```
 
-1. The signed bytes are `koinon-maintainer-1\n` followed by the envelope without `sig`, in the
-   JSON Canonicalization Scheme (RFC 8785). `sig` is the base64 Ed25519 signature.
-2. The target refuses an envelope with an unknown field, a duplicate key, a version other than
-   `koinon-maintainer-1`, a target other than its own pin, an unknown or removed key, a bad
-   signature, or `created` more than 5 minutes from its clock (`signature_refused` with one of
-   these reasons: `version`, `target`, `key_unknown`, `key_removed`, `signature`, `time`).
-3. The enrollment statement is the same envelope with `op` `enroll`, `args` `{"user", "client"}`
-   and the target's pin. It is valid for 10 minutes.
-4. The user name comes from the target's key record, never from the envelope.
+1. The signed bytes are `koinon-maintainer-1\n` followed by the RFC 8785 bytes of the envelope
+   without `sig`. `sig` is the base64 Ed25519 signature of those bytes.
+2. The target checks in this order, and stops at the first refusal (`signature_refused` with a
+   reason):
+   1. one JSON object with exactly these fields, no duplicate key, `v` `koinon-maintainer-1`
+      (`version`); `target` its own pin (`target`);
+   2. the key has a current authorization (`key_unknown`, `key_removed`); the signature
+      (`signature`);
+   3. for a write: a receipt for this authorization and request (Decision 4) is answered now,
+      whatever `created` is;
+   4. `created` within 5 minutes of the target's clock (`time`);
+   5. the operation and its own checks.
+3. The user name and client label come from the target's authorization, never from the envelope.
+4. The enrollment statement is an envelope with `op` `enroll`, `args` `{"user", "client"}`, the
+   target's pin and no request. `key add` takes it while `created` is within 10 minutes, because
+   it is carried to the target by hand; this is the only 10-minute window.
 
 ## Decision 4: once only, outcome by request
 
-1. The target keeps a receipt per request ID, as the remote control v2 receipts do
-   (`internal/core/operation_receipts.go`): key ID, op, digest of the signed bytes, state,
-   code and result, 7 days.
-2. A write is recorded in the same transaction as its receipt. The same request ID with the
-   same digest gives the first result, also after a restart or a lost answer. The same request
-   ID with another digest is refused (`request_conflict`).
-3. `outcome` (a read, signed like any other, with `args` `{"request"}`) gives a write's
-   receipt for reconciliation.
-4. Reads also carry a request ID and `created`, so an old read is refused, but they keep no
-   receipt.
-5. A signed action is not queued. When the target cannot be reached, the node answers at once
-   with `computer_offline` and the target's last-seen time. The client says that and tries
-   again when the maintainer asks. Agent messages keep their queue (PDR 011 Decision 4).
+1. The target keeps one receipt per (authorization ID, request ID) for each write: op, digest of
+   the signed bytes, state, code, result and created time, for 7 days, in the same store as the
+   remote control v2 receipts (`internal/core/operation_receipts.go`). Another authorization,
+   including the same key added again, finds no receipt of this one.
+2. A write and its receipt are recorded in one transaction. The same request with the same
+   digest gives the first result again, also after a restart or a lost answer. The same request
+   with another digest is refused (`request_conflict`).
+3. `outcome` with `{"request"}` answers the receipt of that authorization: `recorded` with the
+   result, `refused` with the code, or `unknown_request` when there is none (never sent, sent
+   but not committed, or older than 7 days). On `unknown_request` the client sends the same
+   envelope again while it is within 7 days of its first sending: a committed write answers from
+   its receipt, an uncommitted one runs once. After 7 days the client reports the outcome as
+   unknown and does not send it again.
+4. Reads carry a request ID and `created`, so an old read is refused; they keep no receipt.
+5. A signed action is not queued (settled point 1; #695). The node answers:
+   - `computer_offline`, with the target's last-seen time, only when it had no connection to the
+     target and sent nothing; the action did not run;
+   - `outcome_unknown` when it sent the envelope and the answer did not come back; the client
+     uses item 3 to find the outcome. A reply lost after the commit never comes back as
+     `computer_offline`.
 
 ## Decision 5: how a client reaches a node
 
-1. **A node on the client's computer**: the client runs `koinon mcp --maintainer`, as today,
-   and logs in with a signed `enroll`-style session statement (`op` `session`) in place of the
-   maintainer secret. The node checks it against its own authorized keys.
-2. **No node on the client's computer**: the client reaches a node over the tailnet, at that
-   node's Remote address (Tailscale Serve, HTTPS, PDR 010), on a new route
-   `/v1/maintainer/signed`, which takes only signed envelopes and a signed `session`. The route
-   serves nothing else; the agent API stays on loopback (PDR 011 acceptance 9).
-3. In both cases every action is a signed envelope. The node carries out an action whose target
-   is its own pin, and forwards any other on the paired link of that pin, as a new link
-   operation `maintainer`, and returns the target's answer unchanged. The node adds nothing to
-   the envelope and cannot change it.
-4. The node lists its computers for the client: its own pin and name, and for each pair the
-   pin, the name, the connection state with its reason and time (`koinon link status`).
+1. **A node on the client's computer**: the client runs `koinon mcp --maintainer --signed`. The
+   first line of its standard input is a signed `session` envelope, in place of the secret, with
+   `target` the node's pin, `args` `{"client"}` and a request ID. The node checks it as in
+   Decision 3.2 and opens a maintainer session with the lifetime of today's maintainer token
+   (24 hours idle, 7 days at most, ended by a daemon restart or a key removal): then
+   `maintainer_token_expired`, and the client signs a new `session`. Refusals:
+   `signature_refused` with its reason. The node's own pin for the session comes from
+   enrollment on the node (Decision 1.4).
+2. **No node on the client's computer**: the client's computer is on the maintainer's tailnet,
+   and the client reaches a node at its Remote address (Tailscale Serve, HTTPS, PDR 010) on
+   `/v1/maintainer/signed`. The route takes only signed envelopes and serves nothing else; the
+   agent API stays on loopback (PDR 011 acceptance 9).
+   - `POST /v1/maintainer/signed/session` with a `session` envelope answers
+     `{"token", "expires"}`.
+   - `POST /v1/maintainer/signed` with `Authorization: Bearer TOKEN` and one envelope answers
+     the target's JSON result or `{"code", "error", ...}` with the HTTP status of the local
+     maintainer route.
+   - `changes` waits up to its `wait_seconds` and then answers, as the local route does.
+3. **The MCP form** (case 1): one tool, `signed`, with `{"envelope"}`, answers the target's
+   result. The resources are `koinon://maintainer/computers` and, per target pin,
+   `koinon://maintainer/PIN/inbox`, `koinon://maintainer/PIN/decisions` and
+   `koinon://maintainer/PIN/rooms/ROOM`; `notifications/resources/updated` carries the URI.
+4. In both cases the node carries out an action whose target is its own pin, and forwards any
+   other on the paired link with that pin, as a new link operation `maintainer`, and returns the
+   target's answer unchanged. The node adds nothing to the envelope and cannot change it without
+   breaking the signature.
+5. The client acts only on pins that it enrolled; it takes names and states for them from
+   `computers`.
 
 ## Decision 6: notices and state
 
-1. `changes` per target gives the topic versions (`internal/core/maintainer_changes.go`):
-   `inbox`, `decisions`, each room. The node keeps one long wait per connected target over the
-   link and tells the client, per pin, which topics changed; the client reads again.
-2. A target's restart or a lost link marks that computer disconnected for the client; the
-   client's connection to the node stays. After the link is back, the client reads each topic
-   again from its own cursor.
+1. The node keeps one `changes` long wait over the link for each connected target that the
+   client's session reads, and turns each answer into the per-pin resource notices of
+   Decision 5.3; the Serve route client calls `changes` itself. Notices carry the resource only;
+   the client reads again.
+2. A change of a computer's state notifies `koinon://maintainer/computers`. A target's restart
+   or a lost link marks that computer `offline` for the client; the client's session with the
+   node stays. After the link is back, the client reads each topic again from its own cursor.
 3. A node restart ends the client's session; the client signs a new `session`.
 
 ## Decision 7: identity on the record
@@ -171,10 +218,13 @@ node that showed other text than the target holds cannot get a verdict signed fo
 1. A Voice install with a key registered on two computers reads both boards through one node and
    records a verdict on the other computer; the verdict shows the user and the client.
 2. Refused, with nothing recorded: a swapped target pin, a changed argument or revision, a
-   changed snapshot, an unknown, removed or re-added key, an envelope older than 5 minutes, an
-   unknown field, and an agent message that names a maintainer family.
-3. One request ID gives one verdict across a lost answer and a target restart; another payload
-   under the same ID is `request_conflict`.
+   snapshot that differs from the target's text, an unknown or removed key, an envelope older
+   than 5 minutes that has no receipt, an unknown field, and an agent message that names a
+   maintainer family.
+3. One request ID gives one verdict across a lost answer and a target restart: a reply dropped
+   after the commit gives `outcome_unknown`, and `outcome` or the same envelope gives the first
+   result, with one verdict recorded. Another payload under the same ID is `request_conflict`.
+   A key removed and added again cannot read or replay the earlier authorization's receipts.
 4. A key removed while an action waits for the store refuses that action.
 5. With no node on the client's computer, the same works through another computer's Remote
    address; the route answers nothing but signed envelopes.
@@ -190,11 +240,11 @@ node that showed other text than the target holds cannot get a verdict signed fo
 | R7 | Decision 2 (`decision_history`, `ack`, `send`, `room_post`, `peers`, `peer_status`) |
 | R8 | Decision 2, the `peers` paragraph |
 | R9, R10 | Decision 1; the private key stays with the client |
-| R11 | Decision 3; the client is the key record's client label, one key per install |
-| R12 | Decision 3 `target` is the pin; Decision 5.4 lists pins with names |
-| R13, R14, R15 | Decision 4 (receipts, `request_conflict`, `outcome`); no "queued here" for signed actions (#695) |
+| R11 | Decision 3; the client is the authorization's client label, one key per install |
+| R12 | Decision 3 `target` is the pin; Decision 1.4 and Decision 2.4 (`computers`) give pins with names |
+| R13, R14, R15 | Decision 4 (receipts per authorization, `request_conflict`, `outcome`, `computer_offline` against `outcome_unknown`); no "queued here" for signed actions (#695) |
 | R16 | Not queued: settled point 1; the queue is #695 |
-| R17, R18, R19, R21 | Decision 6 and Decision 5.4 |
+| R17, R18, R19, R21 | Decision 5.3 and Decision 6 |
 | R22, R23, R24, R25 | Decision 5 |
 | R26 | Decision 1.4 and 1.5 |
 
@@ -204,7 +254,8 @@ node that showed other text than the target holds cannot get a verdict signed fo
   identity.
 - ADR 002: the signed envelope, the `maintainer` link operation and the Serve route.
 - PROTOCOL.md: the envelope, the routes and the errors.
-- Koinon Voice: its ADR 001 and PDRs 001 and 002 (koinon-voice#36).
+- Koinon Voice (koinon-voice#36): ADR 004 (new), ADR 001 modified, PDR 001, PDR 002, and PDR 004
+  Decision 2 (the per-computer external-inference opt-in, policy unchanged, kept by pin).
 
 ## Settled with the maintainer
 
