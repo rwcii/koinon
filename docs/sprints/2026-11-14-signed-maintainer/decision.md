@@ -304,9 +304,9 @@ the request's, also a topic that only one side has, sorted; it is `[]` when the 
 no change. A request with no `versions` answers at once with the current ones.
 
 ```json
-{"ok": true, "result": {"node": {"pin": "…", "name": "mac-studio"},
-  "computers": [{"pin": "…", "name": "nebula", "state": "connected", "reason": "", "since": 1794696630},
-                {"pin": "…", "name": "build-server", "state": "offline", "reason": "link_unreachable", "since": 1794696623}]}}
+{"ok": true, "result": {"node": {"pin": "…", "name": "desk"},
+  "computers": [{"pin": "…", "name": "lab-1", "state": "connected", "reason": "", "since": 1794696630},
+                {"pin": "…", "name": "lab-2", "state": "offline", "reason": "link_unreachable", "since": 1794696623}]}}
 ```
 
 `computers`, above: `since` is Unix seconds of the state's start.
