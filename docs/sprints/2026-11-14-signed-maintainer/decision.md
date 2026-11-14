@@ -84,7 +84,7 @@ A signed action names one target and one operation:
 | `room_post` | write | room, body |
 | `peers` | read | none |
 | `peer_status` | read | peer |
-| `changes` | read | versions (topic to version), wait_seconds (0 to 30) |
+| `changes` | read | versions (topic to version), wait_seconds (0 to 30); on the node, also the topic `computers` |
 | `outcome` | read | request, created |
 | `session` | session | client (target: the node) |
 
@@ -227,9 +227,8 @@ sig_b64: 5RIpFZ7G+PMlGqvRQizOOmOaPK637OhJX9dCifNKOjIOXjvG4drxmGRLZVaViYYundattt/
      maintainer route.
    - `changes` waits up to its `wait_seconds` and then answers, as the local route does.
 3. **The MCP form** (case 1): one tool, `signed`, with `{"envelope"}`, answers the target's
-   result. The resources are `koinon://maintainer/computers` and, per target pin,
-   `koinon://maintainer/PIN/inbox`, `koinon://maintainer/PIN/decisions` and
-   `koinon://maintainer/PIN/rooms/ROOM`; `notifications/resources/updated` carries the URI.
+   result, as the Serve route does. It has no resources and no notices: the client learns of
+   changes with signed `changes` waits (Decision 6), in the same way on both forms.
 4. In both cases the node carries out an action whose target is its own pin, and forwards any
    other on the paired link with that pin, as a new link operation `maintainer`, and returns the
    target's answer unchanged. The node adds nothing to the envelope and cannot change it without
@@ -239,14 +238,21 @@ sig_b64: 5RIpFZ7G+PMlGqvRQizOOmOaPK637OhJX9dCifNKOjIOXjvG4drxmGRLZVaViYYundattt/
 
 ## Decision 6: notices and state
 
-1. The node keeps one `changes` long wait over the link for each connected target that the
-   client's session reads, and turns each answer into the per-pin resource notices of
-   Decision 5.3; the Serve route client calls `changes` itself. Notices carry the resource only;
-   the client reads again.
-2. A change of a computer's state notifies `koinon://maintainer/computers`. A target's restart
-   or a lost link marks that computer `offline` for the client; the client's session with the
-   node stays. After the link is back, the client reads each topic again from its own cursor.
-3. A node restart ends the client's session; the client signs a new `session`.
+1. The client signs every read itself, `changes` included; the node never makes or repeats a
+   read, because it holds no key and an envelope is valid for 5 minutes only (Decision 3).
+2. For each target that it shows, the client keeps one `changes` wait at a time: it signs a new
+   `changes` envelope with the versions it has and `wait_seconds` up to 30, the target answers
+   when a topic version passes them or the wait ends, and the client reads the topics that
+   changed and signs the next wait. The topics are `inbox`, `decisions` and each room ID
+   (`internal/core/maintainer_changes.go`); versions are stored and survive restarts.
+3. `changes` on the node's own pin also has the topic `computers`, whose version changes when a
+   paired computer's state changes, a pair is added or removed, or a name changes. The client
+   then reads `computers`.
+4. A target that cannot be reached answers `computer_offline` (Decision 4.5): the client shows it
+   offline, keeps its other targets, and waits on the node's `computers` topic for it to come
+   back. Then it reads each topic again from its own versions.
+5. When the session ends (`maintainer_token_expired`, a node restart, a dropped connection), the
+   client signs a new `session` and goes on from the versions that it holds.
 
 ## Decision 7: identity on the record
 
@@ -288,7 +294,7 @@ sig_b64: 5RIpFZ7G+PMlGqvRQizOOmOaPK637OhJX9dCifNKOjIOXjvG4drxmGRLZVaViYYundattt/
 | R12 | Decision 3 `target` is the pin; Decision 1.4 and Decision 2.4 (`computers`) give pins with names |
 | R13, R14, R15 | Decision 4 (receipts per authorization, `request_conflict`, `outcome`, `computer_offline` against `outcome_unknown`); no "queued here" for signed actions (#695) |
 | R16 | Not queued: settled point 1; the queue is #695 |
-| R17, R18, R19, R21 | Decision 5.3 and Decision 6 |
+| R17, R18, R19, R21 | Decision 6: signed `changes` waits per target, the node's `computers` topic; waits, not polling |
 | R22, R23, R24, R25 | Decision 5 |
 | R26 | Decision 1.4 and 1.5 |
 
