@@ -69,8 +69,10 @@ board as card LINK-693-SIGNED.
    so an envelope signed before a removal, or in the enrollment's own second, never runs under
    the next authorization. The client keeps the highest `created` that it signed with the key,
    signs an enrollment statement at `max(now, highest + 1)`, and signs each other envelope at
-   `max(now, highest)`, so a clock that steps back does not put an enrollment at or below an
-   earlier action.
+   `max(now, highest, last_enrollment + 1)`, where `last_enrollment` is the `created` of the
+   key's latest enrollment statement. So a clock that steps back does not put an enrollment at or
+   below an earlier action, and the first actions after an enrollment step once above the floor;
+   a burst in one second keeps one value.
 8. A maintainer secret reset, Remote off and unpair do not remove keys. Remote off and unpair
    stop the transport only.
 
@@ -298,7 +300,8 @@ sig_b64: 5RIpFZ7G+PMlGqvRQizOOmOaPK637OhJX9dCifNKOjIOXjvG4drxmGRLZVaViYYundattt/
    `outcome` under the new authorization answers `authorization_changed`, never final; an
    envelope signed before the removal is refused with `authorization_changed`. The same holds
    for a write signed in the same second as the new enrollment, and for a client clock that
-   stepped back before the enrollment.
+   stepped back before the enrollment. A key created and enrolled, then a session and an action, all in the same
+   wall-clock second: they run.
    A write whose transaction is held open across the end of its window while `outcome` runs:
    `outcome` waits and then sees the receipt, or answers final when the write rolled back; it
    never answers final before a commit.
