@@ -38,7 +38,8 @@ const InstallURL = "https://tailscale.com/download"
 const HTTPSURL = "https://tailscale.com/docs/how-to/set-up-https-certificates"
 const maxOutput = 1 << 20
 
-func (Exec) Run(ctx context.Context, args ...string) ([]byte, error) {
+// tailscalePath finds the tailscale command: on PATH, then at the platform's usual places.
+func tailscalePath() (string, error) {
 	path, err := exec.LookPath("tailscale")
 	if err != nil {
 		for _, candidate := range platform.TailscaleCandidates() {
@@ -49,7 +50,15 @@ func (Exec) Run(ctx context.Context, args ...string) ([]byte, error) {
 		}
 	}
 	if err != nil {
-		return nil, &Diagnostic{Code: "tailscale_missing", Next: "install Tailscale from " + InstallURL + " on the host and phone, then sign both into the same private network"}
+		return "", &Diagnostic{Code: "tailscale_missing", Next: "install Tailscale from " + InstallURL + " on the host and phone, then sign both into the same private network"}
+	}
+	return path, nil
+}
+
+func (Exec) Run(ctx context.Context, args ...string) ([]byte, error) {
+	path, err := tailscalePath()
+	if err != nil {
+		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
@@ -317,8 +326,12 @@ type Status struct {
 	HTTPSReady   bool   `json:"https_ready"`
 	// TailscaleIPs are the host's own Tailscale addresses, IPv4 first, for the policy
 	// example (#653). Only addresses in Tailscale's ranges are kept.
-	TailscaleIPs []string    `json:"tailscale_ips,omitempty"`
-	Serve        ServeConfig `json:"-"`
+	TailscaleIPs []string `json:"tailscale_ips,omitempty"`
+	// Userspace is true when Tailscale reports that it uses no TUN interface (userspace
+	// networking, common in a container): a connection to a tailnet address then works
+	// only through tailscaled (#688).
+	Userspace bool        `json:"userspace,omitempty"`
+	Serve     ServeConfig `json:"-"`
 	// Peers are the other tailnet devices with a valid name and address, for the daemon
 	// link's address refresh (#670).
 	Peers []Peer `json:"-"`
@@ -384,11 +397,12 @@ func (m Manager) Inspect(ctx context.Context) (Status, error) {
 		}
 		CertDomains []string
 		Peer        json.RawMessage
+		TUN         *bool
 	}
 	if decode(data, &raw) != nil {
 		return Status{}, diagnostic("tailscale_status_invalid", "update Tailscale; its status output could not be read")
 	}
-	s := Status{BackendState: raw.BackendState, Peers: peersFrom(raw.Peer)}
+	s := Status{BackendState: raw.BackendState, Peers: peersFrom(raw.Peer), Userspace: raw.TUN != nil && !*raw.TUN}
 	if raw.Self != nil {
 		s.Online = raw.Self.Online
 		s.DNSName = strings.TrimSuffix(raw.Self.DNSName, ".")
