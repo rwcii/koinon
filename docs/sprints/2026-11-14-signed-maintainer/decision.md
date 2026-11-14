@@ -198,8 +198,9 @@ sig_b64: 5RIpFZ7G+PMlGqvRQizOOmOaPK637OhJX9dCifNKOjIOXjvG4drxmGRLZVaViYYundattt/
      the client asks `outcome` again after the window, which is then final.
    - After the 7 days of a receipt, `outcome` cannot tell; the client reports the outcome as
      unknown.
-   `outcome` looks up the receipt and reads `now` inside a write transaction of the target's
-   store, which has one writer at a time. A write that passed its time check has then committed
+   `outcome` looks up the receipt and reads `now` inside a transaction of the target's store,
+   which runs one transaction at a time on its single connection (`internal/core/store.go`,
+   `SetMaxOpenConns(1)`); a write's receipt lookup, time check and commit are one transaction. A write that passed its time check has then committed
    or rolled back before `outcome` reads, so an absent receipt with `now` past the window is
    final, and no commit can follow it.
 4. Reads carry a request ID and `created`, so an old read is refused; they keep no receipt.
