@@ -260,6 +260,12 @@ the handshake, except the pairing step of an open invitation. A daemon reaches a
 computer at its saved Tailscale addresses, and refreshes them from `tailscale status` when they
 fail; it never looks up a name through the system's resolver.
 
+Koinon works with Tailscale in either network mode (#688). When `tailscale status` reports that
+Tailscale uses no TUN interface (userspace networking, as in many containers), the host has no
+route to tailnet addresses, so the daemon makes each link connection through tailscaled with
+`tailscale nc`. It reads the mode at most once a minute. `koinon link status` then shows
+"Connections out: through tailscale nc". You change nothing in Tailscale for this.
+
 The link port is 47672 unless you choose another with `koinon link name --port PORT` or in
 Settings, Computers, **Change this computer's name or link port**. A paired computer learns
 a new port only when you unpair and pair again.
@@ -433,7 +439,7 @@ return screen after sign-in, without submitting the prior action.
 | Saved loopback port is occupied | Free the saved port and repeat enable, or disable successfully then enable to choose an available backend port. The daemon's local API remains available. |
 | Network policy denies the phone (the page times out) | The tailnet access policy must allow TCP 443, or the chosen HTTPS port, to this computer's IPv4 and IPv6 Tailscale addresses from the phone. `koinon remote status` shows an example entry with this computer's addresses. Also check the phone's network and account. Host status cannot prove phone permission. |
 | Sign-in QR expired, was already used, or its result is unknown | Create a new sign-in QR on the signed-in computer, or use the Koinon password at the ordinary dashboard URL. |
-| Join answers `link_unreachable` | The other computer did not answer on its link port. Check that it is on, connected to the tailnet and has remote access on, and that the tailnet policy allows TCP on its link port (Connect your computers). |
+| Join answers `link_unreachable` | The other computer did not answer on its link port. Check that it is on, connected to the tailnet and has remote access on, and that the tailnet policy allows TCP on its link port (Connect your computers). On a computer whose Tailscale runs in userspace networking mode, update Koinon to v0.11.2 or later: `koinon link status` then shows "Connections out: through tailscale nc". |
 | Join answers `link_key_mismatch` or `link_invitation_refused` | Make a new invitation on the other computer and paste it again. |
 | A link step answers `link_remote_required` | Turn remote access on with `koinon remote enable` on this computer. |
 | After a join, an introduced computer shows as `rejected` (`link_key_refused`) | That computer did not store its introduction: it runs a version before v0.11.1, or it refused it. Update it, then on this computer `koinon link unpair NAME`, and pair the two directly with an invitation. |

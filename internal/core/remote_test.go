@@ -30,6 +30,22 @@ type syntheticTailscale struct {
 	// daemon link (#670).
 	ips   []string
 	peers map[string]any
+	// userspace makes the status report TUN false, and stream is the tailscale nc dial of
+	// such a host (#688); streams counts its dials.
+	userspace bool
+	stream    func(ctx context.Context, address string) (net.Conn, error)
+	streams   int
+}
+
+func (s *syntheticTailscale) DialStream(ctx context.Context, address string) (net.Conn, error) {
+	s.mu.Lock()
+	stream := s.stream
+	s.streams++
+	s.mu.Unlock()
+	if stream == nil {
+		return nil, errors.New("synthetic: no stream")
+	}
+	return stream(ctx, address)
 }
 
 func (s *syntheticTailscale) Run(_ context.Context, args ...string) ([]byte, error) {
@@ -48,7 +64,7 @@ func (s *syntheticTailscale) Run(_ context.Context, args ...string) ([]byte, err
 		if !s.noHTTPS {
 			certs = append(certs, strings.TrimSuffix(dns, "."))
 		}
-		status := map[string]any{"BackendState": "Running", "Self": map[string]any{"Online": true, "DNSName": dns, "TailscaleIPs": s.ips}, "CertDomains": certs}
+		status := map[string]any{"BackendState": "Running", "Self": map[string]any{"Online": true, "DNSName": dns, "TailscaleIPs": s.ips}, "CertDomains": certs, "TUN": !s.userspace}
 		if s.peers != nil {
 			status["Peer"] = s.peers
 		}

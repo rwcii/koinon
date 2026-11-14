@@ -120,8 +120,12 @@ Tailscale read, connection and retry: work of a closed generation never connects
 commits in a later one. With the link closed, the daemon opens no
 outbound connection: an unpair is then local, and the other computer learns it at its next
 connection. The client dials a pair's saved
-Tailscale addresses with its pin checked in `VerifyConnection`, and when none connects reads
-`tailscale status --json`, takes the addresses of the peer whose full tailnet name matches
+Tailscale addresses with its pin checked in `VerifyConnection`. When `tailscale status --json`
+reports `TUN` false (userspace networking), the host has no route to tailnet addresses, and
+each dial runs `tailscale nc HOST PORT` and carries the connection over that command's standard
+input and output (#688); the mode is read at most once a minute, a failed read keeps the last
+answer, and `koinon link status` reports `transport` `tailscaled`. When no saved address
+connects, the client reads `tailscale status --json`, takes the addresses of the peer whose full tailnet name matches
 exactly, and saves new addresses only after a connection with the pinned key. A wrong pin is
 `link_key_mismatch`, at once, at no other address. The invitation is `koinon-link-1:` and
 base64url JSON (`v`, `dns`, `ips`, `port`, `pin`, `name`, `secret` of 128 bits), at most 2,048

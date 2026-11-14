@@ -324,6 +324,9 @@ func printLinkStatus(out io.Writer, s core.LinkStatus) {
 	if s.Port != 0 {
 		fmt.Fprintf(out, "Link: port %d, listener %s, Serve %s\n", s.Port, s.Listener, s.Serve)
 	}
+	if s.Transport == "tailscaled" {
+		fmt.Fprintln(out, "Connections out: through tailscale nc (this computer's Tailscale uses no TUN interface)")
+	}
 	if s.Fingerprint != "" {
 		fmt.Fprintln(out, "Fingerprint: "+s.Fingerprint)
 	}
