@@ -93,6 +93,9 @@ answer. The store moves to schema 38.
   code, the sign-in links, the login checks and the tailnet policy entry in
   `koinon remote status` name it. A later enable, also from the dashboard, keeps it.
   Choosing a new port ends remote logins and removes Koinon's old Serve mapping first.
+  The remote login cookie is named after the port, `koinon_remote_dashboard_PORT`, because
+  browsers do not separate cookies by port: two Koinon daemons on one tailnet name, such as
+  one on 443 and a test daemon on 8444, no longer sign each other's browsers out.
   The API's `POST /v1/remote/enable` takes an optional `https_port`.
 
 - On Linux, when Tailscale refuses to let the account that runs Koinon change Serve,

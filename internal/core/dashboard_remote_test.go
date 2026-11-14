@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
 	"net/url"
 	"strings"
@@ -66,7 +67,7 @@ func TestRemoteDashboardBoundary(t *testing.T) {
 		t.Fatal(cookies)
 	}
 	cookie := cookies[0]
-	if cookie.Name != "koinon_remote_dashboard" || !cookie.Secure || !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode || cookie.Path != "/dashboard/" {
+	if cookie.Name != "koinon_remote_dashboard_443" || !cookie.Secure || !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode || cookie.Path != "/dashboard/" {
 		t.Fatal(cookie)
 	}
 	page := call("GET", "/dashboard/sessions", "host.example.ts.net", "", nil, cookie)
@@ -177,7 +178,7 @@ func TestRemoteActionsShareStateAndAttribution(t *testing.T) {
 		r := httptest.NewRequest("POST", origin+"/dashboard/actions/"+action, strings.NewReader(form.Encode()))
 		r.Header.Set("Origin", origin)
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		r.AddCookie(&http.Cookie{Name: "koinon_remote_dashboard", Value: id})
+		r.AddCookie(&http.Cookie{Name: "koinon_remote_dashboard_443", Value: id})
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, r)
 		if w.Code != 303 {
@@ -218,10 +219,108 @@ func TestRemoteActionsShareStateAndAttribution(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := httptest.NewRequest("GET", origin+"/dashboard/sessions", nil)
-	r.AddCookie(&http.Cookie{Name: "koinon_remote_dashboard", Value: id})
+	r.AddCookie(&http.Cookie{Name: "koinon_remote_dashboard_443", Value: id})
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
 	if w.Code != 401 {
 		t.Fatal("secret change retained remote login", w.Code)
+	}
+}
+
+// Browsers do not separate cookies by port. Two daemons served on one tailnet name, such as an
+// installed Koinon on 443 and a second one on 8444, must not replace each other's remote login.
+func TestRemoteCookieNamedByPort(t *testing.T) {
+	for origin, want := range map[string]string{
+		"https://host.example.ts.net":       "koinon_remote_dashboard_443",
+		"https://host.example.ts.net:443":   "koinon_remote_dashboard_443",
+		"https://host.example.ts.net:8444":  "koinon_remote_dashboard_8444",
+		"https://host.example.ts.net:10443": "koinon_remote_dashboard_10443",
+	} {
+		if got := remoteCookieName(origin); got != want {
+			t.Fatal(origin, got)
+		}
+	}
+	// One standard cookie jar, as one browser, signs in to both daemons on one tailnet name.
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type board struct {
+		origin string
+		h      http.Handler
+	}
+	var boards []board
+	for _, origin := range []string{"https://host.example.ts.net", "https://host.example.ts.net:8444"} {
+		d, _, _ := remoteFixture(t)
+		boards = append(boards, board{origin, d.remoteDashboardHandler(origin)})
+	}
+	call := func(b board, method, path string, form url.Values) *httptest.ResponseRecorder {
+		t.Helper()
+		r := httptest.NewRequest(method, b.origin+path, strings.NewReader(form.Encode()))
+		r.Header.Set("Origin", b.origin)
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		for _, c := range jar.Cookies(r.URL) {
+			r.AddCookie(c)
+		}
+		w := httptest.NewRecorder()
+		b.h.ServeHTTP(w, r)
+		jar.SetCookies(r.URL, w.Result().Cookies())
+		return w
+	}
+	signedIn := func(b board) bool {
+		t.Helper()
+		return call(b, "GET", "/dashboard/sessions", nil).Code == 200
+	}
+	csrf := func(b board) string {
+		t.Helper()
+		match := csrfField.FindStringSubmatch(call(b, "GET", "/dashboard/sessions", nil).Body.String())
+		if len(match) != 2 {
+			t.Fatal("no CSRF", b.origin)
+		}
+		return match[1]
+	}
+	login := func(b board) {
+		t.Helper()
+		if w := call(b, "POST", "/dashboard/login", url.Values{"secret": {testSecret}}); w.Code != 303 {
+			t.Fatal(b.origin, w.Code, w.Body.String())
+		}
+	}
+	login(boards[0])
+	login(boards[1])
+	if !signedIn(boards[0]) || !signedIn(boards[1]) {
+		t.Fatal("a login on one port ended the login on the other port")
+	}
+	// A login again and a logout at either port leave the other port's login intact.
+	for i, b := range boards {
+		other := boards[1-i]
+		login(b)
+		if !signedIn(other) {
+			t.Fatal("a login at", b.origin, "ended the login at", other.origin)
+		}
+		if w := call(b, "POST", "/dashboard/logout", url.Values{"csrf": {csrf(b)}}); w.Code != 200 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+		if signedIn(b) || !signedIn(other) {
+			t.Fatal("a logout at", b.origin, "changed the login at", other.origin)
+		}
+		login(b)
+	}
+	// A cookie copied from one port to the other port's name signs in neither (origin binding).
+	u0, _ := url.Parse(boards[0].origin + "/dashboard/")
+	var copied *http.Cookie
+	for _, c := range jar.Cookies(u0) {
+		if c.Name == "koinon_remote_dashboard_443" {
+			copied = c
+		}
+	}
+	if copied == nil {
+		t.Fatal("no 443 login cookie")
+	}
+	r := httptest.NewRequest("GET", boards[1].origin+"/dashboard/sessions", nil)
+	r.AddCookie(&http.Cookie{Name: "koinon_remote_dashboard_8444", Value: copied.Value})
+	w := httptest.NewRecorder()
+	boards[1].h.ServeHTTP(w, r)
+	if w.Code == 200 {
+		t.Fatal("a 443 login signed in on 8444")
 	}
 }

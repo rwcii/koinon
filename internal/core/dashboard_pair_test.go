@@ -114,7 +114,7 @@ func TestDashboardPairOrdinaryURLAndRemoteHeader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	remotePage := pairRequest(h, "GET", origin, "/dashboard/sessions", "", nil, &http.Cookie{Name: "koinon_remote_dashboard", Value: id})
+	remotePage := pairRequest(h, "GET", origin, "/dashboard/sessions", "", nil, &http.Cookie{Name: "koinon_remote_dashboard_443", Value: id})
 	if remotePage.Code != 200 || strings.Contains(remotePage.Body.String(), `class="remote-link"`) || strings.Contains(remotePage.Body.String(), ">Go remote</a>") {
 		t.Fatalf("remote header still offers Go remote: %d", remotePage.Code)
 	}
@@ -166,7 +166,7 @@ func TestDashboardPairPreviewThenSingleUseSecureSession(t *testing.T) {
 		t.Fatal("missing remote session", cookies)
 	}
 	cookie := cookies[0]
-	if cookie.Name != "koinon_remote_dashboard" || !cookie.Secure || !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode || cookie.Path != "/dashboard/" || cookie.Domain != "" || cookie.Value == ticket {
+	if cookie.Name != "koinon_remote_dashboard_443" || !cookie.Secure || !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode || cookie.Path != "/dashboard/" || cookie.Domain != "" || cookie.Value == ticket {
 		t.Fatal("invalid paired session cookie", cookie)
 	}
 	remotePage := pairRequest(h, "GET", origin, "/dashboard/sessions", "", nil, cookie)
@@ -325,7 +325,7 @@ func TestDashboardPairRemoteSessionCannotIssue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cookie := &http.Cookie{Name: "koinon_remote_dashboard", Value: id}
+	cookie := &http.Cookie{Name: "koinon_remote_dashboard_443", Value: id}
 	got := pairRequest(h, "POST", origin, "/dashboard/remote/ticket", origin, url.Values{"csrf": {d.auth.csrf(id)}}, cookie)
 	if got.Code != http.StatusConflict || got.Header().Get("X-Koinon-Ticket-Expires") != "" {
 		t.Fatalf("remote session issued a ticket: %d %v", got.Code, got.Header())

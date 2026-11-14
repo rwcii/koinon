@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -204,10 +205,12 @@ func (a *dashboardAuth) prune(now time.Time) {
 
 // cookieName is the login cookie of the port in the request's Host. Browsers do not separate
 // cookies by port, so each board opened under one loopback IP, such as a local daemon and a
-// tunnel to another computer's daemon, keeps its own login (#454).
+// tunnel to another computer's daemon, keeps its own login (#454). A remote login is named
+// after the HTTPS port of its origin for the same reason: two daemons served on one tailnet
+// name, such as an installed Koinon on 443 and a second one on 8444, keep their own logins.
 func cookieName(r *http.Request) string {
-	if remoteOrigin(r) != "" {
-		return "koinon_remote_dashboard"
+	if origin := remoteOrigin(r); origin != "" {
+		return remoteCookieName(origin)
 	}
 	_, port, _ := net.SplitHostPort(r.Host)
 	if networkDashboard(r) {
@@ -218,6 +221,15 @@ func cookieName(r *http.Request) string {
 		}
 	}
 	return dashboardCookie + "_" + port
+}
+
+// remoteCookieName is koinon_remote_dashboard_PORT for an https origin; the default port is 443.
+func remoteCookieName(origin string) string {
+	port := "443"
+	if u, err := url.Parse(origin); err == nil && u.Port() != "" {
+		port = u.Port()
+	}
+	return "koinon_remote_dashboard_" + port
 }
 
 // session checks the request's cookie and records its use. It returns the session ID.

@@ -2773,8 +2773,9 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   it. Removing the secret immediately refuses network requests. Routes outside `/dashboard/`
   are absent, including `/v1/` and MCP. `koinon dashboard` also prints the network URL,
   certificate SHA-256 fingerprint and any required step; it opens the loopback one-time link.
-  On the separate Serve surface the cookie is named `koinon_remote_dashboard`,
-  has `Secure`, `HttpOnly`, `SameSite=Strict`, and `Path=/dashboard/`, and has no
+  On the separate Serve surface the cookie is named `koinon_remote_dashboard_PORT`, after the
+  HTTPS port of the remote origin (443 when the origin names none), so that two daemons on one
+  tailnet name keep their own logins; it has `Secure`, `HttpOnly`, `SameSite=Strict`, and `Path=/dashboard/`, and has no
   Domain. Its `Max-Age` is the time left until the login's 48-hour deadline. Its durable
   hashed session is bound to the remote origin; a local session ID
   copied into its cookie, or a remote ID copied into a local cookie, authenticates
