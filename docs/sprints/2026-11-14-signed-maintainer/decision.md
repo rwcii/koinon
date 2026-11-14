@@ -62,7 +62,12 @@ board as card LINK-693-SIGNED.
    each action, so an action that waits for the store after a removal is refused. A key that is
    removed and added again gets a new authorization ID, and none of the earlier
    authorization's receipts (Decision 4.1).
-7. A maintainer secret reset, Remote off and unpair do not remove keys. Remote off and unpair
+7. Each authorization keeps the `created` of its enrollment statement as its floor. The client's
+   clock sets both that value and each envelope's `created`, so the floor does not depend on
+   the computers' clocks. The target refuses an envelope whose `created` is before its
+   authorization's floor (`signature_refused`, `authorization_changed`), so an envelope signed
+   before a removal never runs under the next authorization.
+8. A maintainer secret reset, Remote off and unpair do not remove keys. Remote off and unpair
    stop the transport only.
 
 ## Decision 2: which actions cross
@@ -138,7 +143,8 @@ A signed action names one target and one operation:
    1. one JSON object with exactly these fields, no duplicate key, `v` `koinon-maintainer-1`
       (`version`); `target` its own pin (`target`);
    2. the key has a current authorization (`key_unknown`, `key_removed`); the signature
-      (`signature`);
+      (`signature`); `created` not before the authorization's floor (`authorization_changed`,
+      Decision 1.7);
    3. for a write, inside its store transaction: a receipt for this authorization and request
       (Decision 4) is answered now, whatever `created` is; else `created` within 5 minutes of the
       target's clock at that moment (`time`), then the operation and its own checks. The time
@@ -189,7 +195,11 @@ sig_b64: 5RIpFZ7G+PMlGqvRQizOOmOaPK637OhJX9dCifNKOjIOXjvG4drxmGRLZVaViYYundattt/
    with another digest is refused (`request_conflict`).
 3. `outcome` with `{"request", "created"}` (the request's own `created`) answers the receipt of
    that authorization: `recorded` with the result, `refused` with the code, or `unknown_request`
-   with the target's clock `now` when there is none. Then:
+   with the target's clock `now` when there is none, or `authorization_changed` when the
+   request's `created` is before the current authorization's floor (Decision 1.7). Then:
+   - `authorization_changed`: the request belonged to an earlier authorization of this key,
+     whose receipts this one cannot read, so the outcome is unknown. The client says so and does
+     not send it again; the maintainer reads the target's record (for a verdict, its history).
    - `now` more than 5 minutes after the request's `created`: final. The write did not run and
      cannot run (item 3.3 of Decision 3 refuses it inside the transaction); the client says so,
      and signs the action again under a new request ID only when the maintainer asks.
@@ -280,6 +290,9 @@ sig_b64: 5RIpFZ7G+PMlGqvRQizOOmOaPK637OhJX9dCifNKOjIOXjvG4drxmGRLZVaViYYundattt/
    after the commit gives `outcome_unknown`, and `outcome` or the same envelope gives the first
    result, with one verdict recorded. Another payload under the same ID is `request_conflict`.
    A key removed and added again cannot read or replay the earlier authorization's receipts.
+   A write that commits, loses its answer, and whose key is then removed and enrolled again:
+   `outcome` under the new authorization answers `authorization_changed`, never final; an
+   envelope signed before the removal is refused with `authorization_changed`.
    A write whose transaction is held open across the end of its window while `outcome` runs:
    `outcome` waits and then sees the receipt, or answers final when the write rolled back; it
    never answers final before a commit.
