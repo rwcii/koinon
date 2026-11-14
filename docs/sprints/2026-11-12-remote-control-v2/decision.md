@@ -86,3 +86,24 @@ is kept privately. Revisit when preview testing ends and the route is removed.
   review by a second agent family and one real-device check. This covers this release; the
   checks that stay open are not waived for later releases.
 - **Review when:** an Android, overnight or 48-hour check in #672 fails.
+
+## Safari on a laptop for the one-hour check of v0.11.0 — 2026-11-14
+
+- **Decided by:** Robert Capps, directly in the terminal.
+- **Date:** 2026-11-14.
+- **Context:** REL-SCOPE-673 asks for an iPhone sign-in, a daemon restart and a check after one
+  hour (board card PHONE-673-TEST). On a test daemon of the merged #673, the iPhone stayed
+  signed in across the restart, and then the iPhone and a desktop browser both lost the
+  sign-in while the daemon kept both sign-ins valid. The main lead, not proven: the installed
+  Koinon on HTTPS port 443 and the test daemon on 8444 used one cookie name, and browsers do
+  not separate cookies by port; #681 names the cookie after the port. Robert asked: "does the
+  test need to be on a phone? can it be on Safari on a laptop?" The options were the
+  one-hour check on the iPhone again, or in Safari on a laptop. A laptop does not test
+  behavior that only iOS has, such as tabs that iOS closes in the background.
+- **Decision:** "laptop Safari is enough for the release." The one-hour check of v0.11.0 runs
+  in Safari on a laptop, on a test daemon of #681.
+- **Reason and scope:** the iPhone part that ran (sign-in, restart, reload) passed, and the
+  failure also hit a desktop browser. This covers v0.11.0 only. The result is recorded as a
+  laptop Safari result, not an iPhone pass. The Android Chrome, overnight and 48-hour checks
+  stay open in #672.
+- **Review when:** a remote sign-in on an iPhone ends before its 48 hours.
