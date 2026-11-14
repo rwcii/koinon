@@ -3,7 +3,7 @@ adr: "002"
 title: "Private Remote Dashboard Transport"
 status: accepted
 created: "2026-11-11"
-updated: "2026-11-12"
+updated: "2026-11-13"
 authors:
   - "Andrew Deugarte (@andyde8)"
 reviewers: []
@@ -36,7 +36,9 @@ handlers and never mounts the agent API. Remote sign-in uses the existing
 maintainer secret or a transient one-use ticket explicitly created by a signed-in
 dashboard, as amended by PDR 010, Decision 4.
 The local agent API and optional LAN HTTPS dashboard retain their existing roles
-under ADR 001. Product behavior is in PDR 010.
+under ADR 001. Product behavior is in PDR 010. Decision 4 adds the link between the
+maintainer's Koinon computers to Remote, with its own loopback TLS listener and a raw TCP
+Serve mapping (#670).
 
 This record accepts the authorized design. It does not assert real proxy,
 cellular, or physical-device validation; the evidence and remaining steps are in
@@ -104,7 +106,8 @@ The implementation follows these boundaries from the authorized specification:
   local cookie does not authorize the local surface, or vice versa. Writes retain
   Origin and session-bound CSRF checks.
 - Remote browser idle time is seven days, with the existing seven-day absolute
-  maximum (PDR 010, Refinement 5). Local browser and maintainer-token idle time
+  maximum (PDR 010, Refinement 5). Decision 5 replaces this lifetime and the restart
+  rule below for remote browsers: a fixed 48 hours that survives a routine restart. Local browser and maintainer-token idle time
   remains 24 hours under PDR 009. Restart,
   secret change, remote disable, and external-origin change end the relevant
   logins. An identity or Serve/Funnel conflict observed at status or the
@@ -219,14 +222,15 @@ source for this authentication amendment. This changes browser QR sign-in,
 while retaining the private transport, CLI URL-only QR, existing password,
 remote session boundary, and absent agent API. PDR 010, Refinement 5 separately
 extends remote browser idle time to seven days while keeping the seven-day
-absolute limit; local browser and maintainer-token idle time remains 24 hours.
+absolute limit; local browser and maintainer-token idle time remains 24 hours. Decision 5
+replaces these remote limits with a fixed 48 hours from sign-in.
 
 A signed-in browser makes a session-bound CSRF-protected POST to create a random
 remote ticket and a PNG QR. The ticket is hashed in daemon memory, expires after
 two minutes, and is bound to the configured external origin. An atomic redemption
 permits one remote session. Disable, secret change, or daemon restart removes
 outstanding tickets. The two-minute ticket lifetime is separate from the
-established session's seven-day idle and absolute limits. The raw ticket, QR
+established session's limits (a fixed 48 hours from sign-in since Decision 5). The raw ticket, QR
 credential, and redemption body are not
 persisted in the ownership journal, audit targets, or logs.
 
@@ -240,7 +244,8 @@ additional requirements attributed to Andrew Deugarte (@andyde8).
 Only a dashboard session on the host (`dashboard`) issues tickets; a `remote:` session
 gets a refusal and the remote view shows no QR control. A ticket from a remote session
 would start a new session with a new `created` time, so a chain of tickets would renew
-remote access past the seven-day absolute maximum (PDR 009, Decision 2) and could fill
+remote access past its absolute maximum (PDR 009, Decision 2; the fixed 48-hour deadline
+since Decision 5) and could fill
 the 16-entry login table without the secret (review of PR #644).
 
 The QR image comes from `github.com/skip2/go-qrcode` at
@@ -275,7 +280,7 @@ applies to all dashboard pages through the common headers; it adds no script
 origin. The QR script accepts only PNG responses, rejects non-positive or greater
 than 300-second lifetime headers, and clears expired object URLs. Ticket creation
 and redemption use ten-second request deadlines. Successful redemption navigation
-is pinned to the read-only, same-origin `/dashboard/sessions` route, without a
+is pinned to the read-only, same-origin `/dashboard/attention` route, without a
 query or fragment. These frontend guardrails bound image lifetime, waiting, and
 navigation; they are implementation choices supporting the authorized flow, not
 human-mandated limits or a change to the server's two-minute ticket lifetime.
@@ -295,6 +300,127 @@ human-mandated limits or a change to the server's two-minute ticket lifetime.
    it separate from a permanent login URL.
 3. The existing remote cookie and password fallback preserve the established session boundary.
 
+## 4. Decision: The link between Koinon computers is part of Remote
+
+### Decision
+
+Remote also carries the link between the maintainer's own Koinon computers (#670). Remote
+enable adds a raw TCP Serve mapping (`tailscale serve --bg --tcp=PORT tcp://127.0.0.1:N`, never
+`--tls-terminated-tcp` and never the HTTPS route) from a separate, changeable link port
+(47672 by default) to a second loopback listener in the daemon, journaled in
+`remote-dashboard.json` with the dashboard mapping's ownership rules. Remote disable closes the
+link listener and its connections and cancels open invitations, then removes the mapping;
+pairs stay. A disable whose record write fails keeps the link closed.
+
+The link listener speaks TLS 1.3 only, end to end between the two daemons, through the raw TCP
+mapping; Tailscale's WireGuard is around it. Each daemon has its own Ed25519 key in the private
+`link-key.pem`, with a self-signed certificate renewed with the same key, and pins the other
+daemon's key (SHA-256 of its SubjectPublicKeyInfo) at pairing. `VerifyConnection` checks the pin
+on every connection, with session tickets off; a key that is not paired is refused in the
+handshake, except while an invitation is open, and then only for the pairing operation. Pairing
+is one invitation: the joining daemon checks the inviting key against the invitation's pin
+before it sends the invitation's single-use secret. The listener serves no agent API and no
+dashboard route. Tailnet membership, the dashboard login and the agent API bearer give no link
+access, and the maintainer secret never crosses the link. A daemon dials a pair's saved
+Tailscale addresses, refreshed from `tailscale status --json` by an exact tailnet-name match,
+and never resolves a name through the operating system.
+
+Invite, join, unpair and rename need the maintainer: the dashboard login, or a maintainer token
+on the agent API (PDR 009). On a paired connection the link also carries `directory` and
+`name-update` (#670 chunk 02): each computer reads the other's receivers, without session IDs,
+paths or credentials, into memory as a display hint. Since #670 chunk 03 it also carries
+`deliver` and `cancel`: an agent's direct message to `NAME@COMPUTER`, queued on the sending
+computer and delivered in order on the pair's stream; the receiver stores it in an inbox with
+its pair and never with the maintainer's or overwatch's origin. The link exposes no other store
+or control operation. Implementation: `internal/core/link_messages.go`,
+`internal/core/link_outbox.go`, `internal/core/link.go`, `internal/core/link_routes.go`,
+`internal/link`, and `remote.Manager.EnsureTCP` and `RemoveTCP` in `internal/remote/link.go`.
+
+**Provenance (LINK-670-PAIR):**
+
+- **Decided by:** Robert Capps.
+- **Date:** 2026-11-12, revision 5, approved, after feedback on revisions 1, 3 and 4
+  ([decision record](../../sprints/2026-11-12-system-link/decision.md)).
+- **Context:** how two of the maintainer's daemons find, trust and reach each other. Revision 1
+  proposed a separate link listener with pinned keys. Feedback: "agreed, propose a design. How
+  can we EASILY introduce them to each other?" Revision 3 proposed one invitation. Feedback:
+  "looks good, how do we manage secure connections? Will this be LAN only, LAN plus Tailscale,
+  something else?" Revision 4 proposed any reachable network with pinned keys. Feedback: "I
+  think this should be an offshoot of the remote function, i.e., you must enable remote to
+  enable peer Koinon nodes. How will node to node traffic be protected? TLS?"
+- **Decision:** links are part of Remote; pairing is one invitation; invite, join and unpair
+  need the maintainer; a raw TCP Serve mapping to a loopback link listener; TLS 1.3 between the
+  daemons with pinned keys; disable closes the link and keeps the pairs; the agent API stays on
+  loopback.
+- **Reason and scope:** Remote already gives each computer a tailnet name and a managed Serve
+  setup, so pairing needs no address. The raw TCP mapping keeps the pinned daemon keys; the
+  HTTPS mapping ends TLS in tailscaled. This amends the scope of Decision 2, which approved
+  Remote for browser access only.
+- **Review when:** computers without Tailscale must link, or Tailscale Serve changes its TCP
+  forwarding.
+
+### Alternatives Considered
+
+A link listener on any LAN, tailnet or VPN address (revision 4); LAN only; tailnet device
+identity as the trust; links on the Remote HTTPS path with a credential per pair, which loses
+the pinned daemon keys; a direct tailnet listener outside Serve; a 6-digit code compared on two
+screens; LAN discovery by mDNS.
+
+### Enforcement and evidence
+
+`internal/core/link_test.go` and `internal/core/link_routes_test.go` run two daemons with real
+TLS and a synthetic Tailscale adapter: pairing through one invitation; reused, expired and
+cancelled invitations; a wrong pin before any secret; Remote disable with an open invitation,
+during a connection and with a failed record write; restart while off; unpair on both sides; no
+TLS session resumption after unpair; a refused unpaired key shown in status; the maintainer token and dashboard checks of each change, and audit records without
+the invitation. The raw TCP Serve probe on a tailnet host is in
+[the verification record](../../sprints/2026-11-12-system-link/verification.md).
+
+
+## 5. Decision: Remote control v2 durable authentication and atomic receipts
+
+**Source:** Andrew Deugarte's direct implementation request, 2026-11-12. Decided by Robert
+Capps for release v0.11.0, 2026-11-13 (REL-SCOPE-673, in the sprint decision record).
+[PDR 010 §9](../../product/pdr/010-private-remote-dashboard-access.md#9-refinement-remote-control-v2-fixed-sign-in-and-recovery)
+records the retention question, alternatives and his quoted fixed-48-hour answer.
+The architecture below implements that scope; it does not introduce a separate
+lifetime decision. See also `docs/REMOTE-CONTROL-V2-SPEC.md`.
+
+Use the existing private SQLite database and opaque bearer cookie; persist only
+its hash, a noncredential session ID, origin, credential-generation binding,
+fixed deadline, observations, label and revocation state. The generation is a
+domain-separated digest of the actual maintainer secret record's random salt;
+it detects replacement while the daemon is stopped without saving the password
+or a reusable credential. Issuance/revocation commit before success. Storage
+failure denies access immediately and reports incomplete durable revocation.
+
+The per-start CSRF key stays ephemeral. Surviving browsers fetch fresh tokens
+without replacing unsent text or replaying actions. Listener shutdown is separated
+from credential revocation; Tailscale mapping ownership and conflict rules remain.
+
+Engineering choice: versioned, namespaced JSON records live in the existing
+non-STRICT `settings` table. SQLite retains JSON text under its INTEGER affinity;
+known timing readers select timing keys explicitly. The v2 records add no table,
+and older binaries ignore these rows; their in-memory sessions cannot use v2
+credentials. The store schema does not stay at 37: v0.11.0, which ships v2, also
+moves the store to schema 38 for the link's messages (#670 chunk 03), and v0.10.x
+refuses a schema 38 store.
+A typed-table migration can replace this representation when rollback compatibility
+can be changed deliberately. Never use a WAL-attached sidecar for cross-database
+receipt/mutation atomicity.
+
+Receipt records share the mutation's database transaction and host operation-ID
+namespace. An engineering bound of 10,000 unexpired receipts rejects additional
+receipt-backed writes with capacity rather than evicting a promised seven-day
+receipt; retained-result lookup still works when ordinary write admission blocks. Seven-day deduplication checks type/target/origin and payload digest;
+reauthentication changes attribution, never the namespace. Message delivery and
+acknowledgement remain separate effects. Decision revision conflicts are retained
+as original outcomes. Attention cursors use a separate browser namespace and never
+change inbox acknowledgement. Private browser drafts are not daemon storage.
+
+Review when schema compatibility changes or production evidence calls for a new
+storage bound. Automated and actual phone/platform acceptance stay distinct.
+
 ## Conclusion
 
 Private remote browser access has a dedicated listener and credential surface,
@@ -311,3 +437,8 @@ Serve mapping and records recoverable lifecycle transitions.
 | 2026-11-11 | Amend remote sign-in with transient origin-bound QR tickets authorized in PDR 010, Decision 4. |
 | 2026-11-11 | Clarify remote-only seven-day idle time and its separation from ticket expiry. |
 | 2026-11-12 | Accepted by Robert Capps (#645). Name the proposer as Andrew Deugarte (@andyde8). Only a host dashboard session issues tickets. Record the QR library and its alternatives (review of PR #644). |
+| 2026-11-12 | Decision 4: the link between Koinon computers is part of Remote (LINK-670-PAIR, Robert Capps, #670). |
+| 2026-11-13 | Decision 4: the link carries the receiver directory and name updates (#670 chunk 02). |
+| 2026-11-13 | Decision 4: the link carries agent direct messages, queued at the sender (#670 chunk 03). |
+| 2026-11-12 | Record Andrew's v2 implementation authorization, fixed 48-hour policy, durable sessions and explicit recovery scope. |
+| 2026-11-13 | Decision 5: Robert Capps takes the v2 policy choices as his and puts v2 in v0.11.0 (REL-SCOPE-673). |

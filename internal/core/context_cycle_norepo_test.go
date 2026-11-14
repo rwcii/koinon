@@ -151,6 +151,7 @@ func TestContextCycleReadyRefusalsAreRecorded(t *testing.T) {
 	}
 	t.Cleanup(func() { reopened.db.Close() })
 	reopened.now = f.s.now
+	reopened.processStart = f.s.processStart
 	f.s = reopened
 	got := f.status(t, f.k)
 	if got.Revision != v.Revision || got.State != cycleWaitingReady || count(t, f.s, `SELECT COUNT(*) FROM context_cycle_events`) != events {
@@ -220,7 +221,7 @@ func TestSchemaThirtyKeepsState(t *testing.T) {
 	f := newCycleFixture(t)
 	f.readyCycle(t)
 	rows := rowsOf(t, f.s.db)
-	if _, err := fixtureExec(f.s, undoSchemaThirtySeven+undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+`PRAGMA user_version=29`); err != nil {
+	if _, err := fixtureExec(f.s, undoSchemaThirtyEight+undoSchemaThirtySeven+undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+`PRAGMA user_version=29`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(f.s.db, 29); err != nil {
@@ -279,6 +280,7 @@ func TestContextCycleReadyRefusalAtOrdinaryCeiling(t *testing.T) {
 	}
 	t.Cleanup(func() { reopened.db.Close() })
 	reopened.now, reopened.storage.maxPages = f.s.now, maxPages
+	reopened.processStart = f.s.processStart
 	f.s = reopened
 	f.clock = time.UnixMilli(v.StageDeadline)
 	f.step(t)

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/rwcii/koinon/internal/link"
 	"net/http"
 	"net/url"
 	"os"
@@ -44,6 +45,8 @@ var (
 // noticeText is every notice a view can show; any other code shows nothing.
 var noticeText = map[string]string{
 	"remote_enabled":            "Remote access is enabled. Phone reachability is still unverified.",
+	"dashboard_access_tailnet":  "The dashboard now opens on this computer and your tailnet only.",
+	"dashboard_access_partial":  "Remote access is on, but the network address could not be removed and stays open. Check the dashboard access section and try again.",
 	"remote_disabled":           "Remote access is off. Local dashboard access remains available.",
 	"remote_setup_required":     "Remote setup needs attention. Check the status and instructions below before trying again.",
 	"remote_secret_required":    "Set your maintainer secret on this computer before enabling remote access.",
@@ -176,6 +179,15 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 	run := func(w http.ResponseWriter, r *http.Request, action, target, view string, query url.Values, valid bool,
 		apply func(ctx context.Context) error, accepted string, refusal func(error) string) {
 		ctx, pending := withAudit(r.Context(), action, target)
+		if action == "send" || action == "room-post" || strings.HasPrefix(action, "decision-") {
+			var err error
+			ctx, err = d.operationContext(r, ctx, "", action, target, accepted)
+			if err != nil {
+				d.store.auditRefusal(r.Context(), pending, errorCode(err))
+				done(w, r, view, query, errorCode(err))
+				return
+			}
+		}
 		if !valid {
 			d.store.auditRefusal(ctx, pending, "invalid_request")
 			done(w, r, view, query, "invalid_request")
@@ -450,17 +462,24 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 
 	mux.HandleFunc("POST /dashboard/actions/send", authed(sendFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
 		to, body := r.PostForm.Get("to"), r.PostForm.Get("body")
-		valid := to != "" && len(to) <= 256 && !strings.ContainsAny(to, "\x00\r\n") && body != "" && len(body) <= maxBody && utf8.ValidString(body)
+		valid := to != "" && len(to) <= link.MaxAddressBytes && !strings.ContainsAny(to, "\x00\r\n") && body != "" && len(body) <= maxBody && utf8.ValidString(body)
 		target := "to " + to + " bytes " + strconv.Itoa(len(body))
-		if len(to) > 256 || strings.ContainsAny(to, "\x00\r\n") {
+		if len(to) > link.MaxAddressBytes || strings.ContainsAny(to, "\x00\r\n") {
 			target = "invalid recipient"
 		}
 		run(w, r, "send", target, "messages", url.Values{"to": {"maintainer"}}, valid, func(ctx context.Context) error {
+			if link.IsRemoteAddress(to) {
+				_, err := d.linkSend(ctx, nil, to, body, 0)
+				return err
+			}
 			_, err := d.store.send(ctx, maintainerKey, to, body, true)
 			return err
 		}, "sent", nil)
 	}))
 
+	d.operationReceiptRoutes(mux, func(next func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
+		return authed(actionFormLimit, next)
+	})
 	d.memoryActions(mux, authed)
 	d.workActions(mux, authed, run)
 	d.roomActions(mux, authed, run)

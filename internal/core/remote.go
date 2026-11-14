@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rwcii/koinon/internal/link"
 	"github.com/rwcii/koinon/internal/platform"
 	"github.com/rwcii/koinon/internal/remote"
 )
@@ -26,27 +27,58 @@ type RemoteConfig struct {
 	Enabled bool           `json:"enabled"`
 	Owned   bool           `json:"owned"`
 	Mapping remote.Mapping `json:"mapping"`
+	// Link is the daemon link's raw TCP Serve mapping (#670), journaled with the same rules:
+	// LinkOwned is recorded before Serve changes and cleared only after its removal.
+	Link      *remote.TCPMapping `json:"link,omitempty"`
+	LinkOwned bool               `json:"link_owned,omitempty"`
+}
+
+// validRemoteConfig checks the whole remote record, the link mapping included.
+func validRemoteConfig(c *RemoteConfig) bool {
+	if c == nil || c.Version != 1 || remote.ValidateMapping(c.Mapping) != nil || c.Enabled && !c.Owned || c.LinkOwned && c.Link == nil {
+		return false
+	}
+	return c.Link == nil || remote.ValidateTCPMapping(*c.Link) == nil && c.Link.Port != c.Mapping.Port()
 }
 
 type RemoteStatus struct {
-	Configured bool           `json:"configured"`
-	URL        string         `json:"url,omitempty"`
-	Listener   string         `json:"listener"`
-	Serve      string         `json:"serve"`
-	Tailscale  *remote.Status `json:"tailscale,omitempty"`
-	Error      string         `json:"error,omitempty"`
-	Phone      string         `json:"phone"`
+	Configured     bool           `json:"configured"`
+	URL            string         `json:"url,omitempty"`
+	Listener       string         `json:"listener"`
+	Serve          string         `json:"serve"`
+	Tailscale      *remote.Status `json:"tailscale,omitempty"`
+	Error          string         `json:"error,omitempty"`
+	Phone          string         `json:"phone"`
+	Sessions       map[string]any `json:"sessions,omitempty"`
+	LastReconciled int64          `json:"last_reconciled,omitempty"`
+	// PolicyHint and PolicyRule say what the tailnet access policy must allow when the
+	// host is ready but the phone is unverified (#653). Koinon cannot read the policy.
+	PolicyHint string `json:"policy_hint,omitempty"`
+	PolicyRule string `json:"policy_rule,omitempty"`
+	// The link between Koinon computers (#670), once its name and port are set: its loopback
+	// listener and its raw TCP Serve mapping.
+	LinkPort     int    `json:"link_port,omitempty"`
+	LinkListener string `json:"link_listener,omitempty"`
+	LinkServe    string `json:"link_serve,omitempty"`
 }
 
+// policyHint names the remote HTTPS port that the tailnet access policy must allow (#665).
+func policyHint(port int) string {
+	return fmt.Sprintf("If the phone times out, the tailnet access policy must allow TCP %d to this computer's Tailscale addresses (docs/REMOTE-DASHBOARD.md).", port)
+}
+
+const policyRuleNote = "autogroup:member is every member of the tailnet; replace it with a user, group or devices for narrower access."
+
 type remoteRuntime struct {
-	mu       sync.Mutex
-	surface  sync.RWMutex
-	active   bool
-	config   *RemoteConfig
-	server   *http.Server
-	listener net.Listener
-	problem  string
-	manager  remote.Manager
+	mu             sync.Mutex
+	surface        sync.RWMutex
+	active         bool
+	config         *RemoteConfig
+	server         *http.Server
+	listener       net.Listener
+	lastReconciled int64
+	problem        string
+	manager        remote.Manager
 	// offUnrecorded holds a disable whose record write failed: the surface stays
 	// closed and the reconciler retries the write instead of opening it again.
 	offUnrecorded bool
@@ -64,14 +96,14 @@ func ReadRemoteConfig(root string) (*RemoteConfig, error) {
 	var c RemoteConfig
 	dec := json.NewDecoder(io.LimitReader(f, 4097))
 	dec.DisallowUnknownFields()
-	if dec.Decode(&c) != nil || dec.Decode(new(any)) != io.EOF || c.Version != 1 || remote.ValidateMapping(c.Mapping) != nil || c.Enabled && !c.Owned {
+	if dec.Decode(&c) != nil || dec.Decode(new(any)) != io.EOF || !validRemoteConfig(&c) {
 		return nil, errors.New("remote_configuration_invalid: inspect remote-dashboard.json in the private state directory")
 	}
 	return &c, nil
 }
 
 func writeRemoteConfig(root string, c *RemoteConfig) error {
-	if c == nil || c.Version != 1 || remote.ValidateMapping(c.Mapping) != nil || c.Enabled && !c.Owned {
+	if !validRemoteConfig(c) {
 		return ErrInvalid
 	}
 	// Never replace an unsafe inode, even during an explicit repair.
@@ -137,6 +169,7 @@ func (d *Daemon) openRemoteListenerLocked(l net.Listener) error {
 }
 
 func (d *Daemon) closeRemoteLocked() {
+	d.closeLinkLocked()
 	rt := &d.remote
 	rt.surface.Lock()
 	defer rt.surface.Unlock()
@@ -151,9 +184,6 @@ func (d *Daemon) closeRemoteLocked() {
 		rt.listener.Close()
 		rt.listener = nil
 	}
-	if d.auth != nil {
-		d.auth.endRemote()
-	}
 }
 
 // Conflicting exposure or a changed external identity ends this surface's logins.
@@ -161,13 +191,35 @@ func (d *Daemon) remoteSecurityFailureLocked(err error) {
 	var diagnostic *remote.Diagnostic
 	if errors.As(err, &diagnostic) && (diagnostic.Code == "tailscale_identity_changed" || diagnostic.Code == "tailscale_serve_conflict") {
 		d.closeRemoteLocked()
+		// A browser cookie may have reached the conflicting handler or the old name, so the
+		// logins end, also when the same origin comes back later (#673 review M2). A failed
+		// write keeps every remote login denied until the diagnostics retry succeeds.
+		if d.auth != nil {
+			_ = d.auth.revokeRemote("", "origin_changed")
+		}
 	}
 }
 
-func (d *Daemon) remoteEnable(ctx context.Context) error {
+// errRemotePort refuses an HTTPS port outside 1 to 65535.
+func errRemotePort() error {
+	return workError("invalid_request", "https_port must be 1 to 65535, or 0 to keep the saved port")
+}
+
+// remoteEnable opens the remote surface on port, Serve's HTTPS port (#665): 0 keeps the saved
+// port, or 443 for a first enable. A changed port on an owned mapping first takes the
+// disable steps for the old one, so its logins end and its Serve mapping is removed.
+func (d *Daemon) remoteEnable(ctx context.Context, port int) error {
+	d.remote.mu.Lock()
+	defer d.remote.mu.Unlock()
+	return d.remoteEnableLocked(ctx, port)
+}
+
+// remoteEnableLocked takes the enable steps with the remote lock held.
+func (d *Daemon) remoteEnableLocked(ctx context.Context, port int) error {
+	if port != 0 && !remote.ValidHTTPSPort(port) {
+		return errRemotePort()
+	}
 	rt := &d.remote
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
 	rt.offUnrecorded = false
 	set, err := d.store.maintainerSecretSet(ctx)
 	if err != nil {
@@ -185,12 +237,29 @@ func (d *Daemon) remoteEnable(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if c != nil && c.Owned && status.Origin != "" && c.Mapping.Origin != status.Origin {
+	if c != nil && c.Owned && status.Origin != "" && c.Mapping.HostOrigin() != status.Origin {
 		d.closeRemoteLocked()
 		return fmt.Errorf("remote_identity_changed: the saved mapping names %s; restore that Tailscale name/network temporarily, run koinon remote disable, then restore the desired name and enable; see docs/REMOTE-DASHBOARD.md#name-change-recovery", c.Mapping.Origin)
 	}
 	if err := status.Ready(); err != nil {
 		return err
+	}
+	if port == 0 {
+		port = remote.DefaultHTTPSPort
+		if c != nil {
+			port = c.Mapping.Port()
+		}
+	}
+	if c != nil && c.Link != nil && c.Link.Port == port {
+		return ErrLinkPortSame
+	}
+	if c != nil && c.Owned && c.Mapping.Port() != port {
+		if err := d.remoteDisableLocked(ctx); err != nil {
+			return err
+		}
+		if c, err = ReadRemoteConfig(d.root); err != nil {
+			return err
+		}
 	}
 	var held net.Listener
 	if c == nil {
@@ -203,9 +272,9 @@ func (d *Daemon) remoteEnable(ctx context.Context) error {
 				held.Close()
 			}
 		}()
-		c = &RemoteConfig{Version: 1, Mapping: remote.Mapping{Origin: status.Origin, Target: "http://" + held.Addr().String()}}
+		c = &RemoteConfig{Version: 1, Mapping: remote.Mapping{Origin: remote.OriginAt(status.Origin, port), Target: "http://" + held.Addr().String()}}
 	} else if !c.Owned {
-		c.Mapping.Origin = status.Origin
+		c.Mapping.Origin = remote.OriginAt(status.Origin, port)
 		// An explicit disable released the old mapping; a new enable can recover from
 		// an occupied old port. Enabled/restarting configurations never silently move.
 		held, err = net.Listen("tcp4", strings.TrimPrefix(c.Mapping.Target, "http://"))
@@ -228,6 +297,11 @@ func (d *Daemon) remoteEnable(ctx context.Context) error {
 		return err
 	}
 	if rt.config != nil && rt.config.Mapping != c.Mapping {
+		if d.auth != nil {
+			if err := d.auth.revokeRemote("", "origin_changed"); err != nil {
+				return err
+			}
+		}
 		d.closeRemoteLocked()
 	}
 	c.Enabled, c.Owned = true, true
@@ -235,6 +309,13 @@ func (d *Daemon) remoteEnable(ctx context.Context) error {
 		return err
 	}
 	rt.config = c
+	if d.auth != nil {
+		if err := d.auth.reconcileRemoteOrigin(c.Mapping.Origin); err != nil {
+			d.closeRemoteLocked()
+			rt.problem = err.Error()
+			return err
+		}
+	}
 	if err := d.openRemoteListenerLocked(held); err != nil {
 		err = errors.Join(err, rt.manager.Remove(ctx, c.Mapping))
 		rt.problem = err.Error()
@@ -242,7 +323,13 @@ func (d *Daemon) remoteEnable(ctx context.Context) error {
 	}
 	held = nil // listener ownership transferred; no release/rebind gap
 	err = rt.manager.Ensure(ctx, c.Mapping, true)
+	if err == nil {
+		err = d.enableLinkLocked(ctx)
+	}
 	rt.problem = ""
+	if err == nil {
+		rt.lastReconciled = d.store.now().UnixMilli()
+	}
 	if err != nil {
 		rt.problem = err.Error()
 		d.remoteSecurityFailureLocked(err)
@@ -250,40 +337,119 @@ func (d *Daemon) remoteEnable(ctx context.Context) error {
 	return err
 }
 
-func (d *Daemon) remoteDisable(ctx context.Context) error {
+// enableLinkLocked opens the link listener and its Serve mapping when the link is set up.
+// The intent is journaled before Serve changes; an unowned identical mapping is not adopted.
+func (d *Daemon) enableLinkLocked(ctx context.Context) error {
 	rt := &d.remote
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
+	c := rt.config
+	if c == nil || c.Link == nil {
+		return nil
+	}
+	owned := c.LinkOwned
+	if !owned {
+		if err := rt.manager.CheckTCP(ctx, *c.Link, false); err != nil {
+			return err
+		}
+		c.LinkOwned = true
+		if err := writeRemoteConfig(d.root, c); err != nil {
+			return err
+		}
+	}
+	if err := d.openLinkLocked(nil); err != nil {
+		return errors.Join(err, rt.manager.RemoveTCP(ctx, *c.Link))
+	}
+	return rt.manager.EnsureTCP(ctx, *c.Link, true)
+}
+
+// clearInvites removes the invitations from link.json. The close already revoked them in
+// memory, which is their authority; this keeps the file true, and its error is reported.
+func (d *Daemon) clearInvites() error {
+	d.link.mu.Lock()
+	defer d.link.mu.Unlock()
+	s, err := link.ReadState(d.root)
+	if err != nil || len(s.Invites) == 0 {
+		return err
+	}
+	s.Invites = nil
+	return link.WriteState(d.root, s)
+}
+
+// disableLinkLocked removes the link's Serve mapping. Pairs stay. The link listener and its
+// connections and invitations are already closed with the remote surface.
+func (d *Daemon) disableLinkLocked(ctx context.Context, c *RemoteConfig) error {
+	if c == nil || !c.LinkOwned {
+		return nil
+	}
+	if err := d.remote.manager.RemoveTCP(ctx, *c.Link); err != nil {
+		return err
+	}
+	c.LinkOwned = false
+	return writeRemoteConfig(d.root, c)
+}
+
+func (d *Daemon) remoteDisable(ctx context.Context) error {
+	d.remote.mu.Lock()
+	defer d.remote.mu.Unlock()
+	return d.remoteDisableLocked(ctx)
+}
+
+// remoteDisableLocked takes the disable steps with the remote lock held.
+func (d *Daemon) remoteDisableLocked(ctx context.Context) error {
+	rt := &d.remote
 	// The off switch closes the surface first, also when the record cannot be read
-	// or written; the error then reports the record failure.
+	// or written; the error then reports the record failure. The close also ends the link
+	// and revokes its invitations, before any Serve cleanup that can fail.
 	d.closeRemoteLocked()
-	c, err := ReadRemoteConfig(d.root)
-	if err != nil {
-		rt.offUnrecorded = true
+	inviteErr := d.clearInvites()
+	// A failed browser revocation does not stop the disable: the saved record turns off
+	// and the mappings go, so that a restart cannot open Remote again. The revocation is
+	// retried from diagnostics, and a start with Remote off revokes again (#673 review M1).
+	var revokeErr error
+	if d.auth != nil {
+		revokeErr = d.auth.revokeRemote("", "remote_disabled")
+	}
+	fail := func(err error) error {
+		err = errors.Join(err, revokeErr)
 		rt.problem = err.Error()
 		return err
 	}
+	c, err := ReadRemoteConfig(d.root)
+	if err != nil {
+		rt.offUnrecorded = true
+		return fail(err)
+	}
 	if c == nil {
+		if revokeErr != nil {
+			return fail(nil)
+		}
 		return nil
 	}
 	c.Enabled = false
 	if err := writeRemoteConfig(d.root, c); err != nil {
 		rt.offUnrecorded = true
-		rt.problem = err.Error()
-		return err
+		return fail(err)
 	}
 	rt.offUnrecorded = false
 	rt.config = c
 	if c.Owned {
 		if err := rt.manager.Remove(ctx, c.Mapping); err != nil {
-			rt.problem = err.Error()
-			return err
+			return fail(err)
 		}
 		c.Owned = false
 		if err := writeRemoteConfig(d.root, c); err != nil {
-			rt.problem = err.Error()
-			return err
+			return fail(err)
 		}
+	}
+	if err := d.disableLinkLocked(ctx, c); err != nil {
+		return fail(err)
+	}
+	if inviteErr != nil {
+		err := fail(inviteErr)
+		rt.problem = "link invitations are revoked, but link.json could not be updated: " + err.Error()
+		return err
+	}
+	if revokeErr != nil {
+		return fail(nil)
 	}
 	rt.problem = ""
 	return nil
@@ -293,7 +459,10 @@ func (d *Daemon) remoteStatus(ctx context.Context) RemoteStatus {
 	rt := &d.remote
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	result := RemoteStatus{Listener: "off", Phone: "unverified", Error: rt.problem, Serve: "off"}
+	result := RemoteStatus{Listener: "off", Phone: "unverified", Error: rt.problem, Serve: "off", LastReconciled: rt.lastReconciled}
+	if d.auth != nil {
+		result.Sessions = d.auth.remoteDiagnostics()
+	}
 	if rt.config != nil {
 		result.Configured = rt.config.Enabled
 		result.URL = rt.config.Mapping.Origin + "/dashboard/"
@@ -313,7 +482,7 @@ func (d *Daemon) remoteStatus(ctx context.Context) RemoteStatus {
 		result.Error = err.Error()
 	} else {
 		result.Tailscale = &observed
-		if rt.config != nil && rt.config.Enabled && observed.Origin != "" && rt.config.Mapping.Origin != observed.Origin {
+		if rt.config != nil && rt.config.Enabled && observed.Origin != "" && rt.config.Mapping.HostOrigin() != observed.Origin {
 			d.closeRemoteLocked()
 			result.Listener = "unavailable"
 			result.Error = "Tailscale identity changed; see docs/REMOTE-DASHBOARD.md#name-change-recovery before disabling and enabling"
@@ -333,7 +502,30 @@ func (d *Daemon) remoteStatus(ctx context.Context) RemoteStatus {
 				}
 			} else {
 				result.Serve = "ready"
+				result.PolicyHint = policyHint(rt.config.Mapping.Port())
+				if rule := remote.PolicyRule(observed.TailscaleIPs, rt.config.Mapping.Port()); rule != "" {
+					result.PolicyHint += " Example policy entry; " + policyRuleNote
+					result.PolicyRule = rule
+				}
 			}
+		}
+	}
+	if c := rt.config; c != nil && c.Link != nil {
+		result.LinkPort, result.LinkListener, result.LinkServe = c.Link.Port, "off", "off"
+		d.link.mu.Lock()
+		if d.link.listener != nil {
+			result.LinkListener = "ready"
+		}
+		d.link.mu.Unlock()
+		switch {
+		case !c.Enabled && c.LinkOwned:
+			result.LinkServe = "cleanup pending"
+		case c.Enabled && err != nil:
+			result.LinkServe = "unknown"
+		case c.Enabled && observed.TCPMappingPresent(*c.Link):
+			result.LinkServe = "ready"
+		case c.Enabled:
+			result.LinkServe = "missing"
 		}
 	}
 	if rt.config != nil && rt.config.Enabled {
@@ -367,9 +559,23 @@ func (d *Daemon) restoreRemote(ctx context.Context) {
 		return
 	}
 	if rt.config != nil && (c == nil || rt.config.Mapping != c.Mapping) {
+		if d.auth != nil {
+			if err := d.auth.revokeRemote("", "origin_changed"); err != nil {
+				d.closeRemoteLocked()
+				rt.problem = err.Error()
+				return
+			}
+		}
 		d.closeRemoteLocked()
 	}
 	if c != nil && c.Enabled && rt.offUnrecorded {
+		if d.auth != nil {
+			if err := d.auth.revokeRemote("", "remote_disabled"); err != nil {
+				d.closeRemoteLocked()
+				rt.problem = err.Error()
+				return
+			}
+		}
 		c.Enabled = false
 		if err := writeRemoteConfig(d.root, c); err != nil {
 			d.closeRemoteLocked()
@@ -382,6 +588,19 @@ func (d *Daemon) restoreRemote(ctx context.Context) {
 	if c == nil {
 		return
 	}
+	if d.auth != nil {
+		var revokeErr error
+		if !c.Enabled {
+			revokeErr = d.auth.revokeRemote("", "remote_disabled")
+		} else {
+			revokeErr = d.auth.reconcileRemoteOrigin(c.Mapping.Origin)
+		}
+		if revokeErr != nil {
+			d.closeRemoteLocked()
+			rt.problem = revokeErr.Error()
+			return
+		}
+	}
 	if !c.Enabled {
 		d.closeRemoteLocked()
 		if c.Owned {
@@ -389,6 +608,9 @@ func (d *Daemon) restoreRemote(ctx context.Context) {
 				c.Owned = false
 				err = writeRemoteConfig(d.root, c)
 			}
+		}
+		if err == nil {
+			err = d.disableLinkLocked(ctx, c)
 		}
 	} else {
 		err = rt.manager.Check(ctx, c.Mapping, true)
@@ -406,10 +628,16 @@ func (d *Daemon) restoreRemote(ctx context.Context) {
 				}
 			} else if err == nil {
 				err = rt.manager.Ensure(ctx, c.Mapping, true)
+				if err == nil {
+					err = d.enableLinkLocked(ctx)
+				}
 			}
 		}
 	}
 	rt.problem = ""
+	if err == nil {
+		rt.lastReconciled = d.store.now().UnixMilli()
+	}
 	if err != nil {
 		rt.problem = err.Error()
 		d.remoteSecurityFailureLocked(err)
@@ -441,15 +669,31 @@ func (d *Daemon) remoteRoutes(mux *http.ServeMux) {
 	})
 	for _, action := range []string{"enable", "disable"} {
 		mux.HandleFunc("POST /v1/remote/"+action, func(w http.ResponseWriter, r *http.Request) {
-			if err := decode(w, r, &struct{}{}); err != nil {
+			// enable takes an optional https_port (#665); disable takes an empty object.
+			var body struct {
+				HTTPSPort *int `json:"https_port,omitempty"`
+			}
+			var err error
+			if action == "enable" {
+				err = decode(w, r, &body)
+			} else {
+				err = decode(w, r, &struct{}{})
+			}
+			if err == nil && body.HTTPSPort != nil && *body.HTTPSPort != 0 && !remote.ValidHTTPSPort(*body.HTTPSPort) {
+				err = errRemotePort()
+			}
+			if err != nil {
 				failure(w, err)
 				return
 			}
 			ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 			defer cancel()
-			var err error
 			if action == "enable" {
-				err = d.remoteEnable(ctx)
+				port := 0
+				if body.HTTPSPort != nil {
+					port = *body.HTTPSPort
+				}
+				err = d.remoteEnable(ctx, port)
 			} else {
 				err = d.remoteDisable(ctx)
 			}
@@ -482,13 +726,23 @@ func CleanupRemote(ctx context.Context, root string, adapter remote.Adapter) err
 	if err := writeRemoteConfig(root, c); err != nil {
 		return err
 	}
-	if !c.Owned {
+	manager := remote.Manager{Adapter: adapter}
+	if c.Owned {
+		if err := manager.Remove(ctx, c.Mapping); err != nil {
+			return err
+		}
+		c.Owned = false
+		if err := writeRemoteConfig(root, c); err != nil {
+			return err
+		}
+	}
+	if !c.LinkOwned {
 		return nil
 	}
-	if err := (remote.Manager{Adapter: adapter}).Remove(ctx, c.Mapping); err != nil {
+	if err := manager.RemoveTCP(ctx, *c.Link); err != nil {
 		return err
 	}
-	c.Owned = false
+	c.LinkOwned = false
 	return writeRemoteConfig(root, c)
 }
 
@@ -506,6 +760,9 @@ func (d *Daemon) shutdownRemote(ctx context.Context) error {
 			err = readErr
 		} else if c != nil && c.Enabled && c.Owned {
 			err = rt.manager.Remove(ctx, c.Mapping)
+			if c.LinkOwned {
+				err = errors.Join(err, rt.manager.RemoveTCP(ctx, *c.Link))
+			}
 		}
 	}
 	d.closeRemoteLocked()

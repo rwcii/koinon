@@ -21,7 +21,7 @@ const fs = require('fs');
 const vm = require('vm');
 const code = fs.readFileSync(process.argv[2], 'utf8');
 const settle = () => new Promise(resolve => setImmediate(resolve));
-function browser() {
+function browser(recovery) {
   let now = 100000, html = 'retained data';
   const events = {}, timers = [], intervals = {}, requests = [], navigations = [];
   const nodes = {};
@@ -45,7 +45,7 @@ function browser() {
   const document = { getElementById:id => nodes[id] || null, activeElement: null, visibilityState:'visible', addEventListener:listen };
   class Clock extends Date { constructor(value) { super(value === undefined ? now : value); } static now() { return now; } }
   class Fields { constructor(form) { this.values = form.fields.slice(); } append(name,value) { this.values.push([name,value]); } [Symbol.iterator]() { return this.values[Symbol.iterator](); } }
-  const window = { location, addEventListener:listen,
+  const window = { location, addEventListener:listen, koinonRecovery:recovery,
     setInterval(fn,ms) { intervals[ms] = fn; },
     setTimeout(fn,ms) { const id = timers.length; timers.push({fn,ms}); return id; },
     clearTimeout(id) { timers[id] = null; }
@@ -127,6 +127,55 @@ function read(request, text='new data') { request.resolve({ok:true, status:200, 
   timeout.requests[0].reject(new Error('aborted')); await settle();
   assert.match(timeout.nodes['action-result'].textContent,/Result unknown/);
   assert.equal(timeout.requests.length,1);
+
+  // A read-only refresh's explicit revocation response reaches draft cleanup.
+  const observedReasons=[];
+  const revoked=browser({unauthorized(response){observedReasons.push(response.headers.get('X-Koinon-Auth-Reason'));}});
+  revoked.event('online');
+  revoked.requests[0].resolve({ok:false,status:401,headers:{get(){return 'device_revoked';}}});await settle();
+  assert.deepEqual(observedReasons,['device_revoked']);
+  assert.equal(revoked.requests.filter(r=>r.options.method==='POST').length,0);
+  // A revision-conflict redirect keeps the live draft and never navigates or clears it.
+  for (const notice of ['stale_revision','decided']) {
+    let resolved=0,completed=0,disputed=0;
+    const conflicted=browser({prepare(){return {id:'synthetic-operation'};},resolve(){resolved++;},conflict(){disputed++;},completed(){completed++;}});
+    const conflictingForm=conflicted.form();conflicted.submit(conflictingForm);
+    conflicted.requests[0].resolve({ok:true,status:200,redirected:true,url:'https://host.example.ts.net/dashboard/decisions?notice='+notice});await settle();
+    assert.equal(conflicted.navigations.length,0,notice+' must retain the live form');
+    assert.equal(conflictingForm.fields[2][1],'unsent draft');
+    assert.equal(completed,0);assert.equal(resolved,1);assert.equal(disputed,1);
+    assert.match(conflicted.nodes['action-result'].textContent,/Conflict.*text is kept/);
+  }
+  // A refusal shows the host's reason, is no longer pending and is never called a conflict.
+  for (const notice of ['peer_not_found','storage_blocked']) {
+    let resolved=0,refused=0,disputed=0;
+    const declined=browser({prepare(){return {id:'synthetic-operation'};},resolve(){resolved++;},conflict(){disputed++;},refused(){refused++;},completed(){}});
+    const declinedForm=declined.form();declined.submit(declinedForm);
+    declined.requests[0].resolve({ok:true,status:200,redirected:true,url:'https://host.example.ts.net/dashboard/messages?notice='+notice});await settle();
+    assert.equal(declined.navigations.length,0,notice+' must retain the live form');
+    assert.equal(declinedForm.fields[2][1],'unsent draft');
+    assert.equal(refused,1);assert.equal(resolved,0);assert.equal(disputed,0);
+    assert.match(declined.nodes['action-result'].textContent,new RegExp('Refused: '+notice+'.*text is kept'));
+  }
+  // #673 review L10: a 403 saved nothing, so the operation ends as refused, and the
+  // response settles the operation before any receipt lookup.
+  {
+    const calls=[];
+    const stale=browser({prepare(){return {id:'synthetic-operation'};},settled(){calls.push('settled');},refused(){calls.push('refused');},authenticated(){calls.push('authenticated');},resolve(){calls.push('resolve');},completed(){}});
+    stale.submit(stale.form());
+    stale.requests[0].resolve({ok:false,status:403}); await settle();
+    assert.deepEqual(calls,['settled','refused','authenticated']);
+    assert.match(stale.nodes['action-result'].textContent,/Form expired/);
+    const lostCalls=[];
+    const lost=browser({prepare(){return {id:'synthetic-operation'};},settled(){lostCalls.push('settled');},resolve(){lostCalls.push('resolve');},completed(){}});
+    lost.submit(lost.form());
+    lost.requests[0].reject(new Error('lost response')); await settle();
+    assert.deepEqual(lostCalls,['settled','resolve']);
+  }
+  // #673 review L9: the device limit text of a password sign-in reaches the page.
+  const full = browser(); full.submit(full.form('/dashboard/login'));
+  full.requests[0].resolve({ok:false,status:409,text:async()=>'Signed-in device limit reached. Forget a device, then try again.'}); await settle(); await settle();
+  assert.match(full.nodes['action-result'].textContent,/^Signed-in device limit reached/);
   console.log('mobile refresh and write contract passed');
 })().catch(error => { console.error(error); process.exitCode=1; });
 `

@@ -264,7 +264,7 @@ func TestDashboardRemoteSetupConflictPreservesForeignMappings(t *testing.T) {
 func TestDashboardRemoteSetupDisableFromOwnListenerCompletes(t *testing.T) {
 	d, root, fake := onboardingFixture(t)
 	local := newActionClient(t, d, root)
-	if err := d.remoteEnable(context.Background()); err != nil {
+	if err := d.remoteEnable(context.Background(), 0); err != nil {
 		t.Fatal(err)
 	}
 	config, err := ReadRemoteConfig(root)
@@ -283,7 +283,7 @@ func TestDashboardRemoteSetupDisableFromOwnListenerCompletes(t *testing.T) {
 	r.Host = strings.TrimPrefix(config.Mapping.Origin, "https://")
 	r.Header.Set("Origin", config.Mapping.Origin)
 	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	r.AddCookie(&http.Cookie{Name: "koinon_remote_dashboard", Value: id, Secure: true})
+	r.AddCookie(&http.Cookie{Name: "koinon_remote_dashboard_443", Value: id, Secure: true})
 	httpClient := &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: 3 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	defer httpClient.CloseIdleConnections()
 	response, requestErr := httpClient.Do(r)
@@ -372,7 +372,7 @@ func testRemoteSettingsReconciliation(t *testing.T, query, failure string) {
 	phase := time.AfterFunc(8*time.Second, func() { panic("remote settings reconciliation did not complete") })
 	defer phase.Stop()
 	local := newActionClient(t, d, root)
-	if err := d.remoteEnable(context.Background()); err != nil {
+	if err := d.remoteEnable(context.Background(), 0); err != nil {
 		t.Fatal(err)
 	}
 	config, err := ReadRemoteConfig(root)
@@ -399,7 +399,7 @@ func testRemoteSettingsReconciliation(t *testing.T, query, failure string) {
 		t.Fatal(err)
 	}
 	request.Host = strings.TrimPrefix(config.Mapping.Origin, "https://")
-	request.AddCookie(&http.Cookie{Name: "koinon_remote_dashboard", Value: id, Secure: true})
+	request.AddCookie(&http.Cookie{Name: "koinon_remote_dashboard_443", Value: id, Secure: true})
 	client := &http.Client{Transport: &http.Transport{Proxy: nil}, Timeout: 3 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	defer client.CloseIdleConnections()
 	response, requestErr := client.Do(request)

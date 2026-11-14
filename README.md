@@ -173,15 +173,28 @@ For private phone access away from home, install Tailscale on the host and phone
 connect both to the same private network, and run `koinon remote enable`. It prints
 a stable HTTPS URL and a QR containing only that URL; sign in with the maintainer
 secret. `koinon remote status` shows readiness and `koinon remote disable` removes
-only the owned forwarding. The host must stay awake and online. See
+only the owned forwarding. Remote control v2 keeps sign-in for a fixed 48 hours
+across routine restarts, with signed-in device controls, explicit recovery and an
+Attention landing page. The host must stay awake and online. See
 [remote setup and phone use](docs/REMOTE-DASHBOARD.md).
+
+To connect your own computers, turn remote access on on each one, then pair them once: **Copy
+invitation** in Settings, Computers on one computer, and **Paste invitation** and **Connect**
+on the other (or `koinon link invite` and `koinon link join`). The daemons talk TLS 1.3 with
+pinned keys through Tailscale Serve (#670). `koinon link status` shows each paired computer, and
+`peers` and the dashboard's Sessions page list its agent sessions as `NAME@COMPUTER`, and an
+agent sends to them with `send` to `NAME@COMPUTER`: the message is queued on the sending
+computer and delivered in order, and `delivery` shows whether that computer stored it.
+See [connect your computers](docs/REMOTE-DASHBOARD.md#connect-your-computers).
 
 ## Security and storage
 
 The agent API accepts loopback connections authenticated with a private same-user secret; an
 optional HTTPS listener serves only the dashboard on a chosen local address, with the
 maintainer secret (docs/INSTALL.md), and `koinon remote` serves only the dashboard privately
-through Tailscale Serve (docs/REMOTE-DASHBOARD.md).
+through Tailscale Serve (docs/REMOTE-DASHBOARD.md). The link between paired computers has its
+own loopback TLS listener, behind its own Serve TCP mapping, and accepts only pinned keys
+(ADR 002, Decision 4).
 State directories and files enforce ownership and modes. Claude socket credentials verify
 UID/PID on both platforms; literal socket paths remain unchanged for provider key lookup.
 DeepSeek and OpenCode wake credentials stay private and target exact sessions. No peer

@@ -28,6 +28,7 @@ type fakeAdapter struct {
 	noApply        bool
 	statusRaw      []byte
 	serveRaw       []byte
+	peers          map[string]any
 }
 
 func newFake() *fakeAdapter {
@@ -43,7 +44,11 @@ func (f *fakeAdapter) Run(_ context.Context, args ...string) ([]byte, error) {
 		if f.cert {
 			domains = []string{strings.TrimSuffix(f.dns, ".")}
 		}
-		return json.Marshal(map[string]any{"BackendState": f.state, "Self": map[string]any{"Online": f.online, "DNSName": f.dns}, "CertDomains": domains})
+		status := map[string]any{"BackendState": f.state, "Self": map[string]any{"Online": f.online, "DNSName": f.dns}, "CertDomains": domains}
+		if f.peers != nil {
+			status["Peer"] = f.peers
+		}
+		return json.Marshal(status)
 	}
 	if reflect.DeepEqual(args, []string{"serve", "status", "--json"}) {
 		if f.serveRaw != nil {
@@ -51,14 +56,39 @@ func (f *fakeAdapter) Run(_ context.Context, args ...string) ([]byte, error) {
 		}
 		return json.Marshal(f.config)
 	}
-	if len(args) != 5 || !reflect.DeepEqual(args[:4], []string{"serve", "--bg", "--https=443", "--set-path=/"}) {
+	if len(args) == 4 && args[0] == "serve" && args[1] == "--bg" && strings.HasPrefix(args[2], "--tcp=") && strings.HasPrefix(args[3], "tcp://") {
+		if f.fail != "" && !f.applyOnFailure {
+			return nil, errors.New(f.fail)
+		}
+		if !f.noApply {
+			if f.config.TCP == nil {
+				f.config.TCP = map[string]TCPConfig{}
+			}
+			f.config.TCP[strings.TrimPrefix(args[2], "--tcp=")] = TCPConfig{TCPForward: strings.TrimPrefix(args[3], "tcp://")}
+		}
+		if f.fail != "" {
+			return nil, errors.New(f.fail)
+		}
+		return nil, nil
+	}
+	if len(args) == 3 && args[0] == "serve" && strings.HasPrefix(args[1], "--tcp=") && args[2] == "off" {
+		if f.fail != "" {
+			return nil, errors.New(f.fail)
+		}
+		if !f.noApply {
+			delete(f.config.TCP, strings.TrimPrefix(args[1], "--tcp="))
+		}
+		return nil, nil
+	}
+	if len(args) != 5 || args[0] != "serve" || args[1] != "--bg" || !strings.HasPrefix(args[2], "--https=") || args[3] != "--set-path=/" {
 		return nil, errors.New("unexpected command")
 	}
+	port := strings.TrimPrefix(args[2], "--https=")
 	if f.fail != "" && !f.applyOnFailure {
 		return nil, errors.New(f.fail)
 	}
 	if !f.noApply {
-		hp := testMapping.hostPort()
+		hp := strings.TrimSuffix(f.dns, ".") + ":" + port
 		if args[4] == "off" {
 			w := f.config.Web[hp]
 			delete(w.Handlers, "/")
@@ -67,7 +97,7 @@ func (f *fakeAdapter) Run(_ context.Context, args ...string) ([]byte, error) {
 			if f.config.TCP == nil {
 				f.config.TCP = map[string]TCPConfig{}
 			}
-			f.config.TCP["443"] = TCPConfig{HTTPS: true}
+			f.config.TCP[port] = TCPConfig{HTTPS: true}
 			if f.config.Web == nil {
 				f.config.Web = map[string]WebConfig{}
 			}
@@ -87,7 +117,7 @@ func (f *fakeAdapter) Run(_ context.Context, args ...string) ([]byte, error) {
 func (f *fakeAdapter) writes() [][]string {
 	var out [][]string
 	for _, c := range f.calls {
-		if len(c) > 1 && c[1] == "--bg" {
+		if len(c) > 1 && (c[1] == "--bg" || strings.HasPrefix(c[1], "--tcp=")) {
 			out = append(out, c)
 		}
 	}

@@ -1,5 +1,5 @@
 // Refresh only reads. Forms and selected rows hold replacement in place; no draft is
-// written to persistent browser storage, and reconnect never repeats an action.
+// replaced while editing; reconnect never repeats an action.
 (function () {
   "use strict";
   var list = document.getElementById("list");
@@ -13,6 +13,7 @@
   // Freshness uses elapsed browser time, independent of host/browser clock skew.
   var lastApplied = list.dataset.reload ? 0 : Date.now();
   var connected = !list.dataset.reload, expired = false, pending = false;
+  var failures = 0, nextRead = 0;
   function loadedIndex(f) {
     var first = -1;
     for (var i = f.options.length - 1; i >= 0; i--) {
@@ -50,7 +51,7 @@
     if (stale) { list.setAttribute("data-stale", "true"); }
     else { list.removeAttribute("data-stale"); }
     if (state) {
-      state.textContent = (expired ? "Sign-in required" : connected ? "Connected" : "Connection unavailable") +
+      state.textContent = (expired ? "Sign-in required" : connected ? "Connected" : "Cannot reach host · Connection unavailable") +
         (stale ? " · Stale data" : "") + (busy() ? " · Form kept; display refresh paused" : "");
     }
     if (connection) { connection.dataset.state = expired || !connected ? "unavailable" : stale ? "stale" : "connected"; }
@@ -58,7 +59,7 @@
   }
   function refresh() {
     status();
-    if (document.visibilityState !== "visible" || pending) { return; }
+    if (document.visibilityState !== "visible" || pending || Date.now() < nextRead) { return; }
     held(unsent());
     var url = new URL(window.location.href);
     url.searchParams.set("fragment", "1");
@@ -68,6 +69,7 @@
     fetch(url.toString(), { credentials: "same-origin", cache: "no-store", redirect: "error", signal: controller.signal })
       .then(function (response) {
         expired = response.status === 401;
+        if (expired && window.koinonRecovery) { window.koinonRecovery.unauthorized(response); }
         if (expired && signIn) {
           var back = new URL(window.location.href);
           back.searchParams.delete("fragment");
@@ -77,7 +79,8 @@
         return response.text();
       })
       .then(function (html) {
-        connected = true;
+        connected = true; failures = 0; nextRead = 0;
+        if (window.koinonRecovery) { window.koinonRecovery.authenticated(); }
         if (document.visibilityState !== "visible" || busy()) {
           held(unsent());
           return;
@@ -94,16 +97,22 @@
           time.textContent = new Date(lastApplied).toLocaleTimeString();
         }
       })
-      .catch(function () { connected = false; })
+      .catch(function () {
+        connected = false;
+        var delays = [1000, 2000, 5000, 10000, 30000];
+        var delay = delays[Math.min(failures++, delays.length - 1)] * (0.8 + Math.random() * 0.4);
+        nextRead = Date.now() + delay;
+        window.setTimeout(refresh, delay + 1);
+      })
       .finally(function () { pending = false; window.clearTimeout(timeout); status(); });
   }
   window.setInterval(refresh, Number(list.dataset.refresh));
   window.setInterval(status, 1000);
-  document.addEventListener("visibilitychange", refresh);
-  window.addEventListener("online", refresh);
+  document.addEventListener("visibilitychange", function () { nextRead = 0; refresh(); });
+  window.addEventListener("online", function () { nextRead = 0; refresh(); });
   window.addEventListener("offline", function () { connected = false; status(); });
   var reconnect = document.getElementById("reconnect");
-  if (reconnect) { reconnect.addEventListener("click", refresh); }
+  if (reconnect) { reconnect.addEventListener("click", function () { nextRead = 0; refresh(); }); }
   status();
 })();
 // Submit once and keep the current document if the response is lost. The server still
@@ -127,6 +136,9 @@
     var fields = new FormData(form);
     if (submitter && submitter.name) { fields.append(submitter.name, submitter.value); }
     var body = new URLSearchParams(fields);
+    var recovery = window.koinonRecovery;
+    var operation = recovery ? recovery.prepare(form, target, body) : null;
+    if (operation && operation.blocked) { return; }
     var buttons = Array.prototype.map.call(form.querySelectorAll("button, input[type=submit]"), function (button) {
       var wasDisabled = button.disabled;
       button.disabled = true;
@@ -137,12 +149,14 @@
     function message(text) {
       if (result) { result.textContent = text; result.hidden = false; }
     }
-    message("Submitting…");
+    message(operation ? "Sending" : "Submitting…");
     var controller = new AbortController();
     var timeout = window.setTimeout(function () { controller.abort(); }, 20000);
     fetch(target.toString(), { method: "POST", body: body, credentials: "same-origin", cache: "no-store", redirect: "follow", signal: controller.signal })
       .then(function (response) {
+        if (recovery && operation && recovery.settled) { recovery.settled(operation); }
         if (response.status === 401) {
+          if (recovery) { recovery.unauthorized(response); }
           message(target.pathname === "/dashboard/login" ? "Sign-in failed. Check your Koinon password and try again." :
             "Sign-in required. Open Sign in again, then check the latest state. This action will not be replayed.");
           var link = document.getElementById("sign-in");
@@ -152,10 +166,40 @@
           }
           return;
         }
+        // A 403 saved nothing: the operation ends as refused, not as unknown (#673 review L10).
+        if (response.status === 403 && recovery) { if (operation && recovery.refused) { recovery.refused(operation); } recovery.authenticated(true); message("Form expired. Your text is kept; refresh the form token, then submit explicitly."); return; }
+        if (response.status === 409 && target.pathname === "/dashboard/login" && typeof response.text === "function") {
+          // The device limit text is the host's own plain text; show it (#673 review L9).
+          return response.text().then(function (text) { message(text.trim() || "Signed-in device limit reached."); });
+        }
         if (!response.ok) {
           message("The request was refused (HTTP " + response.status + "). Check the latest state before trying again.");
           return;
         }
+        var replyURL = new URL(response.url || target.toString(), window.location.href);
+        var code = replyURL.searchParams.get("notice");
+        if (operation && replyURL.searchParams.has("notice") && !/^(sent|room_posted|decision_(approved|declined|feedback|completed|acknowledged))$/.test(code)) {
+          if (/^(stale_revision|decided)$/.test(code)) {
+            message("Conflict. Your text is kept. Inspect the current target before submitting another action.");
+            if (recovery) { if (recovery.conflict) { recovery.conflict(operation); } recovery.resolve(); }
+            return;
+          }
+          // Any other notice is the host's refusal: nothing was saved. Show its reason and
+          // keep the text (#673 review M5).
+          if (recovery && recovery.refused) { recovery.refused(operation); }
+          var shown = typeof response.text === "function" ? response.text() : Promise.resolve("");
+          return shown.then(function (html) {
+            var reason = "";
+            try {
+              if (typeof DOMParser === "function") {
+                var node = new DOMParser().parseFromString(html, "text/html").querySelector("p.notice");
+                reason = node ? node.textContent : "";
+              }
+            } catch (error) { reason = ""; }
+            message("Refused: " + (reason || code) + " Nothing was saved; your text is kept.");
+          });
+        }
+        return Promise.resolve(recovery ? recovery.completed(form, target, response, operation) : null).then(function () {
         var destination = new URL(response.url, window.location.href);
         if (response.redirected && destination.origin === window.location.origin && destination.pathname.startsWith("/dashboard/")) {
           window.location.assign(destination.toString());
@@ -164,8 +208,12 @@
         } else {
           message("Result unknown; check the latest state before trying again.");
         }
+        });
       })
-      .catch(function () { message("Result unknown; check the latest state before trying again."); })
+      .catch(function () {
+        message("Result unknown; check the latest state before trying again.");
+        if (recovery && operation) { if (recovery.settled) { recovery.settled(operation); } recovery.resolve(); }
+      })
       .finally(function () {
         window.clearTimeout(timeout);
         delete form.dataset.busy;

@@ -621,6 +621,11 @@ func (s *Store) sessionProbe(ctx context.Context, k Key) CycleProbe {
 	}
 	if _, hostless := adapter.(HostlessAdapter); !hostless && (row.HostPID <= 0 || row.Pane == "") {
 		return CycleProbe{Reason: "host_unpinned"}
+	} else if !hostless && row.HostStart > 0 && s.processStart != nil && s.hostEnded(host{pid: row.HostPID, start: row.HostStart}) {
+		// The same test as succession and liveness: the process is gone, or its PID now names
+		// another process. Without a recorded start, or on another read error, the adapter's
+		// own probe decides (#637).
+		return CycleProbe{Reason: "host_ended", Step: "the host process of this session has ended; enable the session that replaced it"}
 	}
 	if native {
 		return compact.CompactProbe(ctx, s.cycleTarget(ctx, row))

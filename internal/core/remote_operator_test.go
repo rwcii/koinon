@@ -66,7 +66,7 @@ func TestDashboardRemoteSetupShowsTheOperatorStepBeforeReady(t *testing.T) {
 	d.remote.mu.Lock()
 	d.remote.manager = remote.Manager{Adapter: operatorDenied{fake.base}}
 	d.remote.mu.Unlock()
-	if err := d.remoteEnable(context.Background()); err == nil {
+	if err := d.remoteEnable(context.Background(), 0); err == nil {
 		t.Fatal("enable succeeded through a refused Serve write")
 	}
 	d.remote.mu.Lock()

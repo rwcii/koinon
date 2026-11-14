@@ -57,6 +57,7 @@ func TestReadyTimeoutKeepsTheEnableOncePerEpoch(t *testing.T) {
 	}
 	t.Cleanup(func() { reopened.db.Close() })
 	reopened.now = f.s.now
+	reopened.processStart = f.s.processStart
 	f.s = reopened
 	f.observe(t, f.k, 900, "synthetic-epoch-1")
 	if v := f.status(t, f.k); v.ID != first.ID {
@@ -139,6 +140,7 @@ func TestAReadAfterARestartCountsBeforeTheFirstReport(t *testing.T) {
 	}
 	t.Cleanup(func() { reopened.db.Close() })
 	reopened.now = f.s.now
+	reopened.processStart = f.s.processStart
 	f.s = reopened
 	if _, err := f.s.ReadInbox(ctx, f.k, 1<<40, 0); err != nil {
 		t.Fatal(err)

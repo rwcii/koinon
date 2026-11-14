@@ -277,8 +277,10 @@ persistent background mapping. Orderly daemon shutdown removes the owned mapping
 before releasing the backend port, keeping the enabled journal for restoration
 on the next start. A port conflict is reported and its owned forwarding removed
 instead of changing ports. An unavailable dependency leaves the local API
-running. Upgrade retains the setting; restart ends browser sessions, so sign in
-again. The [remote guide](REMOTE-DASHBOARD.md#url-restarts-and-configuration-ownership)
+running. Upgrade retains the setting. Remote browser sign-in survives routine
+restart and upgrade until its original fixed 48-hour deadline, provided the private
+state, origin, password and browser cookie remain valid. Local browser sessions
+still end on restart. The [remote guide](REMOTE-DASHBOARD.md#url-restarts-and-configuration-ownership)
 describes the unresolved loopback ownership window after abrupt termination or
 failed shutdown cleanup.
 
@@ -293,14 +295,25 @@ listener below; neither exposes `/v1/`. See ADR 002 and PDR 010.
 At a terminal, the first `koinon install` asks where the dashboard opens:
 
 ```text
-Open the dashboard only on this computer (default), or also on a network address?
+Where should the dashboard open?
   1. Only on this computer
-  2. Also on a network address, over HTTPS, with a login by the maintainer secret
+  2. On this computer and your tailnet, through Tailscale Serve, with a login by the maintainer secret (recommended on a computer in a tailnet; no network address)
+  3. Also on a network address, over HTTPS, with a login by the maintainer secret
 Choice [1]:
 ```
 
 Enter, or 1, keeps it on this computer and saves that answer in `dashboard-local.json` in the
-private state directory, so a later install asks nothing. 2 lists this host's network
+private state directory, so a later install asks nothing. 2 keeps it off the network address
+too and saves the same answer (#665). It asks for the Tailscale Serve HTTPS port (Enter takes
+443). After the daemon starts it offers the maintainer secret when none is set, as below, and
+then enables remote access, as `koinon remote enable --https-port PORT` does, with the
+[remote dashboard](REMOTE-DASHBOARD.md) and its operator question on Linux. When the
+daemon reports remote access on, with its listener and Serve mapping ready, the terminal
+shows the tailnet URL, and the report's `remote` has it with the port. When remote access
+cannot be enabled yet, for example because Tailscale is not set up, the install still
+completes: the terminal and `remote.error` and `remote.step` name the reason and the
+command to run, with this installation's `--address` and, when not the default, its
+`--state-dir`. With `--no-start`, it names the start and that command. 3 lists this host's network
 addresses, numbered; type a number or a fully qualified name of this host, then a port (Enter
 takes 8443). A refused address is shown with its reason, and the question comes again. When no
 maintainer secret is set, the install then offers to type one (twice, with echo off), to
@@ -606,7 +619,7 @@ staging files.
 - In system mode on macOS, the LaunchDaemon plist that carries the marker: `sudo launchctl
   bootout system/<label>`, then `sudo rm`. A plist without the marker is kept, and the error
   gives the commands that remove it (`service_artifact_unowned`).
-- The remote dashboard's recorded Serve mapping, after the daemon is stopped,
+- The remote dashboard's and the computer link's recorded Serve mappings, after the daemon is stopped,
   only while it still matches Koinon's owned target. Unrelated Serve mappings
   stay. A cleanup failure retains the journal and binary so repeating uninstall
   can finish it; inspect the reported step before retrying. If Tailscale is missing,
@@ -857,12 +870,17 @@ belong in Git or logs. The agent API binds loopback only; the optional network d
 its separate HTTPS listener. Custom state and agent API address must match
 between the daemon, command clients and MCP server; a recorded port matches by itself for every
 client of that state directory.
-The dashboard uses one-time login links, or the maintainer secret (`koinon maintainer secret
+The local dashboard uses one-time login links, or the maintainer secret (`koinon maintainer secret
 set`, docs/USAGE.md), a login cookie and CSRF-protected actions. A login ends after 24 hours
 without a request, 7 days after it was made, or when the daemon restarts; then log in again
 with the secret, or run `koinon dashboard` for a new link. A login on the private remote
-surface (`koinon remote`, docs/REMOTE-DASHBOARD.md) allows 7 days without a request. Schema 29 adds the table that holds
-the secret's salted key; an upgrade starts with no secret set.
+surface (`koinon remote`, docs/REMOTE-DASHBOARD.md) instead has a fixed 48-hour
+window from sign-in and survives routine restart/upgrade within that window.
+First upgrade to remote control v2 requires fresh sign-in. Its versioned remote
+session and receipt records add no table. The same release, v0.11.0, moves the store
+to schema 38 for messages between computers (#670), and a v0.10.x binary refuses a
+schema 38 store, so a v0.11.0 store cannot go back to v0.10.x. Schema 29 originally added the secret's salted-key table;
+upgrading a pre-secret store starts with no secret set.
 
 The daemon applies supported Go schema migrations transactionally and refuses an unknown
 future schema. `koinon status` reports health, storage, delivery and retention counts. The

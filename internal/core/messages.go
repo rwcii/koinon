@@ -55,6 +55,9 @@ type Message struct {
 	// Inbox is session for the caller's own inbox and participant for the inbox of the
 	// participant that the caller holds (chunk 03).
 	Inbox string `json:"inbox"`
+	// Origin is link for a message from a paired computer: SenderName is NAME@COMPUTER,
+	// and send with reply_to set to its ID answers it on that pair (#670 chunk 03).
+	Origin string `json:"origin,omitempty"`
 }
 
 type Inbox struct {
@@ -90,6 +93,8 @@ type Outcome struct {
 	AcknowledgedBy      string `json:"acknowledged_by,omitempty"`
 	AcknowledgedSession string `json:"acknowledged_session,omitempty"`
 	AcknowledgedVia     string `json:"acknowledged_via,omitempty"`
+	// LinkID is the cross-node ID of a message queued to another computer (#670 chunk 03).
+	LinkID string `json:"link_id,omitempty"`
 }
 
 // acknowledgedBy names who acknowledged a message: the maintainer when the dashboard
@@ -147,6 +152,18 @@ type Peer struct {
 	HostVerifiedAt int64  `json:"host_verified_at,omitempty"`
 	// Self marks the calling session's own row (#348), by its resolved family and ID.
 	Self bool `json:"self,omitempty"`
+	// A remote row is a receiver on a paired computer (#670): Name and Address are
+	// NAME@COMPUTER, Computer is this computer's name for it, SeenAt is the time of its last
+	// directory, Stale says that the directory is not current, DirectoryTruncated that the
+	// other computer left entries out, and ActivityState and ActivityAt are its observed
+	// activity with the other computer's observation time.
+	Remote             bool   `json:"remote,omitempty"`
+	Computer           string `json:"computer,omitempty"`
+	SeenAt             int64  `json:"seen_at,omitempty"`
+	Stale              bool   `json:"stale,omitempty"`
+	DirectoryTruncated bool   `json:"directory_truncated,omitempty"`
+	ActivityState      string `json:"activity_state,omitempty"`
+	ActivityAt         int64  `json:"activity_at,omitempty"`
 }
 
 // Peers lists every session for an active caller.
@@ -232,16 +249,23 @@ func (s *Store) send(ctx context.Context, caller Key, to, body string, dashboard
 	if to == "" || len(to) > 256 || body == "" || len(body) > maxBody || !utf8.ValidString(body) {
 		return Outcome{}, ErrInvalid
 	}
+	if result, found, err := operationLookup[Outcome](ctx, s.db, s.now().UnixMilli()); found || err != nil {
+		return result, err
+	}
 	tx, err := s.begin(ctx, ordinary)
 	if err != nil {
 		return Outcome{}, err
 	}
 	defer tx.Rollback()
 	tx.audited = true
+	if result, found, err := operationReplay[Outcome](tx); found || err != nil {
+		return result, err
+	}
 	outcome, err := s.sendTx(ctx, tx, caller, to, body, dashboard)
 	if err != nil {
 		return Outcome{}, err
 	}
+	tx.operationResult(outcome)
 	return outcome, tx.Commit()
 }
 
@@ -252,53 +276,15 @@ func (s *Store) sendTx(ctx context.Context, tx *writeTx, caller Key, to, body st
 	if err := activeCaller(ctx, tx.Tx, now, caller, dashboard); err != nil {
 		return Outcome{}, err
 	}
-	var kind, family, sessionID, repository, holder, role string
-	err := tx.QueryRowContext(ctx, `SELECT kind,family,session_id,repository,holder_id,role FROM names WHERE name=?`, to).
-		Scan(&kind, &family, &sessionID, &repository, &holder, &role)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Outcome{}, ErrPeerNotFound
-	}
+	family, sessionID, err := s.resolveRecipient(ctx, tx, now, to)
 	if err != nil {
 		return Outcome{}, err
 	}
-	if kind == "alias" {
-		held := false
-		if holder != "" {
-			if held, err = holds(ctx, tx.Tx, now, family, holder, repository, role); err != nil {
-				return Outcome{}, err
-			}
-		}
-		if !held {
-			return Outcome{}, ErrAliasUnheld
-		}
-		// A message to an address belongs to the participant: its holder reads it, and a
-		// successor finds it unread (chunk 03).
-		if err := ensureParticipantInbox(ctx, tx.Tx, now, to); err != nil {
-			return Outcome{}, tx.fail(err)
-		}
-		sessionID = participantKey(to)
-	}
-	// A holder sends as its participant, so a reply reaches the participant's inbox.
-	sender, err := heldAddress(ctx, tx.Tx, now, caller)
+	sender, err := senderName(ctx, tx.Tx, now, caller)
 	if err != nil {
 		return Outcome{}, err
 	}
-	if sender == "" {
-		if err := tx.QueryRowContext(ctx, `SELECT name FROM names WHERE kind='peer' AND family=? AND session_id=?`,
-			caller.Family, caller.ID).Scan(&sender); err != nil {
-			return Outcome{}, err
-		}
-	}
-	var seq int64
-	err = tx.QueryRowContext(ctx, `UPDATE sessions SET last_seq=last_seq+1 WHERE family=? AND id=?
-		AND retired_at=0 AND expires_at>? RETURNING last_seq`, family, sessionID, now).Scan(&seq)
-	if errors.Is(err, sql.ErrNoRows) {
-		reason, err := s.inactiveReason(ctx, tx, family, sessionID)
-		if err != nil {
-			return Outcome{}, err
-		}
-		return Outcome{}, InactiveRecipient{reason}
-	}
+	seq, err := s.nextInboxSeq(ctx, tx, now, family, sessionID)
 	if err != nil {
 		return Outcome{}, err
 	}
@@ -332,6 +318,53 @@ func (s *Store) sendTx(ctx context.Context, tx *writeTx, caller Key, to, body st
 		}
 	}
 	return Outcome{ID: id, Recipient: to, Seq: seq, DeliveryState: "waiting", UpdatedAt: now}, nil
+}
+
+// resolveRecipient finds the inbox of a local name: a peer's own inbox, or the inbox of
+// a held participant address.
+func (s *Store) resolveRecipient(ctx context.Context, tx *writeTx, now int64, to string) (family, sessionID string, err error) {
+	var kind, repository, holder, role string
+	err = tx.QueryRowContext(ctx, `SELECT kind,family,session_id,repository,holder_id,role FROM names WHERE name=?`, to).
+		Scan(&kind, &family, &sessionID, &repository, &holder, &role)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", ErrPeerNotFound
+	}
+	if err != nil {
+		return "", "", err
+	}
+	if kind == "alias" {
+		held := false
+		if holder != "" {
+			if held, err = holds(ctx, tx.Tx, now, family, holder, repository, role); err != nil {
+				return "", "", err
+			}
+		}
+		if !held {
+			return "", "", ErrAliasUnheld
+		}
+		// A message to an address belongs to the participant: its holder reads it, and a
+		// successor finds it unread (chunk 03).
+		if err := ensureParticipantInbox(ctx, tx.Tx, now, to); err != nil {
+			return "", "", tx.fail(err)
+		}
+		sessionID = participantKey(to)
+	}
+	return family, sessionID, nil
+}
+
+// nextInboxSeq takes the next sequence of an active inbox.
+func (s *Store) nextInboxSeq(ctx context.Context, tx *writeTx, now int64, family, sessionID string) (int64, error) {
+	var seq int64
+	err := tx.QueryRowContext(ctx, `UPDATE sessions SET last_seq=last_seq+1 WHERE family=? AND id=?
+		AND retired_at=0 AND expires_at>? RETURNING last_seq`, family, sessionID, now).Scan(&seq)
+	if errors.Is(err, sql.ErrNoRows) {
+		reason, err := s.inactiveReason(ctx, tx, family, sessionID)
+		if err != nil {
+			return 0, err
+		}
+		return 0, InactiveRecipient{reason}
+	}
+	return seq, err
 }
 
 // ReadInbox returns the caller's own messages after a sequence, at most limit of them
@@ -478,7 +511,8 @@ func readMessages(ctx context.Context, tx *sql.Tx, inbox Key, after, limit int64
 		return 0, 0, false, err
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT id,seq,sender_family,sender_name,body,created_at,delivery_state,delivery_reason,maintainer_ack,
-		ack_session,ack_via,room_id,room_revision,room_event,room_seq,room_origin,system_kind,cycle_id,cycle_enable_revision FROM messages
+		ack_session,ack_via,room_id,room_revision,room_event,room_seq,room_origin,system_kind,cycle_id,cycle_enable_revision,
+		CASE WHEN link_pair IS NULL THEN '' ELSE 'link' END FROM messages
 		WHERE recipient_family=? AND recipient_id=? AND seq>? ORDER BY seq LIMIT ?`,
 		inbox.Family, inbox.ID, after, limit+1)
 	if err != nil {
@@ -492,7 +526,7 @@ func readMessages(ctx context.Context, tx *sql.Tx, inbox Key, after, limit int64
 		var room RoomEvent
 		if err := rows.Scan(&m.ID, &m.Seq, &m.SenderFamily, &m.SenderName, &m.Body, &m.CreatedAt, &m.DeliveryState, &m.DeliveryReason, &maintainer,
 			&m.AcknowledgedSession, &m.AcknowledgedVia, &room.RoomID, &room.Revision, &room.Event, &room.Seq, &room.Origin,
-			&m.SystemKind, &m.CycleID, &m.CycleEnableRevision); err != nil {
+			&m.SystemKind, &m.CycleID, &m.CycleEnableRevision, &m.Origin); err != nil {
 			return 0, 0, false, err
 		}
 		if room.RoomID != "" {

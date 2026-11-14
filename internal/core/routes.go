@@ -1,6 +1,7 @@
 package core
 
 import (
+	"github.com/rwcii/koinon/internal/link"
 	"net/http"
 )
 
@@ -42,6 +43,7 @@ func (d *Daemon) messageRoutes(mux *http.ServeMux) {
 			failure(w, err)
 			return
 		}
+		items = append(items, d.remoteRows()...)
 		respond(w, 200, map[string]any{"ok": true, "peers": items, "truncated": truncated})
 	})
 	mux.HandleFunc("POST /v1/messages/send", func(w http.ResponseWriter, r *http.Request) {
@@ -49,12 +51,28 @@ func (d *Daemon) messageRoutes(mux *http.ServeMux) {
 			Caller Key    `json:"caller"`
 			To     string `json:"to"`
 			Body   string `json:"body"`
+			// ReplyTo is a received message from another computer: the reply goes back to its
+			// sender on the pair it came from (#670 chunk 03).
+			ReplyTo int64 `json:"reply_to"`
 		}
 		if err := decodeLimit(w, r, &request, 6*maxBody+4096); err != nil {
 			failure(w, err)
 			return
 		}
 		d.store.ToolCall(request.Caller)
+		if request.ReplyTo < 0 {
+			failure(w, ErrInvalid)
+			return
+		}
+		if request.ReplyTo > 0 || link.IsRemoteAddress(request.To) {
+			result, err := d.linkSend(r.Context(), &request.Caller, request.To, request.Body, request.ReplyTo)
+			if err != nil {
+				failure(w, err)
+				return
+			}
+			respond(w, 200, map[string]any{"ok": true, "message": result})
+			return
+		}
 		result, err := d.store.Send(r.Context(), request.Caller, request.To, request.Body)
 		if err != nil {
 			failure(w, err)
@@ -112,15 +130,27 @@ func (d *Daemon) messageRoutes(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("POST /v1/messages/outcome", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
-			Caller    Key   `json:"caller"`
-			MessageID int64 `json:"message_id"`
+			Caller    Key    `json:"caller"`
+			MessageID int64  `json:"message_id"`
+			LinkID    string `json:"link_id"`
 		}
 		if err := decode(w, r, &request); err != nil {
 			failure(w, err)
 			return
 		}
 		d.store.ToolCall(request.Caller)
-		result, err := d.store.MessageOutcome(r.Context(), request.Caller, request.MessageID)
+		// Exactly one of message_id and link_id (#670 chunk 03).
+		if (request.MessageID != 0) == (request.LinkID != "") {
+			failure(w, ErrInvalid)
+			return
+		}
+		var result Outcome
+		var err error
+		if request.LinkID != "" {
+			result, err = d.store.linkOutcome(r.Context(), request.Caller, request.LinkID)
+		} else {
+			result, err = d.store.MessageOutcome(r.Context(), request.Caller, request.MessageID)
+		}
 		if err != nil {
 			failure(w, err)
 			return

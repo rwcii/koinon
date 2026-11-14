@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/exec"
@@ -99,9 +100,21 @@ func accountByUID(uid int, passwd string) (string, error) {
 // Serve, or "" when the account name cannot be read as a plain name.
 func OperatorCommand() string { return operatorCommand(currentAccount) }
 
-func operatorCommand(account func() (string, error)) string {
+// OperatorAccount is the name of the account that runs Koinon, read as for
+// OperatorCommand, or "" when it cannot be read as a plain name.
+func OperatorAccount() string { return operatorAccount(currentAccount) }
+
+func operatorAccount(account func() (string, error)) string {
 	name, err := account()
 	if err != nil || !accountName.MatchString(name) {
+		return ""
+	}
+	return name
+}
+
+func operatorCommand(account func() (string, error)) string {
+	name := operatorAccount(account)
+	if name == "" {
 		return ""
 	}
 	return "sudo tailscale set --operator=" + name
@@ -161,12 +174,25 @@ type Mapping struct {
 	Target string `json:"target"`
 }
 
+// DefaultHTTPSPort is the Serve HTTPS port of an origin that names none.
+const DefaultHTTPSPort = 443
+
+// ValidOrigin accepts the exact HTTPS .ts.net origin of this host, with an optional HTTPS
+// port other than 443 (#665): https://HOST.TAILNET.ts.net or https://HOST.TAILNET.ts.net:PORT.
+// Port 443 is written without the port, as browsers send it.
 func ValidOrigin(origin string) bool {
 	u, err := url.Parse(origin)
-	if err != nil || u.Scheme != "https" || u.User != nil || u.Host != u.Hostname() || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.ForceQuery {
+	if err != nil || u.Scheme != "https" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.ForceQuery {
 		return false
 	}
 	host := u.Hostname()
+	if port := u.Port(); port != "" {
+		if n, err := strconv.Atoi(port); err != nil || n == DefaultHTTPSPort || !ValidHTTPSPort(n) || port != strconv.Itoa(n) || u.Host != host+":"+port {
+			return false
+		}
+	} else if u.Host != host {
+		return false
+	}
 	if host != strings.ToLower(host) || len(host) > 253 || !strings.HasSuffix(host, ".ts.net") {
 		return false
 	}
@@ -201,7 +227,44 @@ func ValidateMapping(m Mapping) error {
 	}
 	return nil
 }
-func (m Mapping) hostPort() string { return strings.TrimPrefix(m.Origin, "https://") + ":443" }
+func (m Mapping) hostPort() string {
+	u, _ := url.Parse(m.Origin)
+	return u.Hostname() + ":" + strconv.Itoa(m.Port())
+}
+
+// ValidHTTPSPort reports whether n can be a Serve HTTPS port.
+func ValidHTTPSPort(n int) bool { return n >= 1 && n <= 65535 }
+
+// Port is the mapping's Serve HTTPS port: its origin's port, or 443.
+func (m Mapping) Port() int {
+	if u, err := url.Parse(m.Origin); err == nil && u.Port() != "" {
+		if n, err := strconv.Atoi(u.Port()); err == nil {
+			return n
+		}
+	}
+	return DefaultHTTPSPort
+}
+
+// HostOrigin is the mapping's origin without its port: the host's Tailscale identity,
+// as Inspect reports it.
+func (m Mapping) HostOrigin() string {
+	u, err := url.Parse(m.Origin)
+	if err != nil {
+		return m.Origin
+	}
+	return "https://" + u.Hostname()
+}
+
+// OriginAt is hostOrigin served on port: hostOrigin itself for 443, else with the port.
+func OriginAt(hostOrigin string, port int) string {
+	if port == DefaultHTTPSPort {
+		return hostOrigin
+	}
+	return hostOrigin + ":" + strconv.Itoa(port)
+}
+
+func (m Mapping) portKey() string   { return strconv.Itoa(m.Port()) }
+func (m Mapping) httpsFlag() string { return "--https=" + m.portKey() }
 
 // ServeConfig models only the fields needed to inspect ownership. Unknown
 // fields remain in Tailscale: mutations use its targeted CLI, never JSON rewrite.
@@ -247,12 +310,18 @@ func (h *Handler) UnmarshalJSON(data []byte) error {
 }
 
 type Status struct {
-	BackendState string      `json:"backend_state"`
-	Online       bool        `json:"online"`
-	DNSName      string      `json:"dns_name,omitempty"`
-	Origin       string      `json:"origin,omitempty"`
-	HTTPSReady   bool        `json:"https_ready"`
+	BackendState string `json:"backend_state"`
+	Online       bool   `json:"online"`
+	DNSName      string `json:"dns_name,omitempty"`
+	Origin       string `json:"origin,omitempty"`
+	HTTPSReady   bool   `json:"https_ready"`
+	// TailscaleIPs are the host's own Tailscale addresses, IPv4 first, for the policy
+	// example (#653). Only addresses in Tailscale's ranges are kept.
+	TailscaleIPs []string    `json:"tailscale_ips,omitempty"`
 	Serve        ServeConfig `json:"-"`
+	// Peers are the other tailnet devices with a valid name and address, for the daemon
+	// link's address refresh (#670).
+	Peers []Peer `json:"-"`
 }
 
 func (s Status) Ready() error {
@@ -309,15 +378,17 @@ func (m Manager) Inspect(ctx context.Context) (Status, error) {
 	var raw struct {
 		BackendState string
 		Self         *struct {
-			Online  bool
-			DNSName string
+			Online       bool
+			DNSName      string
+			TailscaleIPs json.RawMessage
 		}
 		CertDomains []string
+		Peer        json.RawMessage
 	}
 	if decode(data, &raw) != nil {
 		return Status{}, diagnostic("tailscale_status_invalid", "update Tailscale; its status output could not be read")
 	}
-	s := Status{BackendState: raw.BackendState}
+	s := Status{BackendState: raw.BackendState, Peers: peersFrom(raw.Peer)}
 	if raw.Self != nil {
 		s.Online = raw.Self.Online
 		s.DNSName = strings.TrimSuffix(raw.Self.DNSName, ".")
@@ -325,6 +396,7 @@ func (m Manager) Inspect(ctx context.Context) (Status, error) {
 		if !ValidOrigin(s.Origin) {
 			s.Origin = ""
 		}
+		s.TailscaleIPs = tailnetIPs(raw.Self.TailscaleIPs)
 		for _, domain := range raw.CertDomains {
 			if strings.TrimSuffix(domain, ".") == s.DNSName {
 				s.HTTPSReady = true
@@ -341,15 +413,74 @@ func (m Manager) Inspect(ctx context.Context) (Status, error) {
 	return s, nil
 }
 
-func conflict() error {
-	return diagnostic("tailscale_serve_conflict", "Tailscale already uses HTTPS port 443 or a dashboard route; preserve that configuration and move or remove its conflicting mapping explicitly before retrying")
+var (
+	tailnetV4 = netip.MustParsePrefix("100.64.0.0/10")
+	tailnetV6 = netip.MustParsePrefix("fd7a:115c:a1e0::/48")
+)
+
+// tailnetIPs keeps the valid Tailscale addresses of the status field, IPv4 first. Missing
+// or malformed data gives none; it never makes the status unreadable (#653).
+func tailnetIPs(raw json.RawMessage) []string {
+	var values []any
+	if len(raw) == 0 || json.Unmarshal(raw, &values) != nil {
+		return nil
+	}
+	var v4, v6 []string
+	seen := map[netip.Addr]bool{}
+	for _, value := range values {
+		text, ok := value.(string)
+		if !ok {
+			continue
+		}
+		addr, err := netip.ParseAddr(text)
+		if err != nil || addr.Zone() != "" || seen[addr] {
+			continue
+		}
+		switch {
+		case addr.Is4() && tailnetV4.Contains(addr):
+			v4 = append(v4, addr.String())
+		case addr.Is6() && !addr.Is4In6() && tailnetV6.Contains(addr):
+			v6 = append(v6, addr.String())
+		default:
+			continue
+		}
+		seen[addr] = true
+	}
+	return append(v4, v6...)
+}
+
+// PolicyRule is an example tailnet policy entry that admits HTTPS to the given host
+// addresses, or "" when there are none. autogroup:member is every member of the tailnet.
+func PolicyRule(ips []string, port int) string {
+	var dst []string
+	for _, ip := range ips {
+		addr, err := netip.ParseAddr(ip)
+		if err != nil {
+			continue
+		}
+		dst = append(dst, netip.AddrPortFrom(addr, uint16(port)).String())
+	}
+	if len(dst) == 0 {
+		return ""
+	}
+	rule, _ := json.Marshal(struct {
+		Action string   `json:"action"`
+		Src    []string `json:"src"`
+		Proto  string   `json:"proto"`
+		Dst    []string `json:"dst"`
+	}{"accept", []string{"autogroup:member"}, "tcp", dst})
+	return string(rule)
+}
+
+func conflict(m Mapping) error {
+	return diagnostic("tailscale_serve_conflict", "Tailscale already uses HTTPS port "+m.portKey()+" or a dashboard route; preserve that configuration and move or remove its conflicting mapping explicitly, or choose another port with koinon remote enable --https-port, before retrying")
 }
 func foregroundConflict(c ServeConfig, m Mapping) bool {
 	for _, fg := range c.Foreground {
 		if fg == nil {
 			continue
 		}
-		if _, ok := fg.TCP["443"]; ok {
+		if _, ok := fg.TCP[m.portKey()]; ok {
 			return true
 		}
 		if _, ok := fg.Web[m.hostPort()]; ok {
@@ -363,18 +494,18 @@ func foregroundConflict(c ServeConfig, m Mapping) bool {
 }
 func (s Status) checkMapping(m Mapping, owned bool) error {
 	if foregroundConflict(s.Serve, m) || s.Serve.AllowFunnel[m.hostPort()] {
-		return conflict()
+		return conflict(m)
 	}
-	if t, ok := s.Serve.TCP["443"]; ok && (!t.HTTPS || t.HTTP || t.TCPForward != "" || t.TerminateTLS != "") {
-		return conflict()
+	if t, ok := s.Serve.TCP[m.portKey()]; ok && (!t.HTTPS || t.HTTP || t.TCPForward != "" || t.TerminateTLS != "") {
+		return conflict(m)
 	}
 	for path, h := range s.Serve.Web[m.hostPort()].Handlers {
 		if path == "/" {
 			if !owned || h.Proxy != m.Target || h.Path != "" || h.Text != "" || h.extra {
-				return conflict()
+				return conflict(m)
 			}
 		} else if path == "/dashboard" || strings.HasPrefix(path, "/dashboard/") {
-			return conflict()
+			return conflict(m)
 		}
 	}
 	return nil
@@ -399,13 +530,13 @@ func (s Status) CheckAvailable(mapping Mapping, owned bool) error {
 	if err := ValidateMapping(mapping); err != nil {
 		return err
 	}
-	if s.Origin != "" && s.Origin != mapping.Origin {
+	if s.Origin != "" && s.Origin != mapping.HostOrigin() {
 		return diagnostic("tailscale_identity_changed", "the host's Tailscale name changed; see docs/REMOTE-DASHBOARD.md#name-change-recovery, then disable the old configuration and enable for its new URL")
 	}
 	if err := s.Ready(); err != nil {
 		return err
 	}
-	if s.Origin != mapping.Origin {
+	if s.Origin != mapping.HostOrigin() {
 		return diagnostic("tailscale_identity_changed", "the host's Tailscale name changed; see docs/REMOTE-DASHBOARD.md#name-change-recovery, then disable the old configuration and enable for its new URL")
 	}
 	return s.checkMapping(mapping, owned)
@@ -429,7 +560,7 @@ func (m Manager) Ensure(ctx context.Context, mapping Mapping, owned bool) error 
 	if s.MappingPresent(mapping) {
 		return nil
 	}
-	_, err = m.adapter().Run(ctx, "serve", "--bg", "--https=443", "--set-path=/", mapping.Target)
+	_, err = m.adapter().Run(ctx, "serve", "--bg", mapping.httpsFlag(), "--set-path=/", mapping.Target)
 	if err != nil {
 		return commandError(err, "tailscale_serve_setup_failed", "check Tailscale HTTPS certificate and Serve permissions at "+HTTPSURL+"; then retry koinon remote enable")
 	}
@@ -470,16 +601,16 @@ func (m Manager) Remove(ctx context.Context, mapping Mapping) error {
 	}
 	// The CLI addresses the current DNS name implicitly. It cannot safely remove
 	// a saved old-name mapping, because that could delete an unrelated current root.
-	if s.Origin != mapping.Origin {
-		return diagnostic("tailscale_identity_changed", "the remote listener is stopped; the Tailscale host name changed; temporarily restore the old name with tailscale set --hostname="+strings.Split(strings.TrimPrefix(mapping.Origin, "https://"), ".")[0]+" on its original tailnet, repeat koinon remote disable, then restore the desired name; see docs/REMOTE-DASHBOARD.md#name-change-recovery")
+	if s.Origin != mapping.HostOrigin() {
+		return diagnostic("tailscale_identity_changed", "the remote listener is stopped; the Tailscale host name changed; temporarily restore the old name with tailscale set --hostname="+strings.Split(strings.TrimPrefix(mapping.HostOrigin(), "https://"), ".")[0]+" on its original tailnet, repeat koinon remote disable, then restore the desired name; see docs/REMOTE-DASHBOARD.md#name-change-recovery")
 	}
-	if t, ok := s.Serve.TCP["443"]; ok && (!t.HTTPS || t.HTTP || t.TCPForward != "" || t.TerminateTLS != "") {
-		return conflict()
+	if t, ok := s.Serve.TCP[mapping.portKey()]; ok && (!t.HTTPS || t.HTTP || t.TCPForward != "" || t.TerminateTLS != "") {
+		return conflict(mapping)
 	}
 	if h.Proxy != mapping.Target || h.Path != "" || h.Text != "" || h.extra || foregroundConflict(s.Serve, mapping) || s.Serve.AllowFunnel[mapping.hostPort()] {
-		return conflict()
+		return conflict(mapping)
 	}
-	_, err = m.adapter().Run(ctx, "serve", "--bg", "--https=443", "--set-path=/", "off")
+	_, err = m.adapter().Run(ctx, "serve", "--bg", mapping.httpsFlag(), "--set-path=/", "off")
 	if err != nil {
 		return commandError(err, "tailscale_serve_remove_failed", "the remote listener is stopped; check Tailscale permissions and retry koinon remote disable to remove its retained mapping")
 	}

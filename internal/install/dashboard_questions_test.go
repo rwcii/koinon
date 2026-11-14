@@ -75,7 +75,7 @@ func TestInstallDashboardQuestionLocal(t *testing.T) {
 		if err != nil || !r.OK || r.DashboardNetwork != nil {
 			t.Fatalf("install %+v %v", r, err)
 		}
-		if !strings.Contains(told.String(), "Open the dashboard only on this computer (default), or also on a network address?") || len(s.prompts) != 1 {
+		if !strings.Contains(told.String(), "Where should the dashboard open?") || len(s.prompts) != 1 {
 			t.Fatalf("question %q %q", told, s.prompts)
 		}
 		if a, local := saved(t, e); a != nil || !local {
@@ -142,7 +142,7 @@ func TestInstallDashboardQuestionsSkipped(t *testing.T) {
 	}
 
 	e = newEnv(t, "systemd")
-	s, _ = questions(e, "2")
+	s, _ = questions(e, "3")
 	e.o.Upgrade = true
 	if _, err := Install(ctx, e.o); err != nil || len(s.prompts) != 0 {
 		t.Fatalf("upgrade asked %q %v", s.prompts, err)
@@ -166,7 +166,7 @@ func TestInstallDashboardQuestionsSkipped(t *testing.T) {
 
 // Ended input at any question saves no choice, so the next install asks again (#624 b, c).
 func TestInstallDashboardQuestionsEndedInput(t *testing.T) {
-	for _, answers := range [][]string{{}, {"2"}, {"2", "1"}} {
+	for _, answers := range [][]string{{}, {"3"}, {"3", "1"}} {
 		e := newEnv(t, "systemd")
 		s, _ := questions(e, answers...)
 		r, err := Install(context.Background(), e.o)
@@ -193,9 +193,9 @@ func TestInstallDashboardQuestionsNetwork(t *testing.T) {
 		answers []string
 		host    string
 	}{
-		{[]string{"2", "1", ""}, "192.0.2.10"},
-		{[]string{"2", "2", "8443"}, "2001:db8::10"},
-		{[]string{"x", "2", "7", "198.51.100.7", "", "board.example.test", ""}, "board.example.test"},
+		{[]string{"3", "1", ""}, "192.0.2.10"},
+		{[]string{"3", "2", "8443"}, "2001:db8::10"},
+		{[]string{"x", "3", "7", "198.51.100.7", "", "board.example.test", ""}, "board.example.test"},
 	} {
 		e := newEnv(t, "systemd")
 		e.o.NoStart = true
@@ -212,7 +212,7 @@ func TestInstallDashboardQuestionsNetwork(t *testing.T) {
 		if !strings.Contains(out, "  1. 192.0.2.10\n  2. 2001:db8::10\n") || len(s.answers) != 0 {
 			t.Fatalf("%q: list %q left %q", tc.answers, out, s.answers)
 		}
-		if len(tc.answers) > 3 && (!strings.Contains(out, "Type 1 or 2.") || !strings.Contains(out, "There is no address 7.") ||
+		if len(tc.answers) > 3 && (!strings.Contains(out, "Type 1, 2 or 3.") || !strings.Contains(out, "There is no address 7.") ||
 			!strings.Contains(out, "This address is refused: dashboard_address_unavailable") || strings.Count(out, "  1. 192.0.2.10") != 3) {
 			t.Fatalf("refusals not shown or not asked again: %s", out)
 		}
@@ -246,6 +246,7 @@ func newNetworkDaemon(t *testing.T, e *env) *fakeNetworkDaemon {
 		if err := json.Unmarshal(data, &s); err != nil {
 			return nil, err
 		}
+		s["maintainer_secret_set"] = d.secretSet
 		if a, _ := core.ReadDashboardAddress(e.o.StateDir); a != nil {
 			n := core.DashboardNetworkStatus{Address: a.Address(), Bind: a.Bind(), URL: "https://" + a.Address() + "/dashboard/"}
 			switch {
@@ -293,7 +294,7 @@ func TestInstallDashboardSecretAndRestart(t *testing.T) {
 	}{{"", "set synthetic typed secret"}, {"2", "generate "}} {
 		e := newEnv(t, "systemd")
 		d := newNetworkDaemon(t, e)
-		_, told := questions(e, "2", "1", "", tc.choice)
+		_, told := questions(e, "3", "1", "", tc.choice)
 		r, err := Install(context.Background(), e.o)
 		if err != nil || !r.OK {
 			t.Fatalf("install %+v %v", r, err)
@@ -323,7 +324,7 @@ func TestInstallDashboardSecretAlreadySet(t *testing.T) {
 	e := newEnv(t, "systemd")
 	d := newNetworkDaemon(t, e)
 	d.secretSet = true
-	_, told := questions(e, "2", "1", "")
+	_, told := questions(e, "3", "1", "")
 	r, err := Install(context.Background(), e.o)
 	if err != nil || r.DashboardNetwork == nil || r.DashboardNetwork.Code != "running" || len(d.starts) != 1 || len(d.actions) != 0 {
 		t.Fatalf("install %+v %v starts %v actions %q", r.DashboardNetwork, err, d.starts, d.actions)
@@ -339,7 +340,7 @@ func TestInstallDashboardSecretDeclined(t *testing.T) {
 	for _, answers := range [][]string{{"3"}, {}, {"9", "3"}} {
 		e := newEnv(t, "systemd")
 		d := newNetworkDaemon(t, e)
-		_, told := questions(e, append([]string{"2", "1", ""}, answers...)...)
+		_, told := questions(e, append([]string{"3", "1", ""}, answers...)...)
 		r, err := Install(context.Background(), e.o)
 		if err != nil || !r.OK || r.DashboardNetwork == nil || r.DashboardNetwork.Code != "dashboard_secret_required" || r.DashboardNetwork.Step == "" {
 			t.Fatalf("%q: install %+v %v", answers, r.DashboardNetwork, err)
@@ -363,7 +364,7 @@ func TestInstallDashboardSecretDeclined(t *testing.T) {
 		}
 		return "short", nil
 	}
-	_, told := questions(e, "2", "1", "", "1", "1", "3")
+	_, told := questions(e, "3", "1", "", "1", "1", "3")
 	if _, err := Install(context.Background(), e.o); err != nil || len(d.actions) != 0 {
 		t.Fatalf("refused entries %v %q", err, d.actions)
 	}
@@ -377,7 +378,7 @@ func TestInstallDashboardRestartFailure(t *testing.T) {
 	e := newEnv(t, "systemd")
 	d := newNetworkDaemon(t, e)
 	d.failStart = true
-	questions(e, "2", "1", "", "2")
+	questions(e, "3", "1", "", "2")
 	r, err := Install(context.Background(), e.o)
 	if err == nil || !strings.Contains(err.Error(), "daemon_restart_failed") || r.OK {
 		t.Fatalf("install %+v %v", r, err)
@@ -418,7 +419,7 @@ func TestInstallDashboardRestartThroughManager(t *testing.T) {
 				secretSet = true
 				return "synthetic-generated-secret", nil
 			}
-			questions(e, "2", "1", "", "2")
+			questions(e, "3", "1", "", "2")
 			r, err := Install(context.Background(), e.o)
 			if err != nil || restarts != 2 || r.DashboardNetwork == nil || r.DashboardNetwork.Code != "running" || r.Service != "running" {
 				t.Fatalf("install %+v %v restarts %d", r.DashboardNetwork, err, restarts)
@@ -427,7 +428,7 @@ func TestInstallDashboardRestartThroughManager(t *testing.T) {
 			e2 := newEnv(t, backend)
 			e2.o.Services.Run, e2.o.Status, e2.o.MaintainerSecret = e.o.Services.Run, e.o.Status, e.o.MaintainerSecret
 			pid, secretSet, listening, restarts, fail = 100, false, false, 0, true
-			questions(e2, "2", "1", "", "2")
+			questions(e2, "3", "1", "", "2")
 			r, err = Install(context.Background(), e2.o)
 			if err == nil || !strings.Contains(err.Error(), "daemon_restart_failed") || r.DashboardNetwork == nil || r.DashboardNetwork.Code != "dashboard_restart_failed" {
 				t.Fatalf("refused restart %+v %v", r.DashboardNetwork, err)
@@ -438,7 +439,7 @@ func TestInstallDashboardRestartThroughManager(t *testing.T) {
 
 // A cancel, as after Ctrl-C, saves no answer and ends the install (#624 b).
 func TestInstallDashboardQuestionCancel(t *testing.T) {
-	for _, answers := range [][]string{{}, {"2"}, {"2", "1"}} {
+	for _, answers := range [][]string{{}, {"3"}, {"3", "1"}} {
 		e := newEnv(t, "systemd")
 		s, _ := questions(e, answers...)
 		e.o.Line = func(prompt string) (string, error) {

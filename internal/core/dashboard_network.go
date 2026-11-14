@@ -349,6 +349,11 @@ func (d *Daemon) startDashboardNetwork(interfaces func() ([]net.Addr, error), li
 	}
 	failed := func(code string, err error) {
 		d.networkMu.Lock()
+		if d.networkStatus == nil {
+			// The access switch closed this listener (#665).
+			d.networkMu.Unlock()
+			return
+		}
 		d.networkStatus.Code = code
 		d.networkStatus.Error = err.Error()
 		d.networkStatus.Step = "Run koinon install to retry the configured network dashboard."
@@ -424,6 +429,12 @@ func (d *Daemon) dashboardNetworkStatus(ctx context.Context) *DashboardNetworkSt
 		if _, err := resolveDashboardAddress(ctx, address.Bind(), interfaces, nil); err != nil {
 			changed := false
 			d.networkMu.Lock()
+			// The dashboard's access switch can close the listener meanwhile (#665):
+			// its cleared status is not brought back.
+			if d.networkStatus == nil || d.networkAddress != address {
+				d.networkMu.Unlock()
+				return nil
+			}
 			if d.networkStatus.Code == "running" {
 				d.networkStatus.Code, d.networkStatus.Error = "dashboard_address_unavailable", err.Error()
 				d.networkStatus.Step = "Run koinon install to resolve the dashboard address again and retry."

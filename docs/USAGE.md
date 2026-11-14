@@ -481,7 +481,9 @@ each session's mode, threshold, Enable, whether its family has a verified cycle,
 or is not at its threshold, with the age of its context reading. Enabling is refused
 (`context_cycle_unavailable`) and its button is inactive while the cycle cannot run for that
 session; the page names the reason (for example a session that is not in its launched tmux pane,
-or a missing `koinon-pickup` skill, with the `koinon install` step that installs it). Disabling always works. A stored mode or threshold that is not valid
+or a missing `koinon-pickup` skill, with the `koinon install` step that installs it). A session
+whose host process has ended stays `active` until its lease ends; its reason is `host_ended`, and
+the session to enable is the one that replaced it. Disabling always works. A stored mode or threshold that is not valid
 keeps the family default, and the Settings page names the error.
 
 The Settings page also turns on the spoken alert (#553, SPEAK-SCOPE-553 in PDR 007, Decision 1). While it
@@ -695,7 +697,9 @@ under `127.0.0.1`.
 ### Open the dashboard on the network
 
 At a terminal, the first `koinon install` asks whether the dashboard opens only on this
-computer (the default) or also on a network address, lists this host's addresses, and offers
+computer (the default), on this computer and your tailnet through Tailscale Serve (#665;
+no network address, see [the remote dashboard](REMOTE-DASHBOARD.md)), or also on a network
+address. For a network address it lists this host's addresses; it offers
 to set or generate the maintainer secret when none is set
 ([installation](INSTALL.md#network-dashboard)). Without those questions, on the daemon's host,
 set a maintainer secret, then run
@@ -731,8 +735,8 @@ daemon keeps only a salted PBKDF2 key of it. Setting, generating or clearing the
 every dashboard login. Open `http://127.0.0.1:PORT/dashboard/login`, also through a tunnel,
 and enter the secret. After five wrong secrets in a row the daemon waits before it checks the
 next one, from 1 second up to 60 seconds; a correct secret ends the wait. `koinon dashboard`
-still gives a one-time link, also during the wait and before a secret is set. A login still
-ends when the daemon restarts. Any process of your OS user can set a new secret, so the
+still gives a one-time link, also during the wait and before a secret is set. A local login
+still ends when the daemon restarts; a remote login keeps its 48 hours (below). Any process of your OS user can set a new secret, so the
 secret keeps agents that use Koinon's tools from acting as you; it is no protection against
 a same-user program that sets out to get around it.
 
@@ -744,15 +748,75 @@ loopback.
 
 ```sh
 koinon remote enable     # start the dashboard-only listener and the Serve mapping; prints the URL and a URL-only QR
+koinon remote enable --https-port 10443  # the same on another Serve HTTPS port, saved for later enables (443 by default)
 koinon remote status     # configuration, listener, Serve and Tailscale state; add --json for the report
 koinon remote disable    # stop the listener, end remote logins, remove only Koinon's own mapping
 ```
 
 Remote access needs a maintainer secret. On the phone, sign in at the URL with the secret,
 or scan the one-time sign-in QR that the dashboard on this computer shows under Settings,
-Remote access; a code works once, for two minutes. A remote login lasts at most 7 days. The
+Remote access; a code works once, for two minutes. A remote login lasts a fixed 48 hours
+from sign-in and survives routine daemon restarts within that original window. The
 Settings page offers the same setup steps. See docs/REMOTE-DASHBOARD.md for the setup,
 restarts, a changed Tailscale name and diagnostics.
+
+Remote browser control v2 opens **Attention** by default. Sign-in lasts a fixed
+48 hours across routine daemon restarts and upgrades. Settings lists signed-in
+remote browsers and lets you rename or forget them. Optional **Save drafts on this
+browser** is off initially and stores private text locally for seven days.
+Messages, room posts and verdicts have host receipts for explicit recovery after
+an interrupted response; reconnect never submits automatically. See
+[the remote dashboard guide](REMOTE-DASHBOARD.md#remote-control-v2) for recovery,
+privacy and device verification limits.
+
+### Connect your computers
+
+Pair this computer with Koinon on your other computers (#670). Both need remote access on
+(`koinon remote enable`). The changes need the maintainer secret: give `--secret-file PATH`,
+or type it when the command asks.
+
+```sh
+koinon link name             # choose this computer's name once; Enter takes the short host name
+koinon link name devbox --port 47672   # the same without a question; the port is the link's Serve TCP port
+koinon link invite           # on one computer: prints a one-time invitation and its QR, valid 10 minutes
+koinon link join             # on the other: paste the invitation, or give it as the first line of standard input
+koinon link status           # this computer's name and fingerprint, and each paired computer; --json for the report
+koinon link rename PAIR NAME # this computer's name for a paired computer; without NAME, its advertised name
+koinon link unpair PAIR      # remove the pair here at once, and on the other computer when it answers
+koinon link cancel PAIR      # remove a pending pair; cancel invitations removes the open invitations
+koinon link queue [COMPUTER] # the messages to each paired computer and their states, without bodies
+koinon link cancel-message LINK_ID  # stop a queued message; one that may have arrived is resolved with the other computer first
+```
+
+PAIR is the paired computer's name or ID from `koinon link status`. The dashboard's Settings
+page has the same steps under **Computers**.
+
+Once paired, each computer reads the other's list of agent sessions every 30 seconds. `peers`
+and the dashboard's Sessions page show them as `NAME@COMPUTER`, for example
+`codex-koinon@devbox`, with the time the list was read; `peer_status codex-koinon@devbox`
+reads one. A bare name always means a session on this computer.
+
+An agent sends to a session on another computer with `send` to `NAME@COMPUTER`. The message
+is queued on this computer at once, and the reply has its `link_id`; Koinon delivers the
+queue to each computer in send order while Remote is on, and keeps it through an offline
+computer, a Remote off and a restart, with no expiry. `delivery` with the `link_id` reads its
+state: `queued` (here), `received` (stored in the other computer's inbox; reading and
+acknowledging stay there), `refused` with the reason (for example `peer_not_found`),
+`cancelled`, or `may_have_been_delivered` when an answer was lost; that one is resolved with
+the other computer before the next message goes. A message from another computer shows its
+sender as `NAME@COMPUTER` with `origin` `link`; answer it with `send` and `reply_to` set to
+its `id`, which goes back to the same computer even after a rename:
+
+```sh
+koinon send --as codex:SESSION_ID codex-koinon@devbox 'Please review PR 12.'
+koinon delivery --as codex:SESSION_ID LINK_ID
+koinon send --as codex:SESSION_ID --reply-to MESSAGE_ID '' 'Done.'
+```
+
+The queue holds at most 1,000 messages and 16 MiB for each computer (10,000 and 64 MiB in
+all); a send over a limit is refused `link_queue_full` and nothing queued is dropped.
+Finished entries are kept 30 days. See
+[connect your computers](REMOTE-DASHBOARD.md#connect-your-computers).
 
 ### Act as the maintainer from another program
 

@@ -9,10 +9,71 @@
 <td>{{.Family}}</td><td>{{.Mode}}{{with .Error}}<br><small>stored value not applied: {{.}}</small>{{end}}</td><td>{{.Threshold}}%</td>
 </tr>{{end}}</tbody></table>
 <p><small>The family mode and threshold are defaults; no session runs a handoff cycle or compaction until it is enabled on the Sessions page. <code>native_compaction</code> (Codex only) enters Codex's own <code>/compact</code> at the threshold, once Codex is idle; no mode changes a native setting.</small></p>{{end}}
-{{define "actions"}}<details class="action remote-panel" id="remote-access" open><summary>Remote access</summary>
+{{define "actions"}}<details class="action" open><summary>Signed-in remote devices</summary>
+{{if .Remote}}<p>Signed in until {{ms .SessionExpires}}. This is a fixed 48-hour window.</p>{{end}}
+<p><small>Each entry is a browser session. Last observed use does not prove that a person is online.</small></p>
+<div id="remote-devices">Loading signed-in devices…</div>
+<button type="button" id="revoke-all-devices">Forget all remote devices</button>
+<p id="device-status" role="status"></p></details>{{if .Remote}}<details class="action" open><summary>Draft recovery on this browser</summary>
+<label><input type="checkbox" id="save-drafts"> Save drafts on this browser</label>
+<p><small>Off initially. Stores unsent messages and decision feedback as private text on this browser for seven days. Revoking an offline browser cannot erase it until it reconnects.</small></p>
+<button type="button" id="clear-drafts">Clear saved drafts</button><p id="draft-status" role="status"></p></details>{{end}}<details class="action remote-panel" id="remote-access" open><summary>Remote access</summary>
 <div id="remote-panel">{{if .Data.Remote}}{{template "remote" .Data.Remote}}{{else}}<p>Open Koinon on your phone. Let’s check your computer first.</p>
 <p><a href="/dashboard/remote/status?setup=1#remote-access">Get started</a></p>{{end}}</div>
 <p id="remote-read-status" role="status" hidden></p></details>
+{{with .Data.Link}}<details class="action" id="computers" open><summary>Computers</summary>
+<p>Pair this computer with Koinon on your other computers, so that their agent sessions can exchange messages. Both computers need remote access on.</p>
+{{if not .Remote}}<p>Turn on remote access above first.</p>
+{{else if not .Configured}}<h3>Name this computer</h3>
+<p>Agents on your other computers address this computer's agents as <code>AGENT@NAME</code>.</p>
+<form method="post" action="/dashboard/actions/link-name"><input type="hidden" name="csrf" value="{{$.CSRF}}">
+<label>Name <input name="name" required maxlength="253" pattern="[a-z0-9]([a-z0-9.\-]*[a-z0-9])?" value="{{.NameSuggestion}}"></label>
+<label>Link port <input name="port" type="number" min="1" max="65535" value="{{.DefaultPort}}"></label>
+<button type="submit">Save and open the link</button></form>
+<p><small>The name is this computer's short host name{{if .SuggestLong}}; its long name is <code>{{.SuggestLong}}</code>{{end}}. Use lower-case letters, digits, hyphens and dots. The link port is a TCP port on your tailnet, separate from the dashboard's.</small></p>
+{{else}}<dl>
+<dt>This computer</dt><dd><code>{{.Name}}</code> · agents here are <code>AGENT@{{.Name}}</code></dd>
+<dt>Fingerprint</dt><dd><code>{{.Fingerprint}}</code></dd>
+<dt>Link</dt><dd>port {{.Port}} · listener {{.Listener}} · Serve {{.Serve}}</dd>
+</dl>
+<h3>Add a computer</h3>
+<form method="post" action="/dashboard/actions/link-invite"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit">Copy invitation</button>
+<small>Shows a one-time invitation with a QR code, valid for 10 minutes. Paste it on the other computer.</small></form>
+<form method="post" action="/dashboard/actions/link-join"><input type="hidden" name="csrf" value="{{$.CSRF}}">
+<label>Paste invitation <textarea name="invitation" rows="3" required autocomplete="off" spellcheck="false"></textarea></label>
+<button type="submit">Connect</button></form>
+{{if .Invitations}}<form method="post" action="/dashboard/actions/link-cancel"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="pair" value="invitations">
+<p>{{.Invitations}} open invitation(s). <button type="submit">Cancel open invitations</button></p></form>{{end}}
+<details><summary>Change this computer's name or link port</summary>
+<form method="post" action="/dashboard/actions/link-name"><input type="hidden" name="csrf" value="{{$.CSRF}}">
+<label>Name <input name="name" required maxlength="253" pattern="[a-z0-9]([a-z0-9.\-]*[a-z0-9])?" value="{{.Name}}"></label>
+<label>Link port <input name="port" type="number" min="1" max="65535" value="{{.Port}}"></label>
+<button type="submit">Save</button></form>
+<p><small>A new name reaches your paired computers at once or with the next list. A new link port reaches them only after you unpair and pair again.</small></p></details>
+{{end}}
+{{if .Pairs}}<h3>Paired computers</h3>
+<table><thead><tr><th>Name</th><th>State</th><th>Since</th><th>Change</th></tr></thead><tbody>{{range .Pairs}}<tr>
+<td><code>{{.Name}}</code>{{if ne .Name .Advertised}}<br><small>advertises {{.Advertised}}</small>{{end}}</td>
+<td>{{.Observed.State}}{{with .Observed.Error}}<br><small>{{.}}</small>{{end}}</td>
+<td>{{unix .Observed.At}}</td>
+<td>{{if eq .State "pending"}}<form method="post" action="/dashboard/actions/link-cancel"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="pair" value="{{.ID}}"><button type="submit">Cancel</button></form>
+{{else}}<form method="post" action="/dashboard/actions/link-rename"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="pair" value="{{.ID}}">
+<label>Name here <input name="name" maxlength="253" value="{{if .Override}}{{.Name}}{{end}}" placeholder="{{.Advertised}}"></label> <button type="submit">Rename</button></form>
+<form method="post" action="/dashboard/actions/link-unpair"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="pair" value="{{.ID}}"><button type="submit">Unpair</button></form>{{end}}</td>
+</tr>{{end}}</tbody></table>
+<p><small>Connected means an authenticated connection in the last few minutes. An empty name returns to the advertised name.</small></p>
+{{range .Pairs}}{{if .Queue}}<h3>Messages to {{.Name}}</h3>
+<p>{{.Waiting}} waiting, oldest first; then the newest finished. <code>koinon link queue {{.Name}}</code> lists every waiting message.</p>
+<table><thead><tr><th>To</th><th>From</th><th>State</th><th>Queued</th><th>Size</th><th>Change</th></tr></thead><tbody>{{range .Queue}}<tr>
+<td><code>{{.Recipient}}</code></td><td><code>{{.Sender}}</code></td>
+<td>{{if eq .State "may_have_been_delivered"}}may have been delivered{{else if eq .State "queued"}}queued here{{else if eq .State "received"}}received there{{else if eq .State "refused"}}refused there{{else}}{{.State}}{{end}}{{with .Reason}}<br><small>{{.}}</small>{{end}}{{if .Cancel}}<br><small>cancel requested</small>{{end}}</td>
+<td>{{ms .Created}}</td><td>{{.Bytes}} bytes</td>
+<td>{{if or (eq .State "queued") (and (eq .State "may_have_been_delivered") (not .Cancel) (not .Finished))}}<form method="post" action="/dashboard/actions/link-cancel-message"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="link_id" value="{{.LinkID}}"><button type="submit">Cancel</button></form>{{end}}</td>
+</tr>{{end}}</tbody></table>{{end}}{{end}}
+<p><small>A message to another computer waits here, in order, until that computer stores it or refuses it. Cancel stops a queued message; a message that may already have arrived is resolved with the other computer first, and later messages to that computer wait until then.</small></p>{{end}}
+{{with .Rejected}}<p>Last refused key: <code>{{.Fingerprint}}</code> at {{unix .At}}. A computer that you did not pair tried to connect, or one that you unpaired.</p>{{end}}
+{{with .Error}}<p>{{.}}</p>{{end}}
+</details>{{end}}
 <details class="action" open><summary>Spoken alert</summary>
 <p><label><input type="checkbox" id="speak-switch" disabled> Speak when a decision or task starts to wait</label>
 <button type="button" id="speak-test" disabled>Test</button></p>

@@ -171,6 +171,7 @@ func lifecycleCommand(ctx context.Context, args []string, in io.Reader, out io.W
 		// first install asks where the dashboard opens (#624). One reader serves them all.
 		if t := openTerminal(ctx, in, os.Stderr); t != nil {
 			o.Ask, o.Line, o.NewSecret, o.Tell = ask(t.in, os.Stderr), t.line, t.newSecret, os.Stderr
+			o.RemoteEnable = installRemoteEnable(t)
 		}
 		r, err := install.Install(ctx, o)
 		printJSON(out, r)

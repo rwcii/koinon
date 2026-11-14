@@ -5,6 +5,138 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-11-13 — Messages between your Koinon computers, and remote sign-in that lasts 48 hours across restarts
+
+This release pairs your Koinon computers through Tailscale (#670): agents see the sessions on
+your other computers as `NAME@COMPUTER` and send them messages, which wait in a queue while a
+computer is offline. Remote control v2 (#673, contributed by Andrew Deugarte, @andyde8) keeps a
+phone signed in for a fixed 48 hours across restarts and upgrades, lists and forgets signed-in
+devices, checks the result of an action after a lost connection, and opens on a new Attention
+page. The remote dashboard can use another HTTPS port, the first install can open the dashboard
+on the tailnet only, and Linux remote setup can grant the Tailscale operator step with one
+answer. The store moves to schema 38.
+
+- `koinon link join`, and **Connect** in Settings, Computers, now show why a join failed when
+  the other computer does not answer, for example `link_unreachable` when the tailnet policy
+  blocks the link port. Before, the daemon's answer was cut after 10 seconds and the command
+  reported that the daemon was unavailable or too old (#677). The `link_unreachable` message
+  also names the tailnet policy for the link port. The same holds for naming,
+  inviting and unpairing.
+
+- Agents send messages to sessions on your other Koinon computers (#670, third part). `send`
+  to `NAME@COMPUTER` (MCP, CLI and the agent API) queues the message on this computer at once
+  and answers with its `link_id`; Koinon delivers each computer's queue in send order while
+  remote access is on, through an offline computer, a remote off and a restart, with no
+  expiry, and no message is stored twice. `delivery` with `link_id` (or `koinon delivery
+  LINK_ID`) shows queued, received (stored in that computer's inbox), refused with the reason,
+  cancelled, or may have been delivered when an answer was lost. A received message shows its
+  sender as `NAME@COMPUTER` with `origin` `link`; `send` with `reply_to` (`--reply-to` in the
+  CLI) answers it on the computer it came from. Settings, Computers lists the messages to each
+  computer with **Cancel**; `koinon link queue` and `koinon link cancel-message` do the same
+  with the maintainer secret. The queue holds 1,000 messages and 16 MiB for each computer
+  (10,000 and 64 MiB in all); a full queue refuses a send with `link_queue_full`. Finished
+  entries are kept 30 days. The maintainer still sends only on this computer. The store moves
+  to schema 38.
+
+- Paired computers share the list of their agent sessions (#670, second part). `peers` (MCP,
+  CLI and the agent API) and the dashboard's Sessions page list each paired computer's sessions
+  as `NAME@COMPUTER`: NAME is the session's participant address or peer name there, COMPUTER
+  is this computer's name for that computer. Each entry has its family, role, repository name
+  (never a path), observed activity, the time the list was read, and a mark when the list is
+  not current. `peer_status NAME@COMPUTER` reads it. A computer's new name reaches its paired
+  computers at once or with the next list; a name that collides here gets the next free
+  `NAME-2`, and your own name for a computer stays. A send to `NAME@COMPUTER` for a name that
+  no pair has answers `link_computer_unknown`; the maintainer sends only on this computer.
+
+- Pair your Koinon computers (#670, first part). With remote access on on both, **Copy
+  invitation** in Settings, Computers on one computer, and **Paste invitation** and **Connect**
+  on the other; or `koinon link invite` and `koinon link join`, which take the maintainer
+  secret from `--secret-file` or the terminal and read the invitation from the terminal or
+  standard input. The invitation works once, for 10 minutes. Each computer advertises a name
+  that you choose once (`koinon link name`, the short host name by default). The daemons talk
+  TLS 1.3 with each other's pinned key through a raw TCP Tailscale Serve mapping on the link
+  port (47672 by default), which remote enable adds and remote disable removes; disable also
+  closes the link and cancels open invitations, and keeps the pairs. `koinon link status` and
+  the Computers section show each paired computer as connected, offline or pending, the link
+  listener and its mapping, and the last refused key; `koinon remote status` shows the link's
+  port, listener and Serve mapping. Unpair, Cancel and
+  Rename are in the same places. Messages between computers come in the next parts.
+
+- The first `koinon install` at a terminal now offers a third answer for where the dashboard
+  opens: on this computer and your tailnet, through Tailscale Serve, with no network address
+  (#665). It asks the Serve HTTPS port, offers the maintainer secret when none is set, and
+  enables remote access after the start; the report's `remote` has the URL once the listener
+  and Serve mapping are ready, or the reason and the command to run for this installation. The dashboard's remote access panel names where the dashboard opens and
+  offers **Use this computer and the tailnet only**, which enables remote access, removes the
+  network address and closes it at once.
+
+- Remote control v2 (#673, contributed by Andrew Deugarte, @andyde8). A remote browser
+  sign-in now lasts a fixed 48 hours from sign-in, also across daemon restarts, upgrades and
+  reboots; a small host-clock correction keeps it. Settings, **Signed-in remote devices**,
+  lists each remote browser with its name, and you can rename or forget one or forget all.
+  At the 32-device limit, sign-in says how to forget a device, and a QR code scanned at the
+  limit stays valid until it expires. After a lost connection, the phone checks the result
+  of a message, room post or verdict by its receipt, so that it does not send it twice;
+  receipts use the host clock and are kept 7 days. Opt-in private drafts on the phone keep
+  unsent text; a selected draft is checked again for its recipient, form and text, and
+  drafts are cleared at an opt-out or an observed revocation. The new **Attention** page is
+  the remote landing page, with unread marks for each browser. Remote diagnostics show
+  observed requests, storage health and why the last sign-in ended. A failed expiry write stays
+  visible and is retried when storage recovers. A failed logout or device revocation stays
+  visible and is retried while the daemon runs; after a restart, forget the device again.
+  Local browser logins and maintainer API tokens do not change. The Android Chrome, overnight
+  and 48-hour checks on real phones are open in #672.
+
+- `koinon remote enable --https-port PORT` publishes the remote dashboard on another
+  Tailscale Serve HTTPS port, for a computer where another program, such as a container
+  that publishes `443:443`, takes port 443 (#665). Koinon saves the port. The URL, the QR
+  code, the sign-in links, the login checks and the tailnet policy entry in
+  `koinon remote status` name it. A later enable, also from the dashboard, keeps it.
+  Choosing a new port ends remote logins and removes Koinon's old Serve mapping first.
+  The remote login cookie is named after the port, `koinon_remote_dashboard_PORT`, because
+  browsers do not separate cookies by port: two Koinon daemons on one tailnet name, such as
+  one on 443 and a test daemon on 8444, no longer sign each other's browsers out.
+  The API's `POST /v1/remote/enable` takes an optional `https_port`.
+
+- On Linux, when Tailscale refuses to let the account that runs Koinon change Serve,
+  `koinon remote enable` at a terminal now asks once whether to grant that account control
+  of this computer's Tailscale settings by running `sudo tailscale set --operator=NAME`
+  (#656, PDR 010 Decision 6). On `y`, it runs that one command through sudo, which asks for
+  the password, and then enables. The default is no; then, and with `--json`, in scripts,
+  in the dashboard and after a failed sudo, the manual step is shown as before. The tailnet
+  policy entry for TCP 443 stays a manual step.
+
+- A session whose host process has ended now shows its handoff cycle or compaction as
+  unavailable with `host_ended`, and the dashboard's Enable button says to enable the session
+  that replaced it (#637). Before, the probe stopped at a later step, such as
+  `native_registry_unavailable`, which did not say that the host had stopped. The session's
+  lease does not change.
+
+- When remote access is on and Serve is ready, `koinon remote status` (fields `policy_hint` and
+  `policy_rule` in `--json`) and the dashboard's connection details say that the tailnet access
+  policy must allow TCP 443 to this computer, and show an example policy entry with its own
+  IPv4 and IPv6 Tailscale addresses (#653). Before, status showed "ready" while the policy
+  blocked the phone, which then timed out. Koinon cannot read the policy: Tailscale's debug
+  reads of the packet filter disagree with the filter in effect, so Koinon names the rule and
+  does not claim a block.
+
+Upgrade from v0.10.3 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary, rewrites the skill entries and moves the store to schema 38. A
+v0.10.x binary refuses a schema 38 store, so you cannot go back to v0.10.x after the upgrade
+(docs/INSTALL.md). The restart ends current dashboard logins, remote logins too: log in again
+with the Koinon password, or run `koinon dashboard` for a one-time link. From v0.11.0 on, a
+remote sign-in survives later restarts and upgrades for its 48 hours. Homebrew then shows the
+steps that `koinon install --plan` finds; run them, and run `koinon install --plan` again to
+check. A running `koinon mcp` server runs the new release without a session restart.
+
+Upgrade notes:
+
+- To pair two computers, upgrade both to v0.11.0 and turn remote access on on both. The
+  tailnet access policy must allow TCP on the link port (47672 by default) between them, as
+  for the dashboard's HTTPS port (docs/REMOTE-DASHBOARD.md).
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+
 ## 2026-11-12 — Bulk session actions work again, and Linux remote setup names the Tailscale operator step
 
 This release fixes the Sessions view's bulk actions, which failed with HTTP 404 in v0.10.2. On

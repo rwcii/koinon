@@ -3,7 +3,7 @@ pdr: "010"
 title: "Private Remote Dashboard Access"
 status: accepted
 created: "2026-11-11"
-updated: "2026-11-12"
+updated: "2026-11-13"
 authors:
   - "Andrew Deugarte (@andyde8)"
 reviewers: []
@@ -107,6 +107,10 @@ Decision 4 below amends the browser QR sign-in flow; the CLI QR remains URL-only
 | Drafts | Open forms and unsent input hold replacement so drafts stay in page memory. The feature does not promise recovery after reload or tab discard and does not cache private pages offline. |
 | Writes | Submission prevents repeated taps while running. Lost responses say “Result unknown; check the latest state before trying again.” Reconnect and login read current state and never replay a prior write automatically. Existing revision and idempotency rules still apply. |
 | Login recovery | An expired login opens sign-in with a safe relative read-only dashboard return screen; it does not resubmit the previous action. |
+
+For remote browser sessions, §9 replaces the restart, lifetime and drafts rows above: a
+remote sign-in lasts a fixed 48 hours and survives a routine restart or upgrade, and
+draft recovery after a reload is an explicit opt-in.
 
 Network policy must permit the intended maintainer devices. The host must remain
 awake, online, and running Koinon and Tailscale. Account, certificate, and platform
@@ -297,7 +301,7 @@ The new ticket flow needs its own verification.
 
 ## 5. Refinement: Longer remote browser sessions
 
-**Requested by:** Andrew Deugarte (@andyde8), 2026-11-11. **Decided by:** Robert Capps, 2026-11-12 (#645), for this record as a whole: “yes we take it.”
+**Requested by:** Andrew Deugarte (@andyde8), 2026-11-11. **Decided by:** Robert Capps, 2026-11-12 (#645), for this record as a whole: “yes we take it.” Superseded for remote browsers by §9.
 
 **Context:** After phone sign-in, Andrew reported being signed out after putting
 his phone away for five minutes and asked for a longer session and a
@@ -321,6 +325,147 @@ five-minute sign-out is fixed. Andrew later reported the password screen in a
 direct Safari/Chrome browser view. Browser versions and a reproduction remain
 needed to identify the cause.
 
+## 6. Decision: The terminal runs the Linux operator step after confirmation
+
+**Decided by:** Robert Capps, 2026-11-12, board card TAILSCALE-AUTO-656 (#656).
+
+**Context:** On Linux, tailscaled lets only root or the Tailscale operator change Serve,
+and an ordinary account cannot make itself operator: the first grant needs sudo. Since
+#652, `koinon remote enable` refuses with `tailscale_operator_required` and names
+`sudo tailscale set --operator=NAME`, which the person runs. When v0.10.3 was released
+with that manual step, Robert asked to "release it as is, make sure it's clear how this
+gets run at enable, and file an issue to review automating this" (#656). Operator status
+is control of all of this computer's Tailscale settings, not only Serve; Tailscale
+v1.104.5 has no Serve-only grant. Since #653, status also names the tailnet policy entry
+for TCP 443, which the person adds. The options were: keep both steps manual; run the
+operator step at the terminal after confirmation and keep the policy step manual; or
+also write the tailnet policy with a stored credential.
+
+**Decision:** On Linux, when `koinon remote enable` gets `tailscale_operator_required`
+and runs at a terminal, it asks once: "Grant NAME control of this computer's Tailscale
+settings, including more than Serve, by running sudo tailscale set --operator=NAME?
+[y/N]". NAME is the account that runs Koinon, read from the passwd entry of its UID, as
+for the manual step. On yes, Koinon runs that one fixed command through sudo, without a
+shell; sudo asks for the password, and Koinon never reads or stores it. Koinon then asks
+the daemon to enable once more. On no, an empty answer, the end of input or a sudo
+failure, enable shows the manual step, as before, and does not ask again. The dashboard,
+`--json` output, scripts and `koinon remote status` do not change; the daemon never runs
+sudo. The tailnet policy stays a manual step that status names.
+
+**Reason and scope:** The operator step is the one that stops setup at the terminal, and
+it needs the password once. The question states the full operator scope. The policy step
+stays manual for now: a writer would need a credential with the `policy_file` scope that
+changes the whole tailnet's access, its storage and renewal, and a check against a
+GitOps-managed policy, which overwrites an edit made outside its repository. This
+limits the scope of this change. It does not rule out policy automation.
+
+**Review when:** Tailscale offers a grant that covers only Serve, or automating the
+tailnet policy is raised again.
+
+### Alternatives Considered
+
+1. **Keep both steps manual.** No code and no new question; the person runs one sudo
+   command once per computer. Not chosen: the step stops setup at the terminal.
+2. **Also write the tailnet policy with a stored `policy_file` credential.** No manual
+   policy step, but Koinon would hold a secret that can change the whole tailnet's
+   access, and a GitOps-managed policy can overwrite or reject the edit. Declined for
+   now.
+
+## 7. Refinement: A chosen Serve HTTPS port
+
+**Requested by:** Robert Capps, 2026-11-12 (#665): "we should be able to set the port,
+and it propagates to all aspects of the interface, including QR code and link
+generation."
+
+**Context:** Remote access always used Serve's HTTPS port 443. On a host where a
+container publishes `443:443` on all addresses, tailscaled and the container cannot share
+the port, and whichever starts second fails. A Serve mapping moved by hand would
+disagree with Koinon's ownership record and its links.
+
+**Decision:** `koinon remote enable --https-port PORT` (the API's `https_port`) chooses
+Serve's HTTPS port, 1 to 65535. The port is part of the saved remote origin,
+`https://HOST.TAILNET.ts.net:PORT`, written without a port for 443, so the URL, the QR
+code, the sign-in tickets, the Host and Origin checks, the remote sessions and the
+tailnet policy entry all use it. An enable without a port keeps the saved one, or 443.
+A new port on an owned mapping takes the disable steps for the old one first.
+
+**Reason and scope:** One saved origin keeps every remote surface on the same port.
+Ownership, conflict and identity checks keep their rules on the chosen port; the host's
+Tailscale identity is its name without the port. The dashboard does not choose the port.
+
+## 8. Refinement: This computer and the tailnet only
+
+**Requested by:** Robert Capps, 2026-11-12 (#665): "ask for the dashboard to be mountable
+localhost and tailnet only, as an option to mounting it on the LAN IP. In fact, the
+localhost and tailnet only is probably the better solution."
+
+**Context:** The first install asked whether the dashboard opens only on this computer or
+also on a network address. `--dashboard-address none` with remote access enabled already
+kept it off the LAN, but nothing offered that as a choice.
+
+**Decision:** The install question offers a third answer, "On this computer and your tailnet,
+through Tailscale Serve", recommended on a computer in a tailnet. It asks the Serve HTTPS
+port, saves the local-only answer, offers the maintainer secret when none is set and enables
+remote access after the start; a failed enable leaves the install complete and names the
+command. The dashboard's remote access panel names where the dashboard opens and offers
+**Use this computer and the tailnet only**, which enables remote access, saves the local
+answer, removes the network address and closes the network listener at once.
+
+**Reason and scope:** The tailnet URL gives HTTPS without a self-signed certificate and keeps
+the dashboard off the LAN. The switch changes nothing when remote access cannot be enabled,
+so a person who uses the dashboard from another computer keeps a way in. Opening a network address stays an install
+step.
+
+
+## 9. Refinement: Remote control v2 fixed sign-in and recovery
+
+**Requested by:** Andrew Deugarte (@andyde8), 2026-11-12, direct conversation.
+**Decided by:** Robert Capps, 2026-11-13, board card REL-SCOPE-673 (approved, revision 2),
+for release v0.11.0. Robert Capps takes as his own decisions the fixed 48-hour sign-in that
+survives a restart, and crash survival with its storage-failure, process-loss and
+clock-rollback limit. His words: "this is the next release. Why defer it?" and "673 comes
+with .11". The [sprint decision record](../../sprints/2026-11-12-remote-control-v2/decision.md)
+holds the context and the open real-phone checks (#672).
+
+**Context:** How long should remote browser sign-in last? The draft considered
+90-day/year retention and the earlier seven-day policy; Andrew first requested
+about 24 hours, then changed the requested fixed window to 48 hours. The choice
+was the duration, rather than adding a sliding extension or changing local/API
+policy.
+
+**Decision:** Andrew said, “Let's make it 48 actually,” then explicitly authorized
+implementation: “The confirmed session policy is a fixed 48 hours from sign-in,
+with no automatic extension. Remote login should survive routine restarts and
+upgrades within that original window. Local browser and maintainer API-token
+policies stay unchanged.” These words were verified against the direct
+conversation before recording this clarification.
+
+**Reason and scope:** Retain phone sign-in within that fixed window across routine
+restart/upgrade. This supersedes the earlier remote seven-day proposal. It covers
+remote browser sessions and the requested v2 implementation; it does not change
+local browser or maintainer API-token lifetimes. The later crash-survival and
+failed-persistence decision is recorded with its question, options and answer in
+[the v2 continuation](../../sprints/2026-11-12-remote-control-v2/decision.md).
+
+Remote sessions are browser sessions with explicit individual/all revocation,
+labels and a separate 32-session engineering capacity. Activity does not extend
+the deadline. Password replacement (even while stopped), remote disable and origin
+change revoke remote credentials and pending tickets. Routine shutdown and temporary
+network loss preserve the fixed window. Public sign-in remains generic.
+
+Reconnect refreshes reads and CSRF without write replay. Browser draft recovery is
+optional, off initially, private and explicit, with seven-day retention and documented
+offline-erasure limits. Messages, room posts and verdicts have transactional host
+receipts and explicit same-ID recovery; external terminal/process side effects do
+not gain exactly-once claims. Remote starts on Attention with browser-specific read
+cursors, distinct from agent acknowledgement. Observed diagnostics do not prove
+cellular access or actual device retention.
+
+The 32-session bound, storage representation, jitter and UI labels are engineering
+choices supporting the authorized spec, not separately dictated maintainer policy.
+Review when field device acceptance exposes retention/recovery issues or capacity
+requires revision. Actual phone/platform evidence is tracked in the v2 sprint.
+
 ## Conclusion
 
 Remote access reuses the dashboard's actions and login while making setup
@@ -337,3 +482,8 @@ unverified connectivity and action outcomes stay labeled as such.
 | 2026-11-11 | Amend browser QR sign-in and remote-view presentation after Andrew's phone test and explicit choice. |
 | 2026-11-11 | Record the requested longer-session refinement and its remote-only scope, without assigning a cause to the phone sign-out report. |
 | 2026-11-12 | Accepted by Robert Capps (#645). Name the proposer as Andrew Deugarte (@andyde8) and Robert Capps as the decider. A remote session cannot create a sign-in QR (review of PR #644). Correct the spelling in quotes. |
+| 2026-11-12 | Record Robert Capps's decision TAILSCALE-AUTO-656 (#656): the terminal runs the Linux operator step after confirmation; the tailnet policy step stays manual. |
+| 2026-11-12 | Record Robert Capps's request for a chosen Serve HTTPS port (#665). |
+| 2026-11-12 | Record Robert Capps's request for a "localhost and tailnet only" choice (#665). |
+| 2026-11-12 | Record Andrew's v2 implementation authorization, fixed 48-hour policy, durable sessions and explicit recovery scope. |
+| 2026-11-13 | Record Robert Capps's decision REL-SCOPE-673: §9 ships in v0.11.0 as his decision; Andrew stays the proposer. §5 is superseded for remote browsers. |

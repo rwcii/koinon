@@ -18,7 +18,7 @@ func pairFixture(t *testing.T) (*Daemon, string, *actionClient, http.Handler, st
 	t.Helper()
 	d, root, _ := onboardingFixture(t)
 	local := newActionClient(t, d, root)
-	if err := d.remoteEnable(context.Background()); err != nil {
+	if err := d.remoteEnable(context.Background(), 0); err != nil {
 		t.Fatal(err)
 	}
 	config, err := ReadRemoteConfig(root)
@@ -114,7 +114,7 @@ func TestDashboardPairOrdinaryURLAndRemoteHeader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	remotePage := pairRequest(h, "GET", origin, "/dashboard/sessions", "", nil, &http.Cookie{Name: "koinon_remote_dashboard", Value: id})
+	remotePage := pairRequest(h, "GET", origin, "/dashboard/sessions", "", nil, &http.Cookie{Name: "koinon_remote_dashboard_443", Value: id})
 	if remotePage.Code != 200 || strings.Contains(remotePage.Body.String(), `class="remote-link"`) || strings.Contains(remotePage.Body.String(), ">Go remote</a>") {
 		t.Fatalf("remote header still offers Go remote: %d", remotePage.Code)
 	}
@@ -158,7 +158,7 @@ func TestDashboardPairPreviewThenSingleUseSecureSession(t *testing.T) {
 	}
 	form := url.Values{"ticket": {ticket}, "return": {"https://evil.example/steal"}}
 	redeemed := pairRequest(h, "POST", origin, "/dashboard/pair?return=/dashboard/actions/remote-disable", origin, form, nil)
-	if redeemed.Code != 303 || redeemed.Header().Get("Location") != "/dashboard/sessions" {
+	if redeemed.Code != 303 || redeemed.Header().Get("Location") != "/dashboard/attention" {
 		t.Fatalf("redemption: %d %s", redeemed.Code, redeemed.Body.String())
 	}
 	cookies := redeemed.Result().Cookies()
@@ -166,7 +166,7 @@ func TestDashboardPairPreviewThenSingleUseSecureSession(t *testing.T) {
 		t.Fatal("missing remote session", cookies)
 	}
 	cookie := cookies[0]
-	if cookie.Name != "koinon_remote_dashboard" || !cookie.Secure || !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode || cookie.Path != "/dashboard/" || cookie.Domain != "" || cookie.Value == ticket {
+	if cookie.Name != "koinon_remote_dashboard_443" || !cookie.Secure || !cookie.HttpOnly || cookie.SameSite != http.SameSiteStrictMode || cookie.Path != "/dashboard/" || cookie.Domain != "" || cookie.Value == ticket {
 		t.Fatal("invalid paired session cookie", cookie)
 	}
 	remotePage := pairRequest(h, "GET", origin, "/dashboard/sessions", "", nil, cookie)
@@ -249,9 +249,11 @@ func TestDashboardPairMalformedAndExpiredCodes(t *testing.T) {
 func TestDashboardPairConcurrentRedemptionCreatesOneSession(t *testing.T) {
 	d, _, local, h, origin := pairFixture(t)
 	ticket := pairMint(t, d, local.cookie)
-	d.auth.mu.Lock()
-	before := len(d.auth.sessions)
-	d.auth.mu.Unlock()
+	beforeDevices, err := d.auth.remoteDevices(local.cookie)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := len(beforeDevices)
 	start := make(chan struct{})
 	responses := make(chan *httptest.ResponseRecorder, 12)
 	var group sync.WaitGroup
@@ -277,9 +279,11 @@ func TestDashboardPairConcurrentRedemptionCreatesOneSession(t *testing.T) {
 			t.Fatal("unexpected losing redemption", got.Code)
 		}
 	}
-	d.auth.mu.Lock()
-	after := len(d.auth.sessions)
-	d.auth.mu.Unlock()
+	afterDevices, err := d.auth.remoteDevices(local.cookie)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := len(afterDevices)
 	if accepted != 1 || after != before+1 {
 		t.Fatalf("accepted=%d sessions before=%d after=%d", accepted, before, after)
 	}
@@ -321,7 +325,7 @@ func TestDashboardPairRemoteSessionCannotIssue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cookie := &http.Cookie{Name: "koinon_remote_dashboard", Value: id}
+	cookie := &http.Cookie{Name: "koinon_remote_dashboard_443", Value: id}
 	got := pairRequest(h, "POST", origin, "/dashboard/remote/ticket", origin, url.Values{"csrf": {d.auth.csrf(id)}}, cookie)
 	if got.Code != http.StatusConflict || got.Header().Get("X-Koinon-Ticket-Expires") != "" {
 		t.Fatalf("remote session issued a ticket: %d %v", got.Code, got.Header())

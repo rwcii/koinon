@@ -63,6 +63,7 @@ func newCompactFixture(t *testing.T) *compactFixture {
 	f.repo = namedRepo(t, "compact-repo")
 	f.k = Key{"codex", "synthetic-thread"}
 	f.session = join(t, s, "codex", f.k.ID, f.repo)
+	pinSyntheticHost(s, 4343, 88)
 	if _, err := fixtureExec(s, `UPDATE sessions SET host_pid=4343,host_start=88,tmux_socket='/tmp/synthetic-socket',tmux_pane='%4' WHERE family='codex' AND id=?`, f.k.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -245,6 +246,7 @@ func TestCompactionSubmissionOutcomes(t *testing.T) {
 	}
 	t.Cleanup(func() { restarted.db.Close() })
 	restarted.now = func() time.Time { return f.clock }
+	restarted.processStart = f.s.processStart
 	if err := restarted.cycleStep(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -367,7 +369,8 @@ func TestCompactionSessionsPage(t *testing.T) {
 	s := d.store
 	k := Key{"codex", "synthetic-thread"}
 	join(t, s, "codex", k.ID, "")
-	if _, err := fixtureExec(s, `UPDATE sessions SET host_pid=4343,host_start=88,tmux_socket='/tmp/synthetic-socket',tmux_pane='%4' WHERE family='codex' AND id=?`, k.ID); err != nil {
+	pid, start := liveHost(t)
+	if _, err := fixtureExec(s, `UPDATE sessions SET host_pid=?,host_start=?,tmux_socket='/tmp/synthetic-socket',tmux_pane='%4' WHERE family='codex' AND id=?`, pid, start, k.ID); err != nil {
 		t.Fatal(err)
 	}
 	session, err := scanSession(s.db.QueryRow(sessionQuery+` WHERE s.family=? AND s.id=?`, k.Family, k.ID), s.now().UnixMilli())
@@ -405,7 +408,7 @@ func TestSchemaThirtyFourKeepsCycles(t *testing.T) {
 	f.readyCycle(t)
 	rows := rowsOf(t, f.s.db)
 	before := count(t, f.s, `SELECT COUNT(*) FROM context_cycles WHERE ready_refusal!=''`)
-	if _, err := fixtureExec(f.s, undoSchemaThirtySeven+undoSchemaThirtySix+undoSchemaThirtyFour+`PRAGMA user_version=33`); err != nil {
+	if _, err := fixtureExec(f.s, undoSchemaThirtyEight+undoSchemaThirtySeven+undoSchemaThirtySix+undoSchemaThirtyFour+`PRAGMA user_version=33`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(f.s.db, 33); err != nil {
