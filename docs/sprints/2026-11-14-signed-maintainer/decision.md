@@ -93,7 +93,10 @@ A signed action names one target and one operation:
    `invalid_verdict`, `feedback_required`, `hidden_command`.
 2. `snapshot` is the hex SHA-256 of the item's snapshot at that revision: the RFC 8785 bytes of
    the object `{"reference", "revision", "kind", "title", "where", "context", "recommendation",
-   "agent_text", "commands"}`, with the values that `decision_get` returns. The client computes
+   "agent_text", "commands"}`, with the values that `decision_get` returns: `revision` an integer,
+   `commands` an array of strings in their order (`[]` when there is none), and each other field
+   a string (`""` when it is empty or absent). This object is the only place where v1 has an
+   array; it is hashed, never sent as `args`. The client computes
    it from the fields that it shows the maintainer, and never copies a digest from an answer.
    The target computes it from its own row and refuses a difference (`snapshot_changed`). So a
    node that showed other text than the target holds cannot get a verdict for it.
@@ -158,8 +161,11 @@ public_key_hex: 79b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad049664
 public_key_b64: ebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ=
 key_id: SHA256:ZbYGc9btiEvwHCwiLYKtoHQPKawzVdapJcgfF/R6J7g
 
-snapshot_canonical: {"agent_text":"","commands":"","context":"- Line one\n- Line two","kind":"decision","recommendation":"Approve.","reference":"VEC-1","revision":3,"title":"Approve the test vector","where":"docs/test"}
-snapshot_sha256: 4dc4570ea265939f1a8c9e64e19dd9316dd7f438600410486cad57468e62a8ec
+snapshot_canonical: {"agent_text":"","commands":[],"context":"- Line one\n- Line two","kind":"decision","recommendation":"Approve.","reference":"VEC-1","revision":3,"title":"Approve the test vector","where":"docs/test"}
+snapshot_sha256: 350f1e8dd2e447f6bf2594e780e0fc16544c0114cdfdf9cccbb1346a4a9860dc
+
+snapshot2_canonical: {"agent_text":"","commands":["koinon version","git status --short"],"context":"- Line one\n- Line two","kind":"decision","recommendation":"Approve.","reference":"VEC-1","revision":3,"title":"Approve the test vector","where":"docs/test"}
+snapshot2_sha256: b6c12882582116eae7810fd6cb251045973eea8411b8d800c2c7e0b780d2b5ba
 
 op: enroll
 canonical: {"args":{"client":"koinon-voice","public_key":"ebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ=","user":"maintainer"},"created":1794699000,"key":"SHA256:ZbYGc9btiEvwHCwiLYKtoHQPKawzVdapJcgfF/R6J7g","op":"enroll","target":"a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf","v":"koinon-maintainer-1"}
@@ -167,9 +173,9 @@ signed_bytes_hex: 6b6f696e6f6e2d6d61696e7461696e65722d310a7b2261726773223a7b2263
 sig_b64: 3mzi0yvfgymYoV3Wp6xVOwjOKuUQTP/9+hXAd23WytD8ykv/4vTF1Tpu3t4H8ZBkr7OtLJfr9NoNvVkhTKOqBQ==
 
 op: decision_verdict
-canonical: {"args":{"note":"ok <&> \"quoted\"","reference":"VEC-1","revision":3,"snapshot":"4dc4570ea265939f1a8c9e64e19dd9316dd7f438600410486cad57468e62a8ec","verdict":"approved"},"created":1794699000,"key":"SHA256:ZbYGc9btiEvwHCwiLYKtoHQPKawzVdapJcgfF/R6J7g","op":"decision_verdict","request":"vec-request-000001","target":"a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf","v":"koinon-maintainer-1"}
-signed_bytes_hex: 6b6f696e6f6e2d6d61696e7461696e65722d310a7b2261726773223a7b226e6f7465223a226f6b203c263e205c2271756f7465645c22222c227265666572656e6365223a225645432d31222c227265766973696f6e223a332c22736e617073686f74223a2234646334353730656132363539333966316138633965363465313964643933313664643766343338363030343130343836636164353734363865363261386563222c2276657264696374223a22617070726f766564227d2c2263726561746564223a313739343639393030302c226b6579223a225348413235363a5a6259476339627469457677484377694c594b746f4851504b61777a566461704a636766462f52364a3767222c226f70223a226465636973696f6e5f76657264696374222c2272657175657374223a227665632d726571756573742d303030303031222c22746172676574223a2261306131613261336134613561366137613861396161616261636164616561666230623162326233623462356236623762386239626162626263626462656266222c2276223a226b6f696e6f6e2d6d61696e7461696e65722d31227d
-sig_b64: hXQ67DMFF3ElMgj3le+wUlKi0WDK1EglpgyI3EDN+b9EaF2tOQp11OjiUlKvM6KBLoe9+oerhKin8XoZw5w+Dw==
+canonical: {"args":{"note":"ok <&> \"quoted\"","reference":"VEC-1","revision":3,"snapshot":"350f1e8dd2e447f6bf2594e780e0fc16544c0114cdfdf9cccbb1346a4a9860dc","verdict":"approved"},"created":1794699000,"key":"SHA256:ZbYGc9btiEvwHCwiLYKtoHQPKawzVdapJcgfF/R6J7g","op":"decision_verdict","request":"vec-request-000001","target":"a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf","v":"koinon-maintainer-1"}
+signed_bytes_hex: 6b6f696e6f6e2d6d61696e7461696e65722d310a7b2261726773223a7b226e6f7465223a226f6b203c263e205c2271756f7465645c22222c227265666572656e6365223a225645432d31222c227265766973696f6e223a332c22736e617073686f74223a2233353066316538646432653434376636626632353934653738306530666331363534346330313134636466646639636363626231333436613461393836306463222c2276657264696374223a22617070726f766564227d2c2263726561746564223a313739343639393030302c226b6579223a225348413235363a5a6259476339627469457677484377694c594b746f4851504b61777a566461704a636766462f52364a3767222c226f70223a226465636973696f6e5f76657264696374222c2272657175657374223a227665632d726571756573742d303030303031222c22746172676574223a2261306131613261336134613561366137613861396161616261636164616561666230623162326233623462356236623762386239626162626263626462656266222c2276223a226b6f696e6f6e2d6d61696e7461696e65722d31227d
+sig_b64: 5RIpFZ7G+PMlGqvRQizOOmOaPK637OhJX9dCifNKOjIOXjvG4drxmGRLZVaViYYundattt/zTlJOHDiq6zeKCQ==
 ```
 
 ## Decision 4: once only, outcome by request
