@@ -212,6 +212,16 @@ sessions on two computers cannot exchange messages today.
 - **Alternatives considered:** v0.12.0 (a minor number for new operations and a file format
   that v0.11.0 cannot read).
 
+### The release number for links from userspace Tailscale (#688)
+
+- **Decided by:** Robert Capps.
+- **Date:** 2026-11-14, terminal.
+- **Context:** the release from develop after v0.11.1 holds #688: link connections through
+  tailscaled when Tailscale has no TUN interface. Robert directed the fix: "implement 688, we
+  should not dictate how a user implements tailscale". The agent proposed v0.11.2.
+- **Decision:** v0.11.2: "0.11.2 is fine, release it when green".
+- **Reason and scope:** the answer names no further reason. This covers this release only.
+
 ## Acceptance criteria
 
 1. On two of the maintainer's computers with Remote on, **Copy invitation** on one and

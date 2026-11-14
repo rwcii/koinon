@@ -5,12 +5,31 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-11-14 — Computer links work where Tailscale runs in userspace networking mode
+
+This release lets a computer whose Tailscale runs in userspace networking mode, as in many
+containers, join and use the links between your computers (#688). The state schema stays at 38.
+
 - The link between your computers works on a host whose Tailscale runs in userspace
   networking mode, as in many containers (#688). Such a host has no route to tailnet
   addresses, so a join from it failed with `link_unreachable`, and its pings, introductions
   and messages could not leave it. When `tailscale status` reports no TUN interface, Koinon now
   makes each link connection through tailscaled with `tailscale nc`. `koinon link status`
   shows "Connections out: through tailscale nc". No Tailscale setting changes.
+
+Upgrade from v0.11.1 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and rewrites the skill entries; the store stays at schema 38. The
+restart ends current local dashboard logins: log in again with the Koinon password, or run
+`koinon dashboard` for a one-time link. Remote sign-ins keep their 48 hours. Homebrew then shows
+the steps that `koinon install --plan` finds; run them, and run `koinon install --plan` again to
+check. A running `koinon mcp` server runs the new release without a session restart.
+
+Upgrade notes:
+
+- A host without a service manager, such as a container, runs the daemon in the background:
+  after `brew upgrade koinon`, run `koinon install` there to start it on the new binary.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
 
 ## 2026-11-14 — One join adds a computer to the whole group of your Koinon computers
 
