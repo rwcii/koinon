@@ -92,9 +92,19 @@ func TestLinkMaintainerRoutes(t *testing.T) {
 	}
 	refusedMaintainer(t, a.d, bearerA, tokenA, "link-unpair", map[string]any{"pair": "laptop"}, "link_pair_not_found")
 
+	// Leave unpairs every computer here, and the other computer when it answers.
+	text2 := mustMaintainer(t, b.d, bearerB, tokenB, "link-invite", map[string]any{})["invitation"].(string)
+	mustMaintainer(t, a.d, bearerA, tokenA, "link-join", map[string]any{"invitation": text2})
+	if left := mustMaintainer(t, a.d, bearerA, tokenA, "link-leave", map[string]any{}); left["unpaired"] != float64(1) {
+		t.Fatalf("leave: %v", left)
+	}
+	if len(a.state(t).Pairs) != 0 || len(b.state(t).Pairs) != 0 {
+		t.Fatal("leave kept a pair")
+	}
+
 	// The audit records name each action; none holds the invitation or its secret.
 	rowsA, rowsB := auditRows(t, a.d), auditRows(t, b.d)
-	for _, want := range []string{"link-join link invitation", "link-rename pair " + id + " name laptop", "link-unpair pair laptop"} {
+	for _, want := range []string{"link-join link invitation", "link-rename pair " + id + " name laptop", "link-unpair pair laptop", "link-leave every pair"} {
 		if !strings.Contains(rowsA, want) {
 			t.Fatalf("audit of alpha lacks %q:\n%s", want, rowsA)
 		}
@@ -152,6 +162,9 @@ func TestLinkDashboardComputers(t *testing.T) {
 		t.Fatal(code)
 	}
 	if code := ca.do("link-cancel", url.Values{"pair": {id}}); code != "link_pair_not_found" {
+		t.Fatal(code)
+	}
+	if code := ca.do("link-leave", url.Values{}); code != "link_left" {
 		t.Fatal(code)
 	}
 	if strings.Contains(auditRows(t, b.d), text) || strings.Contains(auditRows(t, a.d), text) {

@@ -217,11 +217,39 @@ sessions can exchange messages (#670, LINK-670-PAIR in ADR 002, Decision 4).
 4. On the other computer, **Paste invitation** and **Connect** (or `koinon link join` and paste
    it). The paired computer shows as connected on both.
 
+**More than two computers.** One join adds a computer to the whole group (#683,
+LINK-GROUP-JOIN). Make each invitation on a computer that is already paired, and join it on the
+new computer. After the join, the inviting computer introduces the new computer to each of its
+other paired computers: the join's answer gives the new computer their names, Tailscale
+addresses, link ports and key fingerprints, and the inviting computer then gives each of them
+the new computer's, on their pinned links. Each two computers then have their own pair, with no
+further invitation or secret. Four computers need three joins: for example, `beta` invites
+`alpha`, `beta` invites `gamma`, and `gamma` (or any other computer of the group) invites
+`delta`.
+
+`koinon link join` names the computers of the introduction. `koinon link status` and Settings,
+Computers show "introduced by NAME" on each pair that an introduction made, and the number of
+introductions that still wait. A computer that is off, or has remote access off, gets its
+introduction when it answers again, also after a restart of the inviting computer. If the join's
+answer is lost, the new computer asks for the introductions again every 30 seconds while it can
+reach the inviting computer; `koinon link join` and **Connect** say when the introductions did
+not arrive yet. An introduction that a computer took or refused once is never added again, so
+an unpair stays.
+
+Update every computer before you pair them. A computer of an earlier version refuses an
+introduction; the new computer then shows that computer as rejected (`link_key_refused`) until
+you unpair it there and pair the two directly. An introduction joins two groups only in one
+direction: the new computer's earlier pairs are not introduced to the inviting group.
+
+`koinon link unpair PAIR` removes one pair; the introduced pairs stay. `koinon link leave`, or
+**Unpair from every computer** in Settings, Computers, removes every pair of this computer at
+once and tells each other computer when it answers.
+
 The invitation holds the inviting computer's tailnet name, Tailscale addresses, link port,
 key fingerprint and name, and a random secret. The joining daemon checks the other key
 against the fingerprint before it sends the secret. Each daemon has its own Ed25519 key in
-`link-key.pem` in its state directory; the pairs are in `link.json`. Both files are private
-(mode 0600).
+`link-key.pem` in its state directory; the pairs and the waiting introductions are in
+`link.json`. Both files are private (mode 0600).
 
 Remote enable adds a raw TCP Serve mapping from the link port to a
 loopback TLS listener (`tailscale serve --bg --tcp=PORT tcp://127.0.0.1:N`); remote disable

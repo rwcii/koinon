@@ -783,6 +783,7 @@ koinon link join             # on the other: paste the invitation, or give it as
 koinon link status           # this computer's name and fingerprint, and each paired computer; --json for the report
 koinon link rename PAIR NAME # this computer's name for a paired computer; without NAME, its advertised name
 koinon link unpair PAIR      # remove the pair here at once, and on the other computer when it answers
+koinon link leave            # remove every pair of this computer, as unpair does for each
 koinon link cancel PAIR      # remove a pending pair; cancel invitations removes the open invitations
 koinon link queue [COMPUTER] # the messages to each paired computer and their states, without bodies
 koinon link cancel-message LINK_ID  # stop a queued message; one that may have arrived is resolved with the other computer first
@@ -790,6 +791,12 @@ koinon link cancel-message LINK_ID  # stop a queued message; one that may have a
 
 PAIR is the paired computer's name or ID from `koinon link status`. The dashboard's Settings
 page has the same steps under **Computers**.
+
+For more than two computers, make each invitation on a computer that is already paired. After
+the join, that computer introduces the new computer to each of its other paired computers, so
+each two computers are paired with no further step (#683, LINK-GROUP-JOIN). `link join` names
+them, and `link status` shows "introduced by NAME" on each such pair. Update every computer
+before you pair them. See [more than two computers](REMOTE-DASHBOARD.md#connect-your-computers).
 
 Once paired, each computer reads the other's list of agent sessions every 30 seconds. `peers`
 and the dashboard's Sessions page show them as `NAME@COMPUTER`, for example

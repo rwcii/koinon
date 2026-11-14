@@ -23,7 +23,7 @@ import (
 // terminal, which the command exchanges for a maintainer token. An invitation is never an
 // argument: join reads it from the terminal or the first line of standard input.
 
-const linkUsage = "use koinon link status|name [NAME]|invite|join|unpair PAIR|cancel PAIR|cancel invitations|rename PAIR [NAME]|queue [COMPUTER]|cancel-message LINK_ID"
+const linkUsage = "use koinon link status|name [NAME]|invite|join|unpair PAIR|leave|cancel PAIR|cancel invitations|rename PAIR [NAME]|queue [COMPUTER]|cancel-message LINK_ID"
 
 // linkCallTimeout covers a join or unpair, which waits for the other computer.
 const linkCallTimeout = 45 * time.Second
@@ -38,7 +38,7 @@ func linkCommand(ctx context.Context, args []string, in io.Reader, out io.Writer
 		return usageError{"invalid_request", linkUsage}
 	}
 	action := args[0]
-	maxArgs := map[string]int{"status": 0, "name": 1, "invite": 0, "join": 0, "unpair": 1, "cancel": 1, "rename": 2, "queue": 1, "cancel-message": 1}
+	maxArgs := map[string]int{"status": 0, "name": 1, "invite": 0, "join": 0, "unpair": 1, "leave": 0, "cancel": 1, "rename": 2, "queue": 1, "cancel-message": 1}
 	most, ok := maxArgs[action]
 	if !ok {
 		return usageError{"invalid_request", linkUsage}
@@ -224,10 +224,25 @@ func linkCommand(ctx context.Context, args []string, in io.Reader, out io.Writer
 			return err
 		}
 		fmt.Fprintf(out, "Paired with %s.\n", r.Name)
+		if len(r.Introduced) > 0 {
+			fmt.Fprintf(out, "%s introduced this computer to: %s. Those computers add the pairs when they answer; see koinon link status.\n", r.Name, strings.Join(r.Introduced, ", "))
+		}
+		if r.IntroductionsSkipped > 0 {
+			fmt.Fprintf(out, "%d introduced computers were not added: this computer holds the most pairs.\n", r.IntroductionsSkipped)
+		}
+		if r.IntroductionsWaiting {
+			fmt.Fprintf(out, "The introductions from %s did not arrive yet; this computer asks again every 30 seconds while %s answers.\n", r.Name, r.Name)
+		}
 	case "name":
 		fmt.Fprintf(out, "This computer is %s; its agents are AGENT@%s on your other computers.\n", body["name"], body["name"])
 	case "unpair":
 		fmt.Fprintln(out, "Unpaired. The other computer removes the pair when it answers, or shows it as rejected at its next connection.")
+	case "leave":
+		var r core.LinkLeaveResult
+		if err := json.Unmarshal(reply.Result, &r); err != nil {
+			return err
+		}
+		fmt.Fprintf(out, "Unpaired from %d computers. Each removes its pair when it answers, or shows it as rejected at its next connection.\n", r.Unpaired)
 	case "cancel":
 		fmt.Fprintln(out, "Cancelled.")
 	case "rename":
@@ -315,6 +330,9 @@ func printLinkStatus(out io.Writer, s core.LinkStatus) {
 	if s.Invitations > 0 {
 		fmt.Fprintf(out, "Open invitations: %d\n", s.Invitations)
 	}
+	if s.Introductions > 0 {
+		fmt.Fprintf(out, "Introductions to deliver: %d\n", s.Introductions)
+	}
 	if len(s.Pairs) == 0 {
 		fmt.Fprintln(out, "Paired computers: none")
 	}
@@ -328,6 +346,9 @@ func printLinkStatus(out io.Writer, s core.LinkStatus) {
 		}
 		if p.Name != p.Advertised {
 			line += "  advertises " + p.Advertised
+		}
+		if p.IntroducedBy != "" {
+			line += "  introduced by " + p.IntroducedBy
 		}
 		fmt.Fprintln(out, line+"  id "+p.ID)
 	}

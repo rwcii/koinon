@@ -22,7 +22,7 @@ const linkCallTimeout = 2*linkIOTimeout + 4*time.Second
 
 // linkWaits are the link actions that can wait for the other computer, Tailscale or Serve up
 // to linkCallTimeout, longer than the servers' 10-second write timeout (#677).
-var linkWaits = map[string]bool{"link-name": true, "link-invite": true, "link-join": true, "link-unpair": true}
+var linkWaits = map[string]bool{"link-name": true, "link-invite": true, "link-join": true, "link-unpair": true, "link-leave": true}
 
 // linkWaitWrite lets such an action write its answer up to linkCallTimeout plus 5 seconds
 // after it starts, so that a late refusal reaches the caller and does not end as a closed
@@ -37,11 +37,18 @@ type LinkInvitationResult struct {
 	ExpiresSeconds int64  `json:"expires_seconds"`
 }
 
-// LinkJoinResult is the pair that a join made.
+// LinkJoinResult is the pair that a join made, and the names of the computers that the other
+// computer introduced this one to (LINK-GROUP-JOIN).
 type LinkJoinResult struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	Advertised string `json:"advertised"`
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	Advertised string   `json:"advertised"`
+	Introduced []string `json:"introduced,omitempty"`
+	// IntroductionsWaiting is true when this computer did not get its introductions yet; it
+	// asks again at each monitor pass. IntroductionsSkipped counts the introduced computers
+	// that it could not add because it holds the most pairs.
+	IntroductionsWaiting bool `json:"introductions_waiting,omitempty"`
+	IntroductionsSkipped int  `json:"introductions_skipped,omitempty"`
 }
 
 func linkTarget(prefix, value string) string {
@@ -108,11 +115,12 @@ func (d *Daemon) linkMaintainerRoutes(mux *http.ServeMux) {
 		d.linkAct(ctx, w, "link-join", "link invitation", q.Invitation != "", func(ctx context.Context) (any, error) {
 			ctx, cancel := context.WithTimeout(ctx, linkCallTimeout)
 			defer cancel()
-			p, err := d.linkJoin(ctx, q.Invitation)
+			j, err := d.linkJoinPair(ctx, q.Invitation)
 			if err != nil {
 				return nil, err
 			}
-			return LinkJoinResult{ID: p.ID, Name: p.Effective, Advertised: p.Advertised}, nil
+			return LinkJoinResult{ID: j.pair.ID, Name: j.pair.Effective, Advertised: j.pair.Advertised, Introduced: j.introduced,
+				IntroductionsWaiting: j.waiting, IntroductionsSkipped: j.skipped}, nil
 		})
 	})
 	maintainerRoute(d, mux, "link-unpair", 16384, func(ctx context.Context, w http.ResponseWriter, q struct {
@@ -123,6 +131,13 @@ func (d *Daemon) linkMaintainerRoutes(mux *http.ServeMux) {
 			ctx, cancel := context.WithTimeout(ctx, linkCallTimeout)
 			defer cancel()
 			return nil, d.linkUnpair(ctx, q.Pair)
+		})
+	})
+	maintainerRoute(d, mux, "link-leave", 16384, func(ctx context.Context, w http.ResponseWriter, q struct{ maintainerToken }) {
+		d.linkAct(ctx, w, "link-leave", "every pair", true, func(ctx context.Context) (any, error) {
+			ctx, cancel := context.WithTimeout(ctx, linkCallTimeout)
+			defer cancel()
+			return d.linkLeave(ctx)
 		})
 	})
 	maintainerRoute(d, mux, "link-cancel", 16384, func(ctx context.Context, w http.ResponseWriter, q struct {
@@ -164,8 +179,10 @@ func (d *Daemon) linkMaintainerRoutes(mux *http.ServeMux) {
 func init() {
 	for code, text := range map[string]string{
 		"link_named":             "This computer's name and link port were saved, and the link is open.",
-		"link_joined":            "The computers are paired.",
+		"link_joined":            "The computers are paired. When the other computer has other paired computers, it introduced this one to them; the list below shows each pair.",
+		"link_joined_waiting":    "The computers are paired. This computer did not get the other computer's introductions yet; it asks again at each check, every 30 seconds.",
 		"link_unpaired":          "The computer was unpaired. The other computer removes the pair when it answers, or shows it as rejected at its next connection.",
+		"link_left":              "This computer was unpaired from every computer. Each removes its pair when it answers, or shows it as rejected at its next connection.",
 		"link_cancelled":         "The pending pair or the open invitations were cancelled.",
 		"link_renamed":           "The computer's name on this computer was saved.",
 		"link_message_cancelled": "The message was cancelled, or its cancel waits for the other computer's answer.",
@@ -256,12 +273,33 @@ func (d *Daemon) dashboardLinkRoutes(mux *http.ServeMux, authed func(func(http.R
 		}
 		return d.linkSetup(ctx, r.PostFormValue("name"), port)
 	})
-	act("link-join", func(*http.Request) string { return "link invitation" }, "link_joined", func(ctx context.Context, r *http.Request) error {
-		_, err := d.linkJoin(ctx, r.PostFormValue("invitation"))
-		return err
-	})
+	mux.HandleFunc("POST /dashboard/actions/link-join", authed(func(w http.ResponseWriter, r *http.Request, _ string) {
+		linkWaitWrite(w)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), linkCallTimeout)
+		defer cancel()
+		ctx, pending := withAudit(ctx, "link-join", "link invitation")
+		j, err := d.linkJoinPair(ctx, r.PostFormValue("invitation"))
+		if err != nil {
+			code := errorCode(err)
+			d.store.auditRefusal(ctx, pending, code)
+			back(w, r, code)
+			return
+		}
+		done := "link_joined"
+		if j.waiting {
+			done = "link_joined_waiting"
+		}
+		if d.store.auditPendingAccepted(ctx) != nil {
+			done = "link_audit_failed"
+		}
+		back(w, r, done)
+	}))
 	act("link-unpair", pair, "link_unpaired", func(ctx context.Context, r *http.Request) error {
 		return d.linkUnpair(ctx, r.PostFormValue("pair"))
+	})
+	act("link-leave", func(*http.Request) string { return "every pair" }, "link_left", func(ctx context.Context, r *http.Request) error {
+		_, err := d.linkLeave(ctx)
+		return err
 	})
 	act("link-cancel", pair, "link_cancelled", func(ctx context.Context, r *http.Request) error {
 		return d.linkCancel(r.PostFormValue("pair"))

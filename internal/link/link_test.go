@@ -203,6 +203,10 @@ func TestStateRoundTripAndValidation(t *testing.T) {
 	s.Name, s.Port = "devbox", DefaultPort
 	s.Pairs = []Pair{testPair(strings.Repeat("1", 32), strings.Repeat("a", 64), "laptop")}
 	s.Invites = []Invite{{SecretHash: strings.Repeat("c", 64), Created: 1, Expires: 2}}
+	introduced := testPair(strings.Repeat("3", 32), strings.Repeat("d", 64), "desk")
+	introduced.Via = s.Pairs[0].ID
+	s.Pairs = append(s.Pairs, introduced)
+	s.Intros = []Intro{{ID: strings.Repeat("4", 32), New: s.Pairs[0].ID, Old: strings.Repeat("5", 32), NewSent: true, Created: 1}}
 	if err := WriteState(root, s); err != nil {
 		t.Fatal(err)
 	}
@@ -211,7 +215,8 @@ func TestStateRoundTripAndValidation(t *testing.T) {
 		t.Fatalf("mode %v", info.Mode())
 	}
 	got, err := ReadState(root)
-	if err != nil || got.Name != "devbox" || len(got.Pairs) != 1 || got.Pairs[0].Effective != "laptop" || len(got.Invites) != 1 {
+	if err != nil || got.Name != "devbox" || len(got.Pairs) != 2 || got.Pairs[0].Effective != "laptop" || len(got.Invites) != 1 ||
+		got.Pairs[1].Via != got.Pairs[0].ID || len(got.Intros) != 1 || !got.Intros[0].NewSent {
 		t.Fatalf("read %v %+v", err, got)
 	}
 	bad := map[string]func(*State){
@@ -227,11 +232,24 @@ func TestStateRoundTripAndValidation(t *testing.T) {
 		"bad name":       func(s *State) { s.Name = "Dev" },
 		"bad version":    func(s *State) { s.Version = 2 },
 		"bad invite":     func(s *State) { s.Invites[0].Expires = 0 },
+		"bad via":        func(s *State) { s.Pairs[1].Via = "short" },
+		"via to itself":  func(s *State) { s.Pairs[1].Via = s.Pairs[1].ID },
+		"bad intro id":   func(s *State) { s.Intros[0].ID = "short" },
+		"intro id used":  func(s *State) { s.Intros[0].ID = s.Pairs[0].ID },
+		"intro one pair": func(s *State) { s.Intros[0].Old = s.Intros[0].New },
+		"intro twice":    func(s *State) { s.Intros = append(s.Intros, s.Intros[0]) },
+		"too many intros": func(s *State) {
+			for len(s.Intros) <= MaxIntros {
+				id, _ := NewID()
+				s.Intros = append(s.Intros, Intro{ID: id, New: s.Pairs[0].ID, Old: strings.Repeat("5", 32)})
+			}
+		},
 	}
 	for name, f := range bad {
 		c := got
 		c.Pairs = append([]Pair(nil), got.Pairs...)
 		c.Invites = append([]Invite(nil), got.Invites...)
+		c.Intros = append([]Intro(nil), got.Intros...)
 		f(&c)
 		if c.Validate() == nil || WriteState(root, c) == nil {
 			t.Errorf("%s accepted", name)
