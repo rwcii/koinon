@@ -104,9 +104,13 @@ type linkRuntime struct {
 	introducing, introAgain bool
 	introSend               sync.Mutex
 	// userspace is whether this host's Tailscale uses no TUN interface, read at
-	// userspaceAt (#688); then link connections go through tailscaled.
-	userspace   bool
-	userspaceAt time.Time
+	// userspaceAt (#688); then link connections go through tailscaled. userspaceRead is held
+	// during a read of the mode, so reads never overlap and an older result never replaces
+	// a newer one. Lock order: userspaceRead, then remote.mu or mu, never during a hold of
+	// mu.
+	userspace     bool
+	userspaceAt   time.Time
+	userspaceRead sync.Mutex
 }
 
 func (d *Daemon) linkNow() time.Time {
@@ -141,15 +145,16 @@ const linkUserspaceFor = time.Minute
 // link connection goes through tailscaled with tailscale nc (#688). The mode is read from
 // tailscale status at most once a minute; a failed read keeps the last answer.
 func (d *Daemon) linkUserspace(ctx context.Context) bool {
-	d.link.mu.Lock()
-	now := d.linkNow()
-	if !d.link.userspaceAt.IsZero() && now.Sub(d.link.userspaceAt) < linkUserspaceFor {
-		userspace := d.link.userspace
-		d.link.mu.Unlock()
+	if userspace, fresh := d.linkUserspaceCached(); fresh {
 		return userspace
 	}
-	userspace := d.link.userspace
-	d.link.mu.Unlock()
+	// One read at a time: a caller that waited here uses the read that just finished.
+	d.link.userspaceRead.Lock()
+	defer d.link.userspaceRead.Unlock()
+	userspace, fresh := d.linkUserspaceCached()
+	if fresh {
+		return userspace
+	}
 	d.remote.mu.Lock()
 	manager := d.remote.manager
 	d.remote.mu.Unlock()
@@ -157,9 +162,17 @@ func (d *Daemon) linkUserspace(ctx context.Context) bool {
 		userspace = status.Userspace
 	}
 	d.link.mu.Lock()
-	d.link.userspace, d.link.userspaceAt = userspace, now
+	d.link.userspace, d.link.userspaceAt = userspace, d.linkNow()
 	d.link.mu.Unlock()
 	return userspace
+}
+
+// linkUserspaceCached returns the last mode and whether it is still fresh.
+func (d *Daemon) linkUserspaceCached() (bool, bool) {
+	d.link.mu.Lock()
+	defer d.link.mu.Unlock()
+	fresh := !d.link.userspaceAt.IsZero() && d.linkNow().Sub(d.link.userspaceAt) < linkUserspaceFor
+	return d.link.userspace, fresh
 }
 
 // linkIdentity loads the link key once.

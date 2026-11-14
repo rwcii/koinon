@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/rwcii/koinon/internal/link"
+	"github.com/rwcii/koinon/internal/remote"
 )
 
 // joinThrough makes an invitation on inviter and joins it on joiner.
@@ -643,5 +644,79 @@ func TestLinkUserspaceTailscaleDialsThroughTailscaled(t *testing.T) {
 	n.shift.Add(int64(linkUserspaceFor + time.Second))
 	if c.d.linkUserspace(context.Background()) {
 		t.Fatal("the mode was not read again after the minute")
+	}
+}
+
+// modeReads wraps the synthetic Tailscale and holds each status read until released; a
+// read can fail (#689 review, F1).
+type modeReads struct {
+	base    *syntheticTailscale
+	reads   atomic.Int32
+	entered chan int32
+	release chan bool // true: the read succeeds; false: it fails
+}
+
+// modeReadKey marks the test's own reads; the daemon's other reads pass through.
+type modeReadKey struct{}
+
+func (r *modeReads) Run(ctx context.Context, args ...string) ([]byte, error) {
+	if len(args) > 0 && args[0] == "status" && ctx.Value(modeReadKey{}) != nil {
+		r.entered <- r.reads.Add(1)
+		select {
+		case ok := <-r.release:
+			if !ok {
+				return nil, errors.New("synthetic status failure")
+			}
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	return r.base.Run(ctx, args...)
+}
+
+// Reads of the Tailscale mode never overlap: a caller that comes during a read uses its
+// result, and a failed read keeps the last good mode (#689 review, F1).
+func TestLinkUserspaceReadsDoNotOverlap(t *testing.T) {
+	n := &linkNet{}
+	h := newLinkHost(t, n, "alpha", "100.64.0.1")
+	h.fake.mu.Lock()
+	h.fake.userspace = true
+	h.fake.mu.Unlock()
+	r := &modeReads{base: h.fake, entered: make(chan int32, 4), release: make(chan bool, 4)}
+	h.d.remote.mu.Lock()
+	h.d.remote.manager = remote.Manager{Adapter: r}
+	h.d.remote.mu.Unlock()
+	defer func() {
+		h.d.remote.mu.Lock()
+		h.d.remote.manager = remote.Manager{Adapter: h.fake}
+		h.d.remote.mu.Unlock()
+	}()
+	ctx, cancel := context.WithTimeout(context.WithValue(context.Background(), modeReadKey{}, true), 10*time.Second)
+	defer cancel()
+	first, second := make(chan bool, 1), make(chan bool, 1)
+	go func() { first <- h.d.linkUserspace(ctx) }()
+	<-r.entered
+	go func() { second <- h.d.linkUserspace(ctx) }()
+	select {
+	case n := <-r.entered:
+		t.Fatalf("read %d overlapped the first", n)
+	case <-time.After(200 * time.Millisecond):
+	}
+	r.release <- true
+	if !<-first || !<-second {
+		t.Fatal("the userspace mode was lost")
+	}
+	if got := r.reads.Load(); got != 1 {
+		t.Fatalf("%d reads, want 1", got)
+	}
+	// After the minute, a failed read keeps the last good mode, and the next minute uses it.
+	n.shift.Add(int64(linkUserspaceFor + time.Second))
+	r.release <- false
+	if !h.d.linkUserspace(ctx) {
+		t.Fatal("a failed read replaced the good mode")
+	}
+	<-r.entered
+	if !h.d.linkUserspace(ctx) || r.reads.Load() != 2 {
+		t.Fatalf("after the failed read: %d reads", r.reads.Load())
 	}
 }
