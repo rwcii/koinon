@@ -43,8 +43,9 @@ board as card LINK-693-SIGNED.
 1. The client creates one Ed25519 key pair per user and install. The private key stays with the
    client (Koinon Voice: the macOS Keychain). Koinon never holds it.
 2. The key ID is `SHA256:` and the base64 SHA-256 of the 32-byte public key.
-3. Each computer keeps its own authorized keys. Each addition is one authorization with a new
-   random authorization ID, the key ID, the public key, the user name, the client label, the
+3. Each computer keeps its own authorized keys. Each addition is one authorization. Its ID is
+   the hex SHA-256 of the enrollment statement's signed bytes (Decision 3.5), so the client
+   knows it without being told. It keeps the key ID, the public key, the user name, the client label, the
    added time, how it was added (`dashboard` or `secret`) and its removed time. A user name
    matches `^[a-z][a-z0-9._-]{0,31}$`; a client label matches `^[a-z0-9][a-z0-9-]{0,31}$`.
 4. Enrollment, on each computer, with that computer's own maintainer login or secret:
@@ -59,20 +60,14 @@ board as card LINK-693-SIGNED.
 5. A group join or introduction (PDR 011 Decision 5) carries no keys. The maintainer enrolls the
    key on each computer.
 6. A removal is stored before the command returns, and it is checked inside the transaction of
-   each action, so an action that waits for the store after a removal is refused. A key that is
-   removed and added again gets a new authorization ID, and none of the earlier
-   authorization's receipts (Decision 4.1).
-7. Each authorization keeps the `created` of its enrollment statement as its floor. The client's
-   clock sets both that value and each envelope's `created`, so the floor does not depend on
-   the computers' clocks. The floor is exclusive: the target refuses an envelope whose `created`
-   is not later than its authorization's floor (`signature_refused`, `authorization_changed`),
-   so an envelope signed before a removal, or in the enrollment's own second, never runs under
-   the next authorization. The client keeps the highest `created` that it signed with the key,
-   signs an enrollment statement at `max(now, highest + 1)`, and signs each other envelope at
-   `max(now, highest, last_enrollment + 1)`, where `last_enrollment` is the `created` of the
-   key's latest enrollment statement. So a clock that steps back does not put an enrollment at or
-   below an earlier action, and the first actions after an enrollment step once above the floor;
-   a burst in one second keeps one value.
+   each action, so an action that waits for the store after a removal is refused.
+7. Each enrollment statement adds an authorization once on a computer: the target keeps the IDs
+   of all authorizations that it ever added, and refuses a statement whose ID it has
+   (`statement_used`). A key that is removed and enrolled again needs a new statement, so it has
+   a new authorization ID. Every other envelope carries its authorization ID in `auth`, and the
+   target runs it only under that current authorization (Decision 3.3). So an envelope signed
+   under an earlier authorization never runs under a later one, whatever the clocks say, and
+   receipts never cross authorizations (Decision 4.1).
 8. A maintainer secret reset, Remote off and unpair do not remove keys. Remote off and unpair
    stop the transport only.
 
@@ -127,6 +122,7 @@ A signed action names one target and one operation:
 {
   "v": "koinon-maintainer-1",
   "key": "SHA256:…",
+  "auth": "<authorization ID: hex SHA-256 of the enrollment statement's signed bytes>",
   "target": "<target pin>",
   "op": "decision_verdict",
   "args": {"reference": "…", "revision": 3, "snapshot": "<hex>", "verdict": "approved", "note": ""},
@@ -148,9 +144,8 @@ A signed action names one target and one operation:
    reason):
    1. one JSON object with exactly these fields, no duplicate key, `v` `koinon-maintainer-1`
       (`version`); `target` its own pin (`target`);
-   2. the key has a current authorization (`key_unknown`, `key_removed`); the signature
-      (`signature`); `created` later than the authorization's floor (`authorization_changed`,
-      Decision 1.7);
+   2. the key has a current authorization (`key_unknown`, `key_removed`), and `auth` is its ID
+      (`authorization_changed`, Decision 1.7); the signature (`signature`);
    3. for a write, inside its store transaction: a receipt for this authorization and request
       (Decision 4) is answered now, whatever `created` is; else `created` within 5 minutes of the
       target's clock at that moment (`time`), then the operation and its own checks. The time
@@ -161,7 +156,9 @@ A signed action names one target and one operation:
 5. The enrollment statement is an envelope with `op` `enroll`, `args`
    `{"user", "client", "public_key"}`, the target's pin and no request. `public_key` is the
    standard base64 (with padding) of the raw 32-byte Ed25519 public key; `key add` refuses it
-   unless `key` is its key ID, then checks the signature with it and stores it. `key add` takes it while `created` is within 10 minutes, because
+   unless `key` is its key ID, then checks the signature with it and stores it. The statement
+   has no `auth`; `key add` refuses a statement that this computer added before
+   (`statement_used`, Decision 1.7). `key add` takes it while `created` is within 10 minutes, because
    it is carried to the target by hand; this is the only 10-minute window.
 
 Test vectors (synthetic key and target; generated with Go `crypto/ed25519`, checked with
@@ -179,15 +176,17 @@ snapshot_sha256: 350f1e8dd2e447f6bf2594e780e0fc16544c0114cdfdf9cccbb1346a4a9860d
 snapshot2_canonical: {"agent_text":"","commands":["koinon version","git status --short"],"context":"- Line one\n- Line two","kind":"decision","recommendation":"Approve.","reference":"VEC-1","revision":3,"title":"Approve the test vector","where":"docs/test"}
 snapshot2_sha256: b6c12882582116eae7810fd6cb251045973eea8411b8d800c2c7e0b780d2b5ba
 
+auth (sha256 of the enroll signed bytes): 60f6757e18de87bfa4918aa9b764b50b36cbddf982d9e4bebe226ffc51836f6e
+
 op: enroll
 canonical: {"args":{"client":"koinon-voice","public_key":"ebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ=","user":"maintainer"},"created":1794699000,"key":"SHA256:ZbYGc9btiEvwHCwiLYKtoHQPKawzVdapJcgfF/R6J7g","op":"enroll","target":"a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf","v":"koinon-maintainer-1"}
 signed_bytes_hex: 6b6f696e6f6e2d6d61696e7461696e65722d310a7b2261726773223a7b22636c69656e74223a226b6f696e6f6e2d766f696365222c227075626c69635f6b6579223a22656256574c6f2f6d56506c41654c4553364b6d4c703541666854726d6c623758344f4f52433630456c6d513d222c2275736572223a226d61696e7461696e6572227d2c2263726561746564223a313739343639393030302c226b6579223a225348413235363a5a6259476339627469457677484377694c594b746f4851504b61777a566461704a636766462f52364a3767222c226f70223a22656e726f6c6c222c22746172676574223a2261306131613261336134613561366137613861396161616261636164616561666230623162326233623462356236623762386239626162626263626462656266222c2276223a226b6f696e6f6e2d6d61696e7461696e65722d31227d
 sig_b64: 3mzi0yvfgymYoV3Wp6xVOwjOKuUQTP/9+hXAd23WytD8ykv/4vTF1Tpu3t4H8ZBkr7OtLJfr9NoNvVkhTKOqBQ==
 
 op: decision_verdict
-canonical: {"args":{"note":"ok <&> \"quoted\"","reference":"VEC-1","revision":3,"snapshot":"350f1e8dd2e447f6bf2594e780e0fc16544c0114cdfdf9cccbb1346a4a9860dc","verdict":"approved"},"created":1794699000,"key":"SHA256:ZbYGc9btiEvwHCwiLYKtoHQPKawzVdapJcgfF/R6J7g","op":"decision_verdict","request":"vec-request-000001","target":"a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf","v":"koinon-maintainer-1"}
-signed_bytes_hex: 6b6f696e6f6e2d6d61696e7461696e65722d310a7b2261726773223a7b226e6f7465223a226f6b203c263e205c2271756f7465645c22222c227265666572656e6365223a225645432d31222c227265766973696f6e223a332c22736e617073686f74223a2233353066316538646432653434376636626632353934653738306530666331363534346330313134636466646639636363626231333436613461393836306463222c2276657264696374223a22617070726f766564227d2c2263726561746564223a313739343639393030302c226b6579223a225348413235363a5a6259476339627469457677484377694c594b746f4851504b61777a566461704a636766462f52364a3767222c226f70223a226465636973696f6e5f76657264696374222c2272657175657374223a227665632d726571756573742d303030303031222c22746172676574223a2261306131613261336134613561366137613861396161616261636164616561666230623162326233623462356236623762386239626162626263626462656266222c2276223a226b6f696e6f6e2d6d61696e7461696e65722d31227d
-sig_b64: 5RIpFZ7G+PMlGqvRQizOOmOaPK637OhJX9dCifNKOjIOXjvG4drxmGRLZVaViYYundattt/zTlJOHDiq6zeKCQ==
+canonical: {"args":{"note":"ok <&> \"quoted\"","reference":"VEC-1","revision":3,"snapshot":"350f1e8dd2e447f6bf2594e780e0fc16544c0114cdfdf9cccbb1346a4a9860dc","verdict":"approved"},"auth":"60f6757e18de87bfa4918aa9b764b50b36cbddf982d9e4bebe226ffc51836f6e","created":1794699000,"key":"SHA256:ZbYGc9btiEvwHCwiLYKtoHQPKawzVdapJcgfF/R6J7g","op":"decision_verdict","request":"vec-request-000001","target":"a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf","v":"koinon-maintainer-1"}
+signed_bytes_hex: 6b6f696e6f6e2d6d61696e7461696e65722d310a7b2261726773223a7b226e6f7465223a226f6b203c263e205c2271756f7465645c22222c227265666572656e6365223a225645432d31222c227265766973696f6e223a332c22736e617073686f74223a2233353066316538646432653434376636626632353934653738306530666331363534346330313134636466646639636363626231333436613461393836306463222c2276657264696374223a22617070726f766564227d2c2261757468223a2236306636373537653138646538376266613439313861613962373634623530623336636264646639383264396534626562653232366666633531383336663665222c2263726561746564223a313739343639393030302c226b6579223a225348413235363a5a6259476339627469457677484377694c594b746f4851504b61777a566461704a636766462f52364a3767222c226f70223a226465636973696f6e5f76657264696374222c2272657175657374223a227665632d726571756573742d303030303031222c22746172676574223a2261306131613261336134613561366137613861396161616261636164616561666230623162326233623462356236623762386239626162626263626462656266222c2276223a226b6f696e6f6e2d6d61696e7461696e65722d31227d
+sig_b64: IOGwy1JLMXL0Lizmp1LZe7skwiVP7FO1wkuATry177ta1FFcfdFZDXAdl1LqiPGneV/AmKPrgFUHk/rl1AKmDQ==
 ```
 
 ## Decision 4: once only, outcome by request
@@ -202,9 +201,10 @@ sig_b64: 5RIpFZ7G+PMlGqvRQizOOmOaPK637OhJX9dCifNKOjIOXjvG4drxmGRLZVaViYYundattt/
 3. `outcome` with `{"request", "created"}` (the request's own `created`) answers the receipt of
    that authorization: `recorded` with the result, `refused` with the code, or `unknown_request`
    with the target's clock `now` when there is none, or `authorization_changed` when the
-   request's `created` is not later than the current authorization's floor (Decision 1.7). Then:
-   - `authorization_changed`: the request belonged to an earlier authorization of this key,
-     whose receipts this one cannot read, so the outcome is unknown. The client says so and does
+   `outcome` envelope's own `auth` is not the current authorization (Decision 1.7). Then:
+   - `authorization_changed`: the key was enrolled again since the request, and the client asks
+     under the authorization of the request, which is gone; the new authorization cannot read
+     its receipts, so the outcome is unknown. The client says so and does
      not send it again; the maintainer reads the target's record (for a verdict, its history).
    - `now` more than 5 minutes after the request's `created`: final. The write did not run and
      cannot run (item 3.3 of Decision 3 refuses it inside the transaction); the client says so,
@@ -256,6 +256,11 @@ sig_b64: 5RIpFZ7G+PMlGqvRQizOOmOaPK637OhJX9dCifNKOjIOXjvG4drxmGRLZVaViYYundattt/
    breaking the signature.
 5. The client acts only on pins that it enrolled; it takes names and states for them from
    `computers`.
+6. Trust: the node is one of the maintainer's own computers, reached over the tailnet, and the
+   client trusts it to show the target's answers as they are. A node cannot make an action run
+   that the client did not sign, change it, or get a verdict for text that the client did not
+   show (Decision 2.2). The target's answers are not signed in this deliverable, so a node that
+   lies could show a false result; target-signed answers are #696.
 
 ## Decision 6: notices and state
 
@@ -341,12 +346,10 @@ The node's own refusals, above: `computer_offline` and `outcome_unknown` come fr
    after the commit gives `outcome_unknown`, and `outcome` or the same envelope gives the first
    result, with one verdict recorded. Another payload under the same ID is `request_conflict`.
    A key removed and added again cannot read or replay the earlier authorization's receipts.
-   A write that commits, loses its answer, and whose key is then removed and enrolled again:
-   `outcome` under the new authorization answers `authorization_changed`, never final; an
-   envelope signed before the removal is refused with `authorization_changed`. The same holds
-   for a write signed in the same second as the new enrollment, and for a client clock that
-   stepped back before the enrollment. A key created and enrolled, then a session and an action, all in the same
-   wall-clock second: they run.
+   A write that commits, loses its answer, and whose key is then removed and enrolled again with
+   a new statement: an envelope of the earlier authorization, replayed, is refused with
+   `authorization_changed`; the same statement file added again is refused with
+   `statement_used`, also within its 10 minutes.
    A write whose transaction is held open across the end of its window while `outcome` runs:
    `outcome` waits and then sees the receipt, or answers final when the write rolled back; it
    never answers final before a commit.
