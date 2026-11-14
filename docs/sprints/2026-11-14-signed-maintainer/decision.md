@@ -50,7 +50,7 @@ board as card LINK-693-SIGNED.
 4. Enrollment, on each computer, with that computer's own maintainer login or secret:
    1. On the target, `koinon link status` prints its pin as `Fingerprint`; Settings shows it too.
       This is the only source of a pin for enrollment, so the pin is read on the computer itself.
-   2. The client signs an enrollment statement for that pin (Decision 3.4), for example
+   2. The client signs an enrollment statement for that pin (Decision 3.5), for example
       `koinon-voice key enroll --target PIN --user NAME`.
    3. On the target, `koinon maintainer key add --statement FILE` (or Settings → Keys) checks the
       statement and stores the authorization. `koinon maintainer key list` and
@@ -123,8 +123,14 @@ A signed action names one target and one operation:
 ```
 
 1. The signed bytes are `koinon-maintainer-1\n` followed by the RFC 8785 bytes of the envelope
-   without `sig`. `sig` is the base64 Ed25519 signature of those bytes.
-2. The target checks in this order, and stops at the first refusal (`signature_refused` with a
+   without `sig`. `sig` is the standard base64 (with padding) Ed25519 signature of those bytes.
+   The key ID is `SHA256:` and the standard base64 of the SHA-256 of the raw 32-byte public key,
+   without padding, as OpenSSH writes fingerprints.
+2. Values in v1: object keys are ASCII; values are strings, integers between -(2^53-1) and
+   2^53-1, booleans, and objects of these (only `changes` `versions`, string to integer). No
+   floats, null or arrays. `created` is an integer of Unix seconds. The target refuses any other
+   value (`signature_refused`, `version`).
+3. The target checks in this order, and stops at the first refusal (`signature_refused` with a
    reason):
    1. one JSON object with exactly these fields, no duplicate key, `v` `koinon-maintainer-1`
       (`version`); `target` its own pin (`target`);
@@ -134,10 +140,33 @@ A signed action names one target and one operation:
       whatever `created` is;
    4. `created` within 5 minutes of the target's clock (`time`);
    5. the operation and its own checks.
-3. The user name and client label come from the target's authorization, never from the envelope.
-4. The enrollment statement is an envelope with `op` `enroll`, `args` `{"user", "client"}`, the
+4. The user name and client label come from the target's authorization, never from the envelope.
+5. The enrollment statement is an envelope with `op` `enroll`, `args` `{"user", "client"}`, the
    target's pin and no request. `key add` takes it while `created` is within 10 minutes, because
    it is carried to the target by hand; this is the only 10-minute window.
+
+Test vectors (synthetic key and target; generated with Go `crypto/ed25519`, checked with
+Python `cryptography`). The seed is bytes 0x01 to 0x20; the snapshot is an example item.
+
+```text
+seed_hex: 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20
+public_key_hex: 79b5562e8fe654f94078b112e8a98ba7901f853ae695bed7e0e3910bad049664
+public_key_b64: ebVWLo/mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ=
+key_id: SHA256:ZbYGc9btiEvwHCwiLYKtoHQPKawzVdapJcgfF/R6J7g
+
+snapshot_canonical: {"agent_text":"","commands":"","context":"- Line one\n- Line two","kind":"decision","recommendation":"Approve.","reference":"VEC-1","revision":3,"title":"Approve the test vector","where":"docs/test"}
+snapshot_sha256: 4dc4570ea265939f1a8c9e64e19dd9316dd7f438600410486cad57468e62a8ec
+
+op: enroll
+canonical: {"args":{"client":"koinon-voice","user":"maintainer"},"created":1794699000,"key":"SHA256:ZbYGc9btiEvwHCwiLYKtoHQPKawzVdapJcgfF/R6J7g","op":"enroll","target":"a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf","v":"koinon-maintainer-1"}
+signed_bytes_hex: 6b6f696e6f6e2d6d61696e7461696e65722d310a7b2261726773223a7b22636c69656e74223a226b6f696e6f6e2d766f696365222c2275736572223a226d61696e7461696e6572227d2c2263726561746564223a313739343639393030302c226b6579223a225348413235363a5a6259476339627469457677484377694c594b746f4851504b61777a566461704a636766462f52364a3767222c226f70223a22656e726f6c6c222c22746172676574223a2261306131613261336134613561366137613861396161616261636164616561666230623162326233623462356236623762386239626162626263626462656266222c2276223a226b6f696e6f6e2d6d61696e7461696e65722d31227d
+sig_b64: +Hu2NC+pgMxd11EElbi+Nl7buBnSGpF+76iTkS3vX/HVevpU6iy4OePvmQZua0nZ7Zi38aKuSYfIZRYXgYBlCA==
+
+op: decision_verdict
+canonical: {"args":{"note":"ok <&> \"quoted\"","reference":"VEC-1","revision":3,"snapshot":"4dc4570ea265939f1a8c9e64e19dd9316dd7f438600410486cad57468e62a8ec","verdict":"approved"},"created":1794699000,"key":"SHA256:ZbYGc9btiEvwHCwiLYKtoHQPKawzVdapJcgfF/R6J7g","op":"decision_verdict","request":"vec-request-000001","target":"a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf","v":"koinon-maintainer-1"}
+signed_bytes_hex: 6b6f696e6f6e2d6d61696e7461696e65722d310a7b2261726773223a7b226e6f7465223a226f6b203c263e205c2271756f7465645c22222c227265666572656e6365223a225645432d31222c227265766973696f6e223a332c22736e617073686f74223a2234646334353730656132363539333966316138633965363465313964643933313664643766343338363030343130343836636164353734363865363261386563222c2276657264696374223a22617070726f766564227d2c2263726561746564223a313739343639393030302c226b6579223a225348413235363a5a6259476339627469457677484377694c594b746f4851504b61777a566461704a636766462f52364a3767222c226f70223a226465636973696f6e5f76657264696374222c2272657175657374223a227665632d726571756573742d303030303031222c22746172676574223a2261306131613261336134613561366137613861396161616261636164616561666230623162326233623462356236623762386239626162626263626462656266222c2276223a226b6f696e6f6e2d6d61696e7461696e65722d31227d
+sig_b64: hXQ67DMFF3ElMgj3le+wUlKi0WDK1EglpgyI3EDN+b9EaF2tOQp11OjiUlKvM6KBLoe9+oerhKin8XoZw5w+Dw==
+```
 
 ## Decision 4: once only, outcome by request
 
@@ -167,7 +196,7 @@ A signed action names one target and one operation:
 1. **A node on the client's computer**: the client runs `koinon mcp --maintainer --signed`. The
    first line of its standard input is a signed `session` envelope, in place of the secret, with
    `target` the node's pin, `args` `{"client"}` and a request ID. The node checks it as in
-   Decision 3.2 and opens a maintainer session with the lifetime of today's maintainer token
+   Decision 3.3 and opens a maintainer session with the lifetime of today's maintainer token
    (24 hours idle, 7 days at most, ended by a daemon restart or a key removal): then
    `maintainer_token_expired`, and the client signs a new `session`. Refusals:
    `signature_refused` with its reason. The node's own pin for the session comes from
