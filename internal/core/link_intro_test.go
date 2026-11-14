@@ -44,7 +44,21 @@ func pinOf(t *testing.T, h *linkHost) string {
 // pairWith returns h's pair with the computer of other, by its pin.
 func pairWith(t *testing.T, h, other *linkHost) (link.Pair, bool) {
 	t.Helper()
-	return h.state(t).PairByPin(pinOf(t, other))
+	return lockedState(t, h).PairByPin(pinOf(t, other))
+}
+
+// lockedState reads h's link state under its link lock, as the daemon does: a read during
+// the daemon's atomic replace can hold the replaced inode, which the private file check
+// refuses (seen on macOS).
+func lockedState(t *testing.T, h *linkHost) link.State {
+	t.Helper()
+	h.d.link.mu.Lock()
+	s, err := link.ReadState(h.root)
+	h.d.link.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
 }
 
 // requireMesh checks that every two hosts hold one paired pair with each other, with the
@@ -52,8 +66,8 @@ func pairWith(t *testing.T, h, other *linkHost) (link.Pair, bool) {
 func requireMesh(t *testing.T, hosts ...*linkHost) {
 	t.Helper()
 	for i, a := range hosts {
-		if got := len(a.state(t).Pairs); got != len(hosts)-1 {
-			t.Fatalf("%s has %d pairs, want %d: %+v", a.root, got, len(hosts)-1, a.state(t).Pairs)
+		if got := len(lockedState(t, a).Pairs); got != len(hosts)-1 {
+			t.Fatalf("%s has %d pairs, want %d: %+v", a.root, got, len(hosts)-1, lockedState(t, a).Pairs)
 		}
 		for _, b := range hosts[i+1:] {
 			pa, okA := pairWith(t, a, b)
@@ -67,7 +81,7 @@ func requireMesh(t *testing.T, hosts ...*linkHost) {
 
 func introsOf(t *testing.T, h *linkHost) []link.Intro {
 	t.Helper()
-	return h.state(t).Intros
+	return lockedState(t, h).Intros
 }
 
 // Two joins pair four computers with each other: each join's inviter introduces the new
@@ -520,7 +534,7 @@ func TestLinkIntroductionUnpairAndLeave(t *testing.T) {
 	if err != nil || result.Unpaired != 2 {
 		t.Fatalf("leave %+v %v", result, err)
 	}
-	if s := c.state(t); len(s.Pairs) != 0 || len(s.Intros) != 0 {
+	if s := lockedState(t, c); len(s.Pairs) != 0 || len(s.Intros) != 0 {
 		t.Fatalf("after leave %+v", s)
 	}
 	for _, h := range []*linkHost{a, b} {
