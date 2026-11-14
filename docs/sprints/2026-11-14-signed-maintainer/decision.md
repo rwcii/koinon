@@ -192,8 +192,8 @@ node that showed other text than the target holds cannot get a verdict signed fo
 | R9, R10 | Decision 1; the private key stays with the client |
 | R11 | Decision 3; the client is the key record's client label, one key per install |
 | R12 | Decision 3 `target` is the pin; Decision 5.4 lists pins with names |
-| R13, R14, R15 | Decision 4 (receipts, `request_conflict`, `outcome`); "queued here" only if open point 1 queues |
-| R16 | Open point 1 |
+| R13, R14, R15 | Decision 4 (receipts, `request_conflict`, `outcome`); no "queued here" for signed actions (#695) |
+| R16 | Not queued: settled point 1; the queue is #695 |
 | R17, R18, R19, R21 | Decision 6 and Decision 5.4 |
 | R22, R23, R24, R25 | Decision 5 |
 | R26 | Decision 1.4 and 1.5 |
@@ -206,9 +206,13 @@ node that showed other text than the target holds cannot get a verdict signed fo
 - PROTOCOL.md: the envelope, the routes and the errors.
 - Koinon Voice: its ADR 001 and PDRs 001 and 002 (koinon-voice#36).
 
-## Open points for the maintainer
+## Settled with the maintainer
 
-1. Signed actions are not queued for an offline computer (Decision 4.5). Koinon Voice proposed
-   queuing `send` and `room_post`. Recommendation: no queue in this deliverable.
-2. A client with no node on its computer reaches another computer's Remote address
-   (Decision 5.2). This puts a new maintainer route on the Serve listener.
+Robert Capps, 2026-11-14, terminal, answering two questions:
+
+1. Signed actions are not queued for an offline computer (Decision 4.5): he chose "No queue for
+   now". Koinon Voice had proposed queuing `send` and `room_post` (R16). Then: "file an issue to
+   track any item we push off, so it's not lost." The queue is #695.
+2. A client with no node on its computer reaches another computer's Remote address on a route
+   that accepts only signed actions (Decision 5.2): he chose "Remote address, signed-only". The
+   option of speaking the link protocol on port 47672 as a client was not taken.
