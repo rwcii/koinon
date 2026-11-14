@@ -436,6 +436,8 @@ return screen after sign-in, without submitting the prior action.
 | Join answers `link_unreachable` | The other computer did not answer on its link port. Check that it is on, connected to the tailnet and has remote access on, and that the tailnet policy allows TCP on its link port (Connect your computers). |
 | Join answers `link_key_mismatch` or `link_invitation_refused` | Make a new invitation on the other computer and paste it again. |
 | A link step answers `link_remote_required` | Turn remote access on with `koinon remote enable` on this computer. |
+| After a join, an introduced computer shows as `rejected` (`link_key_refused`) | That computer did not store its introduction: it runs a version before v0.11.1, or it refused it. Update it, then on this computer `koinon link unpair NAME`, and pair the two directly with an invitation. |
+| Join says that the introductions did not arrive yet | This computer asks again every 30 seconds while the inviting computer answers; `koinon link status` shows the introduced pairs when they arrive. An answer `link_introductions_full` clears as the inviting computer's waiting introductions reach their computers. |
 | Host is configured but phone fails | Check host wake state, both Tailscale connections, network policy, and the URL from status. Complete the cellular test separately. |
 
 The [verification record](sprints/2026-11-11-remote-dashboard/verification.md) separates automated,

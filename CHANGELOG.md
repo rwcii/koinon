@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-11-14 — One join adds a computer to the whole group of your Koinon computers
+
+This release makes it easy to link more than two computers (#683). The computer that makes an
+invitation introduces the joining computer to each of its other paired computers, so four
+computers need three joins, not six pairs. `koinon link leave` removes every pair of a computer.
+The state schema stays at 38.
+
 - One join adds a computer to the whole group of your Koinon computers (#683, LINK-GROUP-JOIN).
   Make the invitation on a computer that is already paired: after the join, that computer
   introduces the new computer to each of its other paired computers, on their pinned links, so
@@ -19,6 +26,24 @@ into a dated release section when promoted to `main`.
   introduction, and the new computer then shows it as rejected until you unpair it there.
   `link.json` holds the waiting introductions; a downgrade reads it only after `koinon link
   leave`.
+
+Upgrade from v0.11.0 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and rewrites the skill entries; the store stays at schema 38. The
+restart ends current local dashboard logins: log in again with the Koinon password, or run
+`koinon dashboard` for a one-time link. Remote sign-ins keep their 48 hours. Homebrew then shows
+the steps that `koinon install --plan` finds; run them, and run `koinon install --plan` again to
+check. A running `koinon mcp` server runs the new release without a session restart.
+
+Upgrade notes:
+
+- Upgrade every computer that you pair to v0.11.1 before you pair them. Then make each
+  invitation on a computer that is already paired, and join it on the new computer
+  (docs/REMOTE-DASHBOARD.md, Connect your computers).
+- Pairs made with v0.11.0 stay as they are; an introduction adds only the missing pairs.
+- To go back to v0.11.0 after introductions were made, run `koinon link leave` first: v0.11.0
+  cannot read the new fields of `link.json`.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
 
 ## 2026-11-13 — Messages between your Koinon computers, and remote sign-in that lasts 48 hours across restarts
 
