@@ -22,6 +22,8 @@ const StateFile = "link.json"
 const (
 	MaxPairs   = 64
 	MaxInvites = 16
+	// MaxIntros bounds the introductions that wait for delivery.
+	MaxIntros = 256
 )
 
 // Pair states and roles.
@@ -43,6 +45,21 @@ type State struct {
 	Port    int      `json:"port"`
 	Pairs   []Pair   `json:"pairs"`
 	Invites []Invite `json:"invites"`
+	// Intros are the introductions that this computer still delivers (LINK-GROUP-JOIN).
+	Intros []Intro `json:"intros,omitempty"`
+}
+
+// Intro is one introduction that this computer delivers. After a new computer (pair New)
+// paired through this computer's invitation, this computer introduces it to the paired
+// computer Old with the new pair ID ID: the new computer gets Old's details in the join's
+// confirm reply, and NewSent records its acknowledgement; then Old gets the new computer's
+// details, and the introduction is removed.
+type Intro struct {
+	ID      string `json:"id"`
+	New     string `json:"new"`
+	Old     string `json:"old"`
+	NewSent bool   `json:"new_sent,omitempty"`
+	Created int64  `json:"created"`
 }
 
 // Pair is one other computer. ID is new for each pairing, so a new pairing of the same
@@ -62,6 +79,16 @@ type Pair struct {
 	Role       string   `json:"role"`
 	Created    int64    `json:"created"`
 	Expires    int64    `json:"expires,omitempty"`
+	// Via is the ID of the pair whose computer introduced this one, or "" for a pair made
+	// with an invitation (LINK-GROUP-JOIN).
+	Via string `json:"via,omitempty"`
+	// Asking is true on a joined pair until this computer has its introductions from the
+	// other computer; Seen holds the introductions that it already took or refused, so that a
+	// repeated answer never adds a pair again. Introduced is true on an invited pair once this
+	// computer made its introductions.
+	Asking     bool     `json:"asking,omitempty"`
+	Seen       []string `json:"seen,omitempty"`
+	Introduced bool     `json:"introduced,omitempty"`
 }
 
 // Invite is an open invitation of this computer.
@@ -122,7 +149,7 @@ func WriteState(root string, s State) error {
 // Validate checks the whole state: names, pins, addresses and the uniqueness of IDs, pins
 // and effective names.
 func (s State) Validate() error {
-	if s.Version != 1 || s.Name != "" && ValidateName(s.Name) != nil || s.Port != 0 && !remote.ValidHTTPSPort(s.Port) || len(s.Pairs) > MaxPairs || len(s.Invites) > MaxInvites {
+	if s.Version != 1 || s.Name != "" && ValidateName(s.Name) != nil || s.Port != 0 && !remote.ValidHTTPSPort(s.Port) || len(s.Pairs) > MaxPairs || len(s.Invites) > MaxInvites || len(s.Intros) > MaxIntros {
 		return errState
 	}
 	ids, pins, names := map[string]bool{}, map[string]bool{}, map[string]bool{}
@@ -142,12 +169,28 @@ func (s State) Validate() error {
 		if p.State != Pending && p.State != Paired || p.Role != Inviter && p.Role != Joiner || p.State == Pending && p.Expires == 0 {
 			return errState
 		}
+		if p.Via != "" && (len(p.Via) != 32 || p.Via == p.ID) || len(p.Seen) > MaxIntros || (p.Asking || len(p.Seen) > 0) && p.Role != Joiner || p.Introduced && p.Role != Inviter {
+			return errState
+		}
+		for _, id := range p.Seen {
+			if len(id) != 32 {
+				return errState
+			}
+		}
 		ids[p.ID], pins[p.Pin], names[p.Effective] = true, true, true
 	}
 	for _, i := range s.Invites {
 		if len(i.SecretHash) != 64 || i.Expires <= i.Created {
 			return errState
 		}
+	}
+	intros := map[string]bool{}
+	for _, i := range s.Intros {
+		// An intro's pairs can be gone: delivery drops it then.
+		if len(i.ID) != 32 || ids[i.ID] || intros[i.ID] || len(i.New) != 32 || len(i.Old) != 32 || i.New == i.Old {
+			return errState
+		}
+		intros[i.ID] = true
 	}
 	return nil
 }

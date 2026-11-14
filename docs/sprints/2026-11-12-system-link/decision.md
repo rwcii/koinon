@@ -198,6 +198,20 @@ sessions on two computers cannot exchange messages today.
 - **Alternatives considered:** v0.10.4 (keeps the v0.10 line, hides the feature and the schema
   change); v1.0.0 (claims stability).
 
+### The release number for one join to the group (LINK-GROUP-JOIN)
+
+- **Decided by:** Robert Capps.
+- **Date:** 2026-11-14, terminal.
+- **Context:** the release from develop after v0.11.0 holds #683 (LINK-GROUP-JOIN): one join
+  adds a computer to the group, and `koinon link leave`. The store stays at schema 38, and
+  v0.11.0 cannot read the new fields of `link.json`. Robert asked: "what stands in the way of
+  us deploying 0.11.1 with the remote group feature?" The agent recommended v0.12.0 because
+  of the new link operations and the `link.json` change.
+- **Decision:** v0.11.1: "no, we are not jumping to 12 for this. 0.11.1 is fine".
+- **Reason and scope:** the answer names no further reason. This covers this release only.
+- **Alternatives considered:** v0.12.0 (a minor number for new operations and a file format
+  that v0.11.0 cannot read).
+
 ## Acceptance criteria
 
 1. On two of the maintainer's computers with Remote on, **Copy invitation** on one and

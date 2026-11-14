@@ -339,7 +339,9 @@ The maintainer pairs this computer with Koinon on the maintainer's other compute
 dashboard's Settings, Computers, or with koinon link (#670). koinon link status shows this
 computer's name, its fingerprint and each paired computer: connected, offline or pending,
 with the time. A session that holds the maintainer secret can pair with koinon link invite
---secret-file PATH and koinon link join --secret-file PATH, as the maintainer's own step.
+--secret-file PATH and koinon link join --secret-file PATH, as the maintainer's own step. The
+computer that made the invitation introduces the joining computer to each of its other paired
+computers, so one join adds a computer to the whole group (LINK-GROUP-JOIN).
 peers also lists the sessions of each paired computer as NAME@COMPUTER, with remote true,
 computer, seen_at and stale when the list is not current; peer_status NAME@COMPUTER reads that
 list. send to NAME@COMPUTER queues the message on this computer and answers queued with a
