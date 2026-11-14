@@ -99,7 +99,7 @@ func CompleteStatusLine(ctx context.Context, o Options) (Report, bool, error) {
 	if cli == "" || !filepath.IsAbs(cli) {
 		return report, false, nil
 	}
-	if current, err := runCLI(ctx, cli, getCommand(o.Family)...); err != nil || !configured(o.Family, current, o.Binary) {
+	if ok, err := serverConfigured(ctx, o, cli); err != nil || !ok {
 		return report, false, nil
 	}
 	state, err := StatusLineState(o)

@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -44,10 +46,105 @@ case "$1 $2" in
 esac
 exit 2
 `
+	if family == "opencode" {
+		script = openCodeScript(log, state, 2)
+	}
 	if err := os.WriteFile(cli, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
 	return cli, state, log
+}
+
+// openCodeScript is a synthetic OpenCode of the given major version (#692): the script logs
+// the call and runs TestSyntheticOpenCode in this test binary, which acts as the real one.
+func openCodeScript(log, state string, major int) string {
+	return `#!/bin/sh
+printf '%s\n' "$*" >> '` + log + `'
+KOINON_SYNTHETIC_OPENCODE=` + fmt.Sprint(major) + ` KOINON_SYNTHETIC_STATE='` + state + `' \
+KOINON_SYNTHETIC_XDG=$XDG_CONFIG_HOME KOINON_SYNTHETIC_PWD=$PWD exec '` + os.Args[0] + `' -test.run='^TestSyntheticOpenCode$' -- "$@"
+`
+}
+
+// TestSyntheticOpenCode is the synthetic OpenCode CLI, run only by openCodeScript. Its `mcp add`
+// merges the entry into the configuration file as the real one does: OpenCode 1 always writes
+// mcp.NAME into $XDG_CONFIG_HOME/opencode/opencode.json; OpenCode 2 writes mcp.servers.NAME
+// there with --global, and into the working directory's opencode.json without it. Its
+// `mcp list` prints no command, as OpenCode 2.3.0 does. Each add is also kept in the state
+// file, one "NAME COMMAND ARGS" line each.
+func TestSyntheticOpenCode(t *testing.T) {
+	major := os.Getenv("KOINON_SYNTHETIC_OPENCODE")
+	if major == "" {
+		t.Skip("run by openCodeScript only")
+	}
+	args := os.Args[slices.Index(os.Args, "--")+1:]
+	state := os.Getenv("KOINON_SYNTHETIC_STATE")
+	lines, _ := os.ReadFile(state)
+	switch {
+	case slices.Equal(args, []string{"mcp", "add", "--help"}):
+		fmt.Println("  --url string  URL for a remote MCP server")
+		if major == "2" {
+			fmt.Println("  --global      Write to the global config instead of the project config")
+		}
+	case slices.Equal(args, []string{"mcp", "list"}):
+		for _, line := range strings.Fields(string(lines)) {
+			if !strings.HasPrefix(line, "/") && line != "mcp" {
+				fmt.Printf("✓ %s  connected\n", line)
+			}
+		}
+	case len(args) > 2 && args[0] == "mcp" && args[1] == "add":
+		// TestMain replaces the environment and the directory; the script kept the caller's.
+		dir := os.Getenv("KOINON_SYNTHETIC_PWD")
+		dash := slices.Index(args, "--")
+		global := slices.Contains(args[:dash], "--global")
+		name := args[dash-1]
+		if major == "1" || global {
+			dir = filepath.Join(os.Getenv("KOINON_SYNTHETIC_XDG"), "opencode")
+		}
+		path := filepath.Join(dir, "opencode.json")
+		config := map[string]any{}
+		if data, err := os.ReadFile(path); err == nil {
+			if err := json.Unmarshal(data, &config); err != nil {
+				os.Exit(3)
+			}
+		}
+		mcp, _ := config["mcp"].(map[string]any)
+		if mcp == nil {
+			mcp = map[string]any{}
+		}
+		servers := mcp
+		if major == "2" {
+			if servers, _ = mcp["servers"].(map[string]any); servers == nil {
+				servers = map[string]any{}
+			}
+			mcp["servers"] = servers
+		}
+		servers[name] = map[string]any{"type": "local", "command": args[dash+1:]}
+		config["mcp"] = mcp
+		data, _ := json.MarshalIndent(config, "", "  ")
+		os.MkdirAll(dir, 0700)
+		if os.WriteFile(path, data, 0600) != nil {
+			os.Exit(3)
+		}
+		var kept []string
+		for _, line := range strings.Split(strings.TrimSpace(string(lines)), "\n") {
+			if line != "" && !strings.HasPrefix(line, name+" ") {
+				kept = append(kept, line)
+			}
+		}
+		kept = append(kept, name+" "+strings.Join(args[dash+1:], " "))
+		os.WriteFile(state, []byte(strings.Join(kept, "\n")+"\n"), 0600)
+	default:
+		os.Exit(2)
+	}
+	os.Exit(0)
+}
+
+// xdgOpenCode makes base the XDG configuration directory, where OpenCode keeps its global
+// configuration, and gives that configuration's directory.
+func xdgOpenCode(t *testing.T, base string) string {
+	t.Helper()
+	t.Setenv("XDG_CONFIG_HOME", base)
+	return filepath.Join(base, "opencode")
 }
 
 func calls(t *testing.T, log string) []string {
@@ -61,7 +158,7 @@ func TestSetupEachFamilyAndRepeat(t *testing.T) {
 		t.Run(family, func(t *testing.T) {
 			cli, state, log := syntheticCLI(t, family)
 			o := Options{Family: family, CLI: cli, Binary: binary, StateDir: filepath.Join(t.TempDir(), "state"),
-				ClaudeConfig: filepath.Join(t.TempDir(), "claude"), AgyRoot: filepath.Join(t.TempDir(), "agy"), Opencode: filepath.Join(t.TempDir(), "opencode")}
+				ClaudeConfig: filepath.Join(t.TempDir(), "claude"), AgyRoot: filepath.Join(t.TempDir(), "agy"), Opencode: xdgOpenCode(t, t.TempDir())}
 			report, err := Run(context.Background(), o)
 			if err != nil || len(report.Changed) == 0 || report.CLI != cli {
 				t.Fatalf("first run: %+v %v", report, err)
@@ -96,7 +193,7 @@ func TestSetupEachFamilyAndRepeat(t *testing.T) {
 			if err != nil || len(again.Changed) != 0 || len(again.Unchanged) != len(report.Changed) {
 				t.Fatalf("repeat changed something: %+v %v", again, err)
 			}
-			if after := calls(t, log); strings.HasPrefix(after[len(after)-1], "mcp add") {
+			if after := calls(t, log); strings.HasPrefix(after[len(after)-1], "mcp add") && after[len(after)-1] != "mcp add --help" {
 				t.Fatalf("repeat ran add: %v", after)
 			}
 		})
@@ -133,7 +230,7 @@ func TestSetupIdentifiesItsOwnEntry(t *testing.T) {
 		for _, entries := range []string{"other /opt/k/koinon mcp\n", "koinon /opt/k/koinon status\n"} {
 			cli, state, _ := syntheticCLI(t, family)
 			os.WriteFile(state, []byte(entries), 0600)
-			report, err := Run(context.Background(), Options{Family: family, CLI: cli, Binary: "/opt/k/koinon", AgyRoot: t.TempDir(), Opencode: t.TempDir()})
+			report, err := Run(context.Background(), Options{Family: family, CLI: cli, Binary: "/opt/k/koinon", AgyRoot: t.TempDir(), Opencode: xdgOpenCode(t, t.TempDir())})
 			data, _ := os.ReadFile(state)
 			if err != nil || len(report.Changed) == 0 || !strings.Contains(string(data), "koinon /opt/k/koinon mcp\n") {
 				t.Fatalf("%s with %q: %+v %v %q", family, entries, report, err, data)
@@ -145,14 +242,13 @@ func TestSetupIdentifiesItsOwnEntry(t *testing.T) {
 	}
 }
 
-// Output captured from the real CLIs (Codex 0.160.0, Claude Code 2.1.290, agy 1.3.0,
-// OpenCode 1.18.35) against scratch configuration directories.
+// Output captured from the real CLIs (Codex 0.160.0, Claude Code 2.1.290, agy 1.3.0) against
+// scratch configuration directories. OpenCode is read from its files (#692).
 func TestConfiguredMatchesRealOutput(t *testing.T) {
 	const binary = "/opt/synthetic/koinon"
 	codex := `{"name":"koinon","enabled":true,"disabled_reason":null,"transport":{"type":"stdio","command":"/opt/synthetic/koinon","args":["mcp"],"env":null,"env_vars":[],"cwd":null},"enabled_tools":null}`
 	claude := "koinon:\n  Scope: User config (available in all your projects)\n  Status: ✘ Failed to connect\n  Type: stdio\n  Command: /opt/synthetic/koinon\n  Args: mcp\n  Environment:\n\nTo remove this server, run: claude mcp remove koinon -s user\n"
 	agy := "NAME    TYPE   STATUS   COMMAND/URL\nkoinon  stdio  enabled  /opt/synthetic/koinon mcp\nother   stdio  enabled  /opt/synthetic/koinon status\n"
-	opencode := "\x1b[0m\n┌  MCP Servers\n│\n●  ✗ koinon \x1b[90mfailed\n│      ENOENT: no such file or directory, posix_spawn '/opt/synthetic/koinon'\n│      \x1b[90m/opt/synthetic/koinon mcp\n│\n●  ✗ other \x1b[90mfailed\n│      \x1b[90m/opt/synthetic/koinon status\n│\n└  2 server(s)\n"
 	// Grok Build 1.0.50, grok mcp list --json in the development container (#254).
 	grok := `[
   {
@@ -179,7 +275,7 @@ func TestConfiguredMatchesRealOutput(t *testing.T) {
 		!owned("grok", strings.Replace(grok, `"enabled": true`, `"enabled": false`, 1), binary) {
 		t.Fatal("grok: project scope or disabled entry handled wrongly")
 	}
-	for family, output := range map[string]string{"codex": codex, "claude": claude, "agy": agy, "opencode": opencode, "grok": grok} {
+	for family, output := range map[string]string{"codex": codex, "claude": claude, "agy": agy, "grok": grok} {
 		if !configured(family, output, binary) {
 			t.Fatalf("%s: own entry not found", family)
 		}
@@ -190,9 +286,6 @@ func TestConfiguredMatchesRealOutput(t *testing.T) {
 	swapped := strings.NewReplacer("koinon  stdio", "x  stdio", "other   stdio", "koinon   stdio").Replace(agy)
 	if configured("agy", swapped, binary) {
 		t.Fatal("agy: another server's command matched")
-	}
-	if configured("opencode", strings.Replace(opencode, "✗ koinon", "✗ renamed", 1), binary) {
-		t.Fatal("opencode: another server's command matched")
 	}
 	if configured("codex", strings.Replace(codex, `"args":["mcp"]`, `"args":["status"]`, 1), binary) || configured("claude", strings.Replace(claude, "Args: mcp", "Args: status", 1), binary) {
 		t.Fatal("other arguments matched")
@@ -252,7 +345,7 @@ func TestAgyHookMergePreservesConfiguration(t *testing.T) {
 
 func TestOpenCodePluginAndDeepSeek(t *testing.T) {
 	cli, _, _ := syntheticCLI(t, "opencode")
-	root := t.TempDir()
+	root := xdgOpenCode(t, t.TempDir())
 	if _, err := Run(context.Background(), Options{Family: "opencode", CLI: cli, Binary: "/opt/koinon", Opencode: root}); err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +410,7 @@ func TestRemoveEachFamily(t *testing.T) {
 		t.Run(family, func(t *testing.T) {
 			cli, state, _ := syntheticCLI(t, family)
 			dir := t.TempDir()
-			o := Options{Family: family, CLI: cli, Binary: binary, AgyRoot: filepath.Join(dir, "agy"), Opencode: filepath.Join(dir, "opencode"),
+			o := Options{Family: family, CLI: cli, Binary: binary, AgyRoot: filepath.Join(dir, "agy"), Opencode: xdgOpenCode(t, dir),
 				StateDir: filepath.Join(dir, "state"), ClaudeConfig: filepath.Join(dir, "claude")}
 			os.MkdirAll(o.StateDir, 0700)
 			if family == "agy" {
@@ -428,6 +521,11 @@ func TestAdoptRecordsOnlyOwnConfiguredFamily(t *testing.T) {
 		t.Run(family, func(t *testing.T) {
 			cli, entries, log := syntheticCLI(t, family)
 			os.WriteFile(entries, []byte("koinon "+binary+" mcp\n"), 0600)
+			if family == "opencode" {
+				root := xdgOpenCode(t, t.TempDir())
+				os.MkdirAll(root, 0700)
+				os.WriteFile(filepath.Join(root, "opencode.json"), []byte(`{"mcp":{"servers":{"koinon":{"type":"local","command":["`+binary+`","mcp"]}}}}`), 0600)
+			}
 			state := filepath.Join(t.TempDir(), "state")
 			t.Setenv("PATH", filepath.Dir(cli)+string(filepath.ListSeparator)+os.Getenv("PATH"))
 			report, adopted, err := Adopt(context.Background(), Options{Family: family, Binary: binary, StateDir: state})
@@ -437,7 +535,7 @@ func TestAdoptRecordsOnlyOwnConfiguredFamily(t *testing.T) {
 			if path, err := launcher.ConfiguredCLI(state, family, ""); err != nil || path != cli {
 				t.Fatalf("not recorded: %q %v", path, err)
 			}
-			if got := calls(t, log); len(got) != 1 || !strings.HasPrefix(got[0], "mcp get") && got[0] != "mcp list" {
+			if got := calls(t, log); len(got) != 1 || !strings.HasPrefix(got[0], "mcp get") && got[0] != "mcp list" && got[0] != "mcp add --help" {
 				t.Fatalf("adopt did more than read the entry: %v", got)
 			}
 			if data, _ := os.ReadFile(entries); string(data) != "koinon "+binary+" mcp\n" {
@@ -493,6 +591,162 @@ func TestGuideTeamOperations(t *testing.T) {
 		}
 		if strings.Contains(text, "Type into a pane only at an empty, idle prompt") || strings.Contains(text, "own _handoff directory") {
 			t.Fatalf("%s guide keeps the unscoped condition or the fixed handoff path", family)
+		}
+	}
+}
+
+// syntheticOpenCode writes a synthetic OpenCode CLI of the given major version (#692).
+func syntheticOpenCode(t *testing.T, major int) (cli, log string) {
+	t.Helper()
+	dir := t.TempDir()
+	cli, log = filepath.Join(dir, "opencode"), filepath.Join(dir, "calls")
+	if err := os.WriteFile(cli, []byte(openCodeScript(log, filepath.Join(dir, "entries"), major)), 0700); err != nil {
+		t.Fatal(err)
+	}
+	return cli, log
+}
+
+// Setup writes the koinon server into OpenCode's global configuration in the shape of the
+// installed major version, never into the working directory, and Inspect then finds it, so
+// the install plan is current after one setup (#692).
+func TestOpenCodeSetupEachVersion(t *testing.T) {
+	binary := "/opt/my koinon/koinon"
+	for _, major := range []int{1, 2} {
+		t.Run(fmt.Sprint(major), func(t *testing.T) {
+			cli, log := syntheticOpenCode(t, major)
+			root := xdgOpenCode(t, t.TempDir())
+			work := t.TempDir()
+			t.Chdir(work)
+			o := Options{Family: "opencode", CLI: cli, Binary: binary, StateDir: filepath.Join(t.TempDir(), "state")}
+			if in := Inspect(context.Background(), o); in.Error != "" || in.Configured {
+				t.Fatalf("before setup: %+v", in)
+			}
+			report, err := Run(context.Background(), o)
+			if err != nil || !slices.Contains(report.Changed, "mcp server koinon") {
+				t.Fatalf("setup: %+v %v", report, err)
+			}
+			if entries, _ := os.ReadDir(work); len(entries) != 0 {
+				t.Fatalf("setup wrote into the working directory: %v", entries)
+			}
+			var config map[string]map[string]any
+			data, _ := os.ReadFile(filepath.Join(root, "opencode.json"))
+			if err := json.Unmarshal(data, &config); err != nil {
+				t.Fatalf("config: %s %v", data, err)
+			}
+			servers := config["mcp"]
+			if major == 2 {
+				servers, _ = config["mcp"]["servers"].(map[string]any)
+			}
+			if entry, _ := servers["koinon"].(map[string]any); fmt.Sprint(entry["command"]) != "["+binary+" mcp]" {
+				t.Fatalf("version %d entry: %s", major, data)
+			}
+			if in := Inspect(context.Background(), o); in.Error != "" || !in.Configured {
+				t.Fatalf("after setup: %+v", in)
+			}
+			again, err := Run(context.Background(), o)
+			if err != nil || !slices.Contains(again.Unchanged, "mcp server koinon") {
+				t.Fatalf("repeat: %+v %v", again, err)
+			}
+			adds := 0
+			for _, call := range calls(t, log) {
+				if strings.HasPrefix(call, "mcp add") && call != "mcp add --help" {
+					adds++
+					if (major == 2) != strings.Contains(call, "--global") {
+						t.Fatalf("version %d add: %s", major, call)
+					}
+				}
+			}
+			if adds != 1 {
+				t.Fatalf("adds: %v", calls(t, log))
+			}
+		})
+	}
+}
+
+// The check reads OpenCode's global files in its merge order, with JSONC comments and
+// trailing commas, and counts only the entry in the installed version's shape (#692).
+func TestOpenCodeConfigured(t *testing.T) {
+	const binary = "/opt/koinon/koinon"
+	v1 := `{"$schema": "https://opencode.ai/config.json", "mcp": {"koinon": {"type": "local", "command": ["` + binary + `", "mcp"]}}}`
+	v2 := `{"$schema": "https://opencode.ai/config.json", "mcp": {"servers": {"koinon": {"type": "local", "command": ["` + binary + `", "mcp"]}}}}`
+	for _, c := range []struct {
+		name   string
+		global bool
+		files  map[string]string
+		want   bool
+	}{
+		{"v1 entry", false, map[string]string{"opencode.json": v1}, true},
+		{"v2 entry", true, map[string]string{"opencode.json": v2}, true},
+		{"v1 entry under v2", true, map[string]string{"opencode.json": v1}, false},
+		{"v2 entry under v1", false, map[string]string{"opencode.json": v2}, false},
+		{"v1 disabled", false, map[string]string{"opencode.json": strings.Replace(v1, `"type"`, `"enabled": false, "type"`, 1)}, false},
+		{"v2 disabled", true, map[string]string{"opencode.json": strings.Replace(v2, `"type"`, `"disabled": true, "type"`, 1)}, false},
+		{"other binary", true, map[string]string{"opencode.json": strings.Replace(v2, binary, "/old/koinon", 1)}, false},
+		{"other server", true, map[string]string{"opencode.json": strings.Replace(v2, `"koinon"`, `"other"`, 1)}, false},
+		{"jsonc only", true, map[string]string{"opencode.jsonc": "// Koinon\n{\"mcp\": {\"servers\": {\"koinon\": {\"type\": \"local\", /* x */ \"command\": [\"" + binary + "\", \"mcp\",],},},},}\n"}, true},
+		{"jsonc disables json entry", true, map[string]string{"opencode.json": v2,
+			"opencode.jsonc": "{\"mcp\": {\"servers\": {\"koinon\": {\"disabled\": true,},},},} // off\n"}, false},
+		{"json changes config.json command", true, map[string]string{"config.json": v2,
+			"opencode.json": strings.Replace(v2, binary, "/old/koinon", 1)}, false},
+		{"jsonc repairs json entry", true, map[string]string{"opencode.json": strings.Replace(v2, binary, "/old/koinon", 1),
+			"opencode.jsonc": v2}, true},
+	} {
+		root := t.TempDir()
+		for name, content := range c.files {
+			os.WriteFile(filepath.Join(root, name), []byte(content), 0600)
+		}
+		if got, err := openCodeConfigured(root, c.global, binary, true); err != nil || got != c.want {
+			t.Errorf("%s: %v %v, want %v", c.name, got, err, c.want)
+		}
+	}
+	root := t.TempDir()
+	os.WriteFile(filepath.Join(root, "opencode.json"), []byte(`{"mcp": `), 0600)
+	if _, err := openCodeConfigured(root, true, binary, true); err == nil {
+		t.Fatal("unreadable configuration accepted")
+	}
+}
+
+// A later file that disables the entry makes setup fail after the add, never report a change;
+// a CLI whose help fails is an error, not OpenCode 1 (#692).
+func TestOpenCodeSetupFailures(t *testing.T) {
+	cli, _ := syntheticOpenCode(t, 2)
+	root := xdgOpenCode(t, t.TempDir())
+	os.MkdirAll(root, 0700)
+	os.WriteFile(filepath.Join(root, "opencode.jsonc"), []byte(`{"mcp": {"servers": {"koinon": {"disabled": true}}}}`), 0600)
+	o := Options{Family: "opencode", CLI: cli, Binary: "/opt/koinon/koinon", StateDir: filepath.Join(t.TempDir(), "state")}
+	if report, err := Run(context.Background(), o); err == nil || len(report.Changed) != 0 || !strings.Contains(err.Error(), "later file") {
+		t.Fatalf("masked entry: %+v %v", report, err)
+	}
+	broken := filepath.Join(t.TempDir(), "opencode")
+	os.WriteFile(broken, []byte("#!/bin/sh\necho broken >&2\nexit 1\n"), 0700)
+	o.CLI = broken
+	if _, err := Run(context.Background(), o); err == nil || !strings.Contains(err.Error(), "--help") {
+		t.Fatalf("failed help: %v", err)
+	}
+	if in := Inspect(context.Background(), o); in.Error == "" {
+		t.Fatalf("failed help inspected: %+v", in)
+	}
+}
+
+// Removal takes out either version's koinon entry, enabled or not, and leaves other servers
+// and settings (#692).
+func TestRemoveOpenCodeEachVersion(t *testing.T) {
+	const binary = "/opt/koinon/koinon"
+	for name, c := range map[string]struct{ before, left string }{
+		"v2 with other": {`{"model":"m","mcp":{"servers":{"other":{"type":"local","command":["x"]},"koinon":{"type":"local","disabled":true,"command":["` + binary + `","mcp"]}}}}`,
+			`{"mcp":{"servers":{"other":{"command":["x"],"type":"local"}}},"model":"m"}`},
+		"v2 alone":     {`{"model":"m","mcp":{"servers":{"koinon":{"type":"local","command":["` + binary + `","mcp"]}}}}`, `{"model":"m"}`},
+		"v1 disabled":  {`{"model":"m","mcp":{"koinon":{"type":"local","enabled":false,"command":["` + binary + `","mcp"]}}}`, `{"model":"m"}`},
+		"other binary": {`{"mcp":{"servers":{"koinon":{"type":"local","command":["/old/koinon","mcp"]}}}}`, `{"mcp":{"servers":{"koinon":{"command":["/old/koinon","mcp"],"type":"local"}}}}`},
+	} {
+		dir := t.TempDir()
+		os.WriteFile(filepath.Join(dir, "opencode.json"), []byte(c.before), 0600)
+		if _, err := Remove(context.Background(), Options{Family: "opencode", Binary: binary, Opencode: dir}); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		data, _ := os.ReadFile(filepath.Join(dir, "opencode.json"))
+		if !sameJSON(data, []byte(c.left)) {
+			t.Errorf("%s: left %s", name, data)
 		}
 	}
 }

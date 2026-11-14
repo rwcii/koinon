@@ -151,14 +151,17 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	case "codex":
 		remove = []string{"mcp", "remove", serverName}
 		add = []string{"mcp", "add", serverName, "--", o.Binary, "mcp"}
-	case "agy", "opencode":
+	case "agy":
 		add = []string{"mcp", "add", serverName, "--", o.Binary, "mcp"}
 	case "grok":
 		remove = []string{"mcp", "remove", "--scope", "user", serverName}
 		add = []string{"mcp", "add", "--scope", "user", serverName, "--", o.Binary, "mcp"}
 	}
-	current, getErr := run(get...)
-	if getErr == nil && configured(o.Family, current, o.Binary) {
+	if o.Family == "opencode" {
+		if err := openCodeServer(ctx, o, cli, &report); err != nil {
+			return report, err
+		}
+	} else if current, getErr := run(get...); getErr == nil && configured(o.Family, current, o.Binary) {
 		report.Unchanged = append(report.Unchanged, "mcp server "+serverName)
 	} else {
 		// grok mcp list succeeds without the entry, and grok mcp remove fails on a
@@ -228,6 +231,24 @@ func Run(ctx context.Context, o Options) (Report, error) {
 	return report, err
 }
 
+// serverConfigured reports whether the family's enabled koinon server runs exactly
+// `o.Binary mcp`: from the CLI's own output, or for OpenCode from its global configuration.
+func serverConfigured(ctx context.Context, o Options, cli string) (bool, error) {
+	if o.Family == "opencode" {
+		root, err := openCodeRoot(o)
+		if err != nil {
+			return false, err
+		}
+		global, err := openCodeGlobal(ctx, cli)
+		if err != nil {
+			return false, err
+		}
+		return openCodeConfigured(root, global, o.Binary, true)
+	}
+	current, err := runCLI(ctx, cli, getCommand(o.Family)...)
+	return err == nil && configured(o.Family, current, o.Binary), err
+}
+
 // getCommand is each family's command that prints its koinon MCP entry.
 func getCommand(family string) []string {
 	switch family {
@@ -275,10 +296,16 @@ func grokNote(ctx context.Context, cli string) string {
 
 // runCLI runs the agent CLI without input and returns its combined output.
 func runCLI(ctx context.Context, cli string, args ...string) (string, error) {
+	return runCLIIn(ctx, "", cli, args...)
+}
+
+// runCLIIn is runCLI in the working directory dir; an empty dir is the current one.
+func runCLIIn(ctx context.Context, dir, cli string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 	var out bytes.Buffer
 	cmd := exec.CommandContext(ctx, cli, args...)
+	cmd.Dir = dir
 	cmd.Stdout, cmd.Stderr = &out, &out
 	cmd.Stdin = nil
 	err := cmd.Run()
@@ -347,7 +374,7 @@ func Adopt(ctx context.Context, o Options) (Report, bool, error) {
 	if !filepath.IsAbs(cli) {
 		return report, false, nil
 	}
-	if current, err := runCLI(ctx, cli, getCommand(o.Family)...); err != nil || !configured(o.Family, current, o.Binary) {
+	if ok, err := serverConfigured(ctx, o, cli); err != nil || !ok {
 		return report, false, nil
 	}
 	if _, err := launcher.RecordCLI(ctx, o.StateDir, o.Family, cli); err != nil {
@@ -397,9 +424,8 @@ func sameFile(a, b string) bool {
 }
 
 var (
-	ansi     = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
-	agyRow   = regexp.MustCompile(`^koinon\s+stdio\s+(enabled|disabled)\s+(.+)$`)
-	openCode = regexp.MustCompile(`^\S+\s+\S+\s+(\S+)(\s|$)`)
+	ansi   = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
+	agyRow = regexp.MustCompile(`^koinon\s+stdio\s+(enabled|disabled)\s+(.+)$`)
 )
 
 // configured reports whether the agent's own output shows the server named koinon, enabled,
@@ -467,21 +493,6 @@ func matches(family, output, binary string, enabled bool) bool {
 		for _, line := range lines {
 			if m := agyRow.FindStringSubmatch(strings.TrimSpace(line)); m != nil && strings.TrimSpace(m[2]) == want &&
 				(m[1] == "enabled" || !enabled) {
-				return true
-			}
-		}
-	case "opencode":
-		// `opencode mcp list` prints a block per server: a line with its status mark and
-		// name, then indented lines, one of them its command line.
-		inside := false
-		for _, line := range lines {
-			trimmed := strings.TrimSpace(strings.TrimLeft(line, "│ "))
-			if strings.HasPrefix(line, "●") {
-				m := openCode.FindStringSubmatch(line)
-				inside = m != nil && m[1] == serverName
-				continue
-			}
-			if inside && trimmed == want {
 				return true
 			}
 		}

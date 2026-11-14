@@ -182,23 +182,15 @@ func removeOpenCode(o Options, report *Report) error {
 				if m.key != "mcp" {
 					continue
 				}
-				servers, ok := decodeMembers(m.value)
-				if !ok {
+				value, changed := removeOpenCodeEntry(m.value, want)
+				if !changed {
 					return members, false
 				}
-				for j, s := range servers {
-					var entry map[string]any
-					json.Unmarshal(s.value, &entry)
-					delete(entry, "enabled")
-					if s.key == serverName && sameJSON(mustJSON(entry), want) {
-						servers = append(servers[:j:j], servers[j+1:]...)
-						if len(servers) == 0 {
-							return append(members[:i:i], members[i+1:]...), true
-						}
-						members[i].value = encodeMembers(servers, "  ")
-						return members, true
-					}
+				if value == nil {
+					return append(members[:i:i], members[i+1:]...), true
 				}
+				members[i].value = value
+				return members, true
 			}
 			return members, false
 		})
@@ -228,6 +220,44 @@ func removeOpenCode(o Options, report *Report) error {
 		return err
 	}
 	return nil
+}
+
+// removeOpenCodeEntry removes the koinon entry that runs want, enabled or not, from an
+// OpenCode mcp object: OpenCode 1's mcp.koinon or OpenCode 2's mcp.servers.koinon (#692). It
+// gives nil when the object is left empty.
+func removeOpenCodeEntry(mcp json.RawMessage, want []byte) (json.RawMessage, bool) {
+	servers, ok := decodeMembers(mcp)
+	if !ok {
+		return mcp, false
+	}
+	for j, s := range servers {
+		if s.key == "servers" {
+			if value, changed := removeOpenCodeEntry(s.value, want); changed {
+				if value == nil {
+					servers = append(servers[:j:j], servers[j+1:]...)
+				} else {
+					servers[j].value = value
+				}
+				if len(servers) == 0 {
+					return nil, true
+				}
+				return encodeMembers(servers, "  "), true
+			}
+			continue
+		}
+		var entry map[string]any
+		json.Unmarshal(s.value, &entry)
+		delete(entry, "enabled")
+		delete(entry, "disabled")
+		if s.key == serverName && sameJSON(mustJSON(entry), want) {
+			servers = append(servers[:j:j], servers[j+1:]...)
+			if len(servers) == 0 {
+				return nil, true
+			}
+			return encodeMembers(servers, "  "), true
+		}
+	}
+	return mcp, false
 }
 
 func mustJSON(v any) []byte { data, _ := json.Marshal(v); return data }

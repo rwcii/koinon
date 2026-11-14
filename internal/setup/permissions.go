@@ -420,11 +420,20 @@ func Inspect(ctx context.Context, o Options) Inspection {
 	// Only a completed answer counts: "No MCP server named" with a nonzero exit means that
 	// the server is not there; output that did not end, or a stopped CLI, is not read.
 	var exit *exec.ExitError
-	switch out, err := readCLI(ctx, 250*time.Millisecond, cli, getCommand(o.Family)...); {
-	case err == nil:
-		in.Configured = configured(o.Family, out, o.Binary)
-	case !errors.As(err, &exit) || ctx.Err() != nil || !absent(o.Family, out):
-		in.Error = fmt.Sprintf("%s %s: %v", cli, strings.Join(getCommand(o.Family), " "), err)
+	if o.Family == "opencode" {
+		// OpenCode's configuration files are read; its list may not show the command (#692).
+		if ok, err := serverConfigured(ctx, o, cli); err != nil {
+			in.Error = err.Error()
+		} else {
+			in.Configured = ok
+		}
+	} else {
+		switch out, err := readCLI(ctx, 250*time.Millisecond, cli, getCommand(o.Family)...); {
+		case err == nil:
+			in.Configured = configured(o.Family, out, o.Binary)
+		case !errors.As(err, &exit) || ctx.Err() != nil || !absent(o.Family, out):
+			in.Error = fmt.Sprintf("%s %s: %v", cli, strings.Join(getCommand(o.Family), " "), err)
+		}
 	}
 	if result, err := Permissions(o, false); err == nil {
 		in.Permissions = &result

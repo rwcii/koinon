@@ -602,8 +602,8 @@ staging files.
 - What `koinon setup` added for each agent (all families by default):
   - the MCP entry, through the agent's own CLI, only while it still runs this binary,
     whether it is enabled or disabled;
-  - for OpenCode, which has no remove command, the `mcp.koinon` entry in `opencode.json` or
-    `opencode.jsonc`;
+  - for OpenCode, which has no remove command, the `mcp.koinon` (OpenCode 1) or
+    `mcp.servers.koinon` (OpenCode 2) entry in `opencode.json` or `opencode.jsonc`;
   - the `agy` Stop hook, and the `agy` status line, whose saved original is restored;
   - the Codex SessionStart hook in `$CODEX_HOME/hooks.json` (default `~/.codex/hooks.json`),
     only while it runs this binary;
@@ -686,7 +686,14 @@ Native hook trust and optional terminal operations remain separate. Read the ins
 
 `koinon setup FAMILY` installs the MCP entry through the selected agent's CLI. Families are
 `claude`, `codex`, `agy`, `opencode`, `grok` and `deepseek`; DeepSeek uses the explicit command path
-until its MCP support is verified. `--cli ABS_PATH` selects the native CLI and `--binary
+until its MCP support is verified. For OpenCode, setup runs `opencode mcp add` in OpenCode's
+global configuration directory (`$XDG_CONFIG_HOME/opencode`, default `~/.config/opencode`) and
+reads the entry back from its files (#692): OpenCode 1 writes `mcp.koinon` (checked with
+1.18.35); OpenCode 2, whose `mcp add` lists `--global`, gets `--global` and writes
+`mcp.servers.koinon` (checked with 2.3.0). Without `--global`, OpenCode 2 writes a project file
+in the current directory, which Koinon does not use. A later file that disables or changes the
+entry, such as `opencode.jsonc` over `opencode.json`, makes setup fail with that message.
+`--cli ABS_PATH` selects the native CLI and `--binary
 ABS_PATH` selects the installed Koinon binary, as given. Without `--binary`, setup records, in
 this order (#577): the default installation's binary, `<prefix>/bin/koinon` of the default
 prefix, when the running binary is that same file, which is the binary that `koinon install`
