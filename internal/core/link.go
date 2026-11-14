@@ -98,8 +98,11 @@ type linkRuntime struct {
 	backoff time.Duration
 	hook    func(point string) error
 	// introducing is true while a delivery of introductions runs, and introAgain asks it for
-	// one more round (LINK-GROUP-JOIN).
+	// one more round (LINK-GROUP-JOIN). introSend is held while one introduction is checked
+	// and sent; an unpair takes it after its write, so that no introduction of a removed pair
+	// is sent after the unpair returns.
 	introducing, introAgain bool
+	introSend               sync.Mutex
 }
 
 func (d *Daemon) linkNow() time.Time {
@@ -453,17 +456,22 @@ func (d *Daemon) linkOperation(pin string, f link.Frame, gen uint64) (link.Frame
 		if f.Decode(&body) != nil {
 			return link.Frame{}, true, ErrInvalid
 		}
-		intros, err := d.confirmLinkPair(pin, body.ID, gen)
-		if err != nil {
+		if err := d.confirmLinkPair(pin, body.ID, gen); err != nil {
 			return link.Frame{}, true, err
 		}
 		d.observe(gen, body.ID, "connected", "")
-		if f.Op == "ping" {
-			reply, err := link.NewFrame("pong", struct{}{})
-			return reply, false, err
+		reply, err := link.NewFrame(map[string]string{"pair-confirm": "confirm-ok", "ping": "pong"}[f.Op], struct{}{})
+		return reply, false, err
+	case "introductions":
+		var body linkPairID
+		if f.Decode(&body) != nil {
+			return link.Frame{}, true, ErrInvalid
 		}
-		// The computers that this computer introduces the new one to (LINK-GROUP-JOIN).
-		reply, err := link.NewFrame("confirm-ok", linkConfirmOK{Introductions: intros})
+		list, err := d.answerIntroductions(pin, body.ID, gen)
+		if err != nil {
+			return link.Frame{}, true, err
+		}
+		reply, err := link.NewFrame("introductions-ok", linkIntroductions{Introductions: list})
 		return reply, false, err
 	case "introduce":
 		var body linkIntroduce
@@ -568,18 +576,15 @@ func (d *Daemon) acceptInvitation(pin string, hello linkHello, gen uint64) (link
 }
 
 // confirmLinkPair checks that pin holds pair id; a pending pair of this key is confirmed.
-// When this computer made the invitation, the confirm adds an introduction to each other
-// paired computer (LINK-GROUP-JOIN). It returns the introductions that the computer of pair
-// id has not acknowledged.
-func (d *Daemon) confirmLinkPair(pin, id string, gen uint64) ([]linkIntroduce, error) {
+func (d *Daemon) confirmLinkPair(pin, id string, gen uint64) error {
 	d.link.mu.Lock()
 	defer d.link.mu.Unlock()
 	if d.link.gen != gen {
-		return nil, ErrLinkRemoteOff
+		return ErrLinkRemoteOff
 	}
 	s, err := link.ReadState(d.root)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	for i, p := range s.Pairs {
 		if p.Pin != pin || p.ID != id {
@@ -587,18 +592,11 @@ func (d *Daemon) confirmLinkPair(pin, id string, gen uint64) ([]linkIntroduce, e
 		}
 		if p.State == link.Pending {
 			s.Pairs[i].State, s.Pairs[i].Expires = link.Paired, 0
-			if p.Role == link.Inviter {
-				if err := addIntrosLocked(&s, i, d.linkNow().Unix()); err != nil {
-					return nil, err
-				}
-			}
-			if err := link.WriteState(d.root, s); err != nil {
-				return nil, err
-			}
+			return link.WriteState(d.root, s)
 		}
-		return introsFor(s, id), nil
+		return nil
 	}
-	return nil, ErrLinkNoPair
+	return ErrLinkNoPair
 }
 
 // removeLinkPair removes pair id of key pin, at the other computer's unpair.
@@ -625,6 +623,7 @@ func (d *Daemon) removeLinkPair(pin, id string, gen uint64) error {
 	err = link.WriteState(d.root, s)
 	d.link.mu.Unlock()
 	if err == nil {
+		d.fenceIntros()
 		d.closeLinkPin(pin)
 		d.linkRetirePair(id)
 	}
@@ -807,12 +806,6 @@ func (d *Daemon) linkPass(stop chan struct{}, gen uint64) {
 				delete(d.link.invites, hash)
 			}
 		}
-		// An introduction that the new computer did not acknowledge in its window is dropped.
-		s.Intros = slices.DeleteFunc(s.Intros, func(i link.Intro) bool {
-			expired := !i.NewSent && i.Created+int64(introWindow/time.Second) <= now
-			changed = changed || expired
-			return expired
-		})
 		if changed {
 			link.WriteState(d.root, s)
 		}
@@ -836,7 +829,9 @@ func (d *Daemon) linkPass(stop chan struct{}, gen uint64) {
 			err = session.call("ping", linkPairID{ID: p.ID}, "pong", nil)
 			if err == nil && p.State == link.Paired {
 				d.pollDirectory(session, gen, p)
-				d.askIntroductions(session, gen, p)
+				if p.Asking {
+					d.askIntroductions(session, gen, p.ID)
+				}
 			}
 			session.close()
 		}
@@ -969,9 +964,14 @@ func (d *Daemon) linkJoinIntroduced(ctx context.Context, text string) (link.Pair
 	return p.pair, p.introduced, err
 }
 
+// linkJoined is a join's pair and its introductions: the names of the computers that this
+// computer now holds, whether it still waits for introductions, and how many it could not
+// add because it holds the most pairs.
 type linkJoined struct {
 	pair       link.Pair
 	introduced []string
+	waiting    bool
+	skipped    int
 }
 
 func (d *Daemon) linkJoinPair(ctx context.Context, text string) (linkJoined, error) {
@@ -1057,21 +1057,21 @@ func (d *Daemon) linkJoinPair(ctx context.Context, text string) (linkJoined, err
 		return linkJoined{}, ErrLinkPaired
 	}
 	p := link.Pair{ID: ok.ID, Advertised: invitation.Name, Effective: s.FreeName(invitation.Name, ""), Pin: invitation.Pin, DNSName: invitation.DNSName,
-		IPs: invitation.IPs, Port: invitation.Port, State: link.Paired, Role: link.Joiner, Created: d.linkNow().Unix()}
+		IPs: invitation.IPs, Port: invitation.Port, State: link.Paired, Role: link.Joiner, Created: d.linkNow().Unix(), Asking: true}
 	s.Pairs = append(s.Pairs, p)
 	err = link.WriteState(d.root, s)
 	d.link.mu.Unlock()
 	if err != nil {
 		return linkJoined{}, err
 	}
-	// The other computer's pair is pending until this confirm, or until the next ping. Its
-	// reply lists the computers that it introduces this one to; a lost reply is asked for
-	// again at the monitor passes (LINK-GROUP-JOIN).
-	var confirm linkConfirmOK
-	result := linkJoined{pair: p}
-	if session.call("pair-confirm", linkPairID{ID: p.ID}, "confirm-ok", &confirm) == nil {
+	// The other computer's pair is pending until this confirm, or until the next ping. Then
+	// it gives the computers that it introduces this one to; while this computer does not
+	// have them, it asks again at each monitor pass (LINK-GROUP-JOIN).
+	result := linkJoined{pair: p, waiting: true}
+	if session.call("pair-confirm", linkPairID{ID: p.ID}, "confirm-ok", nil) == nil {
 		d.observe(gen, p.ID, "connected", "")
-		result.introduced = d.storeIntroductions(session, gen, p.ID, confirm.Introductions)
+		asked := d.askIntroductions(session, gen, p.ID)
+		result.introduced, result.waiting, result.skipped = asked.names, asked.waiting, asked.skipped
 	}
 	return result, nil
 }
@@ -1106,6 +1106,7 @@ func (d *Daemon) linkUnpair(ctx context.Context, ref string) error {
 	if err != nil {
 		return err
 	}
+	d.fenceIntros()
 	d.closeLinkPin(p.Pin)
 	if err := d.linkRetirePair(p.ID); err != nil {
 		return err
@@ -1133,6 +1134,7 @@ func (d *Daemon) linkCancel(ref string) error {
 	if err != nil {
 		return err
 	}
+	// A pending pair has no introductions, so a cancel needs no fence.
 	if ref == "invitations" {
 		if d.link.invites != nil {
 			d.link.invites = map[string]int64{}

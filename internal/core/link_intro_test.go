@@ -6,8 +6,11 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -182,42 +185,70 @@ func TestLinkIntroductionWaitsForAnOfflineComputer(t *testing.T) {
 	requireMesh(t, a, b, c)
 }
 
-// The confirm reply, or the acknowledgement, can be lost: the new computer asks again at its
-// next pass, and a repeated answer adds no second pair.
-func TestLinkIntroductionLostConfirmReply(t *testing.T) {
+// loseAnswer puts joiner and inviter in the state that a lost answer to the joiner's ask
+// leaves: the joiner still asks and holds none of the introduced pairs, and the inviter's
+// introductions are not acknowledged.
+func loseAnswer(t *testing.T, joiner, inviter *linkHost, via string) {
+	t.Helper()
+	joiner.d.link.mu.Lock()
+	s := joiner.state(t)
+	s.Pairs = slices.DeleteFunc(s.Pairs, func(p link.Pair) bool { return p.ID != via })
+	s.Pairs[0].Asking, s.Pairs[0].Seen = true, nil
+	err := link.WriteState(joiner.root, s)
+	joiner.d.link.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	inviter.d.link.mu.Lock()
+	bs := inviter.state(t)
+	for i := range bs.Intros {
+		bs.Intros[i].NewSent = false
+	}
+	err = link.WriteState(inviter.root, bs)
+	inviter.d.link.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func setHost(n *linkNet, h *linkHost, on bool) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if on {
+		n.hosts[h.ip+":47672"] = h.d
+	} else {
+		delete(n.hosts, h.ip+":47672")
+	}
+}
+
+// The answer to the new computer's ask can be lost: the new computer asks again at its
+// passes, with no time limit, and a repeated answer adds no second pair.
+func TestLinkIntroductionLostAnswer(t *testing.T) {
 	n := &linkNet{}
 	a := newLinkHost(t, n, "alpha", "100.64.0.1")
 	b := newLinkHost(t, n, "beta", "100.64.0.2")
 	c := newLinkHost(t, n, "gamma", "100.64.0.3")
 	joinThrough(t, b, a)
-	// alpha is off, so beta cannot deliver yet.
-	n.mu.Lock()
-	delete(n.hosts, a.ip+":47672")
-	n.mu.Unlock()
-	// gamma pairs with beta, but its confirm reply is lost: the pair is confirmed on beta,
-	// with an introduction that gamma did not acknowledge, and gamma holds no alpha pair.
+	setHost(n, a, false) // alpha is off, so beta cannot deliver yet
 	pb, _ := joinThrough(t, b, c)
+	if p, _ := pairWith(t, c, b); p.Asking || p.Seen != nil {
+		t.Fatalf("a finished join still asks: %+v", p)
+	}
 	waitFor(t, "delivery still runs", func() bool { return len(introsOf(t, b)) == 1 && !b.d.introBusy() })
-	cs := c.state(t)
-	cs.Pairs = slices.DeleteFunc(cs.Pairs, func(p link.Pair) bool { return p.ID != pb.ID })
-	if err := link.WriteState(c.root, cs); err != nil {
-		t.Fatal(err)
-	}
-	bs := b.state(t)
-	bs.Intros[0].NewSent = false
-	if err := link.WriteState(b.root, bs); err != nil {
-		t.Fatal(err)
-	}
+	loseAnswer(t, c, b, pb.ID)
 	// Unacknowledged, it is not delivered.
-	n.mu.Lock()
-	n.hosts[a.ip+":47672"] = a.d
-	n.mu.Unlock()
+	setHost(n, a, true)
 	b.d.passNow()
 	waitFor(t, "delivery still runs", func() bool { return !b.d.introBusy() })
 	if _, ok := pairWith(t, a, c); ok {
 		t.Fatal("an unacknowledged introduction was delivered")
 	}
-	// gamma's pass asks beta again; a second pass repeats it with no change.
+	// The new computer is off for more than an hour; its next pass still asks.
+	n.shift.Add(int64(61 * time.Minute))
+	b.d.passNow()
+	if got := introsOf(t, b); len(got) != 1 {
+		t.Fatalf("the waiting introduction was dropped: %+v", got)
+	}
 	c.d.passNow()
 	c.d.passNow()
 	waitFor(t, "alpha never got its introduction", func() bool {
@@ -225,6 +256,9 @@ func TestLinkIntroductionLostConfirmReply(t *testing.T) {
 		return ok && len(introsOf(t, b)) == 0
 	})
 	requireMesh(t, a, b, c)
+	if p, _ := pairWith(t, c, b); p.Asking || p.Seen != nil {
+		t.Fatalf("still asks after its introductions: %+v", p)
+	}
 	// A repeated introduce adds no second pair.
 	pa, _ := pairWith(t, a, c)
 	_, gen, _ := a.d.linkLife()
@@ -234,22 +268,158 @@ func TestLinkIntroductionLostConfirmReply(t *testing.T) {
 		t.Fatalf("replay %+v %v", ok, err)
 	}
 	requireMesh(t, a, b, c)
-	// An introduction that the new computer never acknowledges is dropped after its window.
-	d := newLinkHost(t, n, "delta", "100.64.0.4")
-	pd, _ := joinThrough(t, b, d)
-	ds := d.state(t)
-	ds.Pairs = slices.DeleteFunc(ds.Pairs, func(p link.Pair) bool { return p.ID != pd.ID })
-	link.WriteState(d.root, ds)
-	bs = b.state(t)
-	for i := range bs.Intros {
-		bs.Intros[i].NewSent = false
+}
+
+// A lost acknowledgement must not let the inviter's repeated list undo an explicit unpair
+// (review of #684, F1).
+func TestLinkIntroductionRetryDoesNotUndoUnpair(t *testing.T) {
+	n := &linkNet{}
+	a := newLinkHost(t, n, "alpha", "100.64.0.1")
+	b := newLinkHost(t, n, "beta", "100.64.0.2")
+	c := newLinkHost(t, n, "gamma", "100.64.0.3")
+	joinThrough(t, b, a)
+	setHost(n, a, false)
+	pb, _ := joinThrough(t, b, c)
+	waitFor(t, "waiting intro", func() bool { return len(introsOf(t, b)) == 1 && !b.d.introBusy() })
+	// gamma took alpha, but its acknowledgement did not commit on beta.
+	intro := introsOf(t, b)[0].ID
+	b.d.link.mu.Lock()
+	bs := b.state(t)
+	bs.Intros[0].NewSent = false
+	err := link.WriteState(b.root, bs)
+	b.d.link.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
 	}
-	link.WriteState(b.root, bs)
-	n.shift.Add(int64(introWindow + time.Minute))
-	b.d.passNow()
+	c.d.link.mu.Lock()
+	cs := c.state(t)
+	i := slices.IndexFunc(cs.Pairs, func(p link.Pair) bool { return p.ID == pb.ID })
+	cs.Pairs[i].Asking, cs.Pairs[i].Seen = true, []string{intro}
+	err = link.WriteState(c.root, cs)
+	c.d.link.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := c.d.linkUnpair(context.Background(), "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	c.d.passNow()
+	if p, ok := pairWith(t, c, a); ok {
+		t.Fatalf("retry resurrected explicitly unpaired alpha: %+v", p)
+	}
 	if got := introsOf(t, b); len(got) != 0 {
-		t.Fatalf("expired introductions kept: %+v", got)
+		t.Fatalf("beta kept the refused introduction: %+v", got)
 	}
+	if p, _ := pairWith(t, c, b); p.Asking {
+		t.Fatalf("still asks: %+v", p)
+	}
+}
+
+// Removing either pair stops an introduction that waits before its connection (review of
+// #684, F2).
+func TestLinkIntroductionUnpairFencesPendingDelivery(t *testing.T) {
+	n := &linkNet{}
+	a := newLinkHost(t, n, "alpha", "100.64.0.1")
+	b := newLinkHost(t, n, "beta", "100.64.0.2")
+	c := newLinkHost(t, n, "gamma", "100.64.0.3")
+	joinThrough(t, b, a)
+	setHost(n, a, false)
+	joinThrough(t, b, c)
+	waitFor(t, "waiting intro", func() bool { return len(introsOf(t, b)) == 1 && !b.d.introBusy() })
+	entered, release := make(chan struct{}), make(chan struct{})
+	var blocked atomic.Bool
+	b.d.link.mu.Lock()
+	b.d.link.dial = func(ctx context.Context, addr string) (net.Conn, error) {
+		if addr == a.ip+":47672" && blocked.CompareAndSwap(false, true) {
+			close(entered)
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		return n.dial(ctx, addr)
+	}
+	b.d.link.mu.Unlock()
+	setHost(n, a, true)
+	_, gen, _ := b.d.linkLife()
+	done := make(chan struct{})
+	go func() { b.d.deliverIntros(gen); close(done) }()
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("delivery did not pause")
+	}
+	if err := b.d.linkUnpair(context.Background(), "gamma"); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	select {
+	case <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("delivery did not finish")
+	}
+	if p, ok := pairWith(t, a, c); ok {
+		t.Fatalf("delivery created gamma on alpha after beta unpaired gamma: %+v", p)
+	}
+}
+
+// A computer whose waiting introductions leave no room for all of a new computer's makes
+// none and refuses the ask; the new computer keeps asking (review of #684, F3).
+func TestLinkIntroductionCapacityIsAllOrNone(t *testing.T) {
+	s := link.State{Version: 1, Name: "beta", Port: link.DefaultPort}
+	for i := 0; i < 24; i++ {
+		s.Pairs = append(s.Pairs, link.Pair{ID: fmt.Sprintf("%032x", i+1), Advertised: fmt.Sprintf("node-%d", i), Effective: fmt.Sprintf("node-%d", i),
+			Pin: fmt.Sprintf("%064x", i+1), DNSName: fmt.Sprintf("node-%d.example-tailnet.ts.net", i), IPs: []string{"100.64.0.1"}, Port: link.DefaultPort,
+			State: link.Paired, Role: link.Inviter, Created: 1})
+	}
+	for i := 0; i < 23; i++ {
+		for j := 0; j < i; j++ {
+			s.Intros = append(s.Intros, link.Intro{ID: fmt.Sprintf("%032x", 4096+len(s.Intros)), New: s.Pairs[i].ID, Old: s.Pairs[j].ID, NewSent: true, Created: 1})
+		}
+	}
+	if err := s.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	before := len(s.Intros)
+	if err := addIntrosLocked(&s, 23, 2); !errors.Is(err, ErrLinkIntrosFull) || len(s.Intros) != before || s.Pairs[23].Introduced {
+		t.Fatalf("at capacity: %v, %d new", err, len(s.Intros)-before)
+	}
+	s.Intros = s.Intros[:200]
+	if err := addIntrosLocked(&s, 23, 2); err != nil || len(s.Intros) != 223 || !s.Pairs[23].Introduced {
+		t.Fatalf("with room: %v, %d", err, len(s.Intros))
+	}
+	// Over the link: the refusal keeps the new computer asking, and the join says so.
+	n := &linkNet{}
+	a := newLinkHost(t, n, "alpha", "100.64.0.1")
+	b := newLinkHost(t, n, "beta", "100.64.0.2")
+	c := newLinkHost(t, n, "gamma", "100.64.0.3")
+	joinThrough(t, b, a)
+	b.d.link.mu.Lock()
+	bs := b.state(t)
+	for len(bs.Intros) < link.MaxIntros {
+		id, _ := link.NewID()
+		bs.Intros = append(bs.Intros, link.Intro{ID: id, New: strings.Repeat("e", 32), Old: strings.Repeat("f", 32), NewSent: true, Created: 1})
+	}
+	err := link.WriteState(b.root, bs)
+	b.d.link.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, _ := b.d.linkInvite(context.Background())
+	j, err := c.d.linkJoinPair(context.Background(), text)
+	if err != nil || !j.waiting || len(j.introduced) != 0 {
+		t.Fatalf("join at capacity: %+v %v", j, err)
+	}
+	if p, _ := pairWith(t, c, b); !p.Asking {
+		t.Fatalf("stopped asking: %+v", p)
+	}
+	// The stale introductions go (their pairs do not exist); the next ask gets alpha.
+	b.d.passNow()
+	waitFor(t, "beta kept stale introductions", func() bool { return len(introsOf(t, b)) == 0 && !b.d.introBusy() })
+	c.d.passNow()
+	waitFor(t, "alpha never got gamma", func() bool { _, ok := pairWith(t, a, c); return ok && !b.d.introBusy() })
+	requireMesh(t, a, b, c)
 }
 
 // An introduction comes only from a paired key, only in the open generation, and never

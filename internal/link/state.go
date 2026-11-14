@@ -82,6 +82,13 @@ type Pair struct {
 	// Via is the ID of the pair whose computer introduced this one, or "" for a pair made
 	// with an invitation (LINK-GROUP-JOIN).
 	Via string `json:"via,omitempty"`
+	// Asking is true on a joined pair until this computer has its introductions from the
+	// other computer; Seen holds the introductions that it already took or refused, so that a
+	// repeated answer never adds a pair again. Introduced is true on an invited pair once this
+	// computer made its introductions.
+	Asking     bool     `json:"asking,omitempty"`
+	Seen       []string `json:"seen,omitempty"`
+	Introduced bool     `json:"introduced,omitempty"`
 }
 
 // Invite is an open invitation of this computer.
@@ -162,8 +169,13 @@ func (s State) Validate() error {
 		if p.State != Pending && p.State != Paired || p.Role != Inviter && p.Role != Joiner || p.State == Pending && p.Expires == 0 {
 			return errState
 		}
-		if p.Via != "" && (len(p.Via) != 32 || p.Via == p.ID) {
+		if p.Via != "" && (len(p.Via) != 32 || p.Via == p.ID) || len(p.Seen) > MaxIntros || (p.Asking || len(p.Seen) > 0) && p.Role != Joiner || p.Introduced && p.Role != Inviter {
 			return errState
+		}
+		for _, id := range p.Seen {
+			if len(id) != 32 {
+				return errState
+			}
 		}
 		ids[p.ID], pins[p.Pin], names[p.Effective] = true, true, true
 	}

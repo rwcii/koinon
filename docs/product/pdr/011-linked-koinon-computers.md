@@ -198,11 +198,14 @@ maintainer secret is in PDR 009; Remote is in PDR 010.
   needed the maintainer: an introduction adds pairs with no further step of the maintainer.
 - **Review when:** computers of other people must connect (Decision 1), or a paired computer
   must not add pairs to the others.
-- **Shipped:** #683. The new computer gets the introductions in the `confirm-ok` reply and
-  acknowledges them with `introduced`; it asks again during one hour after the join when the
-  reply is lost, and an introduction that it never acknowledged is dropped after that hour. The
-  other computers get `introduce`. The waiting introductions are in `link.json`, so they
-  survive a restart. A computer of an earlier version refuses an introduction; the new computer
+- **Shipped:** #683. In the join's exchange, the new computer asks with `introductions`; the
+  reply lists the other computers, and the new computer acknowledges them with `introduced`.
+  When that answer is lost, the new computer asks again at each monitor pass while it can reach
+  the inviting computer, with no time limit, and it never adds again an introduction that it
+  took or refused before, so a repeated answer cannot undo an unpair. The other computers get
+  `introduce`; an unpair waits for an introduction that is being sent, and none of a removed
+  pair goes after it. The waiting introductions are in `link.json`, so they survive a restart;
+  at most 256 wait, and a join that needs more gets none until room is free, and asks again. A computer of an earlier version refuses an introduction; the new computer
   then shows it as rejected until the maintainer unpairs it there. The new computer's earlier
   pairs are not introduced to the inviting group.
 

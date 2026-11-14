@@ -231,7 +231,10 @@ further invitation or secret. Four computers need three joins: for example, `bet
 Computers show "introduced by NAME" on each pair that an introduction made, and the number of
 introductions that still wait. A computer that is off, or has remote access off, gets its
 introduction when it answers again, also after a restart of the inviting computer. If the join's
-answer is lost, the new computer asks for the introductions again during the next hour.
+answer is lost, the new computer asks for the introductions again every 30 seconds while it can
+reach the inviting computer; `koinon link join` and **Connect** say when the introductions did
+not arrive yet. An introduction that a computer took or refused once is never added again, so
+an unpair stays.
 
 Update every computer before you pair them. A computer of an earlier version refuses an
 introduction; the new computer then shows that computer as rejected (`link_key_refused`) until

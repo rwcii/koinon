@@ -5,19 +5,20 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
-- One join adds a computer to the whole group of your Koinon computers (#683,
-  LINK-GROUP-JOIN). Make the invitation on a computer that is already paired: after the join,
-  that computer introduces the new computer to each of its other paired computers, on their
-  pinned links, so you do not pair each two computers yourself. Four computers need three
-  joins, not six pairs. `koinon link join` and **Connect** name the computers of the
-  introduction; `koinon link status` and Settings, Computers show "introduced by NAME" for each
-  pair that an introduction made, and the introductions that still wait for an offline
-  computer. A computer that is off gets its introduction when it answers again. A new
-  `koinon link leave`, and **Unpair from every computer** in Settings, Computers, remove every
-  pair of this computer. Update every computer before you pair: a computer before this version
-  does not accept an introduction, and the new computer then shows it as rejected until you
-  unpair it there. `link.json` holds the waiting introductions; a downgrade reads it only after
-  `koinon link leave` or with no waiting introductions and no introduced pairs.
+- One join adds a computer to the whole group of your Koinon computers (#683, LINK-GROUP-JOIN).
+  Make the invitation on a computer that is already paired: after the join, that computer
+  introduces the new computer to each of its other paired computers, on their pinned links, so
+  you do not pair each two computers yourself. Four computers need three joins, not six pairs.
+  `koinon link join` names the computers of the introduction, and says when the introductions
+  did not arrive yet; `koinon link status` and Settings, Computers show "introduced by NAME" for
+  each pair that an introduction made, and the introductions that still wait for an offline
+  computer. A computer that is off gets its introduction when it answers again, with no time
+  limit, and an unpair is never undone by a repeated introduction. A new `koinon link leave`,
+  and **Unpair from every computer** in Settings, Computers, remove every pair of this computer.
+  Update every computer before you pair: a computer before this version does not accept an
+  introduction, and the new computer then shows it as rejected until you unpair it there.
+  `link.json` holds the waiting introductions; a downgrade reads it only after `koinon link
+  leave`.
 
 ## 2026-11-13 — Messages between your Koinon computers, and remote sign-in that lasts 48 hours across restarts
 

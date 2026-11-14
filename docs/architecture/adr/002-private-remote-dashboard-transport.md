@@ -367,7 +367,8 @@ or control operation. Implementation: `internal/core/link_messages.go`,
   entries. The full context and options are in PDR 011, Decision 5.
 - **Decision:** after a join, the inviting computer introduces the new computer to each of its
   other paired computers. The new computer gets their keys (pins), names and addresses in the
-  join's `confirm-ok` reply on the pinned link and accepts no other key from an introduction;
+  join's exchange on the pinned link, in the reply to its `introductions` request, and accepts
+  no other key from that list;
   each other computer gets the new computer's from the inviting computer with `introduce`, and
   accepts it only from a paired key. So a pair can now be made without the maintainer on its two
   computers: the maintainer authorizes the join, and the join brings the group. Unpair stays

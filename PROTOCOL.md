@@ -111,8 +111,8 @@ KiB, with unknown fields refused; a connection carries at most 64 frames. The op
 `directory` and `name-update` (below), `deliver` and `cancel` (Messages, below),
 `pair-hello` (`secret`, `name`, `dns`, `ips`, `port`; only an unpaired key with an open
 invitation's secret, which is used at once; the reply `hello-ok` has the pair `id` and `name`),
-`pair-confirm` (`id`), `ping` (`id`), `unpair` (`id`), and `introduce` and `introduced`
-(Introductions, below). Each open of the link starts a generation: a
+`pair-confirm` (`id`), `ping` (`id`), `unpair` (`id`), and `introductions`, `introduced` and
+`introduce` (Introductions, below). Each open of the link starts a generation: a
 connection is attached to it before its handshake (inbound) or before its handshake ends
 (outbound), and the close ends every dial, handshake and connection of that generation at
 once. Each join, unpair and monitor pass keeps the generation in which it began, through its
@@ -155,32 +155,42 @@ pair. Entries with a malformed field are dropped. Every inbound operation that w
 of its connection is the open link's; a name-update from this computer goes in the generation
 that the setup left open.
 
-Introductions (#683, LINK-GROUP-JOIN): when a pending pair of this computer's invitation becomes
-paired (`pair-confirm` or `ping`), the same `link.json` write adds to `intros` one introduction
-for each other paired pair: `id` (a new pair ID), `new` and `old` (the two pair IDs),
-`new_sent` and `created`; at most 256 wait. The `confirm-ok` reply has `introductions`: for each
-introduction that the new computer has not acknowledged, `id`, `name` (the advertised name),
-`dns`, `ips`, `port` and `pin` of the other computer; a joiner of an earlier version does not
-read the body. The new computer stores each as a paired pair with that ID, its effective name
-or the next free `NAME-N`, and `via` (the pair ID of the computer that introduced it); it skips
-an entry whose key or ID another pair has, an invalid entry, and its own or the sender's key.
+Introductions (#683, LINK-GROUP-JOIN): a join saves its pair with `asking` true. After
+`pair-confirm`, the joining computer sends `introductions` (`id`, the pair ID) in the same
+exchange, and again after each successful `ping` while `asking` holds, with no time limit. The
+inviting computer answers only for a paired pair of its own invitation with that key
+(`link_pair_not_found`). Its first answer for the pair adds to `intros`, in one `link.json`
+write with the pair's `introduced`, one introduction for each other paired pair: `id` (a new
+pair ID), `new` and `old` (the two pair IDs), `new_sent` and `created`. All are added or none:
+at most 256 wait, and an answer that needs more is refused with `link_introductions_full`. The
+reply `introductions-ok` has `introductions`: for each introduction that the joining computer
+has not acknowledged, `id`, `name` (the advertised name), `dns`, `ips`, `port` and `pin` of the
+other computer. The joining computer stores each as a paired pair with that ID, its effective
+name or the next free `NAME-N`, and `via` (the pair ID of the computer that introduced it),
+and records each listed ID in the asking pair's `seen`; an ID that is already in `seen` is
+never added again, so a repeated answer cannot undo an unpair. It skips an entry whose key or
+ID another pair has, an invalid entry, its own or the sender's key, and, at 64 pairs, the rest.
 Then it sends `introduced` (`id`, its pair's ID; `ids`, the introductions that it holds):
-those get `new_sent`, the others are dropped; the reply is `introduced-ok`. During one hour
-after its join, the new computer sends `pair-confirm` again after each successful `ping` to
-the computer whose invitation it joined, and stores and acknowledges the reply in the same
-way; a computer drops an introduction that the new computer did not acknowledge within the
-hour. For each acknowledged introduction, the introducing computer sends `introduce` (`id`,
-`name`, `dns`, `ips`, `port`, `pin` of the new computer) to the other computer, from a single
-delivery that runs after each acknowledgement and each monitor pass of the open generation.
-The receiver accepts it only from a paired key (`link_pair_not_found`), refuses its own and
-the sender's key and a malformed entry (`invalid_request`) and a full pair list
-(`link_limit`), and answers `introduce-ok` with `added`: true when it stored the pair, with
-`via`, false when a pair already had that key. Any answer or refusal ends the introduction,
-except `link_remote_required`; a connection failure keeps it for the next pass. Unpair, cancel
-and leave drop the introductions of the removed pairs; one whose pair is gone is dropped.
-`koinon link status` shows `introductions` (the count that wait) and, for each pair that an
-introduction made, `introduced_by` (the effective name of the introducing pair while it
-exists). `link.json` without `intros` and `via` stays readable by earlier versions.
+those get `new_sent`, the others are dropped; the reply is `introduced-ok`, after which the
+joining computer clears `asking` and `seen`, as it does after an empty list or after
+`link_operation_unknown` from an inviting computer of an earlier version (which makes no
+introductions). The join's result has `introduced` (the names), `introductions_waiting` while
+`asking` holds, and `introductions_skipped` (the entries left out at 64 pairs). For each
+acknowledged introduction, the inviting computer sends `introduce` (`id`, `name`, `dns`,
+`ips`, `port`, `pin` of the new computer) to the other computer, from a single delivery that
+runs after each acknowledgement and each monitor pass of the open generation. It checks that
+the introduction and both pairs still exist and writes the frame under one lock, which every
+unpair and leave takes after its write: no introduction of a removed pair is sent after the
+unpair returns. The receiver accepts `introduce` only from a paired key
+(`link_pair_not_found`), refuses its own and the sender's key and a malformed entry
+(`invalid_request`) and a full pair list (`link_limit`), and answers `introduce-ok` with
+`added`: true when it stored the pair, with `via`, false when a pair already had that key. Any
+answer or refusal ends the introduction, except `link_remote_required`; a connection failure
+keeps it for the next pass, with no expiry. Unpair, cancel and leave drop the introductions of
+the removed pairs; one whose pair is gone is dropped. `koinon link status` shows
+`introductions` (the count that wait) and, for each pair that an introduction made,
+`introduced_by` (the effective name of the introducing pair while it exists). `link.json`
+without `intros`, `via`, `asking`, `seen` and `introduced` stays readable by earlier versions.
 
 `NAME@COMPUTER` is split at the last `@`: NAME has 1 to 256 bytes and no `@`, COMPUTER has the
 advertised-name grammar, and the address has at most 510 bytes; a recipient without `@` is
@@ -2704,8 +2714,9 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     as `peer_status` does (`peer_not_found`, `alias_unheld`).
   - The link (#670): `link-name` (`name`, `port`, 0 for the saved port or 47672);
     `link-invite`, whose result has `invitation` and `expires_seconds`; `link-join`
-    (`invitation`), whose result has the pair's `id`, `name` and `advertised`, and `introduced`,
-    the names of the computers of its introduction; `link-unpair` (`pair`, a name or ID);
+    (`invitation`), whose result has the pair's `id`, `name` and `advertised`, and `introduced`
+    (the names of the computers of its introduction), `introductions_waiting` and
+    `introductions_skipped` (Introductions); `link-unpair` (`pair`, a name or ID);
     `link-leave`, which removes every pair as one write and then tells each other computer as
     `link-unpair` does, with the result `unpaired` (the count) and the target `every pair`;
     `link-cancel` (`pair`, or `invitations` for every open invitation);

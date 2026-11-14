@@ -227,6 +227,12 @@ func linkCommand(ctx context.Context, args []string, in io.Reader, out io.Writer
 		if len(r.Introduced) > 0 {
 			fmt.Fprintf(out, "%s introduced this computer to: %s. Those computers add the pairs when they answer; see koinon link status.\n", r.Name, strings.Join(r.Introduced, ", "))
 		}
+		if r.IntroductionsSkipped > 0 {
+			fmt.Fprintf(out, "%d introduced computers were not added: this computer holds the most pairs.\n", r.IntroductionsSkipped)
+		}
+		if r.IntroductionsWaiting {
+			fmt.Fprintf(out, "The introductions from %s did not arrive yet; this computer asks again every 30 seconds while %s answers.\n", r.Name, r.Name)
+		}
 	case "name":
 		fmt.Fprintf(out, "This computer is %s; its agents are AGENT@%s on your other computers.\n", body["name"], body["name"])
 	case "unpair":
