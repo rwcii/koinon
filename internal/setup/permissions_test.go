@@ -24,7 +24,7 @@ func TestSetupPreservesExistingPermissionSettings(t *testing.T) {
 			o := Options{Family: family, CLI: cli, Binary: "/opt/koinon/bin/koinon",
 				StateDir: filepath.Join(dir, "state"), ClaudeConfig: filepath.Join(dir, "claude"),
 				CodexHome: filepath.Join(dir, "codex"), AgyRoot: filepath.Join(dir, "agy"),
-				Opencode: filepath.Join(dir, "opencode")}
+				Opencode: xdgOpenCode(t, dir)}
 			var file, field string
 			var before []byte
 			switch family {
@@ -268,7 +268,7 @@ func TestSetupReportsPermissionRules(t *testing.T) {
 			o := Options{Family: family, CLI: cli, Binary: "/opt/koinon/bin/koinon",
 				StateDir: filepath.Join(dir, "state"), ClaudeConfig: filepath.Join(dir, "claude"),
 				CodexHome: filepath.Join(dir, "codex"), AgyRoot: filepath.Join(dir, "agy"),
-				AgySettings: filepath.Join(dir, "agy-cli", "settings.json"), Opencode: filepath.Join(dir, "opencode")}
+				AgySettings: filepath.Join(dir, "agy-cli", "settings.json"), Opencode: xdgOpenCode(t, dir)}
 			report, err := Run(context.Background(), o)
 			if err != nil || report.Permissions == nil || report.Permissions.Family != family {
 				t.Fatalf("%+v %v", report.Permissions, err)
@@ -279,10 +279,14 @@ func TestSetupReportsPermissionRules(t *testing.T) {
 			if report.Permissions.Outcome != want {
 				t.Fatalf("outcome %+v, want %s", report.Permissions, want)
 			}
-			for _, path := range []string{o.AgySettings, filepath.Join(o.Opencode, "opencode.json"), filepath.Join(o.CodexHome, "config.toml")} {
+			for _, path := range []string{o.AgySettings, filepath.Join(o.CodexHome, "config.toml")} {
 				if _, err := os.Stat(path); !os.IsNotExist(err) {
 					t.Fatalf("setup wrote %s", path)
 				}
+			}
+			// OpenCode's mcp add writes its configuration file; no permission rule is added.
+			if data, _ := os.ReadFile(filepath.Join(o.Opencode, "opencode.json")); strings.Contains(string(data), "permission") {
+				t.Fatalf("setup wrote OpenCode permission rules: %s", data)
 			}
 		})
 	}
