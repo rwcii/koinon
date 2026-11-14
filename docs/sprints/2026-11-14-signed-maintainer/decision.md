@@ -198,6 +198,10 @@ sig_b64: 5RIpFZ7G+PMlGqvRQizOOmOaPK637OhJX9dCifNKOjIOXjvG4drxmGRLZVaViYYundattt/
      the client asks `outcome` again after the window, which is then final.
    - After the 7 days of a receipt, `outcome` cannot tell; the client reports the outcome as
      unknown.
+   `outcome` looks up the receipt and reads `now` inside a write transaction of the target's
+   store, which has one writer at a time. A write that passed its time check has then committed
+   or rolled back before `outcome` reads, so an absent receipt with `now` past the window is
+   final, and no commit can follow it.
 4. Reads carry a request ID and `created`, so an old read is refused; they keep no receipt.
 5. A signed action is not queued (settled point 1; #695). The node answers:
    - `computer_offline`, with the target's last-seen time, only when it had no connection to the
@@ -275,6 +279,9 @@ sig_b64: 5RIpFZ7G+PMlGqvRQizOOmOaPK637OhJX9dCifNKOjIOXjvG4drxmGRLZVaViYYundattt/
    after the commit gives `outcome_unknown`, and `outcome` or the same envelope gives the first
    result, with one verdict recorded. Another payload under the same ID is `request_conflict`.
    A key removed and added again cannot read or replay the earlier authorization's receipts.
+   A write whose transaction is held open across the end of its window while `outcome` runs:
+   `outcome` waits and then sees the receipt, or answers final when the write rolled back; it
+   never answers final before a commit.
 4. A key removed while an action waits for the store refuses that action.
 5. With no node on the client's computer, the same works through another computer's Remote
    address; the route answers nothing but signed envelopes.
