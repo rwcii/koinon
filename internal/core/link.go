@@ -103,6 +103,10 @@ type linkRuntime struct {
 	// is sent after the unpair returns.
 	introducing, introAgain bool
 	introSend               sync.Mutex
+	// userspace is whether this host's Tailscale uses no TUN interface, read at
+	// userspaceAt (#688); then link connections go through tailscaled.
+	userspace   bool
+	userspaceAt time.Time
 }
 
 func (d *Daemon) linkNow() time.Time {
@@ -119,8 +123,43 @@ func (d *Daemon) linkDial(ctx context.Context, address string) (net.Conn, error)
 	if dial != nil {
 		return dial(ctx, address)
 	}
+	if d.linkUserspace(ctx) {
+		d.remote.mu.Lock()
+		manager := d.remote.manager
+		d.remote.mu.Unlock()
+		return manager.DialStream(ctx, address)
+	}
 	var dialer net.Dialer
 	return dialer.DialContext(ctx, "tcp", address)
+}
+
+// linkUserspaceFor is how long a reading of the host's Tailscale mode is used.
+const linkUserspaceFor = time.Minute
+
+// linkUserspace reports whether this host's Tailscale uses no TUN interface (userspace
+// networking, common in a container). Such a host has no route to tailnet addresses, so a
+// link connection goes through tailscaled with tailscale nc (#688). The mode is read from
+// tailscale status at most once a minute; a failed read keeps the last answer.
+func (d *Daemon) linkUserspace(ctx context.Context) bool {
+	d.link.mu.Lock()
+	now := d.linkNow()
+	if !d.link.userspaceAt.IsZero() && now.Sub(d.link.userspaceAt) < linkUserspaceFor {
+		userspace := d.link.userspace
+		d.link.mu.Unlock()
+		return userspace
+	}
+	userspace := d.link.userspace
+	d.link.mu.Unlock()
+	d.remote.mu.Lock()
+	manager := d.remote.manager
+	d.remote.mu.Unlock()
+	if status, err := manager.Inspect(ctx); err == nil {
+		userspace = status.Userspace
+	}
+	d.link.mu.Lock()
+	d.link.userspace, d.link.userspaceAt = userspace, now
+	d.link.mu.Unlock()
+	return userspace
 }
 
 // linkIdentity loads the link key once.
@@ -1346,7 +1385,10 @@ type LinkStatus struct {
 	Remote       bool   `json:"remote"`
 	Listener     string `json:"listener"`
 	Serve        string `json:"serve"`
-	Invitations  int    `json:"invitations"`
+	// Transport is "tailscaled" when this host's Tailscale uses no TUN interface and link
+	// connections go through tailscale nc (#688).
+	Transport   string `json:"transport,omitempty"`
+	Invitations int    `json:"invitations"`
 	// Introductions counts the introductions that this computer still delivers.
 	Introductions int              `json:"introductions,omitempty"`
 	Pairs         []LinkPairStatus `json:"pairs"`
@@ -1401,6 +1443,9 @@ func (d *Daemon) linkStatus(ctx context.Context) LinkStatus {
 			result.Serve = "missing"
 			if status.TCPMappingPresent(*mapping) {
 				result.Serve = "ready"
+			}
+			if status.Userspace {
+				result.Transport = "tailscaled"
 			}
 		}
 	}

@@ -260,6 +260,12 @@ the handshake, except the pairing step of an open invitation. A daemon reaches a
 computer at its saved Tailscale addresses, and refreshes them from `tailscale status` when they
 fail; it never looks up a name through the system's resolver.
 
+Koinon works with Tailscale in either network mode (#688). When `tailscale status` reports that
+Tailscale uses no TUN interface (userspace networking, as in many containers), the host has no
+route to tailnet addresses, so the daemon makes each link connection through tailscaled with
+`tailscale nc`. It reads the mode at most once a minute. `koinon link status` then shows
+"Connections out: through tailscale nc". You change nothing in Tailscale for this.
+
 The link port is 47672 unless you choose another with `koinon link name --port PORT` or in
 Settings, Computers, **Change this computer's name or link port**. A paired computer learns
 a new port only when you unpair and pair again.

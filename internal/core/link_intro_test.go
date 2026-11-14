@@ -592,3 +592,56 @@ func (d *Daemon) introBusy() bool {
 	defer d.link.mu.Unlock()
 	return d.link.introducing
 }
+
+// A host whose Tailscale uses no TUN interface has no route to tailnet addresses; its link
+// connections go through tailscaled (tailscale nc), so it joins, pings and gets the group
+// like any other computer (#688).
+func TestLinkUserspaceTailscaleDialsThroughTailscaled(t *testing.T) {
+	n := &linkNet{}
+	a := newLinkHost(t, n, "alpha", "100.64.0.1")
+	b := newLinkHost(t, n, "beta", "100.64.0.2")
+	c := newLinkHost(t, n, "gamma", "100.64.0.3")
+	joinThrough(t, b, a)
+	// gamma runs userspace Tailscale: no direct dial, only the stream through tailscaled.
+	c.fake.mu.Lock()
+	c.fake.userspace, c.fake.stream = true, n.dial
+	c.fake.mu.Unlock()
+	c.d.link.mu.Lock()
+	c.d.link.dial = nil
+	c.d.link.mu.Unlock()
+	if _, introduced := joinThrough(t, b, c); !slices.Equal(introduced, []string{"alpha"}) {
+		t.Fatalf("introduced %v", introduced)
+	}
+	waitFor(t, "alpha never got gamma", func() bool { _, ok := pairWith(t, a, c); return ok && !b.d.introBusy() })
+	requireMesh(t, a, b, c)
+	c.d.passNow()
+	st := c.d.linkStatus(context.Background())
+	if st.Transport != "tailscaled" {
+		t.Fatalf("transport %q", st.Transport)
+	}
+	for _, p := range st.Pairs {
+		if p.Observed.State != "connected" {
+			t.Fatalf("gamma's pair %s: %+v", p.Name, p.Observed)
+		}
+	}
+	c.fake.mu.Lock()
+	streams := c.fake.streams
+	c.fake.mu.Unlock()
+	if streams == 0 {
+		t.Fatal("no connection went through tailscaled")
+	}
+	if a.d.linkStatus(context.Background()).Transport != "" {
+		t.Fatal("a TUN host reports the tailscaled transport")
+	}
+	// The mode is read at most once a minute: a change shows after that.
+	c.fake.mu.Lock()
+	c.fake.userspace = false
+	c.fake.mu.Unlock()
+	if !c.d.linkUserspace(context.Background()) {
+		t.Fatal("the mode was read again within the minute")
+	}
+	n.shift.Add(int64(linkUserspaceFor + time.Second))
+	if c.d.linkUserspace(context.Background()) {
+		t.Fatal("the mode was not read again after the minute")
+	}
+}

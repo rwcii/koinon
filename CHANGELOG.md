@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The link between your computers works on a host whose Tailscale runs in userspace
+  networking mode, as in many containers (#688). Such a host has no route to tailnet
+  addresses, so a join from it failed with `link_unreachable`, and its pings, introductions
+  and messages could not leave it. When `tailscale status` reports no TUN interface, Koinon now
+  makes each link connection through tailscaled with `tailscale nc`. `koinon link status`
+  shows "Connections out: through tailscale nc". No Tailscale setting changes.
+
 ## 2026-11-14 — One join adds a computer to the whole group of your Koinon computers
 
 This release makes it easy to link more than two computers (#683). The computer that makes an
