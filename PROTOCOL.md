@@ -2897,7 +2897,8 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     not run; a pair removed while the node connected is `signature_refused` with `target`, and
     nothing is sent; `outcome_unknown` (`target`, `request`) once it has written any byte of
     the frame and no valid answer came back (none, another reply, or an answer that is not an
-    object whose `ok` is true with status 200 or false with a refusal status), or the request
+    object whose `ok` is true with status 200 and a `result`, or false with a refusal status and
+    a non-empty string `code`), or the request
     ended, so the action may have run: `outcome` on that computer, or the same envelope again,
     tells. A link refusal that the other computer gives before it runs
     anything (`link_operation_unknown` from a computer without this release,

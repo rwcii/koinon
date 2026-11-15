@@ -498,6 +498,12 @@ func TestSignedForwardReplyShape(t *testing.T) {
 		"not ok and 200": {`{"status":200,"answer":{"ok":false,"code":"x"}}`, false},
 		"no status":      {`{"answer":{"ok":true,"result":{}}}`, false},
 		"string status":  {`{"status":"200","answer":{"ok":true,"result":{}}}`, false},
+		"no result":      {`{"status":200,"answer":{"ok":true}}`, false},
+		"no code":        {`{"status":409,"answer":{"ok":false}}`, false},
+		"number code":    {`{"status":409,"answer":{"ok":false,"code":123}}`, false},
+		"empty code":     {`{"status":409,"answer":{"ok":false,"code":""}}`, false},
+		"code, no error": {`{"status":500,"answer":{"ok":false,"code":"storage_error"}}`, true},
+		"extra fields":   {`{"status":200,"answer":{"ok":true,"result":[1],"more":1}}`, true},
 		"status 600":     {`{"status":600,"answer":{"ok":false,"code":"x"}}`, false},
 	} {
 		answer, ok := validReply(link.Frame{Op: "maintainer-ok", Body: json.RawMessage(c.body)})

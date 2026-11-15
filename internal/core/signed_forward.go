@@ -191,20 +191,26 @@ func (d *Daemon) signedForward(ctx context.Context, e signed.Envelope, data []by
 }
 
 // validReply takes a maintainer-ok reply that has the form of a route's answer: a JSON object
-// whose ok is true with status 200, or false with a refusal status. Its bytes stay as they came.
+// whose ok is true with status 200 and a result, or false with a refusal status and a code.
+// Its bytes stay as they came.
 func validReply(reply link.Frame) (forwardedAnswer, bool) {
 	var answer maintainerReply
 	if reply.Op != "maintainer-ok" || reply.Decode(&answer) != nil {
 		return forwardedAnswer{}, false
 	}
 	var shape struct {
-		OK *bool `json:"ok"`
+		OK     *bool           `json:"ok"`
+		Result json.RawMessage `json:"result"`
+		Code   *string         `json:"code"`
 	}
 	trimmed := bytes.TrimSpace(answer.Answer)
 	if len(trimmed) == 0 || trimmed[0] != '{' || json.Unmarshal(trimmed, &shape) != nil || shape.OK == nil {
 		return forwardedAnswer{}, false
 	}
 	if *shape.OK != (answer.Status == http.StatusOK) || answer.Status < 200 || answer.Status > 599 {
+		return forwardedAnswer{}, false
+	}
+	if *shape.OK && len(shape.Result) == 0 || !*shape.OK && (shape.Code == nil || *shape.Code == "") {
 		return forwardedAnswer{}, false
 	}
 	return forwardedAnswer{status: answer.Status, body: answer.Answer}, true
