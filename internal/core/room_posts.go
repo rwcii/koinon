@@ -144,7 +144,7 @@ func (s *Store) roomPost(ctx context.Context, caller Key, maintainer bool, roomI
 		return RoomPostResult{}, ErrInvalid
 	}
 	clock := s.clock()
-	if deadline <= clock && operationOf(ctx) == nil {
+	if deadline <= clock && !receipted(ctx) {
 		return RoomPostResult{}, ErrRoomPostLate
 	}
 	if deadline > clock+s.limits().idemTTL {
@@ -153,7 +153,7 @@ func (s *Store) roomPost(ctx context.Context, caller Key, maintainer bool, roomI
 	print := roomPostFingerprint(roomID, body, deadline)
 	// A repeat writes nothing, so it is answered from a read transaction before ordinary
 	// write admission: a full store still returns the original receipt.
-	if operationOf(ctx) == nil {
+	if !receipted(ctx) {
 		read, err := s.db.BeginTx(ctx, nil)
 		if err != nil {
 			return RoomPostResult{}, err
@@ -184,7 +184,7 @@ func (s *Store) roomPost(ctx context.Context, caller Key, maintainer bool, roomI
 		return RoomPostResult{}, err
 	}
 	if original != nil {
-		if operationOf(ctx) != nil {
+		if receipted(ctx) {
 			tx.operationResult(*original)
 			return *original, tx.Commit()
 		}

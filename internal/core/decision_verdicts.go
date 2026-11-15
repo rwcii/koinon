@@ -277,6 +277,11 @@ func (s *Store) DecisionVerdict(ctx context.Context, reference string, revision 
 		return DecisionVerdict{}, tx.operationRefusal(WorkRefusal{Code: "stale_revision", Message: "the decision item changed after the page showed it",
 			Details: map[string]any{"current_revision": item.Revision}})
 	}
+	// A signed verdict names the snapshot that its client showed (Decision 2.2 of the signed
+	// maintainer contract): the target refuses a verdict for other text than it holds.
+	if a := signedOf(ctx); a != nil && a.snapshot != shownSnapshot(reference, item) {
+		return DecisionVerdict{}, tx.operationRefusal(workError("snapshot_changed", "the decision item's text differs from the text that the client showed"))
+	}
 	if item.State != "active" {
 		return DecisionVerdict{}, tx.operationRefusal(workError("decided", "the decision item already has a verdict"))
 	}
@@ -295,8 +300,13 @@ func (s *Store) DecisionVerdict(ctx context.Context, reference string, revision 
 		}
 	}
 	snapshot, _ := json.Marshal(DecisionSnapshot{Title: item.Title, Where: item.Where, Context: item.Context, Recommendation: item.Recommendation, Commands: item.Commands})
-	inserted, err := tx.ExecContext(ctx, `INSERT INTO decision_verdicts(item_id,revision,verdict,note,created_at,snapshot,via) VALUES (?,?,?,?,?,?,?)`,
-		id, revision, verdict, note, now, string(snapshot), originOf(ctx))
+	// A signed verdict records its signer from this computer's authorization (Decision 7).
+	var signerUser, signerKey, signerClient string
+	if a := signedOf(ctx); a != nil {
+		signerUser, signerKey, signerClient = a.key.User, a.key.KeyID, a.key.Client
+	}
+	inserted, err := tx.ExecContext(ctx, `INSERT INTO decision_verdicts(item_id,revision,verdict,note,created_at,snapshot,via,signer_user,signer_key,signer_client)
+		VALUES (?,?,?,?,?,?,?,?,?,?)`, id, revision, verdict, note, now, string(snapshot), originOf(ctx), signerUser, signerKey, signerClient)
 	if err != nil {
 		return DecisionVerdict{}, tx.fail(err)
 	}

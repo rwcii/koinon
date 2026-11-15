@@ -1,0 +1,426 @@
+package core
+
+import (
+	"context"
+	"crypto/ed25519"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/rwcii/koinon/internal/signed"
+)
+
+// Signed maintainer actions on the node's own pin (#693 chunk 1; decision.md Decisions 2, 3,
+// 4 and 7). Keys, sessions, items and rooms are synthetic.
+
+// signedClient signs envelopes for one authorization on a test daemon.
+type signedClient struct {
+	t       *testing.T
+	d       *Daemon
+	pin     string
+	private ed25519.PrivateKey
+	key     string
+	auth    string
+	n       atomic.Int64
+}
+
+// newSignedClient enrolls the seeded key on d and returns its client.
+func newSignedClient(t *testing.T, d *Daemon, seed byte) *signedClient {
+	t.Helper()
+	id, err := d.linkIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	en, private := enrollment(t, seed, id.Pin, time.Now().Unix())
+	if _, err := d.store.AddMaintainerKey(context.Background(), en, "test"); err != nil {
+		t.Fatal(err)
+	}
+	return &signedClient{t: t, d: d, pin: id.Pin, private: private, key: en.KeyID, auth: en.Authorization}
+}
+
+// envelope signs op with args under request at created; fields overrides any envelope field.
+func (c *signedClient) envelope(op string, args map[string]any, request string, created int64, fields map[string]any) []byte {
+	c.t.Helper()
+	if args == nil {
+		args = map[string]any{}
+	}
+	e := map[string]any{"v": signed.Version, "key": c.key, "auth": c.auth, "target": c.pin, "op": op, "args": args,
+		"request": request, "created": created}
+	for k, v := range fields {
+		e[k] = v
+	}
+	data, err := signed.Sign(e, c.private)
+	if err != nil {
+		c.t.Fatal(err)
+	}
+	return data
+}
+
+// request gives a new request ID.
+func (c *signedClient) request() string { return fmt.Sprintf("test-request-%06d", c.n.Add(1)) }
+
+// do signs and runs op now under a new request ID.
+func (c *signedClient) do(op string, args map[string]any) (any, error) {
+	return c.d.SignedAction(context.Background(), c.envelope(op, args, c.request(), time.Now().Unix(), nil))
+}
+
+// must runs op and returns its result as JSON values.
+func (c *signedClient) must(op string, args map[string]any) map[string]any {
+	c.t.Helper()
+	result, err := c.do(op, args)
+	if err != nil {
+		c.t.Fatalf("%s %v: %v", op, args, err)
+	}
+	return jsonMap(c.t, result)
+}
+
+func jsonMap(t *testing.T, v any) map[string]any {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+// wantCode checks a refusal's code and, for signature_refused, its reason.
+func wantCode(t *testing.T, name string, err error, code, reason string) {
+	t.Helper()
+	if got := errorCode(err); err == nil || got != code {
+		t.Fatalf("%s: %v, want %s", name, err, code)
+	}
+	if reason != "" {
+		var work WorkRefusal
+		if !errors.As(err, &work) || work.Details["reason"] != reason {
+			t.Fatalf("%s: %v, want reason %s", name, err, reason)
+		}
+	}
+}
+
+// snapshotOf is the digest that a client computes from decision_get.
+func snapshotOf(t *testing.T, c *signedClient, reference string) (string, int64) {
+	t.Helper()
+	item := c.must("decision_get", map[string]any{"reference": reference})
+	commands := []string{}
+	for _, v := range item["commands"].([]any) {
+		commands = append(commands, v.(string))
+	}
+	revision := int64(item["revision"].(float64))
+	return signed.SnapshotDigest(reference, revision, item["kind"].(string), item["title"].(string), item["where"].(string),
+		item["context"].(string), item["recommendation"].(string), item["agent_text"].(string), commands), revision
+}
+
+// Decision 3.3 items 1 and 2, and item 4 for a read: each check refuses with its reason.
+func TestSignedActionChecks(t *testing.T) {
+	d, _ := startTestDaemon(t)
+	c := newSignedClient(t, d, 1)
+	now := time.Now().Unix()
+	run := func(data []byte) error {
+		_, err := d.SignedAction(context.Background(), data)
+		return err
+	}
+	if inbox := c.must("inbox", nil); inbox["last_seq"] != float64(0) {
+		t.Fatalf("inbox: %v", inbox)
+	}
+	good := c.envelope("inbox", map[string]any{"limit": int64(10)}, c.request(), now, nil)
+	wantCode(t, "changed argument", run([]byte(strings.Replace(string(good), `"limit":10`, `"limit":11`, 1))), "signature_refused", "signature")
+	wantCode(t, "unknown field", run([]byte(strings.Replace(string(good), `"v":`, `"x":1,"v":`, 1))), "signature_refused", "version")
+	wantCode(t, "other pin", run(c.envelope("inbox", nil, c.request(), now, map[string]any{"target": strings.Repeat("cd", 32)})), "invalid_request", "")
+	wantCode(t, "old read", run(c.envelope("inbox", nil, c.request(), now-signedWindow-5, nil)), "signature_refused", "time")
+	wantCode(t, "future read", run(c.envelope("inbox", nil, c.request(), now+signedWindow+5, nil)), "signature_refused", "time")
+	wantCode(t, "unknown op", run(c.envelope("room_create", nil, c.request(), now, nil)), "invalid_request", "")
+	wantCode(t, "unknown argument", run(c.envelope("inbox", map[string]any{"cursor": "x"}, c.request(), now, nil)), "invalid_request", "")
+	wantCode(t, "wrong argument type", run(c.envelope("inbox", map[string]any{"after": "1"}, c.request(), now, nil)), "invalid_request", "")
+
+	// An unknown key, and a known key under another authorization.
+	stranger := newSignedClient(t, startTestDaemonFor(t), 2)
+	stranger.pin = c.pin
+	wantCode(t, "unknown key", run(stranger.envelope("inbox", nil, stranger.request(), now, nil)), "signature_refused", "key_unknown")
+	old := c.auth
+	en, _ := enrollment(t, 1, c.pin, now+1)
+	if _, err := d.store.AddMaintainerKey(context.Background(), en, "test"); err != nil {
+		t.Fatal(err)
+	}
+	wantCode(t, "authorization changed", run(c.envelope("inbox", nil, c.request(), now, nil)), "signature_refused", "authorization_changed")
+	c.auth = en.Authorization
+	c.must("inbox", nil)
+	if _, err := d.store.RemoveMaintainerKey(context.Background(), c.key); err != nil {
+		t.Fatal(err)
+	}
+	wantCode(t, "removed key", run(c.envelope("inbox", nil, c.request(), now, nil)), "signature_refused", "key_removed")
+	c.auth = old
+	wantCode(t, "removed key, old authorization", run(c.envelope("inbox", nil, c.request(), now, nil)), "signature_refused", "key_removed")
+}
+
+// startTestDaemonFor is another test daemon, for a key that the first one never added.
+func startTestDaemonFor(t *testing.T) *Daemon {
+	d, _ := startTestDaemon(t)
+	return d
+}
+
+// Decision 4: a write runs once per (authorization, request); the same envelope answers the
+// first result, also after a restart; another envelope with that request is refused; outcome
+// reads the receipt; the verdict records its signer (Decision 7).
+func TestSignedWriteOnce(t *testing.T) {
+	d, root := startTestDaemon(t)
+	s := d.store
+	a := join(t, s, "codex", "synthetic-signed-a", namedRepo(t, "signedrepo"))
+	aKey := Key{"codex", a.ID}
+	mustCreate(t, s, aKey, "S-1", DecisionFields{Title: ptr("Ship it"), Kind: ptr("decision"), Context: ptr("- one"),
+		Commands: &[]string{"koinon version"}, Recipients: &[]string{a.Name}})
+	c := newSignedClient(t, d, 3)
+	snapshot, revision := snapshotOf(t, c, "S-1")
+	now := time.Now().Unix()
+
+	// Refusals of the operation's own checks are receipts too.
+	stale := c.envelope("decision_verdict", map[string]any{"reference": "S-1", "revision": revision + 1, "snapshot": snapshot,
+		"verdict": "approved", "note": ""}, "stale-request-0001", now, nil)
+	_, err := d.SignedAction(context.Background(), stale)
+	wantCode(t, "stale", err, "stale_revision", "")
+	outcome := c.must("outcome", map[string]any{"request": "stale-request-0001", "created": now})
+	if outcome["state"] != "refused" || outcome["code"] != "stale_revision" || outcome["details"].(map[string]any)["current_revision"] != float64(revision) {
+		t.Fatalf("stale outcome: %v", outcome)
+	}
+	wrong := c.envelope("decision_verdict", map[string]any{"reference": "S-1", "revision": revision, "snapshot": strings.Repeat("0", 64),
+		"verdict": "approved"}, "snapshot-request-01", now, nil)
+	_, err = d.SignedAction(context.Background(), wrong)
+	wantCode(t, "snapshot", err, "snapshot_changed", "")
+
+	verdict := c.envelope("decision_verdict", map[string]any{"reference": "S-1", "revision": revision, "snapshot": snapshot,
+		"verdict": "approved", "note": "Go."}, "verdict-request-001", now, nil)
+	first, err := d.SignedAction(context.Background(), verdict)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := jsonMap(t, first)
+	if v["verdict"] != "approved" || v["via"] != "key:voice" {
+		t.Fatalf("verdict: %v", v)
+	}
+	again, err := d.SignedAction(context.Background(), verdict)
+	if err != nil || jsonMap(t, again)["verdict_id"] != v["verdict_id"] {
+		t.Fatalf("repeat: %v %v", again, err)
+	}
+	conflict := c.envelope("decision_verdict", map[string]any{"reference": "S-1", "revision": revision, "snapshot": snapshot,
+		"verdict": "declined"}, "verdict-request-001", now, nil)
+	_, err = d.SignedAction(context.Background(), conflict)
+	wantCode(t, "conflict", err, "request_conflict", "")
+	var user, key, client, via string
+	if err := s.db.QueryRow(`SELECT signer_user,signer_key,signer_client,via FROM decision_verdicts`).Scan(&user, &key, &client, &via); err != nil {
+		t.Fatal(err)
+	}
+	if user != "maintainer" || key != c.key || client != "voice" || via != "key:voice" {
+		t.Fatalf("signer: %s %s %s %s", user, key, client, via)
+	}
+	var audit string
+	if err := s.db.QueryRow(`SELECT target FROM audit WHERE action='decision-approve' AND result='accepted'`).Scan(&audit); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(audit, " by maintainer (voice) key "+c.key) {
+		t.Fatalf("audit: %s", audit)
+	}
+
+	// A lost answer and a restart: the same envelope answers the first result once more.
+	if err := d.Close(); err != nil {
+		t.Fatal(err)
+	}
+	d, err = Start(Config{StateDir: root, Listen: []string{"127.0.0.1:0"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	c.d = d
+	after, err := d.SignedAction(context.Background(), verdict)
+	if err != nil || jsonMap(t, after)["verdict_id"] != v["verdict_id"] {
+		t.Fatalf("after restart: %v %v", after, err)
+	}
+	var verdicts int
+	d.store.db.QueryRow(`SELECT COUNT(*) FROM decision_verdicts`).Scan(&verdicts)
+	if verdicts != 1 {
+		t.Fatalf("verdicts: %d", verdicts)
+	}
+	outcome = c.must("outcome", map[string]any{"request": "verdict-request-001", "created": now})
+	if outcome["state"] != "recorded" || outcome["result"].(map[string]any)["verdict_id"] != v["verdict_id"] {
+		t.Fatalf("outcome: %v", outcome)
+	}
+	unknown := c.must("outcome", map[string]any{"request": "never-sent-request-1", "created": now})
+	if unknown["state"] != "unknown_request" || unknown["now"].(float64) < float64(now) {
+		t.Fatalf("unknown outcome: %v", unknown)
+	}
+}
+
+// The other writes run once too: ack, send and room_post.
+func TestSignedWritesRunOnce(t *testing.T) {
+	d, _ := startTestDaemon(t)
+	s, ctx := d.store, context.Background()
+	a := join(t, s, "codex", "synthetic-signed-b", namedRepo(t, "signedrepob"))
+	room, err := s.CreateRoom(ctx, "signed-room-key", "signed-room")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddRoomMember(ctx, room, a.Name); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Send(ctx, Key{"codex", a.ID}, "maintainer", "a synthetic report"); err != nil {
+		t.Fatal(err)
+	}
+	c := newSignedClient(t, d, 4)
+	now := time.Now().Unix()
+	for _, w := range []struct {
+		op   string
+		args map[string]any
+	}{
+		{"send", map[string]any{"to": a.Name, "body": "a synthetic instruction"}},
+		{"room_post", map[string]any{"room": room, "body": "a synthetic post"}},
+		{"ack", map[string]any{"through": int64(1)}},
+	} {
+		data := c.envelope(w.op, w.args, c.request(), now, nil)
+		first, err := d.SignedAction(ctx, data)
+		if err != nil {
+			t.Fatalf("%s: %v", w.op, err)
+		}
+		again, err := d.SignedAction(ctx, data)
+		if err != nil || fmt.Sprint(jsonMap(t, first)) != fmt.Sprint(jsonMap(t, again)) {
+			t.Fatalf("%s repeat: %v %v, first %v", w.op, again, err, first)
+		}
+	}
+	var messages, posts int
+	s.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE body='a synthetic instruction'`).Scan(&messages)
+	s.db.QueryRow(`SELECT COUNT(*) FROM room_posts WHERE body='a synthetic post'`).Scan(&posts)
+	if messages != 1 || posts != 1 {
+		t.Fatalf("messages %d posts %d", messages, posts)
+	}
+	var via string
+	s.db.QueryRow(`SELECT ack_via FROM messages WHERE body='a synthetic report'`).Scan(&via)
+	if via != "key:voice" {
+		t.Fatalf("ack via: %q", via)
+	}
+	var audits int
+	s.db.QueryRow(`SELECT COUNT(*) FROM audit WHERE result='accepted' AND target LIKE '% by maintainer (voice) key %'`).Scan(&audits)
+	if audits != 3 {
+		t.Fatalf("audits: %d", audits)
+	}
+}
+
+// Decision 3.3 item 3: a write's time check runs in its transaction, after the receipt lookup.
+// An old write does not run and outcome then reports it unknown; a recorded write answers its
+// receipt after its window.
+func TestSignedWriteTime(t *testing.T) {
+	d, _ := startTestDaemon(t)
+	s := d.store
+	a := join(t, s, "codex", "synthetic-signed-c", "")
+	c := newSignedClient(t, d, 5)
+	now := time.Now().Unix()
+	old := c.envelope("send", map[string]any{"to": a.Name, "body": "too late"}, "old-write-request-1", now-signedWindow-2, nil)
+	_, err := d.SignedAction(context.Background(), old)
+	wantCode(t, "old write", err, "signature_refused", "time")
+	if o := c.must("outcome", map[string]any{"request": "old-write-request-1", "created": now - signedWindow - 2}); o["state"] != "unknown_request" {
+		t.Fatalf("outcome: %v", o)
+	}
+	// Recorded near the end of its window, answered from its receipt after it.
+	edge := c.envelope("send", map[string]any{"to": a.Name, "body": "just in time"}, "edge-write-request-1", time.Now().Unix()-signedWindow+1, nil)
+	first, err := d.SignedAction(context.Background(), edge)
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2100 * time.Millisecond)
+	again, err := d.SignedAction(context.Background(), edge)
+	if err != nil || fmt.Sprint(jsonMap(t, first)) != fmt.Sprint(jsonMap(t, again)) {
+		t.Fatalf("after the window: %v %v", again, err)
+	}
+	var messages int
+	s.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE body IN ('too late','just in time')`).Scan(&messages)
+	if messages != 1 {
+		t.Fatalf("messages: %d", messages)
+	}
+}
+
+// A removal that commits after the envelope's checks and before its write's transaction
+// refuses the write in that transaction (Decision 3.3; #693 review risk 5).
+func TestSignedRemovalBeforeWrite(t *testing.T) {
+	d, _ := startTestDaemon(t)
+	c := newSignedClient(t, d, 6)
+	key, err := currentAuthorization(context.Background(), d.store.db, c.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := &signedAction{key: key, op: "ack", request: "removal-request-01", digest: strings.Repeat("0", 64), created: time.Now().Unix()}
+	ctx := context.WithValue(context.Background(), signedContextKey{}, a)
+	if _, err := d.store.RemoveMaintainerKey(context.Background(), c.key); err != nil {
+		t.Fatal(err)
+	}
+	_, err = d.store.ack(ctx, maintainerKey, 0, true)
+	wantCode(t, "removed while waiting", err, "signature_refused", "key_removed")
+	var receipts int
+	d.store.db.QueryRow(`SELECT COUNT(*) FROM signed_receipts`).Scan(&receipts)
+	if receipts != 0 {
+		t.Fatalf("receipts: %d", receipts)
+	}
+}
+
+// Decision 4.3: outcome reads in a transaction, so it waits for a write that holds the store
+// and then sees its receipt.
+func TestSignedOutcomeWaitsForWrite(t *testing.T) {
+	d, _ := startTestDaemon(t)
+	c := newSignedClient(t, d, 7)
+	now := time.Now().Unix()
+	tx, err := d.store.begin(context.Background(), ordinary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan map[string]any, 1)
+	go func() {
+		result, err := d.SignedAction(context.Background(), c.envelope("outcome", map[string]any{"request": "held-write-request", "created": now}, c.request(), now, nil))
+		if err != nil {
+			t.Error(err)
+		}
+		done <- jsonMap(t, result)
+	}()
+	select {
+	case o := <-done:
+		t.Fatalf("outcome did not wait: %v", o)
+	case <-time.After(300 * time.Millisecond):
+	}
+	ms := time.Now().UnixMilli()
+	if _, err := tx.Exec(`INSERT INTO signed_receipts(authorization,request,op,digest,state,code,result,created_at,expires_at)
+		VALUES(?,?,'ack',?,'recorded','','{"acked_through":0}',?,?)`, c.auth, "held-write-request", strings.Repeat("0", 64), ms, ms+signedReceiptWindow.Milliseconds()); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if o := <-done; o["state"] != "recorded" {
+		t.Fatalf("outcome: %v", o)
+	}
+}
+
+// Decision 4.3: after the key is added again, an outcome under the original authorization is
+// refused (authorization_changed); the new authorization finds no receipt of the old one.
+func TestSignedOutcomeAfterReenroll(t *testing.T) {
+	d, _ := startTestDaemon(t)
+	a := join(t, d.store, "codex", "synthetic-signed-d", "")
+	c := newSignedClient(t, d, 8)
+	now := time.Now().Unix()
+	if _, err := d.SignedAction(context.Background(), c.envelope("send", map[string]any{"to": a.Name, "body": "before"}, "reenroll-request-01", now, nil)); err != nil {
+		t.Fatal(err)
+	}
+	old := c.auth
+	en, _ := enrollment(t, 8, c.pin, now+1)
+	if _, err := d.store.AddMaintainerKey(context.Background(), en, "test"); err != nil {
+		t.Fatal(err)
+	}
+	_, err := d.SignedAction(context.Background(), c.envelope("outcome", map[string]any{"request": "reenroll-request-01", "created": now}, c.request(), now, nil))
+	wantCode(t, "original authorization", err, "signature_refused", "authorization_changed")
+	c.auth = en.Authorization
+	if o := c.must("outcome", map[string]any{"request": "reenroll-request-01", "created": now}); o["state"] != "unknown_request" {
+		t.Fatalf("new authorization: %v", o)
+	}
+	c.auth = old
+}
