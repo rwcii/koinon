@@ -34,6 +34,9 @@ composer() {
 		printf '\033[4A\r\033[2C'
 	fi
 }
+# Without echo the typed notice never shows in the composer. stty runs before the screen
+# draws, so the program is the only foreground process when the composer shows (#704).
+[ "$state" = noecho ] && stty -echo
 printf '\033[2J\033[H'
 [ "$state" = working ] && printf '\033[2m•\033[0m \033[2mWorking\033[0m \033[2m(1s • \033[0;1mesc\033[0;2m to interrupt)\033[0m\n\n\n'
 draft=
@@ -44,8 +47,6 @@ composer "$draft"
 [ "$state" = truecolor ] && printf '\033[48;2;30;68;78m'
 # A deaf program never reads: typed keys stay in the composer.
 [ "$state" = deaf ] && exec sleep 300
-# Without echo the typed notice never shows in the composer.
-[ "$state" = noecho ] && stty -echo
 while IFS= read -r line; do
 	printf '%s\n' "$line" >> "$received"
 	printf '\033[2J\033[H\033[1;2m›\033[0m %s\n\n' "$line"
