@@ -2905,10 +2905,12 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     tells. A link refusal that the other computer gives before it runs
     anything (`link_operation_unknown` from a computer without this release,
     `link_pair_not_found`, `link_remote_required`, `invalid_request`, `link_frame_too_large`)
-    comes back with its code and `details.target`. The node connects within 15 seconds and
-    waits for the answer the `changes` wait (at most 30 seconds) and 15 seconds more; the
-    signed route's write deadline is 70 seconds, and `koinon mcp --maintainer --signed` waits
-    85 seconds for a call.
+    comes back with its code and `details.target`. The node connects and authenticates within 3 seconds at
+    all of the computer's addresses together, so a computer that is off answers
+    `computer_offline` at once, also when its Serve port takes the connection; then it waits
+    for the answer the `changes` wait (at most 30 seconds) and 15 seconds more. The signed
+    route's write deadline is 58 seconds, and `koinon mcp --maintainer --signed` waits 73
+    seconds for a call.
   - **Sessions.** `POST /v1/maintainer/signed/session` takes a `session` envelope (`args`
     `{"client"}`) as its body and answers as `/v1/maintainer/session` does, with `client`
     `key:CLIENT` from the authorization; it writes the audit record `maintainer_login` with

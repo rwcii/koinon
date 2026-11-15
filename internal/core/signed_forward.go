@@ -21,8 +21,10 @@ import (
 )
 
 const (
-	// forwardConnect bounds the dial and handshake of a forwarded action.
-	forwardConnect = 15 * time.Second
+	// forwardConnect bounds the dial and handshake of a forwarded action, at every address of
+	// the computer together: a computer that is off answers computer_offline at once (#693
+	// Acceptance 6), also when its Serve port takes the TCP connection and no TLS answer comes.
+	forwardConnect = 3 * time.Second
 	// forwardExchange bounds a forwarded action's write, run and reply after its wait.
 	forwardExchange = 15 * time.Second
 	// forwardTotal bounds a forwarded action on the node: connect, the longest changes wait and
