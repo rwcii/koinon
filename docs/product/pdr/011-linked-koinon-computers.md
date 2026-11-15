@@ -259,8 +259,12 @@ maintainer secret is in PDR 009; Remote is in PDR 010.
   link unchanged as the operation `maintainer` and its answer comes back unchanged, with
   `computer_offline` and `outcome_unknown` from the node. Chunk 3, the Remote route: a
   computer's Remote address serves the signed session and action routes, with the session's
-  token as the bearer, and no other API. The live checks with Koinon Voice on two computers
-  (Acceptance 7) follow.
+  token as the bearer, and no other API. The live checks (LINK-693-LIVE, with the tailnet
+  access of LINK-693-ACL) ran on 2026-11-15 with a Koinon Voice build and two test nodes, one
+  on Linux and one on macOS, and met Acceptance 1 to 7. They found that a computer that is off
+  answered `computer_offline` only after 15 seconds; #703 bounds the connect to 3 seconds, and
+  the check passed again on that build. A reply lost on the target's side, a write held across
+  the end of its window and Acceptance 4 have tests only.
 
 ## Conclusion
 
@@ -278,3 +282,4 @@ computer keeps its own stores and controls.
 | 2026-11-14 | Decision 5, LINK-GROUP-JOIN, approved by Robert Capps: one join adds a computer to the group (#683). |
 | 2026-11-15 | Decision 6, LINK-693-SIGNED, approved by Robert Capps: signed maintainer actions across the link; Decision 2 amended (#693). |
 | 2026-11-15 | Decision 6: chunk 1 shipped, signed actions on a node's own pin (#693). |
+| 2026-11-15 | Decision 6: chunks 2 and 3 shipped (#700, #701); the live checks with Koinon Voice passed on Linux and macOS, after the fix of #703 (#693). |
