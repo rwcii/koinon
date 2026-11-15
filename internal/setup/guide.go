@@ -445,7 +445,9 @@ paths/connections and optional terminal operations.
 	"opencode": `
 ## OpenCode
 Koinon knows each OpenCode session through the Koinon plugin that koinon setup opencode
-installs; without it the tools refuse the call. Start OpenCode through koinon opencode for
+installs; without it the tools refuse the call. Setup writes the koinon server into OpenCode's
+global configuration: mcp.koinon with OpenCode 1 (checked with 1.18.35), mcp.servers.koinon
+with OpenCode 2 (checked with 2.3.0). Start OpenCode through koinon opencode for
 participant features and its wake endpoint. A direct opencode start registers as a plain
 peer using the plugin's native identity. It has no automatic wake because it has no launcher
 wake endpoint; read waiting messages with inbox.
