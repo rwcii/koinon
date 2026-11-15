@@ -166,6 +166,8 @@ func TestSignedActionChecks(t *testing.T) {
 	wantCode(t, "unknown key", run(stranger.envelope("inbox", nil, stranger.request(), now, nil)), "signature_refused", "key_unknown")
 	old := c.auth
 	en, _ := enrollment(t, 1, c.pin, now+1)
+	// A new statement that is prepared but not added changes nothing.
+	c.must("inbox", nil)
 	if _, err := d.store.AddMaintainerKey(context.Background(), en, "test"); err != nil {
 		t.Fatal(err)
 	}
