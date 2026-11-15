@@ -2884,7 +2884,12 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     a signed token is not a secret token. `koinon mcp --maintainer --signed` reads the session
     envelope from the first line of standard input (at most 512 KiB, LF or CRLF) and serves
     one tool, `signed` (`envelope`: the object, or a string of its JSON text), which answers
-    the target's answer unchanged; it has no resources.
+    the target's answer unchanged; it has no resources. It runs each `tools/call` at once, so a
+    `changes` wait holds no other call, and answers each by its own `id`, in any order; at most
+    128 calls are in flight (one wait for each target a node can have, and as many actions),
+    and a call beyond that is answered at once with `too_many_calls` (`details.limit`) and
+    reaches no daemon. `maintainer_token_expired` from any call ends the server after the
+    calls in flight have answered; the end of standard input also lets them answer first.
   - **Identity.** A signed write records `via` `key:CLIENT`; a verdict also stores the
     authorization's user, key ID and client, which the answer, the maintainer's history
     (`signer`) and the dashboard (`by USER (CLIENT)`) show, also after the key's removal; an
