@@ -367,7 +367,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 38
+const schemaVersion = 39
 
 // workItemsV16Columns are the work item columns before schema 17, which its rebuild copies.
 const workItemsV16Columns = `store,work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,created_at,created_consumer,
@@ -951,6 +951,13 @@ func migrate(db *sql.DB, version, target int) error {
 		// Version 38: the queue to paired computers, the ordered stream of each pair, and the
 		// link origin of a received message (#670 chunk 03, LINK-670-OFFLINE).
 		if _, err := tx.Exec(linkOutboxTablesV38); err != nil {
+			return err
+		}
+	}
+	if version < 39 && target >= 39 {
+		// Version 39: authorized maintainer client keys, the receipts of signed writes and the
+		// signer of a verdict (#693, LINK-693-SIGNED).
+		if _, err := tx.Exec(maintainerKeyTablesV39); err != nil {
 			return err
 		}
 	}
