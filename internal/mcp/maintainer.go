@@ -150,7 +150,7 @@ type maintainerServer struct {
 
 // maxSignedCalls bounds a signed session's tool calls in flight: a client keeps one changes
 // wait per target, at most link.MaxPairs + 1, with room for as many actions besides.
-const maxSignedCalls = 128
+const maxSignedCalls = core.MaxSignedCalls
 
 // changePoll is a running long poll and the means to end and join it.
 type changePoll struct {

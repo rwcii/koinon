@@ -82,6 +82,10 @@ type remoteRuntime struct {
 	// offUnrecorded holds a disable whose record write failed: the surface stays
 	// closed and the reconciler retries the write instead of opening it again.
 	offUnrecorded bool
+	// life ends when this open of the surface closes; the signed requests that it admitted
+	// end with it (#693 chunk 3). Each open has a new one.
+	life    context.Context
+	endLife context.CancelFunc
 }
 
 func ReadRemoteConfig(root string) (*RemoteConfig, error) {
@@ -149,6 +153,18 @@ func (d *Daemon) openRemoteListenerLocked(l net.Listener) error {
 			http.Error(w, "remote access disabled", http.StatusServiceUnavailable)
 			return
 		}
+		// A signed request can wait up to signedRouteWrite: it holds the read lock only for its
+		// admission, and ends when this open of the surface closes, so a disable does not
+		// wait for it.
+		if remoteSignedPath(r.URL.Path) {
+			life := rt.life
+			rt.surface.RUnlock()
+			ctx, cancel := context.WithCancel(r.Context())
+			defer cancel()
+			defer context.AfterFunc(life, cancel)()
+			h.ServeHTTP(w, r.WithContext(ctx))
+			return
+		}
 		// These authenticated controls reconcile or close this very listener. They
 		// must not hold its read lock while taking its write lock. All other requests
 		// still drain before a disable; controls retain ordinary session/CSRF checks.
@@ -161,6 +177,7 @@ func (d *Daemon) openRemoteListenerLocked(l net.Listener) error {
 	})
 	rt.surface.Lock()
 	rt.active = true
+	rt.life, rt.endLife = context.WithCancel(context.Background())
 	rt.surface.Unlock()
 	rt.server, rt.listener = server, l
 	d.wg.Add(1)
@@ -174,6 +191,10 @@ func (d *Daemon) closeRemoteLocked() {
 	rt.surface.Lock()
 	defer rt.surface.Unlock()
 	rt.active = false
+	if rt.endLife != nil {
+		rt.endLife()
+		rt.endLife = nil
+	}
 	if rt.server != nil {
 		rt.server.Close()
 		rt.server = nil

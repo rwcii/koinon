@@ -37,7 +37,9 @@ type Config struct {
 
 type Daemon struct {
 	// computers is the node's computers topic of signed changes waits (#693).
-	computers         computersTopic
+	computers computersTopic
+	// signedCalls counts the actions in flight of each signed session (#693 chunk 3).
+	signedCalls       signedCalls
 	remote            remoteRuntime
 	link              linkRuntime
 	release           string

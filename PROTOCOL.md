@@ -63,8 +63,10 @@ repositories.
 An additional optional browser surface is managed by `koinon remote enable|status|disable`
 (ADR 002, PDR 010). Tailscale Serve supplies private HTTPS on the host's `.ts.net`
 name and forwards to a dedicated `127.0.0.1` HTTP listener. That listener serves
-only the dashboard and static assets, with `/` redirecting to `/dashboard/`;
-`/v1/` is absent. It accepts the exact configured external Host and validates
+only the dashboard and static assets, with `/` redirecting to `/dashboard/`, and the two
+signed maintainer routes `POST /v1/maintainer/signed/session` and `POST /v1/maintainer/signed`
+(Signed maintainer actions, Sessions); every other `/v1/` path is absent. It accepts the exact
+configured external Host and validates
 write Origin against the saved HTTPS origin, ignoring proxy identity and
 forwarding headers as authority. The existing LAN HTTPS listener is independent.
 
@@ -2911,9 +2913,21 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     `{"client"}`) as its body and answers as `/v1/maintainer/session` does, with `client`
     `key:CLIENT` from the authorization; it writes the audit record `maintainer_login` with
     `key:CLIENT by USER (CLIENT) key KEY_ID`. `POST /v1/maintainer/signed` takes one envelope as
-    its body and the session's token in `Koinon-Maintainer-Token`; an unknown or ended token,
+    its body and the session's token in `Koinon-Maintainer-Token`, as the loopback API's
+    `Authorization` holds the daemon's bearer secret; an unknown or ended token,
     or one whose key's authorization ended, is `maintainer_token_expired` (409) before the body
-    is read. A signed session has the token's limits, ends with its key's authorization and at
+    is read. A session has at most 128 actions in flight; one more is answered at once, before
+    its body is read, with 429 `too_many_calls` (`details.limit`), and another session is not
+    held by it. The Remote listener (#693 chunk 3) serves these two routes with the same answers
+    and needs no bearer secret: the session route takes the session envelope alone, and the
+    action route takes the token as `Authorization: Bearer TOKEN` only; no dashboard cookie,
+    secret or secret token opens it, and a signed token opens no dashboard page. Any other
+    method of the two paths is 405, and any other `/v1/` path 404. The routes do not need the
+    maintainer secret to be set; turning Remote on still does. The login's audit record ends
+    with ` via remote`. A signed request on Remote holds the surface only for its admission and
+    ends when Remote is turned off, so a turn-off does not wait for a `changes` wait; its answer
+    may then not arrive, and a write that had not committed does not run later. A signed
+    session has the token's limits, ends with its key's authorization and at
     a daemon restart, not at a change of the secret. A secret token is not a signed token, and
     a signed token is not a secret token. `koinon mcp --maintainer --signed` reads the session
     envelope from the first line of standard input (at most 512 KiB, LF or CRLF) and serves

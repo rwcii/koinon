@@ -16,7 +16,9 @@ into a dated release section when promoted to `main`.
   runs there, under the key that computer added; both computers need this release. A computer
   that cannot be reached answers `computer_offline` and nothing runs; an answer lost after the
   action was sent is `outcome_unknown`, and `outcome` on that computer tells what happened. A
-  client with no Koinon on its computer comes in a later release. The state schema moves to 39:
+  client with no Koinon on its computer reaches a computer at its Remote address, which serves
+  the two signed routes with the session's token as the bearer, and no other API. A session
+  has at most 128 actions in flight. The state schema moves to 39:
   a schema 38 binary refuses the upgraded store.
 - `koinon setup opencode` works with OpenCode 2 (#692). OpenCode 2.3.0 writes an MCP server into
   the current directory's project file unless `--global` is given, and its `mcp list` no longer

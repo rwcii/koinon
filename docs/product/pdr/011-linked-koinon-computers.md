@@ -257,7 +257,10 @@ maintainer secret is in PDR 009; Remote is in PDR 010.
   `koinon mcp --maintainer --signed` and every action on a node's own pin, with the signer on
   verdicts. Chunk 2, forwarding on the link: an action for a paired computer's pin goes on the
   link unchanged as the operation `maintainer` and its answer comes back unchanged, with
-  `computer_offline` and `outcome_unknown` from the node. Chunk 3 (the Remote route) follows.
+  `computer_offline` and `outcome_unknown` from the node. Chunk 3, the Remote route: a
+  computer's Remote address serves the signed session and action routes, with the session's
+  token as the bearer, and no other API. The live checks with Koinon Voice on two computers
+  (Acceptance 7) follow.
 
 ## Conclusion
 
