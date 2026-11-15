@@ -2889,13 +2889,17 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     just before the write. Its reply `maintainer-ok` has `status` (its route's HTTP status) and
     `answer` (its route's JSON); a paged read fits that frame and keeps `more` and
     `next_after`. The node returns the status and answer unchanged. The node refuses `session`
-    and `computers` signed for another pin (`invalid_request`), and answers with status 409:
+    and `computers` signed for a paired computer's pin (`invalid_request`; for an unknown pin
+    the target refusal comes first), and answers with status 409:
     `computer_offline` (`details`: `target`, `last_seen`, the time of the last connected
     observation of that pair or 0, and `reason`, such as `link_remote_required` when this
     computer's link is closed) when it could not connect and sent nothing, so the action did
-    not run; `outcome_unknown` (`target`, `request`) once it has written any byte of the frame
-    and no valid answer came back, so the action may have run: `outcome` on that computer, or
-    the same envelope again, tells. A link refusal that the other computer gives before it runs
+    not run; a pair removed while the node connected is `signature_refused` with `target`, and
+    nothing is sent; `outcome_unknown` (`target`, `request`) once it has written any byte of
+    the frame and no valid answer came back (none, another reply, or an answer that is not an
+    object whose `ok` is true with status 200 or false with a refusal status), or the request
+    ended, so the action may have run: `outcome` on that computer, or the same envelope again,
+    tells. A link refusal that the other computer gives before it runs
     anything (`link_operation_unknown` from a computer without this release,
     `link_pair_not_found`, `link_remote_required`, `invalid_request`, `link_frame_too_large`)
     comes back with its code and `details.target`. The node connects within 15 seconds and

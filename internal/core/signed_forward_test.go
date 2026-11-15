@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"strings"
 	"testing"
@@ -175,6 +176,13 @@ func TestSignedForwardRunsOnTarget(t *testing.T) {
 	}
 	_, err = b.d.SignedAction(context.WithValue(ctx, forwardedKey{}, pinOf(t, b)), c.envelope("inbox", nil, c.request(), now, other))
 	wantCode(t, "third pin forwarded to B", err, "signature_refused", "target")
+	// The target comes before the node's own operations (review C2-F3).
+	for _, op := range []string{"session", "computers"} {
+		status, body = answerOf(t, a.d, ctx, c.envelope(op, map[string]any{}, c.request(), now, other))
+		if m := wantAnswer(t, op+" for a third pin", status, body, 409, "signature_refused"); m["details"].(map[string]any)["reason"] != "target" {
+			t.Fatalf("%s for a third pin: %s", op, body)
+		}
+	}
 
 	// A forwarded changes has no computers topic; B's own has one.
 	fc := forwardMust(t, f, "changes", nil)
@@ -461,6 +469,88 @@ func TestSignedForwardQuietWait(t *testing.T) {
 	quiet := forwardMust(t, f, "changes", map[string]any{"versions": versions, "wait_seconds": int64(20)})
 	if elapsed := time.Since(started); len(quiet["changed"].([]any)) != 0 || elapsed < 19*time.Second {
 		t.Fatalf("quiet wait after %v: %v", elapsed, quiet)
+	}
+	// A request that ends ends its forwarded wait (review C2-F4).
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	started = time.Now()
+	status, body := answerOf(t, a.d, ctx, f.envelope("changes", map[string]any{"versions": versions, "wait_seconds": int64(20)}, f.request(), time.Now().Unix(), nil))
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
+		t.Fatalf("cancelled wait answered after %v: %d %s", elapsed, status, body)
+	}
+	wantAnswer(t, "cancelled wait", status, body, 409, "outcome_unknown")
+}
+
+// C2-F2: a maintainer-ok reply that is not a route's answer leaves the outcome unknown.
+func TestSignedForwardReplyShape(t *testing.T) {
+	for name, c := range map[string]struct {
+		body string
+		ok   bool
+	}{
+		"success":        {`{"status":200,"answer":{"ok":true,"result":{"a":1}}}`, true},
+		"refusal":        {`{"status":409,"answer":{"ok":false,"code":"decided","error":"x"}}`, true},
+		"null answer":    {`{"status":200,"answer":null}`, false},
+		"array answer":   {`{"status":200,"answer":[]}`, false},
+		"string answer":  {`{"status":200,"answer":"ok"}`, false},
+		"no ok":          {`{"status":200,"answer":{"result":{}}}`, false},
+		"ok not boolean": {`{"status":200,"answer":{"ok":"yes"}}`, false},
+		"ok and refusal": {`{"status":409,"answer":{"ok":true,"result":{}}}`, false},
+		"not ok and 200": {`{"status":200,"answer":{"ok":false,"code":"x"}}`, false},
+		"no status":      {`{"answer":{"ok":true,"result":{}}}`, false},
+		"string status":  {`{"status":"200","answer":{"ok":true,"result":{}}}`, false},
+		"status 600":     {`{"status":600,"answer":{"ok":false,"code":"x"}}`, false},
+	} {
+		answer, ok := validReply(link.Frame{Op: "maintainer-ok", Body: json.RawMessage(c.body)})
+		if ok != c.ok {
+			t.Fatalf("%s: %v", name, ok)
+		}
+		if ok && !strings.Contains(c.body, string(answer.body)) {
+			t.Fatalf("%s: bytes changed: %s", name, answer.body)
+		}
+	}
+	if _, ok := validReply(link.Frame{Op: "error", Body: json.RawMessage(`{"status":200,"answer":{"ok":true}}`)}); ok {
+		t.Fatal("another operation")
+	}
+}
+
+// C2-F1: an unpair that completes while the node connects admits no action: the node sends
+// nothing and B, which still trusts A, writes nothing.
+func TestSignedForwardUnpairDuringConnect(t *testing.T) {
+	_, a, b := pairedLinkHosts(t)
+	ctx := context.Background()
+	agent := join(t, b.d.store, "codex", "synthetic-forward-unpair", "")
+	c := newSignedClient(t, b.d, 30)
+	f := viaNode(c, a.d)
+	a.d.link.mu.Lock()
+	dial := a.d.link.dial
+	stage := 0
+	a.d.link.dial = func(ctx context.Context, address string) (net.Conn, error) {
+		switch stage {
+		case 0:
+			stage = 1
+			if err := a.d.linkUnpair(ctx, "beta"); err != nil {
+				t.Error(err)
+			}
+			stage = 2
+		case 1:
+			// The unpair's notice does not reach B.
+			return nil, errors.New("synthetic: notice lost")
+		}
+		return dial(ctx, address)
+	}
+	a.d.link.mu.Unlock()
+	status, body := answerOf(t, a.d, ctx, f.envelope("send", map[string]any{"to": agent.Name, "body": "a synthetic send after unpair"}, f.request(), time.Now().Unix(), nil))
+	if m := wantAnswer(t, "unpaired while connecting", status, body, 409, "signature_refused"); m["details"].(map[string]any)["reason"] != "target" {
+		t.Fatalf("unpaired while connecting: %s", body)
+	}
+	if stage != 2 {
+		t.Fatalf("stage %d", stage)
+	}
+	if _, ok := pairWith(t, b, a); !ok {
+		t.Fatal("B no longer has the pair: the test needs B to trust A")
+	}
+	if n := rowCount(t, b.d, `SELECT COUNT(*) FROM messages WHERE body='a synthetic send after unpair'`); n != 0 {
+		t.Fatalf("messages on B: %d", n)
 	}
 }
 

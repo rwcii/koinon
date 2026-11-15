@@ -7,9 +7,11 @@ package core
 // operations, and with the remote-safe peer projection of PDR 011 Decision 2.
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"slices"
 	"time"
@@ -99,9 +101,6 @@ var definiteLinkRefusals = map[string]bool{"link_operation_unknown": true, ErrLi
 
 // signedForward sends an envelope for a paired computer's pin on the link and returns its answer.
 func (d *Daemon) signedForward(ctx context.Context, e signed.Envelope, data []byte) (any, error) {
-	if e.Op == "session" || e.Op == "computers" {
-		return nil, Refusal{"invalid_request", e.Op + " is an operation of the node: sign it for the node's own pin"}
-	}
 	d.link.mu.Lock()
 	s, err := link.ReadState(d.root)
 	o := d.link.observed
@@ -119,6 +118,11 @@ func (d *Daemon) signedForward(ctx context.Context, e signed.Envelope, data []by
 	}
 	if i < 0 {
 		return nil, signedRefusal("target", "the target is neither this computer nor a paired one")
+	}
+	// The target comes first (Decision 3.3): the node's own operations are refused only for a
+	// paired computer's pin.
+	if e.Op == "session" || e.Op == "computers" {
+		return nil, Refusal{"invalid_request", e.Op + " is an operation of the node: sign it for the node's own pin"}
 	}
 	p := s.Pairs[i]
 	frame, err := link.NewFrame("maintainer", maintainerFrame{Envelope: base64.StdEncoding.EncodeToString(data)})
@@ -141,6 +145,14 @@ func (d *Daemon) signedForward(ctx context.Context, e signed.Envelope, data []by
 		return nil, computerOffline(e.Target, observed.Connected, errorCode(err))
 	}
 	defer session.close()
+	// The pair can have gone while the node connected. The connection is tracked by now, so an
+	// unpair that commits after this check closes it (closeLinkPin).
+	if err := d.pairStands(gen, p); err != nil {
+		if errors.Is(err, ErrLinkNoPair) {
+			return nil, signedRefusal("target", "the target is neither this computer nor a paired one")
+		}
+		return nil, computerOffline(e.Target, observed.Connected, errorCode(err))
+	}
 	wait := int64(0)
 	if e.Op == "changes" {
 		if w, ok := e.Args["wait_seconds"].(int64); ok {
@@ -148,6 +160,11 @@ func (d *Daemon) signedForward(ctx context.Context, e signed.Envelope, data []by
 		}
 	}
 	session.conn.SetDeadline(time.Now().Add(time.Duration(wait)*time.Second + forwardExchange))
+	// A request that ends ends the exchange too: its connection's deadline passes at once.
+	defer context.AfterFunc(ctx, func() { session.conn.SetDeadline(time.Unix(1, 0)) })()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	// From the first byte written the target can run the action: every failure after this
 	// point leaves its outcome unknown.
 	if err := link.WriteFrame(session.conn, frame); err != nil {
@@ -166,11 +183,48 @@ func (d *Daemon) signedForward(ctx context.Context, e signed.Envelope, data []by
 		}
 		return nil, outcomeUnknown(e.Target, e.Request)
 	}
-	var answer maintainerReply
-	if reply.Op != "maintainer-ok" || reply.Decode(&answer) != nil || answer.Status < 200 || answer.Status > 599 || !json.Valid(answer.Answer) {
+	answer, ok := validReply(reply)
+	if !ok {
 		return nil, outcomeUnknown(e.Target, e.Request)
 	}
-	return forwardedAnswer{status: answer.Status, body: answer.Answer}, nil
+	return answer, nil
+}
+
+// validReply takes a maintainer-ok reply that has the form of a route's answer: a JSON object
+// whose ok is true with status 200, or false with a refusal status. Its bytes stay as they came.
+func validReply(reply link.Frame) (forwardedAnswer, bool) {
+	var answer maintainerReply
+	if reply.Op != "maintainer-ok" || reply.Decode(&answer) != nil {
+		return forwardedAnswer{}, false
+	}
+	var shape struct {
+		OK *bool `json:"ok"`
+	}
+	trimmed := bytes.TrimSpace(answer.Answer)
+	if len(trimmed) == 0 || trimmed[0] != '{' || json.Unmarshal(trimmed, &shape) != nil || shape.OK == nil {
+		return forwardedAnswer{}, false
+	}
+	if *shape.OK != (answer.Status == http.StatusOK) || answer.Status < 200 || answer.Status > 599 {
+		return forwardedAnswer{}, false
+	}
+	return forwardedAnswer{status: answer.Status, body: answer.Answer}, true
+}
+
+// pairStands checks that pair p is still paired, with its key, in generation gen.
+func (d *Daemon) pairStands(gen uint64, p link.Pair) error {
+	d.link.mu.Lock()
+	defer d.link.mu.Unlock()
+	if d.link.gen != gen {
+		return ErrLinkRemoteOff
+	}
+	s, err := link.ReadState(d.root)
+	if err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(s.Pairs, func(q link.Pair) bool { return q.ID == p.ID && q.Pin == p.Pin && q.State == link.Paired }) {
+		return ErrLinkNoPair
+	}
+	return nil
 }
 
 // answerMaintainer runs the link operation maintainer of a paired key: the envelope runs here,
