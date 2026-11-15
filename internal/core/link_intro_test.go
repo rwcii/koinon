@@ -181,7 +181,6 @@ func TestLinkIntroductionWaitsForAnOfflineComputer(t *testing.T) {
 	restarted.link.dial, restarted.link.now = n.dial, n.now
 	n.mu.Lock()
 	n.hosts[b.ip+":47672"] = restarted
-	n.hosts[a.ip+":47672"] = a.d
 	n.mu.Unlock()
 	b.d = restarted
 	if _, _, err := b.d.linkLife(); err != nil {
@@ -189,9 +188,13 @@ func TestLinkIntroductionWaitsForAnOfflineComputer(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// Alpha is still off, so the restarted monitor's first pass cannot deliver it (#707).
 	if got := introsOf(t, b); len(got) != 1 || !got[0].NewSent {
 		t.Fatalf("after the restart: %+v", got)
 	}
+	n.mu.Lock()
+	n.hosts[a.ip+":47672"] = a.d
+	n.mu.Unlock()
 	b.d.passNow()
 	waitFor(t, "alpha never got its introduction after the restart", func() bool {
 		_, ok := pairWith(t, a, c)
