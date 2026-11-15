@@ -348,7 +348,12 @@ func (s *Store) DecisionVerdict(ctx context.Context, reference string, revision 
 		result.Deliveries = append(result.Deliveries, d)
 	}
 	setAuditTarget(ctx, fmt.Sprintf("decision %s revision %d %s verdict %d", reference, revision, verdict, verdictID))
-	tx.operationResult(DecisionVerdict{ID: result.ID, Revision: result.Revision, Verdict: result.Verdict, At: result.At})
+	if signedOf(ctx) != nil {
+		// A signed verdict's receipt keeps its whole answer (Decision 4.2 of the signed contract).
+		tx.operationResult(result)
+	} else {
+		tx.operationResult(DecisionVerdict{ID: result.ID, Revision: result.Revision, Verdict: result.Verdict, At: result.At})
+	}
 	return result, tx.Commit()
 }
 

@@ -42,8 +42,16 @@ type signedAction struct {
 	// commits its receipt only after them.
 	checked  bool
 	recorded bool
-	result   json.RawMessage
+	// shape turns the store's result into the operation's answer, which the receipt keeps; nil
+	// keeps the store's result. result is that answer as JSON.
+	shape  func(any) any
+	result json.RawMessage
 }
+
+// signedReplayed carries a receipt's recorded answer out of a write's store call.
+type signedReplayed struct{ raw json.RawMessage }
+
+func (signedReplayed) Error() string { return "the request has a recorded receipt" }
 
 type signedContextKey struct{}
 
@@ -154,9 +162,22 @@ func (d *Daemon) SignedAction(ctx context.Context, data []byte) (any, error) {
 		if !inWindow(d.store.now(), e.Created) {
 			return nil, signedRefusal("time", "the envelope is not within 5 minutes of this computer's clock")
 		}
-		return d.signedRead(ctx, e, key, &args)
+		result, err := d.signedRead(ctx, e, key, &args)
+		if err != nil {
+			return nil, err
+		}
+		// A removal that committed while the read ran ends its answer too.
+		if err := stillAuthorized(ctx, d.store.db, key); err != nil {
+			return nil, err
+		}
+		return result, nil
 	}
 	a := &signedAction{key: key, op: e.Op, request: e.Request, digest: e.Digest(), created: e.Created}
+	// A receipt answers before write admission, so a full or blocked store still returns it
+	// (Decision 3.3 item 3; the write's transaction looks again).
+	if raw, found, err := d.store.signedLookup(ctx, a); found || err != nil {
+		return raw, err
+	}
 	ctx = context.WithValue(withOrigin(ctx, "key:"+key.Client), signedContextKey{}, a)
 	return d.signedWrite(ctx, e, a, &args)
 }
@@ -297,7 +318,7 @@ func (d *Daemon) signedRead(ctx context.Context, e signed.Envelope, key Maintain
 		if !ok || request == "" {
 			return nil, Refusal{"invalid_request", "outcome takes the request ID and created of the original request"}
 		}
-		return d.store.signedOutcome(ctx, key.Authorization, request)
+		return d.store.signedOutcome(ctx, key, request)
 	}
 	return nil, Refusal{"invalid_request", "the operation does not cross as a signed action"}
 }
@@ -322,19 +343,24 @@ func (d *Daemon) signedWrite(ctx context.Context, e signed.Envelope, a *signedAc
 			target = "decision " + reference
 		}
 		valid := known && revision > 0 && checkReference(reference) == nil && len(a.snapshot) == 64
+		a.shape = func(r any) any {
+			if v, ok := r.(DecisionVerdict); ok {
+				v.Via = "key:" + a.key.Client
+				return v
+			}
+			return r
+		}
 		return d.signedApply(ctx, action, target, valid, func(ctx context.Context) (any, error) {
-			v, err := d.store.DecisionVerdict(ctx, reference, revision, verdict, note)
-			v.Via = originOf(ctx)
-			return v, err
+			return d.store.DecisionVerdict(ctx, reference, revision, verdict, note)
 		})
 	case "ack":
 		through, ok := args.integer("through")
 		if err := args.check(); err != nil {
 			return nil, err
 		}
+		a.shape = func(r any) any { return map[string]any{"acked_through": r} }
 		return d.signedApply(ctx, "acknowledge", maintainerKey.Family+":"+maintainerKey.ID, ok && through >= 0, func(ctx context.Context) (any, error) {
-			acked, err := d.store.ack(ctx, maintainerKey, through, true)
-			return map[string]any{"acked_through": acked}, err
+			return d.store.ack(ctx, maintainerKey, through, true)
 		})
 	case "send":
 		to := args.str("to")
@@ -366,28 +392,86 @@ func (d *Daemon) signedWrite(ctx context.Context, e signed.Envelope, a *signedAc
 		// envelope's window, which the receipt's time check enforces first.
 		key := "signed:" + a.key.Authorization[:32] + ":" + a.request
 		deadline := float64(a.created + signedWindow)
+		a.shape = func(r any) any {
+			if p, ok := r.(RoomPostResult); ok {
+				return maintainerPost{p.RoomID, p.Seq, p.Queued, p.Skipped, p.Duplicate}
+			}
+			return r
+		}
 		return d.signedApply(ctx, "room-post", "room "+roomTarget(room)+" bytes "+strconv.Itoa(len(body)), valid, func(ctx context.Context) (any, error) {
-			r, err := d.store.DashboardRoomPost(ctx, room, body, key, deadline)
-			return maintainerPost{r.RoomID, r.Seq, r.Queued, r.Skipped, r.Duplicate}, err
+			return d.store.DashboardRoomPost(ctx, room, body, key, deadline)
 		})
 	}
 	return nil, Refusal{"invalid_request", "the operation does not cross as a signed action"}
 }
 
 // signedApply runs one audited signed write, as maintainerAct does for the token routes: invalid
-// input is refused before any store call, and a refusal writes its audit record.
+// input is refused before any store call, and a refusal writes its audit record. The answer
+// is the one that the write's receipt keeps, so a repeat and outcome give the same JSON.
 func (d *Daemon) signedApply(ctx context.Context, action, target string, valid bool, apply func(ctx context.Context) (any, error)) (any, error) {
 	ctx, pending := withAudit(ctx, action, target)
 	if !valid {
 		d.store.auditRefusal(ctx, pending, "invalid_request")
 		return nil, ErrInvalid
 	}
-	result, err := apply(ctx)
+	_, err := apply(ctx)
+	var replayed signedReplayed
+	if errors.As(err, &replayed) {
+		return replayed.raw, nil
+	}
 	if err != nil {
 		d.store.auditRefusal(ctx, pending, errorCode(err))
 		return nil, err
 	}
-	return result, nil
+	a := signedOf(ctx)
+	if a == nil || !a.recorded {
+		return nil, errors.New("a signed write committed without its receipt")
+	}
+	return a.result, nil
+}
+
+// stillAuthorized checks in q that key's authorization is still the current one.
+func stillAuthorized(ctx context.Context, q querier, key MaintainerKey) error {
+	current, err := currentAuthorization(ctx, q, key.KeyID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return signedRefusal("key_removed", "the key's authorization was removed on this computer")
+	}
+	if err != nil {
+		return err
+	}
+	if current.Authorization != key.Authorization {
+		return signedRefusal("authorization_changed", "the key was added again since this envelope's authorization")
+	}
+	return nil
+}
+
+// signedCheck checks in q that the action's authorization is current and looks up its
+// receipt: found with raw for a recorded answer, or found with the receipt's refusal.
+func signedCheck(ctx context.Context, q querier, a *signedAction, now time.Time) (json.RawMessage, bool, error) {
+	if err := stillAuthorized(ctx, q, a.key); err != nil {
+		return nil, false, err
+	}
+	r, err := signedReceipt(ctx, q, a.key.Authorization, a.request, now.UnixMilli())
+	if err != nil || r == nil {
+		return nil, false, err
+	}
+	if r.digest != a.digest {
+		return nil, true, ErrSignedRequestConflict
+	}
+	if r.state == "refused" {
+		return nil, true, r.refusal()
+	}
+	return r.result, true, nil
+}
+
+// signedLookup is signedCheck in a read transaction, before write admission.
+func (s *Store) signedLookup(ctx context.Context, a *signedAction) (json.RawMessage, bool, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, false, err
+	}
+	defer tx.Rollback()
+	return signedCheck(ctx, tx, a, s.now())
 }
 
 // signedReplay is item 3 of Decision 3.3 inside the write's transaction: the authorization is
@@ -395,28 +479,12 @@ func (d *Daemon) signedApply(ctx context.Context, action, target string, valid b
 // 5 minutes of this computer's clock at this moment. found reports a receipt's answer.
 func signedReplay[T any](t *writeTx, a *signedAction) (result T, found bool, err error) {
 	now := t.s.now()
-	current, err := currentAuthorization(t.ctx, t.Tx, a.key.KeyID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return result, false, signedRefusal("key_removed", "the key's authorization was removed on this computer")
-	}
+	raw, found, err := signedCheck(t.ctx, t.Tx, a, now)
 	if err != nil {
-		return result, false, err
+		return result, found, err
 	}
-	if current.Authorization != a.key.Authorization {
-		return result, false, signedRefusal("authorization_changed", "the key was added again since this envelope's authorization")
-	}
-	r, err := signedReceipt(t.ctx, t.Tx, a.key.Authorization, a.request, now.UnixMilli())
-	if err != nil {
-		return result, false, err
-	}
-	if r != nil {
-		if r.digest != a.digest {
-			return result, true, ErrSignedRequestConflict
-		}
-		if r.state == "refused" {
-			return result, true, r.refusal()
-		}
-		return result, true, json.Unmarshal(r.result, &result)
+	if found {
+		return result, true, signedReplayed{raw}
 	}
 	if !inWindow(now, a.created) {
 		return result, false, signedRefusal("time", "the envelope is not within 5 minutes of this computer's clock")
@@ -466,6 +534,9 @@ func (t *writeTx) writeSignedReceipt(a *signedAction, state, code string, result
 	if a.recorded {
 		return nil
 	}
+	if state == "recorded" && !json.Valid(result) {
+		return errors.New("signed write committed without its result")
+	}
 	now := t.s.now().UnixMilli()
 	if _, err := t.ExecContext(t.ctx, `INSERT INTO signed_receipts(authorization,request,op,digest,state,code,result,created_at,expires_at)
 		VALUES(?,?,?,?,?,?,?,?,?)`, a.key.Authorization, a.request, a.op, a.digest, state, code, string(result), now,
@@ -492,14 +563,18 @@ func (t *writeTx) signedRefused(a *signedAction, err error) error {
 // unknown_request with this computer's clock. The lookup and the clock read are one
 // transaction on the store's single connection, so a write that passed its time check has
 // committed or rolled back before it.
-func (s *Store) signedOutcome(ctx context.Context, authorization, request string) (map[string]any, error) {
+func (s *Store) signedOutcome(ctx context.Context, key MaintainerKey, request string) (map[string]any, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback()
+	// The envelope's authorization must still be current when the lookup runs (Decision 4.3).
+	if err := stillAuthorized(ctx, tx, key); err != nil {
+		return nil, err
+	}
 	now := s.now()
-	r, err := signedReceipt(ctx, tx, authorization, request, now.UnixMilli())
+	r, err := signedReceipt(ctx, tx, key.Authorization, request, now.UnixMilli())
 	if err != nil {
 		return nil, err
 	}

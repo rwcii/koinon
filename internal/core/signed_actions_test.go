@@ -78,6 +78,24 @@ func (c *signedClient) must(op string, args map[string]any) map[string]any {
 	return jsonMap(c.t, result)
 }
 
+func asJSON(t *testing.T, v any) []byte {
+	t.Helper()
+	data, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
+func mustSigned(t *testing.T, c *signedClient, op string, args map[string]any) any {
+	t.Helper()
+	result, err := c.do(op, args)
+	if err != nil {
+		t.Fatalf("%s: %v", op, err)
+	}
+	return result
+}
+
 func jsonMap(t *testing.T, v any) map[string]any {
 	t.Helper()
 	data, err := json.Marshal(v)
@@ -201,12 +219,14 @@ func TestSignedWriteOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	v := jsonMap(t, first)
-	if v["verdict"] != "approved" || v["via"] != "key:voice" {
+	if v["verdict"] != "approved" || v["via"] != "key:voice" || v["note"] != "Go." || v["snapshot"].(map[string]any)["title"] != "Ship it" ||
+		len(v["deliveries"].([]any)) == 0 {
 		t.Fatalf("verdict: %v", v)
 	}
+	// The repeat answers the whole first answer (review K3-F1).
 	again, err := d.SignedAction(context.Background(), verdict)
-	if err != nil || jsonMap(t, again)["verdict_id"] != v["verdict_id"] {
-		t.Fatalf("repeat: %v %v", again, err)
+	if err != nil || string(asJSON(t, again)) != string(asJSON(t, first)) {
+		t.Fatalf("repeat: %s %v, first %s", asJSON(t, again), err, asJSON(t, first))
 	}
 	conflict := c.envelope("decision_verdict", map[string]any{"reference": "S-1", "revision": revision, "snapshot": snapshot,
 		"verdict": "declined"}, "verdict-request-001", now, nil)
@@ -238,8 +258,8 @@ func TestSignedWriteOnce(t *testing.T) {
 	t.Cleanup(func() { d.Close() })
 	c.d = d
 	after, err := d.SignedAction(context.Background(), verdict)
-	if err != nil || jsonMap(t, after)["verdict_id"] != v["verdict_id"] {
-		t.Fatalf("after restart: %v %v", after, err)
+	if err != nil || string(asJSON(t, after)) != string(asJSON(t, first)) {
+		t.Fatalf("after restart: %s %v", asJSON(t, after), err)
 	}
 	var verdicts int
 	d.store.db.QueryRow(`SELECT COUNT(*) FROM decision_verdicts`).Scan(&verdicts)
@@ -247,7 +267,7 @@ func TestSignedWriteOnce(t *testing.T) {
 		t.Fatalf("verdicts: %d", verdicts)
 	}
 	outcome = c.must("outcome", map[string]any{"request": "verdict-request-001", "created": now})
-	if outcome["state"] != "recorded" || outcome["result"].(map[string]any)["verdict_id"] != v["verdict_id"] {
+	if outcome["state"] != "recorded" || fmt.Sprint(outcome["result"]) != fmt.Sprint(v) {
 		t.Fatalf("outcome: %v", outcome)
 	}
 	unknown := c.must("outcome", map[string]any{"request": "never-sent-request-1", "created": now})
@@ -281,15 +301,35 @@ func TestSignedWritesRunOnce(t *testing.T) {
 		{"room_post", map[string]any{"room": room, "body": "a synthetic post"}},
 		{"ack", map[string]any{"through": int64(1)}},
 	} {
-		data := c.envelope(w.op, w.args, c.request(), now, nil)
+		request := c.request()
+		data := c.envelope(w.op, w.args, request, now, nil)
 		first, err := d.SignedAction(ctx, data)
 		if err != nil {
 			t.Fatalf("%s: %v", w.op, err)
 		}
+		// The repeat, also while writes are blocked, and outcome give the first answer whole
+		// (review K3-F1, K3-F2).
+		s.storage.mu.Lock()
+		s.storage.blocked = "synthetic write admission block"
+		s.storage.mu.Unlock()
 		again, err := d.SignedAction(ctx, data)
-		if err != nil || fmt.Sprint(jsonMap(t, first)) != fmt.Sprint(jsonMap(t, again)) {
-			t.Fatalf("%s repeat: %v %v, first %v", w.op, again, err, first)
+		_, blocked := c.do(w.op, w.args)
+		s.storage.mu.Lock()
+		s.storage.blocked = ""
+		s.storage.mu.Unlock()
+		if err != nil || string(asJSON(t, first)) != string(asJSON(t, again)) {
+			t.Fatalf("%s repeat: %s %v, first %s", w.op, asJSON(t, again), err, asJSON(t, first))
 		}
+		if !errors.Is(blocked, ErrStorageBlocked) {
+			t.Fatalf("%s: a new write while blocked: %v", w.op, blocked)
+		}
+		outcome := c.must("outcome", map[string]any{"request": request, "created": now})
+		if outcome["state"] != "recorded" || fmt.Sprint(outcome["result"]) != fmt.Sprint(jsonMap(t, first)) {
+			t.Fatalf("%s outcome: %v, first %s", w.op, outcome, asJSON(t, first))
+		}
+	}
+	if acked := jsonMap(t, mustSigned(t, c, "ack", map[string]any{"through": int64(1)})); acked["acked_through"] != float64(1) {
+		t.Fatalf("ack answer: %v", acked)
 	}
 	var messages, posts int
 	s.db.QueryRow(`SELECT COUNT(*) FROM messages WHERE body='a synthetic instruction'`).Scan(&messages)
@@ -304,7 +344,7 @@ func TestSignedWritesRunOnce(t *testing.T) {
 	}
 	var audits int
 	s.db.QueryRow(`SELECT COUNT(*) FROM audit WHERE result='accepted' AND target LIKE '% by maintainer (voice) key %'`).Scan(&audits)
-	if audits != 3 {
+	if audits != 4 { // send, room_post, ack and the second ack
 		t.Fatalf("audits: %d", audits)
 	}
 }
@@ -423,4 +463,31 @@ func TestSignedOutcomeAfterReenroll(t *testing.T) {
 		t.Fatalf("new authorization: %v", o)
 	}
 	c.auth = old
+}
+
+// An outcome checks its authorization inside its lookup transaction: a key added again after
+// the envelope's checks refuses the old authorization's outcome (review K3-F3).
+func TestSignedOutcomeAuthorizationInTransaction(t *testing.T) {
+	d, _ := startTestDaemon(t)
+	a := join(t, d.store, "codex", "synthetic-signed-e", "")
+	c := newSignedClient(t, d, 9)
+	now := time.Now().Unix()
+	if _, err := d.SignedAction(context.Background(), c.envelope("send", map[string]any{"to": a.Name, "body": "x"}, "race-request-00001", now, nil)); err != nil {
+		t.Fatal(err)
+	}
+	key, err := currentAuthorization(context.Background(), d.store.db, c.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	en, _ := enrollment(t, 9, c.pin, now+1)
+	if _, err := d.store.AddMaintainerKey(context.Background(), en, "test"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = d.store.signedOutcome(context.Background(), key, "race-request-00001")
+	wantCode(t, "outcome after the checks", err, "signature_refused", "authorization_changed")
+	if _, err := d.store.RemoveMaintainerKey(context.Background(), c.key); err != nil {
+		t.Fatal(err)
+	}
+	_, err = d.store.signedOutcome(context.Background(), key, "race-request-00001")
+	wantCode(t, "outcome after removal", err, "signature_refused", "key_removed")
 }

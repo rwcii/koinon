@@ -186,6 +186,9 @@ func (t *writeTx) writeOperationReceipt() error {
 }
 func (t *writeTx) operationResult(result any) {
 	if a := signedOf(t.ctx); a != nil {
+		if a.shape != nil {
+			result = a.shape(result)
+		}
 		a.result, _ = json.Marshal(result)
 	}
 	if p := operationOf(t.ctx); p != nil {
