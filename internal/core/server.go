@@ -36,6 +36,8 @@ type Config struct {
 }
 
 type Daemon struct {
+	// computers is the node's computers topic of signed changes waits (#693).
+	computers         computersTopic
 	remote            remoteRuntime
 	link              linkRuntime
 	release           string

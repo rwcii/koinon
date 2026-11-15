@@ -565,3 +565,114 @@ func TestSignedSessionRoutes(t *testing.T) {
 	}
 	_ = root
 }
+
+// computers and changes on the node (Decisions 2.4, 6.2, 6.3): the node and its pair with its
+// connection state; changes answers at once without versions, waits with them, and names the
+// inbox, a room or computers when they move. Two in-process daemons with real TLS.
+func TestSignedComputersAndChanges(t *testing.T) {
+	n := &linkNet{}
+	a := newLinkHost(t, n, "alpha", "100.64.0.1")
+	b := newLinkHost(t, n, "beta", "100.64.0.2")
+	pairHosts(t, b, a)
+	c := newSignedClient(t, a.d, 12)
+	bID, err := b.d.linkIdentity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var view map[string]any
+	deadline := time.Now().Add(20 * time.Second)
+	for {
+		view = c.must("computers", nil)
+		computers := view["computers"].([]any)
+		if len(computers) == 1 && computers[0].(map[string]any)["state"] == "connected" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("computers: %v", view)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	node := view["node"].(map[string]any)
+	beta := view["computers"].([]any)[0].(map[string]any)
+	if node["pin"] != c.pin || node["name"] != "alpha" || beta["pin"] != bID.Pin || beta["name"] != "beta" || beta["since"].(float64) <= 0 {
+		t.Fatalf("computers: %v", view)
+	}
+
+	first := c.must("changes", nil)
+	versions := first["versions"].(map[string]any)
+	for _, topic := range []string{"inbox", "decisions", "computers"} {
+		if v, _ := versions[topic].(string); len(v) != 20 {
+			t.Fatalf("versions: %v", first)
+		}
+	}
+	if len(first["changed"].([]any)) != 0 {
+		t.Fatalf("first changes: %v", first)
+	}
+	started := time.Now()
+	if quiet := c.must("changes", map[string]any{"versions": versions, "wait_seconds": int64(1)}); len(quiet["changed"].([]any)) != 0 || time.Since(started) < 900*time.Millisecond {
+		t.Fatalf("quiet wait: %v", quiet)
+	}
+	wait := func(change func()) []any {
+		done := make(chan map[string]any, 1)
+		go func() {
+			result, err := c.do("changes", map[string]any{"versions": versions, "wait_seconds": int64(20)})
+			if err != nil {
+				t.Error(err)
+			}
+			done <- jsonMap(t, result)
+		}()
+		time.Sleep(300 * time.Millisecond)
+		change()
+		select {
+		case answer := <-done:
+			versions = answer["versions"].(map[string]any)
+			return answer["changed"].([]any)
+		case <-time.After(15 * time.Second):
+			t.Fatal("the wait did not answer the change")
+		}
+		return nil
+	}
+	agent := join(t, a.d.store, "codex", "synthetic-signed-f", "")
+	if changed := wait(func() {
+		if _, err := a.d.store.Send(context.Background(), Key{"codex", agent.ID}, "maintainer", "a synthetic report"); err != nil {
+			t.Error(err)
+		}
+	}); fmt.Sprint(changed) != "[inbox]" {
+		t.Fatalf("inbox change: %v", changed)
+	}
+	if changed := wait(func() {
+		if err := a.d.linkRename("beta", "gamma"); err != nil {
+			t.Error(err)
+		}
+	}); fmt.Sprint(changed) != "[computers]" {
+		t.Fatalf("computers change: %v", changed)
+	}
+	if renamed := c.must("computers", nil)["computers"].([]any)[0].(map[string]any); renamed["name"] != "gamma" {
+		t.Fatalf("renamed: %v", renamed)
+	}
+	for name, args := range map[string]map[string]any{
+		"long wait":       {"wait_seconds": int64(31)},
+		"short version":   {"versions": map[string]any{"inbox": "1"}},
+		"versions string": {"versions": "inbox"},
+	} {
+		if _, err := c.do("changes", args); errorCode(err) != "invalid_request" {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+	// A removal ends a waiting changes request.
+	done := make(chan error, 1)
+	go func() {
+		_, err := c.do("changes", map[string]any{"versions": versions, "wait_seconds": int64(20)})
+		done <- err
+	}()
+	time.Sleep(300 * time.Millisecond)
+	if _, err := a.d.store.RemoveMaintainerKey(context.Background(), c.key); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		wantCode(t, "removed during a wait", err, "signature_refused", "key_removed")
+	case <-time.After(10 * time.Second):
+		t.Fatal("the wait outlived the key")
+	}
+}

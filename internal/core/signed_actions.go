@@ -93,7 +93,7 @@ var signedWrites = map[string]bool{"decision_verdict": true, "ack": true, "send"
 // signedOps are the operations of Decision 2 that a node runs for its own pin.
 var signedOps = map[string]bool{"board_list": true, "decision_get": true, "decision_history": true, "decision_verdict": true,
 	"inbox": true, "ack": true, "send": true, "room_list": true, "room_read": true, "room_post": true, "peers": true,
-	"peer_status": true, "outcome": true}
+	"peer_status": true, "outcome": true, "computers": true, "changes": true}
 
 // checkEnvelope checks an envelope through item 2 of Decision 3.3: its form and version, its
 // target, the key's current authorization and the signature. It returns the envelope and
@@ -311,6 +311,31 @@ func (d *Daemon) signedRead(ctx context.Context, e signed.Envelope, key Maintain
 			return d.remotePeerStatus(peer)
 		}
 		return d.store.maintainerPeerStatus(ctx, peer)
+	case "computers":
+		if err := args.check(); err != nil {
+			return nil, err
+		}
+		view, _, err := d.computersView()
+		return view, err
+	case "changes":
+		raw, given := args.values["versions"]
+		args.used = append(args.used, "versions")
+		wait, _ := args.integer("wait_seconds")
+		if err := args.check(); err != nil {
+			return nil, err
+		}
+		var held map[string]string
+		if given {
+			object, isObject := raw.(map[string]any)
+			var ok bool
+			if held, ok = validVersions(object); !ok || !isObject {
+				return nil, Refusal{"invalid_request", "versions maps at most one entry per topic to its 20-character version"}
+			}
+		}
+		if wait < 0 || wait > maxChangeWait {
+			return nil, Refusal{"invalid_request", "wait_seconds is 0 to 30"}
+		}
+		return d.signedChanges(ctx, key, held, time.Duration(wait)*time.Second)
 	case "outcome":
 		request := args.str("request")
 		_, ok := args.integer("created")
@@ -688,6 +713,9 @@ func (d *Daemon) signedRoutes(mux *http.ServeMux) {
 			failure(w, err)
 			return
 		}
+		// The server's write deadline is 10 seconds; a changes wait gets its 30 seconds and 5
+		// seconds more.
+		http.NewResponseController(w).SetWriteDeadline(time.Now().Add((maxChangeWait + 5) * time.Second))
 		result, err := d.SignedAction(r.Context(), data)
 		maintainerRead(w, result, err)
 	})
