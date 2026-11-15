@@ -2814,7 +2814,8 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     "statement", "key_id", "all"}` and the bearer secret, as `koinon maintainer secret` does. A
     statement is an envelope (below) with `op` `enroll`, `args` `{"user", "client",
     "public_key"}`, this computer's pin as `target` and no `auth` or `request`; `user` is 1–32 of
-    `a-z0-9._-` starting with a letter, `client` 1–32 of `a-z0-9-`, `public_key` the standard
+    `a-z0-9._-` starting with a letter, `client` 1–32 of `a-z0-9-` starting with a letter or
+    digit, `public_key` the standard
     base64 of the raw 32-byte key. `add` refuses (`signature_refused` with `details.reason`) a
     statement for another pin (`target`), one whose `key` is not the key ID of `public_key`
     (`key_unknown`), a bad signature (`signature`) and one not within 10 minutes of this

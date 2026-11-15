@@ -889,8 +889,10 @@ A statement adds a key once on a computer, also after a removal; to add a key ag
 signs a new statement. The client then runs `koinon mcp --maintainer --signed`: the first line
 of its standard input is a signed session envelope in place of the secret, and the server has
 one tool, `signed`, which takes an envelope that the client signed and answers the computer's
-answer unchanged. Each action names its computer and request, runs once, and is refused after
-5 minutes; a write's answer can be read again with `outcome`. The user and client of the key
+answer unchanged. Each action names its computer and a request ID. A read, and a write that has
+not run yet, must arrive within 5 minutes of its signing. A write runs once: for 7 days, while its
+key's authorization stands, the same envelope or `outcome` gives its first answer again; reads
+keep no receipt. The user and client of the key
 show on each verdict (`by USER (CLIENT)`), in the history, on the dashboard and in the audit
 log. A signed session ends when its key is removed, not when the secret changes. In this
 release a computer runs the actions signed for itself; actions for other linked computers come
