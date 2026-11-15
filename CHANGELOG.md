@@ -22,6 +22,9 @@ into a dated release section when promoted to `main`.
   the two signed routes with the session's token as the bearer, and no other API. A session
   has at most 128 actions in flight. The state schema moves to 39:
   a schema 38 binary refuses the upgraded store.
+- A ready report that ends its managed context cycle, such as at the cycle's event limit, no
+  longer tells the session to stay paused and idle (#697). Its `next` names the ended state and
+  reason and says that no context clear will follow, so the session goes on with its work.
 - `koinon setup opencode` works with OpenCode 2 (#692). OpenCode 2.3.0 writes an MCP server into
   the current directory's project file unless `--global` is given, and its `mcp list` no longer
   shows the server's command, so setup left an `opencode.json` in the directory where it ran

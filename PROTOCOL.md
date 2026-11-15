@@ -631,7 +631,9 @@ caller, epoch, host, pane, socket or another session.
   fixed-width slot, which is written in place even when ordinary storage is full
   (docs/CONTEXT-CYCLE-STORAGE.md). A successful report also
   returns `next`, the instruction to end the turn, start no other work and stay idle, because the clear waits for the
-  idle prompt.
+  idle prompt. A report that ends the cycle, such as at its event limit, answers the ended cycle,
+  and its `next` names the state and reason, says that no context clear will follow and that
+  the session goes on with its work.
 - `POST /v1/cycles/pickup` (`context_cycle_pickup`) takes `cycle_id`, `revision`, the same file
   name, `outcome` `resumed` or `paused` and a `report` of 1 to 1,024 UTF-8 bytes. A cycle at
   `reset_verified` or `waiting_pickup` completes when the caller runs under a new epoch (the

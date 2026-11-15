@@ -40,7 +40,7 @@ var toolList = []map[string]any{
 		"inputSchema": object(map[string]any{"message_id": integer, "link_id": text})},
 	{"name": "context_cycle_status", "description": "Read this session's own managed context cycle: its ID, revision, stage, deadlines and history. Reading changes no inbox, memory or work cursor.",
 		"inputSchema": object(map[string]any{})},
-	{"name": "context_cycle_ready", "description": "Report that this session paused and wrote its handoff for the managed context cycle that overwatch requested: the cycle ID, the revision it showed and the handoff file name in this session's own _handoff directory. Then end your turn and stay idle: overwatch clears your context at your idle prompt.",
+	{"name": "context_cycle_ready", "description": "Report that this session paused and wrote its handoff for the managed context cycle that overwatch requested: the cycle ID, the revision it showed and the handoff file name in this session's own _handoff directory. Then end your turn and stay idle: overwatch clears your context at your idle prompt. If the reply says that the cycle ended, no clear follows: go on with your work.",
 		"inputSchema": object(map[string]any{"cycle_id": text, "revision": integer, "artifact": text}, "cycle_id", "revision", "artifact")},
 	{"name": "context_cycle_pickup", "description": "Report, after a managed context cycle cleared the context, that this session finished its canonical pickup of the cycle's handoff: the cycle ID, revision, file name, outcome resumed or paused, and a short report of the restored work (at most 1,024 bytes).",
 		"inputSchema": object(map[string]any{"cycle_id": text, "revision": integer, "artifact": text,
