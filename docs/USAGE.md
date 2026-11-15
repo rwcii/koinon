@@ -900,8 +900,11 @@ unchanged, with that computer's answer; the key must be added on the computer th
 action, and both computers need this release. When the computer cannot reach the other one,
 the answer is `computer_offline` and nothing ran; when the answer is lost after the action was
 sent, it is `outcome_unknown`: ask `outcome` of that computer, or send the same envelope again.
-A client with no Koinon on its computer comes in a later release. PROTOCOL.md has the envelope
-and the operations.
+A client with no Koinon on its computer reaches a computer at its Remote address
+(`koinon remote enable`, on the maintainer's tailnet) on the same two signed routes, with the
+session's token as `Authorization: Bearer TOKEN`; that address serves no other API, and the
+key must be added on each computer that runs the actions. PROTOCOL.md has the envelope and the
+operations.
 
 Administrative actions require CSRF protection and are
 audited. Health reports unknown observations explicitly.

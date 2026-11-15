@@ -400,8 +400,11 @@ or control operation. Implementation: `internal/core/link_messages.go`,
   `koinon mcp --maintainer --signed` and the actions on a node's own pin (#693 chunk 1,
   `internal/signed`, `internal/core/signed_actions.go`, `internal/core/maintainer_keys.go`,
   `internal/core/signed_computers.go`); the link operation `maintainer`, in frames of up to
-  1 MiB (#693 chunk 2, `internal/core/signed_forward.go`, `internal/link/frame.go`). The Serve
-  route follows in chunk 3.
+  1 MiB (#693 chunk 2, `internal/core/signed_forward.go`, `internal/link/frame.go`); and the
+  Serve route: the Remote listener serves `/v1/maintainer/signed/session` and
+  `/v1/maintainer/signed`, the same handlers as the loopback API, behind the pinned Host check,
+  with the session's token as the bearer (#693 chunk 3, `remoteDashboardHandler` in
+  `internal/core/dashboard_remote.go`).
 - **Review when:** as PDR 011, Decision 6.
 
 ### Alternatives Considered

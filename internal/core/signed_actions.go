@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -597,6 +598,17 @@ func stillAuthorized(ctx context.Context, q querier, key MaintainerKey) error {
 	return nil
 }
 
+// authorizationEnded reports a refusal of stillAuthorized that says the key's authorization is
+// gone, as opposed to a check that could not run.
+func authorizationEnded(err error) bool {
+	var refusal WorkRefusal
+	if !errors.As(err, &refusal) || refusal.Code != "signature_refused" {
+		return false
+	}
+	reason, _ := refusal.Details["reason"].(string)
+	return reason == "key_removed" || reason == "authorization_changed"
+}
+
 // signedCheck checks in q that the action's authorization is current and looks up its
 // receipt: found with raw for a recorded answer, or found with the receipt's refusal.
 func signedCheck(ctx context.Context, q querier, a *signedAction, now time.Time) (json.RawMessage, bool, error) {
@@ -792,13 +804,26 @@ func (d *Daemon) signedSession(ctx context.Context, data []byte) (string, string
 	if err != nil {
 		return "", "", err
 	}
-	// A removal that committed since the login's transaction ends the new session too; one
-	// after this check ends it in the removal's own step (endKey).
-	if err := stillAuthorized(ctx, d.store.db, key); err != nil {
-		d.auth.endKey(key.KeyID)
+	if err := d.checkNewSession(ctx, key, token); err != nil {
 		return "", "", err
 	}
 	return token, "key:" + key.Client, nil
+}
+
+// checkNewSession checks a new session's authorization after its login. A removal that
+// committed since the login's transaction ends the new session too; one after this check ends
+// it in the removal's own step (endKey). A check that could not run, such as a cancelled
+// request, ends only this new session (review C3-F1).
+func (d *Daemon) checkNewSession(ctx context.Context, key MaintainerKey, token string) error {
+	err := stillAuthorized(ctx, d.store.db, key)
+	switch {
+	case err == nil:
+	case authorizationEnded(err):
+		d.auth.endKey(key.KeyID)
+	default:
+		d.auth.logout(token)
+	}
+	return err
 }
 
 // signedLogin checks the session envelope's authorization and time inside the transaction that
@@ -819,10 +844,18 @@ func (s *Store) signedLogin(ctx context.Context, key MaintainerKey, created int6
 	}
 	a := &signedAction{key: key}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO audit(at,action,target,result) VALUES (?,?,?,'accepted')`,
-		now.UnixMilli(), "maintainer_login", "key:"+key.Client+" by "+a.signerText()); err != nil {
+		now.UnixMilli(), "maintainer_login", "key:"+key.Client+" by "+a.signerText()+transportText(ctx)); err != nil {
 		return tx.fail(err)
 	}
 	return tx.Commit()
+}
+
+// transportText names a login's transport in its audit record: " via remote" for Remote.
+func transportText(ctx context.Context) string {
+	if remote, _ := ctx.Value(signedTransport{}).(bool); remote {
+		return " via remote"
+	}
+	return ""
 }
 
 // MaintainerTokenHeader carries a signed session's token on the loopback API, whose
@@ -842,52 +875,113 @@ func readEnvelope(w http.ResponseWriter, r *http.Request) ([]byte, error) {
 	return data, nil
 }
 
-// signedRoutes add the signed session and the signed action routes (Decision 5). The body of
-// each is one envelope; the action route takes the session's token in MaintainerTokenHeader.
+// signedRoutes add the signed session and the signed action routes (Decision 5) to the loopback
+// API, whose Authorization header holds the daemon's bearer secret: the action route takes the
+// session's token in MaintainerTokenHeader. Remote serves the same two routes with the token as
+// its bearer (remoteDashboardHandler).
 func (d *Daemon) signedRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /v1/maintainer/signed/session", func(w http.ResponseWriter, r *http.Request) {
-		data, err := readEnvelope(w, r)
-		if err != nil {
-			failure(w, err)
-			return
-		}
-		token, client, err := d.SignedSession(r.Context(), data)
-		if err != nil {
-			failure(w, err)
-			return
-		}
-		respond(w, 200, map[string]any{"ok": true, "token": token, "client": client,
-			"idle_seconds": int64(sessionIdle.Seconds()), "absolute_seconds": int64(sessionAbsolute.Seconds())})
-	})
+	mux.HandleFunc("POST /v1/maintainer/signed/session", d.signedSessionRoute)
 	mux.HandleFunc("POST /v1/maintainer/signed", func(w http.ResponseWriter, r *http.Request) {
-		// The token is checked before the envelope is read (Answer shapes, item 2).
-		key, ok := d.auth.signedToken(r.Header.Get(MaintainerTokenHeader))
-		if ok && stillAuthorized(r.Context(), d.store.db, key) != nil {
+		d.signedActionRoute(w, r, r.Header.Get(MaintainerTokenHeader))
+	})
+}
+
+// signedSessionRoute opens a signed session from the request's one envelope.
+func (d *Daemon) signedSessionRoute(w http.ResponseWriter, r *http.Request) {
+	data, err := readEnvelope(w, r)
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	token, client, err := d.SignedSession(r.Context(), data)
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	respond(w, 200, map[string]any{"ok": true, "token": token, "client": client,
+		"idle_seconds": int64(sessionIdle.Seconds()), "absolute_seconds": int64(sessionAbsolute.Seconds())})
+}
+
+// signedActionRoute runs the request's one envelope under the signed session of token.
+func (d *Daemon) signedActionRoute(w http.ResponseWriter, r *http.Request, token string) {
+	// The token is checked before the envelope is read (Answer shapes, item 2).
+	key, ok := d.auth.signedToken(token)
+	if ok {
+		// Only a removed or replaced authorization ends the key's sessions; a check that could
+		// not run, such as a request that Remote's close cancelled, ends none (review C3-F1).
+		if err := stillAuthorized(r.Context(), d.store.db, key); err != nil {
+			if !authorizationEnded(err) {
+				failure(w, err)
+				return
+			}
 			d.auth.endKey(key.KeyID)
 			ok = false
 		}
-		if !ok {
-			failure(w, ErrTokenExpired)
-			return
-		}
-		data, err := readEnvelope(w, r)
-		if err != nil {
-			failure(w, err)
-			return
-		}
-		// The server's write deadline is 10 seconds; a signed action gets the longest forwarded
-		// one, a changes wait on a paired computer, and more.
-		http.NewResponseController(w).SetWriteDeadline(time.Now().Add(signedRouteWrite))
-		result, err := d.SignedAction(r.Context(), data)
-		if answer, ok := result.(forwardedAnswer); ok && err == nil {
-			// The target's answer, unchanged.
-			w.Header().Set("Content-Type", "application/json")
-			w.Header().Set("Cache-Control", "no-store")
-			w.Header().Set("X-Content-Type-Options", "nosniff")
-			w.WriteHeader(answer.status)
-			w.Write(append(answer.body, '\n'))
-			return
-		}
-		maintainerRead(w, result, err)
-	})
+	}
+	if !ok {
+		failure(w, ErrTokenExpired)
+		return
+	}
+	// A session has at most MaxSignedCalls actions in flight, so that its waits cannot hold
+	// another session's calls; one more is refused before its envelope is read.
+	release, ok := d.signedCalls.take(token)
+	if !ok {
+		respond(w, http.StatusTooManyRequests, map[string]any{"ok": false, "code": "too_many_calls",
+			"error":   "too many calls of this session are in flight; send it again when one has answered",
+			"details": map[string]any{"limit": MaxSignedCalls}})
+		return
+	}
+	defer release()
+	data, err := readEnvelope(w, r)
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	// The server's write deadline is 10 seconds; a signed action gets the longest forwarded
+	// one, a changes wait on a paired computer, and more.
+	http.NewResponseController(w).SetWriteDeadline(time.Now().Add(signedRouteWrite))
+	result, err := d.SignedAction(r.Context(), data)
+	if answer, ok := result.(forwardedAnswer); ok && err == nil {
+		// The target's answer, unchanged.
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.WriteHeader(answer.status)
+		w.Write(append(answer.body, '\n'))
+		return
+	}
+	maintainerRead(w, result, err)
 }
+
+// MaxSignedCalls bounds the actions in flight of one signed session: one changes wait for each
+// computer that a node can have, and as many actions (#693 chunk 2, C2-10).
+const MaxSignedCalls = 128
+
+// signedCalls counts each signed session's actions in flight.
+type signedCalls struct {
+	mu sync.Mutex
+	n  map[string]int
+}
+
+// take reserves a place for one action of token, or reports that its session has none free.
+func (c *signedCalls) take(token string) (func(), bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.n == nil {
+		c.n = map[string]int{}
+	}
+	if c.n[token] >= MaxSignedCalls {
+		return nil, false
+	}
+	c.n[token]++
+	return func() {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		if c.n[token]--; c.n[token] <= 0 {
+			delete(c.n, token)
+		}
+	}, true
+}
+
+// signedTransport marks a signed request that came over Remote, for the login's audit record.
+type signedTransport struct{}
