@@ -200,12 +200,14 @@ sig_b64: IOGwy1JLMXL0Lizmp1LZe7skwiVP7FO1wkuATry177ta1FFcfdFZDXAdl1LqiPGneV/AmKP
    with another digest is refused (`request_conflict`).
 3. `outcome` with `{"request", "created"}` (the request's own `created`) answers the receipt of
    that authorization: `recorded` with the result, `refused` with the code, or `unknown_request`
-   with the target's clock `now` when there is none, or `authorization_changed` when the
-   `outcome` envelope's own `auth` is not the current authorization (Decision 1.7). Then:
-   - `authorization_changed`: the key was enrolled again since the request, and the client asks
-     under the authorization of the request, which is gone; the new authorization cannot read
-     its receipts, so the outcome is unknown. The client says so and does
-     not send it again; the maintainer reads the target's record (for a verdict, its history).
+   with the target's clock `now` when there is none. An `outcome` envelope carries the `auth`
+   of the original request, never the authorization that is current now. When that
+   authorization is gone, the envelope is refused like any other (`signature_refused`, reason
+   `authorization_changed`, Decision 3.3). Then:
+   - that refusal: the key was enrolled again since the request, and the new authorization
+     cannot read the old receipts, so the outcome is unknown. The client says so and does not
+     send the request again; the maintainer reads the target's record (for a verdict, its
+     history).
    - `now` more than 5 minutes after the request's `created`: final. The write did not run and
      cannot run (item 3.3 of Decision 3 refuses it inside the transaction); the client says so,
      and signs the action again under a new request ID only when the maintainer asks.
@@ -292,11 +294,11 @@ Decision 2 that exist today keep their `result`. The new ones:
 {"ok": true, "result": {"state": "recorded", "result": {"…": "the write's own result"}}}
 {"ok": true, "result": {"state": "refused", "code": "stale_revision", "details": {"current_revision": 4}}}
 {"ok": true, "result": {"state": "unknown_request", "now": 1794699400}}
-{"ok": true, "result": {"state": "authorization_changed"}}
 ```
 
-`outcome`, above: its four states are answers, not refusals; a refusal of the `outcome`
-envelope itself (for example `signature_refused`) is a refusal.
+`outcome`, above: its three states are answers, not refusals. A refusal of the `outcome`
+envelope itself is a refusal, `signature_refused` with reason `authorization_changed`
+included.
 
 ```json
 {"ok": true, "result": {"versions": {"inbox": "00000000000000000012", "decisions": "00000000000000000040",
