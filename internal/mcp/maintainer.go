@@ -458,8 +458,8 @@ func (s *maintainerServer) signedCall(ctx context.Context, raw json.RawMessage) 
 		return invalidArguments("missing argument envelope: a JSON object or a string of its JSON text"), false
 	}
 	data, err := s.withBearer(func(address, bearer string) (json.RawMessage, error) {
-		// A changes wait answers within its 30 seconds; the rest is the daemon's own time.
-		return core.CallEnvelope(ctx, address, bearer, "/v1/maintainer/signed", envelope, s.c.Token, 45*time.Second)
+		// A forwarded changes wait answers within the node's write deadline; this is longer.
+		return core.CallEnvelope(ctx, address, bearer, "/v1/maintainer/signed", envelope, s.c.Token, core.SignedCallTimeout)
 	})
 	if err != nil {
 		return refusal(core.Key{Family: "maintainer"}, err), code(err) == ErrTokenExpired.Code

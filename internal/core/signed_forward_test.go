@@ -1,0 +1,484 @@
+package core
+
+import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/rwcii/koinon/internal/link"
+	"github.com/rwcii/koinon/internal/signed"
+)
+
+// Signed actions for another computer (#693 chunk 2, criteria C2-1 to C2-8). All names,
+// addresses and keys are synthetic.
+
+// viaNode signs with c's key for c's computer, and runs the envelopes on node.
+func viaNode(c *signedClient, node *Daemon) *signedClient {
+	f := &signedClient{t: c.t, d: node, pin: c.pin, private: c.private, key: c.key, auth: c.auth}
+	f.n.Store(500000)
+	return f
+}
+
+// answerOf runs data on d and returns the answer as d's signed route writes it.
+func answerOf(t *testing.T, d *Daemon, ctx context.Context, data []byte) (int, string) {
+	t.Helper()
+	result, err := d.SignedAction(ctx, data)
+	if answer, ok := result.(forwardedAnswer); ok && err == nil {
+		return answer.status, string(answer.body)
+	}
+	w := &answerWriter{header: http.Header{}}
+	maintainerRead(w, result, err)
+	return w.status, string(trimNewline(w.body))
+}
+
+// decoded is a route answer's JSON object.
+func decoded(t *testing.T, body string) map[string]any {
+	t.Helper()
+	var m map[string]any
+	if err := json.Unmarshal([]byte(body), &m); err != nil {
+		t.Fatalf("answer %q: %v", body, err)
+	}
+	return m
+}
+
+// forwardMust runs op through f's node and returns the target's result.
+func forwardMust(t *testing.T, f *signedClient, op string, args map[string]any) map[string]any {
+	t.Helper()
+	status, body := answerOf(t, f.d, context.Background(), f.envelope(op, args, f.request(), time.Now().Unix(), nil))
+	m := decoded(t, body)
+	result, _ := m["result"].(map[string]any)
+	if status != 200 || m["ok"] != true || result == nil {
+		t.Fatalf("%s through the node: %d %s", op, status, body)
+	}
+	return result
+}
+
+// wantAnswer checks an answer's status and code.
+func wantAnswer(t *testing.T, name string, status int, body string, wantStatus int, code string) map[string]any {
+	t.Helper()
+	m := decoded(t, body)
+	if status != wantStatus || m["code"] != code {
+		t.Fatalf("%s: %d %s, want %d %s", name, status, body, wantStatus, code)
+	}
+	return m
+}
+
+func rowCount(t *testing.T, d *Daemon, query string, args ...any) int {
+	t.Helper()
+	var n int
+	if err := d.store.db.QueryRow(query, args...).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// C2-1, C2-2, C2-4, C2-5: A forwards an envelope for B's pin unchanged, and B's answer comes
+// back unchanged; B runs it with its own key and records its signer; A holds no key and runs
+// nothing.
+func TestSignedForwardRunsOnTarget(t *testing.T) {
+	_, a, b := pairedLinkHosts(t)
+	ctx := context.Background()
+	s := b.d.store
+	agent := join(t, s, "codex", "synthetic-forward-a", "")
+	aKey := Key{"codex", agent.ID}
+	room, err := s.CreateRoom(ctx, "forward-room-key", "forward-room")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AddRoomMember(ctx, room, agent.Name); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Send(ctx, aKey, "maintainer", "a synthetic report"); err != nil {
+		t.Fatal(err)
+	}
+	mustCreate(t, s, aKey, "FW-1", DecisionFields{Title: ptr("Synthetic forward"), Kind: ptr("decision"), Recipients: &[]string{agent.Name}})
+	c := newSignedClient(t, b.d, 21)
+	f := viaNode(c, a.d)
+	if n := rowCount(t, a.d, `SELECT COUNT(*) FROM maintainer_authorizations`); n != 0 {
+		t.Fatalf("keys on the node: %d", n)
+	}
+	now := time.Now().Unix()
+
+	// The same read, through A and on B: the same status and the same bytes.
+	for _, op := range []struct {
+		op   string
+		args map[string]any
+	}{
+		{"inbox", nil},
+		{"board_list", nil},
+		{"decision_get", map[string]any{"reference": "FW-1"}},
+		{"room_list", nil},
+		{"room_read", map[string]any{"room": room}},
+		{"decision_get", map[string]any{"reference": "FW-404"}},
+	} {
+		data := c.envelope(op.op, op.args, c.request(), now, nil)
+		fs, fb := answerOf(t, a.d, ctx, data)
+		ls, lb := answerOf(t, b.d, ctx, data)
+		if fs != ls || fb != lb {
+			t.Fatalf("%s: through A %d %s, on B %d %s", op.op, fs, fb, ls, lb)
+		}
+	}
+
+	// The writes run on B, once, with B's key as the signer.
+	snapshot, revision := snapshotOf(t, c, "FW-1")
+	v := forwardMust(t, f, "decision_verdict", map[string]any{"reference": "FW-1", "revision": revision, "snapshot": snapshot, "verdict": "approved"})
+	if signer, _ := v["signer"].(map[string]any); signer["key_id"] != c.key || signer["client"] != "voice" || v["via"] != "key:voice" {
+		t.Fatalf("verdict: %v", v)
+	}
+	if n := rowCount(t, b.d, `SELECT COUNT(*) FROM decision_verdicts WHERE signer_key=?`, c.key); n != 1 {
+		t.Fatalf("verdicts on B: %d", n)
+	}
+	if n := rowCount(t, a.d, `SELECT COUNT(*) FROM decision_verdicts`); n != 0 {
+		t.Fatalf("verdicts on A: %d", n)
+	}
+	history := forwardMust(t, f, "decision_history", map[string]any{"reference": "FW-1"})
+	verdicts, _ := history["verdicts"].([]any)
+	if len(verdicts) != 1 || verdicts[0].(map[string]any)["signer"].(map[string]any)["key_id"] != c.key {
+		t.Fatalf("history: %v", history)
+	}
+	forwardMust(t, f, "send", map[string]any{"to": agent.Name, "body": "a synthetic instruction"})
+	forwardMust(t, f, "room_post", map[string]any{"room": room, "body": "a synthetic post"})
+	if acked := forwardMust(t, f, "ack", map[string]any{"through": int64(1)}); acked["acked_through"] != float64(1) {
+		t.Fatalf("ack: %v", acked)
+	}
+	if n := rowCount(t, b.d, `SELECT COUNT(*) FROM messages WHERE body='a synthetic instruction'`); n != 1 {
+		t.Fatalf("messages on B: %d", n)
+	}
+	if n := rowCount(t, b.d, `SELECT COUNT(*) FROM room_posts WHERE body='a synthetic post'`); n != 1 {
+		t.Fatalf("posts on B: %d", n)
+	}
+	if n := rowCount(t, b.d, `SELECT COUNT(*) FROM messages WHERE body='a synthetic report' AND ack_via='key:voice'`); n != 1 {
+		t.Fatalf("ack on B: %d", n)
+	}
+	if n := rowCount(t, a.d, `SELECT COUNT(*) FROM signed_receipts`); n != 0 {
+		t.Fatalf("receipts on A: %d", n)
+	}
+
+	// The node's own operations are not forwarded; B refuses computers as forwarded too.
+	status, body := answerOf(t, a.d, ctx, f.envelope("session", map[string]any{"client": "voice"}, f.request(), now, nil))
+	wantAnswer(t, "session for B", status, body, 400, "invalid_request")
+	status, body = answerOf(t, a.d, ctx, f.envelope("computers", nil, f.request(), now, nil))
+	wantAnswer(t, "computers for B", status, body, 400, "invalid_request")
+	status, body = answerOf(t, b.d, context.WithValue(ctx, forwardedKey{}, pinOf(t, b)), c.envelope("computers", nil, c.request(), now, nil))
+	wantAnswer(t, "forwarded computers on B", status, body, 400, "invalid_request")
+
+	// An envelope for a third pin: A has no such pair, and B runs only its own pin.
+	other := map[string]any{"target": strings.Repeat("cd", 32)}
+	status, body = answerOf(t, a.d, ctx, c.envelope("inbox", nil, c.request(), now, other))
+	if m := wantAnswer(t, "third pin on A", status, body, 409, "signature_refused"); m["details"].(map[string]any)["reason"] != "target" {
+		t.Fatalf("third pin on A: %s", body)
+	}
+	_, err = b.d.SignedAction(context.WithValue(ctx, forwardedKey{}, pinOf(t, b)), c.envelope("inbox", nil, c.request(), now, other))
+	wantCode(t, "third pin forwarded to B", err, "signature_refused", "target")
+
+	// A forwarded changes has no computers topic; B's own has one.
+	fc := forwardMust(t, f, "changes", nil)
+	if _, ok := fc["versions"].(map[string]any)["computers"]; ok {
+		t.Fatalf("forwarded changes: %v", fc)
+	}
+	if _, ok := c.must("changes", nil)["versions"].(map[string]any)["computers"]; !ok {
+		t.Fatal("B's own changes has no computers topic")
+	}
+}
+
+// C2-5: peers and peer_status for another computer give the link directory's fields only:
+// no session ID, directory, process or credential.
+func TestSignedForwardPeersRemoteSafe(t *testing.T) {
+	_, a, b := pairedLinkHosts(t)
+	repo := linkRepo(t, "forward-sentinel-repo")
+	agent := joinAs(t, b.d.store, "codex", "synthetic-forward-sentinel-id", repo, "")
+	c := newSignedClient(t, b.d, 22)
+	f := viaNode(c, a.d)
+	peers := forwardMust(t, f, "peers", nil)
+	status := forwardMust(t, f, "peer_status", map[string]any{"peer": agent.Name})
+	for name, v := range map[string]any{"peers": peers, "peer_status": status} {
+		data, _ := json.Marshal(v)
+		text := string(data)
+		for _, private := range []string{agent.ID, repo, "pid", "host", "secret", "token", "directory"} {
+			if strings.Contains(text, private) {
+				t.Fatalf("%s holds %q: %s", name, private, text)
+			}
+		}
+		if !strings.Contains(text, agent.Name) {
+			t.Fatalf("%s has no %s: %s", name, agent.Name, text)
+		}
+	}
+	// B's own answer holds the repository path that the forwarded one must not.
+	if local, _ := json.Marshal(c.must("peers", nil)); !strings.Contains(string(local), repo) {
+		t.Fatalf("the sentinel is not in B's own peers answer: %s", local)
+	}
+}
+
+// C2-4, C2-6: an answer lost after the write leaves the outcome unknown; outcome then reads the
+// recorded write, and the same envelope again answers it without a second write.
+func TestSignedForwardLostReply(t *testing.T) {
+	_, a, b := pairedLinkHosts(t)
+	ctx := context.Background()
+	agent := join(t, b.d.store, "codex", "synthetic-forward-lost", "")
+	c := newSignedClient(t, b.d, 23)
+	f := viaNode(c, a.d)
+	now := time.Now().Unix()
+	request := f.request()
+	data := f.envelope("send", map[string]any{"to": agent.Name, "body": "a synthetic lost reply"}, request, now, nil)
+	a.d.link.mu.Lock()
+	a.d.link.hook = func(point string) error {
+		if point == "maintainer-after-write" {
+			return errors.New("synthetic lost reply")
+		}
+		return nil
+	}
+	a.d.link.mu.Unlock()
+	status, body := answerOf(t, a.d, ctx, data)
+	m := wantAnswer(t, "lost reply", status, body, 409, "outcome_unknown")
+	if d := m["details"].(map[string]any); d["request"] != request || d["target"] != c.pin {
+		t.Fatalf("lost reply details: %s", body)
+	}
+	a.d.link.mu.Lock()
+	a.d.link.hook = nil
+	a.d.link.mu.Unlock()
+	// The write ran on B: the forwarded outcome reads it.
+	deadline := time.Now().Add(10 * time.Second)
+	var outcome map[string]any
+	for {
+		outcome = forwardMust(t, f, "outcome", map[string]any{"request": request, "created": now})
+		if outcome["state"] == "recorded" || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if outcome["state"] != "recorded" {
+		t.Fatalf("outcome: %v", outcome)
+	}
+	again, againBody := answerOf(t, a.d, ctx, data)
+	if again != 200 || decoded(t, againBody)["ok"] != true {
+		t.Fatalf("resend: %d %s", again, againBody)
+	}
+	if got := asJSON(t, decoded(t, againBody)["result"]); string(got) != string(asJSON(t, outcome["result"])) {
+		t.Fatalf("resend %s, outcome %v", got, outcome["result"])
+	}
+	if n := rowCount(t, b.d, `SELECT COUNT(*) FROM messages WHERE body='a synthetic lost reply'`); n != 1 {
+		t.Fatalf("messages on B: %d", n)
+	}
+}
+
+// C2-4: a target that the node cannot reach is computer_offline, with the last connected time,
+// and nothing runs; a node with Remote off says why.
+func TestSignedForwardOffline(t *testing.T) {
+	n, a, b := pairedLinkHosts(t)
+	ctx := context.Background()
+	agent := join(t, b.d.store, "codex", "synthetic-forward-offline", "")
+	c := newSignedClient(t, b.d, 24)
+	f := viaNode(c, a.d)
+	now := time.Now().Unix()
+	n.mu.Lock()
+	delete(n.hosts, b.ip+":47672")
+	n.mu.Unlock()
+	// A later failed ping keeps the time of the last connected one.
+	p, _ := pairWith(t, a, b)
+	a.d.observe(a.d.openGen(), p.ID, "offline", "synthetic")
+	request := f.request()
+	status, body := answerOf(t, a.d, ctx, f.envelope("send", map[string]any{"to": agent.Name, "body": "a synthetic offline send"}, request, now, nil))
+	m := wantAnswer(t, "unreachable", status, body, 409, "computer_offline")
+	details := m["details"].(map[string]any)
+	if seen, _ := details["last_seen"].(float64); seen <= 0 || details["target"] != c.pin {
+		t.Fatalf("unreachable details: %s", body)
+	}
+	if outcome := c.must("outcome", map[string]any{"request": request, "created": now}); outcome["state"] != "unknown_request" {
+		t.Fatalf("outcome on B: %v", outcome)
+	}
+	if err := a.d.remoteDisable(ctx); err != nil {
+		t.Fatal(err)
+	}
+	status, body = answerOf(t, a.d, ctx, f.envelope("inbox", nil, f.request(), now, nil))
+	m = wantAnswer(t, "Remote off", status, body, 409, "computer_offline")
+	if m["details"].(map[string]any)["reason"] != ErrLinkRemoteOff.Code {
+		t.Fatalf("Remote off details: %s", body)
+	}
+}
+
+// C2-7: B runs a forwarded write only while the pair and the link generation stand.
+func TestSignedForwardTargetChecksPair(t *testing.T) {
+	_, a, b := pairedLinkHosts(t)
+	agent := join(t, b.d.store, "codex", "synthetic-forward-pair", "")
+	c := newSignedClient(t, b.d, 25)
+	frame, err := link.NewFrame("maintainer", maintainerFrame{Envelope: base64Of(c.envelope("send",
+		map[string]any{"to": agent.Name, "body": "a synthetic unpaired send"}, c.request(), time.Now().Unix(), nil))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	gen := b.d.openGen()
+	if _, _, err := b.d.answerMaintainer(strings.Repeat("ef", 32), frame, gen); !errors.Is(err, ErrLinkNoPair) {
+		t.Fatalf("unknown pin: %v", err)
+	}
+	if _, _, err := b.d.answerMaintainer(pinOf(t, a), frame, gen+1); !errors.Is(err, ErrLinkRemoteOff) {
+		t.Fatalf("old generation: %v", err)
+	}
+	if n := rowCount(t, b.d, `SELECT COUNT(*) FROM messages WHERE body='a synthetic unpaired send'`); n != 0 {
+		t.Fatalf("messages: %d", n)
+	}
+	// The generation closes, or the pair goes, while the write waits for the link lock.
+	hook := func(change func()) {
+		b.d.link.mu.Lock()
+		b.d.link.hook = func(point string) error {
+			if point == "maintainer-before-write" {
+				change()
+			}
+			return nil
+		}
+		b.d.link.mu.Unlock()
+	}
+	hook(func() {
+		b.d.link.mu.Lock()
+		b.d.link.gen++
+		b.d.link.mu.Unlock()
+	})
+	_, _, err = b.d.answerMaintainer(pinOf(t, a), frame, gen)
+	b.d.link.mu.Lock()
+	b.d.link.gen--
+	b.d.link.hook = nil
+	b.d.link.mu.Unlock()
+	if !errors.Is(err, ErrLinkRemoteOff) {
+		t.Fatalf("generation closed during the write: %v", err)
+	}
+	if n := rowCount(t, b.d, `SELECT COUNT(*) FROM messages WHERE body='a synthetic unpaired send'`); n != 0 {
+		t.Fatalf("messages: %d", n)
+	}
+	if _, _, err := b.d.answerMaintainer(pinOf(t, a), frame, gen); err != nil {
+		t.Fatalf("paired: %v", err)
+	}
+	if n := rowCount(t, b.d, `SELECT COUNT(*) FROM messages WHERE body='a synthetic unpaired send'`); n != 1 {
+		t.Fatalf("messages: %d", n)
+	}
+	second, err := link.NewFrame("maintainer", maintainerFrame{Envelope: base64Of(c.envelope("send",
+		map[string]any{"to": agent.Name, "body": "a synthetic second send"}, c.request(), time.Now().Unix(), nil))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hook(func() {
+		b.d.link.mu.Lock()
+		s, err := link.ReadState(b.root)
+		if err == nil {
+			s.Pairs = nil
+			err = link.WriteState(b.root, s)
+		}
+		b.d.link.mu.Unlock()
+		if err != nil {
+			t.Error(err)
+		}
+	})
+	if _, _, err := b.d.answerMaintainer(pinOf(t, a), second, gen); !errors.Is(err, ErrLinkNoPair) {
+		t.Fatalf("unpaired during the write: %v", err)
+	}
+	if n := rowCount(t, b.d, `SELECT COUNT(*) FROM messages WHERE body='a synthetic second send'`); n != 0 {
+		t.Fatalf("messages: %d", n)
+	}
+}
+
+// C2-3: a forwarded answer at the target's bound fits a maintainer-ok frame; one byte more
+// would not, so the target pages it first.
+func TestSignedForwardAnswerFitsFrame(t *testing.T) {
+	limit := signedAnswerLimit(context.WithValue(context.Background(), forwardedKey{}, "pin"))
+	frameOf := func(body int) int {
+		answer := json.RawMessage(`"` + strings.Repeat("a", body-2) + `"`)
+		data, err := json.Marshal(link.Frame{Op: "maintainer-ok", Body: mustJSON(maintainerReply{Status: 599, Answer: answer})})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return len(data)
+	}
+	// respond's answer of limit bytes ends in a newline, which the frame does not carry.
+	if n := frameOf(limit - 1); n != link.MaxMaintainerFrameBytes {
+		t.Fatalf("frame at the bound: %d bytes", n)
+	}
+	if signedAnswerLimit(context.Background()) != maxSignedAnswer {
+		t.Fatal("the node's own bound changed")
+	}
+}
+
+// C2-3, C2-8: a 512 KiB envelope of characters that JSON escapes reaches the target, which
+// answers its own refusal; a large inbox reads over the link in pages that fit a frame.
+func TestSignedForwardSizes(t *testing.T) {
+	_, a, b := pairedLinkHosts(t)
+	ctx := context.Background()
+	s := b.d.store
+	agent := join(t, s, "codex", "synthetic-forward-size", "")
+	c := newSignedClient(t, b.d, 26)
+	f := viaNode(c, a.d)
+	now := time.Now().Unix()
+	small := len(f.envelope("inbox", map[string]any{"pad": ""}, "size-request-000001", now, nil))
+	pad := strings.Repeat("<", signed.MaxEnvelopeBytes-small)
+	big := f.envelope("inbox", map[string]any{"pad": pad}, "size-request-000001", now, nil)
+	if len(big) != signed.MaxEnvelopeBytes {
+		t.Fatalf("envelope: %d bytes", len(big))
+	}
+	status, body := answerOf(t, a.d, ctx, big)
+	wantAnswer(t, "512 KiB envelope", status, body, 400, "invalid_request")
+
+	text := strings.Repeat("\x01", maxBody)
+	for i := 0; i < 3; i++ {
+		if _, err := s.Send(ctx, Key{"codex", agent.ID}, "maintainer", text); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seen, after := 0, int64(0)
+	for {
+		status, body := answerOf(t, a.d, ctx, f.envelope("inbox", map[string]any{"after": after, "limit": int64(100)}, f.request(), time.Now().Unix(), nil))
+		if status != 200 || len(body) > link.MaxMaintainerFrameBytes {
+			t.Fatalf("page: %d, %d bytes", status, len(body))
+		}
+		var page struct {
+			Result Inbox `json:"result"`
+		}
+		if err := json.Unmarshal([]byte(body), &page); err != nil {
+			t.Fatal(err)
+		}
+		if len(page.Result.Messages) == 0 {
+			t.Fatalf("empty page: %d bytes", len(body))
+		}
+		seen += len(page.Result.Messages)
+		after = page.Result.Messages[len(page.Result.Messages)-1].Seq
+		if !page.Result.More {
+			break
+		}
+	}
+	if seen != 3 {
+		t.Fatalf("messages read: %d", seen)
+	}
+}
+
+// C2-4: a changes wait with nothing changed holds over the link and answers its quiet result.
+func TestSignedForwardQuietWait(t *testing.T) {
+	_, a, b := pairedLinkHosts(t)
+	c := newSignedClient(t, b.d, 27)
+	f := viaNode(c, a.d)
+	versions := forwardMust(t, f, "changes", nil)["versions"]
+	started := time.Now()
+	quiet := forwardMust(t, f, "changes", map[string]any{"versions": versions, "wait_seconds": int64(20)})
+	if elapsed := time.Since(started); len(quiet["changed"].([]any)) != 0 || elapsed < 19*time.Second {
+		t.Fatalf("quiet wait after %v: %v", elapsed, quiet)
+	}
+}
+
+// C2-8: the whole path: a client opens a session on A with A's own key, and sends an envelope
+// signed by B's key for B over A's signed route; the answer is B's own.
+func TestSignedForwardRoute(t *testing.T) {
+	_, a, b := pairedLinkHosts(t)
+	join(t, b.d.store, "codex", "synthetic-forward-route", "")
+	bearer := linkBearer(t, a)
+	node := newSignedClient(t, a.d, 28)
+	session, _ := newSignedSessionToken(t, a.d, bearer, node)
+	c := newSignedClient(t, b.d, 29)
+	data := c.envelope("inbox", nil, c.request(), time.Now().Unix(), nil)
+	status, reply := postEnvelope(t, a.d, bearer, "/v1/maintainer/signed", session, data)
+	ls, lb := answerOf(t, b.d, context.Background(), data)
+	if got, _ := json.Marshal(reply); status != ls || string(got) != string(asJSON(t, decoded(t, lb))) {
+		t.Fatalf("route: %d %s, on B %d %s", status, got, ls, lb)
+	}
+}
+
+func base64Of(data []byte) string { return base64.StdEncoding.EncodeToString(data) }

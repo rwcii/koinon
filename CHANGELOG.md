@@ -12,8 +12,12 @@ into a dated release section when promoted to `main`.
   secret and serves the tool `signed`, which runs each action that the client signed for this
   computer once: board reads, verdicts, the inbox and ack, send, rooms, peers, `outcome`,
   `computers` and `changes`. Each verdict records the key's user and client and shows
-  `by USER (CLIENT)`. Actions for other linked computers come in a later release. The state
-  schema moves to 39: a schema 38 binary refuses the upgraded store.
+  `by USER (CLIENT)`. An action signed for a paired computer goes over the link unchanged and
+  runs there, under the key that computer added; both computers need this release. A computer
+  that cannot be reached answers `computer_offline` and nothing runs; an answer lost after the
+  action was sent is `outcome_unknown`, and `outcome` on that computer tells what happened. A
+  client with no Koinon on its computer comes in a later release. The state schema moves to 39:
+  a schema 38 binary refuses the upgraded store.
 - `koinon setup opencode` works with OpenCode 2 (#692). OpenCode 2.3.0 writes an MCP server into
   the current directory's project file unless `--global` is given, and its `mcp list` no longer
   shows the server's command, so setup left an `opencode.json` in the directory where it ran
