@@ -243,8 +243,8 @@ sig_b64: IOGwy1JLMXL0Lizmp1LZe7skwiVP7FO1wkuATry177ta1FFcfdFZDXAdl1LqiPGneV/AmKP
    and the client reaches a node at its Remote address (Tailscale Serve, HTTPS, PDR 010) on
    `/v1/maintainer/signed`. The route takes only signed envelopes and serves nothing else; the
    agent API stays on loopback (PDR 011 acceptance 9).
-   - `POST /v1/maintainer/signed/session` with a `session` envelope answers
-     `{"token", "expires"}`.
+   - `POST /v1/maintainer/signed/session` with a `session` envelope answers as the local
+     session route does (Answer shapes).
    - `POST /v1/maintainer/signed` with `Authorization: Bearer TOKEN` and one envelope answers
      the target's JSON result or `{"code", "error", ...}` with the HTTP status of the local
      maintainer route.
@@ -326,6 +326,26 @@ no change. A request with no `versions` answers at once with the current ones.
 
 The node's own refusals, above: `computer_offline` and `outcome_unknown` come from the node;
 `signature_refused` comes from the target (or the node for its own pin), with its reason.
+
+The Serve route (Decision 5.2):
+
+```json
+{"ok": true, "token": "…", "client": "key:koinon-voice", "idle_seconds": 86400, "absolute_seconds": 604800}
+{"ok": false, "code": "maintainer_token_expired", "error": "…"}
+```
+
+1. `POST /v1/maintainer/signed/session` answers the first line, flat, as today's
+   `/v1/maintainer/session` does (`internal/core/maintainer_mcp.go`): the token lasts
+   `idle_seconds` without use and `absolute_seconds` at most.
+2. `POST /v1/maintainer/signed` with an unknown, ended or missing bearer token answers the
+   second line with HTTP 409, the status of every refusal today (`internal/core/server.go`),
+   before the envelope is read or sent anywhere. `invalid_request` answers 400.
+3. Requests are `Content-Type: application/json`, one JSON object, at most 512 KiB (a `send`
+   or `room_post` body is at most 64 KiB of text, as today). An answer is at most 1 MiB; reads
+   page with `limit` so that their answers fit.
+4. The link operation `maintainer` carries one envelope and one answer in frames of up to
+   1 MiB each, above the 128 KiB of other link operations (`internal/link/frame.go`); a larger
+   one is refused (`too_large`).
 
 ## Decision 7: identity on the record
 
