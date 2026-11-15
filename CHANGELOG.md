@@ -11,7 +11,9 @@ into a dated release section when promoted to `main`.
   `koinon mcp --maintainer --signed` opens a session with a signed envelope in place of the
   secret and serves the tool `signed`, which runs each action that the client signed for this
   computer once: board reads, verdicts, the inbox and ack, send, rooms, peers, `outcome`,
-  `computers` and `changes`. Each verdict records the key's user and client and shows
+  `computers` and `changes`. An action under an authorization that is not the key's current one
+  on this computer is refused with `authorization_changed`; its text says that the key was
+  added again only when this computer replaced that authorization (#702). Each verdict records the key's user and client and shows
   `by USER (CLIENT)`. An action signed for a paired computer goes over the link unchanged and
   runs there, under the key that computer added; both computers need this release. A computer
   that cannot be reached answers `computer_offline` within 3 seconds and nothing runs; an answer lost after the
