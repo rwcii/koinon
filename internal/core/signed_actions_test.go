@@ -1,11 +1,13 @@
 package core
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -490,4 +492,76 @@ func TestSignedOutcomeAuthorizationInTransaction(t *testing.T) {
 	}
 	_, err = d.store.signedOutcome(context.Background(), key, "race-request-00001")
 	wantCode(t, "outcome after removal", err, "signature_refused", "key_removed")
+}
+
+// postEnvelope posts raw envelope bytes to a signed route with the daemon's bearer and, when
+// set, a session token.
+func postEnvelope(t *testing.T, d *Daemon, bearer, path, token string, body []byte) (int, map[string]any) {
+	t.Helper()
+	r, err := http.NewRequest("POST", "http://"+d.Addresses()[0]+path, bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Header.Set("Authorization", "Bearer "+bearer)
+	r.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		r.Header.Set(MaintainerTokenHeader, token)
+	}
+	response, err := http.DefaultClient.Do(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	var reply map[string]any
+	json.NewDecoder(response.Body).Decode(&reply)
+	return response.StatusCode, reply
+}
+
+// The signed session routes (Decision 5, Answer shapes): the session answers flat as the
+// secret's session route does; the action route checks the token before it reads the
+// envelope; a secret change leaves a signed session, and the key's removal ends it.
+func TestSignedSessionRoutes(t *testing.T) {
+	d, root, bearer := maintainerDaemon(t)
+	c := newSignedClient(t, d, 10)
+	now := time.Now().Unix()
+	status, reply := postEnvelope(t, d, bearer, "/v1/maintainer/signed/session", "", c.envelope("session", map[string]any{"client": "voice"}, c.request(), now, nil))
+	token, _ := reply["token"].(string)
+	if status != 200 || len(token) != 64 || reply["client"] != "key:voice" || reply["idle_seconds"] != float64(86400) || reply["absolute_seconds"] != float64(604800) {
+		t.Fatalf("session: %d %v", status, reply)
+	}
+	for name, body := range map[string][]byte{
+		"read as session": c.envelope("inbox", nil, c.request(), now, nil),
+		"old session":     c.envelope("session", map[string]any{"client": "voice"}, c.request(), now-signedWindow-5, nil),
+		"bad client":      c.envelope("session", map[string]any{"client": "Voice!"}, c.request(), now, nil),
+	} {
+		if status, reply := postEnvelope(t, d, bearer, "/v1/maintainer/signed/session", "", body); status == 200 {
+			t.Fatalf("%s: %v", name, reply)
+		}
+	}
+	// The token is checked first: an unknown token is refused whatever the body is.
+	if status, reply := postEnvelope(t, d, bearer, "/v1/maintainer/signed", strings.Repeat("0", 64), []byte("not json")); status != 409 || reply["code"] != "maintainer_token_expired" {
+		t.Fatalf("unknown token: %d %v", status, reply)
+	}
+	// A secret token is no signed token, and a signed token is no secret token.
+	secretToken := newMaintainerToken(t, d, bearer, "test-client")
+	if status, reply := postEnvelope(t, d, bearer, "/v1/maintainer/signed", secretToken, c.envelope("inbox", nil, c.request(), now, nil)); status != 409 || reply["code"] != "maintainer_token_expired" {
+		t.Fatalf("secret token on the signed route: %d %v", status, reply)
+	}
+	refusedMaintainer(t, d, bearer, token, "inbox", nil, "maintainer_token_expired")
+	if status, reply := postEnvelope(t, d, bearer, "/v1/maintainer/signed", token, c.envelope("inbox", nil, c.request(), now, nil)); status != 200 || reply["ok"] != true {
+		t.Fatalf("signed inbox: %d %v", status, reply)
+	}
+	if _, err := d.changeSecret(context.Background(), "generate", ""); err != nil {
+		t.Fatal(err)
+	}
+	if status, reply := postEnvelope(t, d, bearer, "/v1/maintainer/signed", token, c.envelope("inbox", nil, c.request(), now, nil)); status != 200 {
+		t.Fatalf("after a secret change: %d %v", status, reply)
+	}
+	if _, err := d.store.RemoveMaintainerKey(context.Background(), c.key); err != nil {
+		t.Fatal(err)
+	}
+	if status, reply := postEnvelope(t, d, bearer, "/v1/maintainer/signed", token, c.envelope("inbox", nil, c.request(), now, nil)); status != 409 || reply["code"] != "maintainer_token_expired" {
+		t.Fatalf("after removal: %d %v", status, reply)
+	}
+	_ = root
 }

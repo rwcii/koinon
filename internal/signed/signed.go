@@ -493,3 +493,16 @@ func Sign(fields map[string]any, private ed25519.PrivateKey) ([]byte, error) {
 	signed["sig"] = base64.StdEncoding.EncodeToString(sig)
 	return Canonical(signed)
 }
+
+// ValidText checks JSON text for what a decoder would replace silently: invalid UTF-8 and a
+// \u escape of an unpaired surrogate. A client that carries an envelope inside other JSON
+// checks that JSON with it before it takes the envelope out.
+func ValidText(data []byte) error {
+	if !utf8.Valid(data) {
+		return refuse("version", "the text is not valid UTF-8")
+	}
+	if err := checkEscapes(data); err != nil {
+		return refuse("version", "%v", err)
+	}
+	return nil
+}

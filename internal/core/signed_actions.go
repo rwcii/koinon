@@ -12,6 +12,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -604,4 +606,89 @@ func shownSnapshot(reference string, item DecisionItem) string {
 		}
 	}
 	return signed.SnapshotDigest(reference, item.Revision, item.Kind, item.Title, item.Where, item.Context, item.Recommendation, item.AgentText, shown)
+}
+
+// SignedSession opens a signed maintainer session from a session envelope (Decision 5.1): the
+// envelope's checks of Decision 3.3, then a token with the limits of a maintainer token, for
+// the authorization's client. It returns the token and the client, key:CLIENT.
+func (d *Daemon) SignedSession(ctx context.Context, data []byte) (string, string, error) {
+	e, key, err := d.checkEnvelope(ctx, data)
+	if err != nil {
+		return "", "", err
+	}
+	if e.Op != "session" {
+		return "", "", Refusal{"invalid_request", "a session opens with a session envelope"}
+	}
+	args := signedArgs{values: e.Args}
+	client := args.str("client")
+	if err := args.check(); err != nil {
+		return "", "", err
+	}
+	if !MaintainerClientName.MatchString(client) {
+		return "", "", ErrClientName
+	}
+	if !inWindow(d.store.now(), e.Created) {
+		return "", "", signedRefusal("time", "the envelope is not within 5 minutes of this computer's clock")
+	}
+	a := &signedAction{key: key}
+	if err := d.store.auditAccepted(ctx, "maintainer_login", "key:"+key.Client+" by "+a.signerText()); err != nil {
+		return "", "", err
+	}
+	token, err := d.auth.startSigned(key)
+	return token, "key:" + key.Client, err
+}
+
+// MaintainerTokenHeader carries a signed session's token on the loopback API, whose
+// Authorization header holds the daemon's bearer secret.
+const MaintainerTokenHeader = "Koinon-Maintainer-Token"
+
+// readEnvelope reads a request body that is one envelope, at most one byte more than an
+// envelope's bound, so that Parse refuses a larger one.
+func readEnvelope(w http.ResponseWriter, r *http.Request) ([]byte, error) {
+	if r.Header.Get("Content-Type") != "application/json" {
+		return nil, ErrInvalid
+	}
+	data, err := io.ReadAll(io.LimitReader(r.Body, signed.MaxEnvelopeBytes+1))
+	if err != nil {
+		return nil, ErrInvalid
+	}
+	return data, nil
+}
+
+// signedRoutes add the signed session and the signed action routes (Decision 5). The body of
+// each is one envelope; the action route takes the session's token in MaintainerTokenHeader.
+func (d *Daemon) signedRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("POST /v1/maintainer/signed/session", func(w http.ResponseWriter, r *http.Request) {
+		data, err := readEnvelope(w, r)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		token, client, err := d.SignedSession(r.Context(), data)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		respond(w, 200, map[string]any{"ok": true, "token": token, "client": client,
+			"idle_seconds": int64(sessionIdle.Seconds()), "absolute_seconds": int64(sessionAbsolute.Seconds())})
+	})
+	mux.HandleFunc("POST /v1/maintainer/signed", func(w http.ResponseWriter, r *http.Request) {
+		// The token is checked before the envelope is read (Answer shapes, item 2).
+		key, ok := d.auth.signedToken(r.Header.Get(MaintainerTokenHeader))
+		if ok && stillAuthorized(r.Context(), d.store.db, key) != nil {
+			d.auth.endKey(key.KeyID)
+			ok = false
+		}
+		if !ok {
+			failure(w, ErrTokenExpired)
+			return
+		}
+		data, err := readEnvelope(w, r)
+		if err != nil {
+			failure(w, err)
+			return
+		}
+		result, err := d.SignedAction(r.Context(), data)
+		maintainerRead(w, result, err)
+	})
 }

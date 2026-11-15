@@ -186,6 +186,9 @@ func (d *Daemon) maintainerKeyRoutes(mux *http.ServeMux) {
 			key, err := d.addMaintainerKey(ctx, request.Statement)
 			if err != nil {
 				d.store.auditRefusal(ctx, pending, errorCode(err))
+			} else {
+				// A replaced authorization's sessions end with it.
+				d.auth.endKey(key.KeyID)
 			}
 			maintainerRead(w, key, err)
 		case "remove":
@@ -193,6 +196,8 @@ func (d *Daemon) maintainerKeyRoutes(mux *http.ServeMux) {
 			key, err := d.store.RemoveMaintainerKey(ctx, request.KeyID)
 			if err != nil {
 				d.store.auditRefusal(ctx, pending, errorCode(err))
+			} else {
+				d.auth.endKey(key.KeyID)
 			}
 			maintainerRead(w, key, err)
 		default:
