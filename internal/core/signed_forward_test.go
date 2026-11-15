@@ -684,3 +684,56 @@ func TestSignedForwardOfflineAtOnce(t *testing.T) {
 		t.Fatalf("cancelled connect answered after %s: %d %s", elapsed, status, body)
 	}
 }
+
+// A6-F1: a read of the Tailscale mode by another caller holds a signed action no longer than
+// its own connect bound or its caller's shorter deadline, and the action sends nothing.
+func TestSignedForwardModeReadContention(t *testing.T) {
+	for _, shorter := range []bool{false, true} {
+		t.Run(map[bool]string{false: "connect bound", true: "caller deadline"}[shorter], func(t *testing.T) {
+			_, a, b := pairedLinkHosts(t)
+			c := newSignedClient(t, b.d, 48)
+			f := viaNode(c, a.d)
+			a.d.link.mu.Lock()
+			a.d.link.dial, a.d.link.userspaceAt = nil, time.Time{}
+			a.d.link.mu.Unlock()
+			slot := a.d.link.userspaceRead.slot()
+			slot <- struct{}{} // another caller reads the mode
+			held := true
+			release := func() {
+				if held {
+					<-slot
+					held = false
+				}
+			}
+			defer release()
+			ctx, bound := context.Background(), forwardConnect+time.Second
+			if shorter {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, forwardConnect/15)
+				defer cancel()
+				bound = forwardConnect / 3
+			}
+			request, now := f.request(), time.Now().Unix()
+			var status int
+			var body string
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				status, body = answerOf(t, a.d, ctx, f.envelope("ack", map[string]any{"through": int64(0)}, request, now, nil))
+			}()
+			select {
+			case <-done:
+			case <-time.After(bound):
+				release()
+				<-done
+				t.Fatalf("held past %s by another caller's mode read: %d %s", bound, status, body)
+			}
+			if !shorter {
+				wantAnswer(t, "mode read held", status, body, 409, "computer_offline")
+			}
+			if outcome := c.must("outcome", map[string]any{"request": request, "created": now}); outcome["state"] != "unknown_request" {
+				t.Fatalf("outcome on B: %v", outcome)
+			}
+		})
+	}
+}
