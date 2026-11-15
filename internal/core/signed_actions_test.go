@@ -182,6 +182,63 @@ func TestSignedActionChecks(t *testing.T) {
 	wantCode(t, "removed key, old authorization", run(c.envelope("inbox", nil, c.request(), now, nil)), "signature_refused", "key_removed")
 }
 
+// #702: an envelope under an authorization that is not the key's current one is
+// authorization_changed, with nothing run; its text says that the key was added again only
+// when this computer removed that authorization of the key.
+func TestSignedAuthorizationChangedText(t *testing.T) {
+	d, _ := startTestDaemon(t)
+	c := newSignedClient(t, d, 1)
+	other := newSignedClient(t, d, 3)
+	now := time.Now().Unix()
+	ctx := context.Background()
+	const again = "the key was added again since this envelope's authorization"
+	const notHere = "the envelope's authorization is not this computer's authorization for the key"
+	receipts := func() int {
+		t.Helper()
+		var n int
+		if err := d.store.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM signed_receipts`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	check := func(name, auth, text string) {
+		t.Helper()
+		before := receipts()
+		for _, op := range []string{"inbox", "ack"} {
+			var args map[string]any
+			if op == "ack" {
+				args = map[string]any{"through": int64(0)}
+			}
+			_, err := d.SignedAction(ctx, c.envelope(op, args, c.request(), now, map[string]any{"auth": auth}))
+			wantCode(t, name+" "+op, err, "signature_refused", "authorization_changed")
+			var refusal WorkRefusal
+			if !errors.As(err, &refusal) || refusal.Message != text || len(refusal.Details) != 1 {
+				t.Fatalf("%s %s: %+v, want %q", name, op, err, text)
+			}
+		}
+		if got := receipts(); got != before {
+			t.Fatalf("%s: receipts %d, then %d", name, before, got)
+		}
+	}
+	// Another computer's authorization for the same key, which this computer never had.
+	elsewhere, _ := enrollment(t, 1, strings.Repeat("cd", 32), now)
+	check("another computer's authorization", elsewhere.Authorization, notHere)
+	// Another key's authorization that this computer removed.
+	if _, err := d.store.RemoveMaintainerKey(ctx, other.key); err != nil {
+		t.Fatal(err)
+	}
+	check("another key's removed authorization", other.auth, notHere)
+	// The key added again on this computer: its earlier authorization.
+	old := c.auth
+	en, _ := enrollment(t, 1, c.pin, now+1)
+	if _, err := d.store.AddMaintainerKey(ctx, en, "test"); err != nil {
+		t.Fatal(err)
+	}
+	check("added again", old, again)
+	c.auth = en.Authorization
+	c.must("inbox", nil)
+}
+
 // startTestDaemonFor is another test daemon, for a key that the first one never added.
 func startTestDaemonFor(t *testing.T) *Daemon {
 	d, _ := startTestDaemon(t)

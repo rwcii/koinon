@@ -161,7 +161,7 @@ func (d *Daemon) checkEnvelope(ctx context.Context, data []byte) (signed.Envelop
 		return e, MaintainerKey{}, err
 	}
 	if key.Authorization != e.Auth {
-		return e, MaintainerKey{}, signedRefusal("authorization_changed", "the key was added again since this envelope's authorization")
+		return e, MaintainerKey{}, d.store.otherAuthorization(ctx, e.Key, e.Auth)
 	}
 	if err := signed.Verify(e, key.public); err != nil {
 		return e, MaintainerKey{}, signedError(err)
@@ -180,6 +180,21 @@ func (s *Store) missingKey(ctx context.Context, keyID string) error {
 		return signedRefusal("key_removed", "the key's authorization was removed on this computer")
 	}
 	return signedRefusal("key_unknown", "no authorization on this computer has this key")
+}
+
+// otherAuthorization refuses an envelope whose authorization is not the key's current one on
+// this computer: one that this computer removed when the key was added again, or one it never
+// had, such as another computer's authorization for the key (#702).
+func (s *Store) otherAuthorization(ctx context.Context, keyID, auth string) error {
+	var earlier int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM maintainer_authorizations WHERE id=? AND key_id=? AND removed_at<>0`,
+		auth, keyID).Scan(&earlier); err != nil {
+		return err
+	}
+	if earlier > 0 {
+		return signedRefusal("authorization_changed", "the key was added again since this envelope's authorization")
+	}
+	return signedRefusal("authorization_changed", "the envelope's authorization is not this computer's authorization for the key")
 }
 
 // inWindow reports whether created is within signedWindow seconds of now.
