@@ -136,6 +136,9 @@ func operationLookup[T any](ctx context.Context, q querier, now int64) (result T
 	return result, true, err
 }
 func operationReplay[T any](t *writeTx) (result T, found bool, err error) {
+	if a := signedOf(t.ctx); a != nil {
+		return signedReplay[T](t, a)
+	}
 	if operationOf(t.ctx) == nil {
 		return result, false, nil
 	}
@@ -164,6 +167,9 @@ func operationReclaimAt(p *OperationReceipt) int64 {
 }
 
 func (t *writeTx) writeOperationReceipt() error {
+	if a := signedOf(t.ctx); a != nil && t.audited {
+		return t.writeSignedReceipt(a, "recorded", "", a.result)
+	}
 	p := operationOf(t.ctx)
 	if p == nil || !t.audited {
 		return nil
@@ -179,6 +185,12 @@ func (t *writeTx) writeOperationReceipt() error {
 	return err
 }
 func (t *writeTx) operationResult(result any) {
+	if a := signedOf(t.ctx); a != nil {
+		if a.shape != nil {
+			result = a.shape(result)
+		}
+		a.result, _ = json.Marshal(result)
+	}
 	if p := operationOf(t.ctx); p != nil {
 		p.Result, _ = json.Marshal(result)
 	}
@@ -187,6 +199,16 @@ func (t *writeTx) operationResult(result any) {
 // operationRefusal commits a durable revision-conflict result before returning it.
 // Call only before any mutation has occurred in this transaction.
 func (t *writeTx) operationRefusal(err error) error {
+	if a := signedOf(t.ctx); a != nil {
+		t.audited = false // refusal audit remains the caller's responsibility
+		if e := t.signedRefused(a, err); e != nil {
+			return e
+		}
+		if e := t.Commit(); e != nil {
+			return e
+		}
+		return err
+	}
 	p := operationOf(t.ctx)
 	if p == nil {
 		return err

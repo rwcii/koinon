@@ -40,6 +40,9 @@ const (
 type dashboardSession struct {
 	created, used time.Time
 	client        string
+	// key is the authorization of a signed session (#693): its client is key:CLIENT, and it
+	// ends when the key's authorization ends.
+	key *MaintainerKey
 }
 
 type dashboardAuth struct {
@@ -178,10 +181,15 @@ func (a *dashboardAuth) startLocked(sessionHash [32]byte, client string) {
 	a.sessions[sessionHash] = &dashboardSession{created: now, used: now, client: client}
 }
 
-// endAll ends every login and maintainer token, when the maintainer secret changes.
+// endAll ends every login and maintainer token, when the maintainer secret changes. A signed
+// session does not depend on the secret; it ends with its key's authorization (endKey).
 func (a *dashboardAuth) endAll() {
 	a.mu.Lock()
-	clear(a.sessions)
+	for h, s := range a.sessions {
+		if s.key == nil {
+			delete(a.sessions, h)
+		}
+	}
 	clear(a.tickets)
 	_ = a.revokeRemoteLocked("", "password_changed")
 	a.mu.Unlock()
@@ -369,3 +377,48 @@ func dashboardClient(r *http.Request) string {
 }
 
 func (a *dashboardAuth) endRemote() { _ = a.revokeRemote("", "remote_disabled") }
+
+// startSigned begins a signed maintainer session for an authorization (#693; Decision 5.1 of
+// the signed maintainer contract), with the limits of a maintainer token.
+func (a *dashboardAuth) startSigned(key MaintainerKey) (string, error) {
+	id, err := randomToken()
+	if err != nil {
+		return "", err
+	}
+	hash, _ := tokenHash(id)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.startLocked(hash, "key:"+key.Client)
+	a.sessions[hash].key = &key
+	return id, nil
+}
+
+// signedToken checks a signed session's token and records its use. It returns the session's
+// authorization.
+func (a *dashboardAuth) signedToken(id string) (MaintainerKey, bool) {
+	hash, ok := tokenHash(id)
+	if !ok {
+		return MaintainerKey{}, false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	now := a.now()
+	a.prune(now)
+	s, found := a.sessions[hash]
+	if !found || s.key == nil {
+		return MaintainerKey{}, false
+	}
+	s.used = now
+	return *s.key, true
+}
+
+// endKey ends the signed sessions of a key, when its authorization is removed or replaced.
+func (a *dashboardAuth) endKey(keyID string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for h, s := range a.sessions {
+		if s.key != nil && s.key.KeyID == keyID {
+			delete(a.sessions, h)
+		}
+	}
+}

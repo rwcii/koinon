@@ -5,6 +5,15 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A maintainer client can act with its own key (#693, PDR 011 Decision 6). `koinon maintainer
+  key add --statement FILE` adds a client's Ed25519 key from a statement that the client signed
+  for this computer, once; `koinon maintainer key list` and `remove` show and remove keys.
+  `koinon mcp --maintainer --signed` opens a session with a signed envelope in place of the
+  secret and serves the tool `signed`, which runs each action that the client signed for this
+  computer once: board reads, verdicts, the inbox and ack, send, rooms, peers, `outcome`,
+  `computers` and `changes`. Each verdict records the key's user and client and shows
+  `by USER (CLIENT)`. Actions for other linked computers come in a later release. The state
+  schema moves to 39: a schema 38 binary refuses the upgraded store.
 - `koinon setup opencode` works with OpenCode 2 (#692). OpenCode 2.3.0 writes an MCP server into
   the current directory's project file unless `--global` is given, and its `mcp list` no longer
   shows the server's command, so setup left an `opencode.json` in the directory where it ran

@@ -1367,6 +1367,14 @@ pane matches `%` followed by 1–9 digits. The optional `executable` (#418) is t
 that the session's own terminal runs, with the same path rules as the socket. Invalid values
 return `invalid_request`.
 
+Schema 39 (#693) adds `maintainer_authorizations` (each authorization of a maintainer client
+key: its ID, key ID, public key, user, client, the statement's created time, when and by whom it
+was added, and its removal time; rows are never deleted, and at most one per key is current),
+`signed_receipts` (one per authorization and request: op, digest, state `recorded` or
+`refused`, code, result and times, kept 7 days), and `signer_user`, `signer_key` and
+`signer_client` on `decision_verdicts`, empty for a verdict that no key signed. A schema 38
+binary refuses the upgraded store.
+
 Schema 38 (#670 chunk 03) adds `link_outbox` (the queue to paired computers: cross-node ID,
 pair, sender, recipient NAME, the pair's name at send, body, sequence and digest once at the
 head, state, reason, the cancel request, the sticky earlier-unknown flag, and its times),
@@ -2797,6 +2805,91 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   `maintainer_token_expired`, the server writes the reply of a request in progress, writes the
   code to standard error and exits with status 1, also while standard input is open and idle.
   A poll that no daemon answers is tried again after 1 second, doubling to at most 30 seconds.
+- **Signed maintainer actions** (#693; PDR 011, Decision 6; contract
+  `docs/sprints/2026-11-14-signed-maintainer/decision.md`). A maintainer client keeps an Ed25519
+  key per user and install and signs each action; the computer that runs it checks the signature
+  against a key that its own login added.
+  - **Keys.** `koinon maintainer key add --statement FILE`, `key list [--all]` and
+    `key remove KEY_ID` send `POST /v1/maintainer/keys` with `{"action": "add"|"list"|"remove",
+    "statement", "key_id", "all"}` and the bearer secret, as `koinon maintainer secret` does. A
+    statement is an envelope (below) with `op` `enroll`, `args` `{"user", "client",
+    "public_key"}`, this computer's pin as `target` and no `auth` or `request`; `user` is 1–32 of
+    `a-z0-9._-` starting with a letter, `client` 1–32 of `a-z0-9-` starting with a letter or
+    digit, `public_key` the standard
+    base64 of the raw 32-byte key. `add` refuses (`signature_refused` with `details.reason`) a
+    statement for another pin (`target`), one whose `key` is not the key ID of `public_key`
+    (`key_unknown`), a bad signature (`signature`) and one not within 10 minutes of this
+    computer's clock (`time`); one that this computer added before is `statement_used`, also
+    after a removal and a restart. The authorization ID is the hex SHA-256 of the statement's
+    signed bytes. A new statement for a key that has a current authorization replaces it.
+    `remove` of a key with no current authorization is `key_unknown`. Schema 39 keeps every
+    authorization with its removal time; `list` gives `authorization`, `key_id`, `user`,
+    `client`, `added_at`, `added_by` (`cli`) and, with `all`, `removed_at`. Adding and removing
+    write the audit records `maintainer-key-add` and `maintainer-key-remove` with
+    `key KEY_ID for USER (CLIENT) by cli`; a removal is stored before the command returns.
+  - **Envelope.** One JSON object with exactly `v` (`koinon-maintainer-1`), `key` (`SHA256:`
+    and the unpadded standard base64 of the key's SHA-256), `auth` (the authorization ID),
+    `target` (the pin), `op`, `args`, `request` (16–128 of `A-Za-z0-9_-`), `created` (Unix
+    seconds) and `sig`: the padded standard base64 Ed25519 signature of `koinon-maintainer-1`, a
+    newline and the RFC 8785 bytes of the object without `sig`. Keys are ASCII, values are
+    strings, integers within ±(2^53−1), booleans, and only `changes` `versions` is an object (of
+    strings); no float, null, array, duplicate key, invalid UTF-8 or unpaired surrogate escape.
+    An envelope is at most 512 KiB. The checks run in this order and stop at the first refusal,
+    `signature_refused` with `details.reason`: the form (`version`); the target (in this release
+    another pin is `invalid_request`, as forwarding comes later); the key's current
+    authorization (`key_unknown`, `key_removed`) and `auth` (`authorization_changed`); the
+    signature (`signature`). A read then needs `created` within 5 minutes of this computer's
+    clock (`time`), and its key is checked again after the read. A write runs in one store
+    transaction: the key's authorization again, the receipt of (`auth`, `request`), then the
+    5-minute `time` check, the operation and its receipt. A refusal's text is at most 1 KiB.
+  - **Operations** on this computer's pin, with the maintainer routes' checks and answers:
+    `board_list` (`filter`, `after`, `limit`), `decision_get` (`reference`),
+    `decision_history` (`reference`, `after`, `limit`), `inbox` (`after`, `limit`), `room_list`
+    (`after`, `limit`; answers `rooms`, `more` and, with more, `next_after`), `room_read`
+    (`room`, `after`, `limit`), `peers`, `peer_status` (`peer`); the writes `decision_verdict`
+    (`reference`, `revision`, `snapshot`, `verdict`, `note`), `ack` (`through`), `send` (`to`,
+    `body`, `reply_to`) and `room_post` (`room`, `body`); and `outcome`, `computers` and
+    `changes`. An unknown argument or one of the wrong type is `invalid_request`.
+    `snapshot` is the hex SHA-256 of the RFC 8785 bytes of `{"reference", "revision", "kind",
+    "title", "where", "context", "recommendation", "agent_text", "commands"}` as `decision_get`
+    shows them (`commands` the shown commands, `[]` when none); another snapshot is
+    `snapshot_changed`. An answer is at most 1 MiB as the route writes it: a paged read that
+    does not fit reads again with half its items and keeps `more` and `next_after`; one that
+    cannot page is `too_large`.
+  - **Receipts.** Each write keeps a receipt per (authorization, request) for 7 days with the
+    digest of its signed bytes and its whole answer, or the code and details of a refusal of
+    the operation's own checks before any change (`stale_revision`, `decided`,
+    `snapshot_changed`). The same envelope answers the receipt again, also after a restart and
+    while the store refuses new writes; another envelope with that request is
+    `request_conflict`. `outcome` (`request`, `created`) answers `{"state": "recorded",
+    "result"}`, `{"state": "refused", "code", "details"}` or `{"state": "unknown_request",
+    "now"}`, read with the clock in one store transaction that checks the envelope's
+    authorization again; after the key is added again, an `outcome` under the old
+    authorization is `authorization_changed`.
+  - **Computers and changes.** `computers` answers `{"node": {"pin", "name"}, "computers":
+    [{"pin", "name", "state" (connected, offline), "reason", "since"}]}` for the paired
+    computers. `changes` (`versions`: topic to 20-character version; `wait_seconds` 0–30)
+    answers `{"versions", "changed"}` at once without `versions`, else when a topic's version
+    differs or the wait ends; the topics are `inbox`, `decisions`, each room ID and
+    `computers`, whose version moves when a pair, a name, a state or a reason changes and is
+    stored in the settings row `signed.computers`. A removal of the key ends a waiting request.
+  - **Sessions.** `POST /v1/maintainer/signed/session` takes a `session` envelope (`args`
+    `{"client"}`) as its body and answers as `/v1/maintainer/session` does, with `client`
+    `key:CLIENT` from the authorization; it writes the audit record `maintainer_login` with
+    `key:CLIENT by USER (CLIENT) key KEY_ID`. `POST /v1/maintainer/signed` takes one envelope as
+    its body and the session's token in `Koinon-Maintainer-Token`; an unknown or ended token,
+    or one whose key's authorization ended, is `maintainer_token_expired` (409) before the body
+    is read. A signed session has the token's limits, ends with its key's authorization and at
+    a daemon restart, not at a change of the secret. A secret token is not a signed token, and
+    a signed token is not a secret token. `koinon mcp --maintainer --signed` reads the session
+    envelope from the first line of standard input (at most 512 KiB, LF or CRLF) and serves
+    one tool, `signed` (`envelope`: the object, or a string of its JSON text), which answers
+    the target's answer unchanged; it has no resources.
+  - **Identity.** A signed write records `via` `key:CLIENT`; a verdict also stores the
+    authorization's user, key ID and client, which the answer, the maintainer's history
+    (`signer`) and the dashboard (`by USER (CLIENT)`) show, also after the key's removal; an
+    agent's history shows neither. The audit record of a signed action ends with
+    `by USER (CLIENT) key KEY_ID`.
 - **Request protection.** Every loopback dashboard request must name a literal loopback IP with a port in
   `Host` (`127.0.0.1:PORT` or `[::1]:PORT`; `localhost` and other names are refused). PORT may
   differ from the listener's, as through an SSH tunnel from another local port (ADR 001,

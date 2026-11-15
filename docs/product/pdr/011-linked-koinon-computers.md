@@ -252,7 +252,10 @@ maintainer secret is in PDR 009; Remote is in PDR 010.
   over. The node is trusted to show the target's answers; target-signed answers are #696.
 - **Review when:** a queue for an offline computer is wanted (#695), a node must not be
   trusted to show answers (#696), or computers of other people connect (Decision 1).
-- **Shipped:** not yet; three chunks follow the contract.
+- **Shipped:** chunk 1, the keys (`koinon maintainer key add`, `list`, `remove`), the envelope
+  checks, once-only receipts and `outcome`, the signed session of
+  `koinon mcp --maintainer --signed` and every action on a node's own pin, with the signer on
+  verdicts. Chunks 2 (forwarding on the link) and 3 (the Remote route) follow.
 
 ## Conclusion
 
@@ -269,3 +272,4 @@ computer keeps its own stores and controls.
 | 2026-11-13 | Chunk 03: messages between paired computers shipped: the queue, its delivery order and states, replies on the pair, cancel and the limits (#670). |
 | 2026-11-14 | Decision 5, LINK-GROUP-JOIN, approved by Robert Capps: one join adds a computer to the group (#683). |
 | 2026-11-15 | Decision 6, LINK-693-SIGNED, approved by Robert Capps: signed maintainer actions across the link; Decision 2 amended (#693). |
+| 2026-11-15 | Decision 6: chunk 1 shipped, signed actions on a node's own pin (#693). |

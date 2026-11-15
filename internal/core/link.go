@@ -1409,6 +1409,24 @@ type LinkStatus struct {
 	Error         string           `json:"error,omitempty"`
 }
 
+// pairObservation is a pair's state as the status shows it at now: pending, offline (with the
+// listener's absence as its reason) or connected while its connection is recent and of this
+// link generation.
+func pairObservation(p link.Pair, o linkObservation, open bool, gen uint64, now int64) linkObservation {
+	switch {
+	case p.State == link.Pending:
+		o = linkObservation{State: "pending", At: p.Created}
+	case !open:
+		o = linkObservation{State: "offline", At: o.At, Error: ErrLinkRemoteOff.Code}
+	case o.State == "connected" && (now-o.At > int64(linkConnectedFor/time.Second) || o.gen != gen):
+		// A connection of an earlier generation is not a connection now.
+		o.State = "offline"
+	case o.State == "":
+		o.State = "offline"
+	}
+	return o
+}
+
 func (d *Daemon) linkStatus(ctx context.Context) LinkStatus {
 	result := LinkStatus{Listener: "off", Serve: "off", Pairs: []LinkPairStatus{}}
 	d.remote.mu.Lock()
@@ -1468,18 +1486,7 @@ func (d *Daemon) linkStatus(ctx context.Context) LinkStatus {
 	d.link.mu.Unlock()
 	result.Introductions = len(s.Intros)
 	for _, p := range s.Pairs {
-		o := observed[p.ID]
-		switch {
-		case p.State == link.Pending:
-			o = linkObservation{State: "pending", At: p.Created}
-		case !open:
-			o = linkObservation{State: "offline", At: o.At, Error: ErrLinkRemoteOff.Code}
-		case o.State == "connected" && (now-o.At > int64(linkConnectedFor/time.Second) || o.gen != gen):
-			// A connection of an earlier generation is not a connection now.
-			o.State = "offline"
-		case o.State == "":
-			o.State = "offline"
-		}
+		o := pairObservation(p, observed[p.ID], open, gen, now)
 		// The oldest waiting messages to this computer, its head first, and the newest
 		// finished ones, without bodies (#670 chunk 03).
 		queue, waiting, _, _ := d.store.linkQueue(ctx, p.ID, linkStatusQueue, linkStatusQueue)

@@ -872,6 +872,32 @@ writes `maintainer_token_expired` to standard error and exits with status 1, als
 call comes. `resources/unsubscribe` ends a subscription; after the last one the process polls no
 more.
 
+#### Signed actions with a client key
+
+A maintainer client can instead keep its own Ed25519 key and sign each action (#693, PDR 011
+Decision 6). The client writes an enrollment statement for a computer; on that computer, add
+the key with the computer's own login:
+
+```sh
+koinon maintainer key add --statement voice-enroll.json   # within 10 minutes of the statement
+koinon maintainer key list          # the current keys: key ID, user (client), when and how added
+koinon maintainer key list --all    # also the removed ones
+koinon maintainer key remove SHA256:...   # the computer refuses the key's actions from now on
+```
+
+A statement adds a key once on a computer, also after a removal; to add a key again, the client
+signs a new statement. The client then runs `koinon mcp --maintainer --signed`: the first line
+of its standard input is a signed session envelope in place of the secret, and the server has
+one tool, `signed`, which takes an envelope that the client signed and answers the computer's
+answer unchanged. Each action names its computer and a request ID. A read, and a write that has
+not run yet, must arrive within 5 minutes of its signing. A write runs once: for 7 days, while its
+key's authorization stands, the same envelope or `outcome` gives its first answer again; reads
+keep no receipt. The user and client of the key
+show on each verdict (`by USER (CLIENT)`), in the history, on the dashboard and in the audit
+log. A signed session ends when its key is removed, not when the secret changes. In this
+release a computer runs the actions signed for itself; actions for other linked computers come
+next. PROTOCOL.md has the envelope and the operations.
+
 Administrative actions require CSRF protection and are
 audited. Health reports unknown observations explicitly.
 
