@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"sync"
@@ -450,5 +451,89 @@ func TestSignedRemoteDisableEndsRequests(t *testing.T) {
 	}
 	if status, body := mustRemote(t, a.d, "POST", "/v1/maintainer/signed", bearerOf(token), node.envelope("inbox", nil, node.request(), time.Now().Unix(), nil)); status != 200 {
 		t.Fatalf("after enable: %d %s", status, body)
+	}
+}
+
+// C3-F1: a check of the authorization that could not run, such as a request that Remote's
+// close cancelled, ends no session; only a removed or replaced authorization ends the key's.
+func TestSignedSessionsSurviveCancelledChecks(t *testing.T) {
+	h := newLinkHost(t, &linkNet{}, "alpha", "100.64.0.1")
+	d := h.d
+	ctx := context.Background()
+	c := newSignedClient(t, d, 46)
+	first, second := remoteSession(t, d, c), remoteSession(t, d, c)
+	key, ok := d.auth.signedToken(first)
+	if !ok {
+		t.Fatal("no session")
+	}
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+
+	// The action route with a cancelled request.
+	r := httptest.NewRequest("POST", "/v1/maintainer/signed", bytes.NewReader(c.envelope("inbox", nil, c.request(), time.Now().Unix(), nil))).WithContext(cancelled)
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	d.signedActionRoute(w, r, first)
+	if w.Code == 200 || strings.Contains(w.Body.String(), "maintainer_token_expired") {
+		t.Fatalf("cancelled check: %d %s", w.Code, w.Body)
+	}
+	// The check after a login, cancelled: only the new session ends.
+	third, err := d.auth.startSigned(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.checkNewSession(cancelled, key, third); err == nil || authorizationEnded(err) {
+		t.Fatalf("cancelled login check: %v", err)
+	}
+	if _, ok := d.auth.signedToken(third); ok {
+		t.Fatal("the new session outlived its failed check")
+	}
+	for _, token := range []string{first, second} {
+		if status, body := mustRemote(t, d, "POST", "/v1/maintainer/signed", bearerOf(token), c.envelope("inbox", nil, c.request(), time.Now().Unix(), nil)); status != 200 {
+			t.Fatalf("after cancelled checks: %d %s", status, body)
+		}
+	}
+
+	// The integrated case: the store's one connection is held while the action's check
+	// waits for it, Remote turns off and on, and both sessions go on.
+	conn, err := d.store.db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ended := make(chan int, 1)
+	go func() {
+		status, _, _ := remoteCall(ctx, d, "POST", "/v1/maintainer/signed", bearerOf(first), c.envelope("inbox", nil, c.request(), time.Now().Unix(), nil))
+		ended <- status
+	}()
+	time.Sleep(500 * time.Millisecond)
+	disabled := make(chan error, 1)
+	go func() { disabled <- d.remoteDisable(ctx) }()
+	select {
+	case <-ended:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the waiting check did not end with the surface")
+	}
+	conn.Close()
+	if err := <-disabled; err != nil {
+		t.Fatal(err)
+	}
+	if err := d.remoteEnable(ctx, 0); err != nil {
+		t.Fatal(err)
+	}
+	for _, token := range []string{first, second} {
+		if status, body := mustRemote(t, d, "POST", "/v1/maintainer/signed", bearerOf(token), c.envelope("inbox", nil, c.request(), time.Now().Unix(), nil)); status != 200 {
+			t.Fatalf("after Remote off and on: %d %s", status, body)
+		}
+	}
+
+	// A removed authorization still ends every session of the key.
+	if _, err := d.store.RemoveMaintainerKey(ctx, c.key); err != nil {
+		t.Fatal(err)
+	}
+	if status, _ := mustRemote(t, d, "POST", "/v1/maintainer/signed", bearerOf(first), c.envelope("inbox", nil, c.request(), time.Now().Unix(), nil)); status != http.StatusConflict {
+		t.Fatalf("after removal: %d", status)
+	}
+	if _, ok := d.auth.signedToken(second); ok {
+		t.Fatal("the key's other session outlived its removal")
 	}
 }

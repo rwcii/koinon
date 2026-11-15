@@ -598,6 +598,17 @@ func stillAuthorized(ctx context.Context, q querier, key MaintainerKey) error {
 	return nil
 }
 
+// authorizationEnded reports a refusal of stillAuthorized that says the key's authorization is
+// gone, as opposed to a check that could not run.
+func authorizationEnded(err error) bool {
+	var refusal WorkRefusal
+	if !errors.As(err, &refusal) || refusal.Code != "signature_refused" {
+		return false
+	}
+	reason, _ := refusal.Details["reason"].(string)
+	return reason == "key_removed" || reason == "authorization_changed"
+}
+
 // signedCheck checks in q that the action's authorization is current and looks up its
 // receipt: found with raw for a recorded answer, or found with the receipt's refusal.
 func signedCheck(ctx context.Context, q querier, a *signedAction, now time.Time) (json.RawMessage, bool, error) {
@@ -793,13 +804,26 @@ func (d *Daemon) signedSession(ctx context.Context, data []byte) (string, string
 	if err != nil {
 		return "", "", err
 	}
-	// A removal that committed since the login's transaction ends the new session too; one
-	// after this check ends it in the removal's own step (endKey).
-	if err := stillAuthorized(ctx, d.store.db, key); err != nil {
-		d.auth.endKey(key.KeyID)
+	if err := d.checkNewSession(ctx, key, token); err != nil {
 		return "", "", err
 	}
 	return token, "key:" + key.Client, nil
+}
+
+// checkNewSession checks a new session's authorization after its login. A removal that
+// committed since the login's transaction ends the new session too; one after this check ends
+// it in the removal's own step (endKey). A check that could not run, such as a cancelled
+// request, ends only this new session (review C3-F1).
+func (d *Daemon) checkNewSession(ctx context.Context, key MaintainerKey, token string) error {
+	err := stillAuthorized(ctx, d.store.db, key)
+	switch {
+	case err == nil:
+	case authorizationEnded(err):
+		d.auth.endKey(key.KeyID)
+	default:
+		d.auth.logout(token)
+	}
+	return err
 }
 
 // signedLogin checks the session envelope's authorization and time inside the transaction that
@@ -882,9 +906,17 @@ func (d *Daemon) signedSessionRoute(w http.ResponseWriter, r *http.Request) {
 func (d *Daemon) signedActionRoute(w http.ResponseWriter, r *http.Request, token string) {
 	// The token is checked before the envelope is read (Answer shapes, item 2).
 	key, ok := d.auth.signedToken(token)
-	if ok && stillAuthorized(r.Context(), d.store.db, key) != nil {
-		d.auth.endKey(key.KeyID)
-		ok = false
+	if ok {
+		// Only a removed or replaced authorization ends the key's sessions; a check that could
+		// not run, such as a request that Remote's close cancelled, ends none (review C3-F1).
+		if err := stillAuthorized(r.Context(), d.store.db, key); err != nil {
+			if !authorizationEnded(err) {
+				failure(w, err)
+				return
+			}
+			d.auth.endKey(key.KeyID)
+			ok = false
+		}
 	}
 	if !ok {
 		failure(w, ErrTokenExpired)

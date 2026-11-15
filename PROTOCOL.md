@@ -67,7 +67,7 @@ only the dashboard and static assets, with `/` redirecting to `/dashboard/`, and
 signed maintainer routes `POST /v1/maintainer/signed/session` and `POST /v1/maintainer/signed`
 (Signed maintainer actions, Sessions); every other `/v1/` path is absent. It accepts the exact
 configured external Host and validates
-write Origin against the saved HTTPS origin, ignoring proxy identity and
+dashboard write Origin against the saved HTTPS origin, ignoring proxy identity and
 forwarding headers as authority. The existing LAN HTTPS listener is independent.
 
 The private, owner-checked mode-0600 `remote-dashboard.json` records version,
