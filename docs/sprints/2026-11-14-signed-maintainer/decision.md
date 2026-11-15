@@ -1,7 +1,9 @@
 # Signed maintainer actions across linked computers (#693): decision and contract
 
-Status: draft for the maintainer, codex-koinon and the Koinon Voice pair
-(rwcii/koinon-voice#36). Nothing here is built.
+Status: approved by Robert Capps on 2026-11-15 (card LINK-693-SIGNED, revision 10, at 4e324d5;
+recorded as PDR 011 Decision 6). claude-koinon, codex-koinon, claude-koinon-voice and
+codex-koinon-voice agree (rwcii/koinon-voice c85b9cb). Built in three chunks with Koinon Voice
+(rwcii/koinon-voice#36).
 
 ## Source
 
