@@ -8,6 +8,7 @@ package core
 // transaction, so a request runs once and a write that waited past its window does not run.
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -73,6 +74,40 @@ func (a *signedAction) signerText() string {
 
 func signedRefusal(reason, message string) error {
 	return WorkRefusal{Code: "signature_refused", Message: message, Details: map[string]any{"reason": reason}}
+}
+
+// maxSignedAnswer bounds a signed answer as the route writes it (Answer shapes, item 3).
+const maxSignedAnswer = 1 << 20
+
+// ErrSignedTooLarge refuses an answer that is larger than maxSignedAnswer and cannot page.
+var ErrSignedTooLarge = Refusal{"too_large", "the answer is larger than 1 MiB"}
+
+// answerBytes is the size of a read's answer as respond writes it.
+func answerBytes(result any) int {
+	var b bytes.Buffer
+	if err := json.NewEncoder(&b).Encode(map[string]any{"ok": true, "result": result}); err != nil {
+		return maxSignedAnswer + 1
+	}
+	return b.Len()
+}
+
+// pageItems counts the items of a paged read's answer; 0 for an answer that does not page.
+func pageItems(result any) int {
+	switch r := result.(type) {
+	case Inbox:
+		return len(r.Messages)
+	case RoomTranscript:
+		return len(r.Posts)
+	case maintainerBoard:
+		return len(r.Items)
+	case DecisionHistoryPage:
+		return len(r.Verdicts)
+	case map[string]any:
+		if rooms, ok := r["rooms"].([]maintainerRoom); ok {
+			return len(rooms)
+		}
+	}
+	return 0
 }
 
 // signedError turns a refusal of the envelope package into signature_refused with its reason.
@@ -165,6 +200,16 @@ func (d *Daemon) SignedAction(ctx context.Context, data []byte) (any, error) {
 			return nil, signedRefusal("time", "the envelope is not within 5 minutes of this computer's clock")
 		}
 		result, err := d.signedRead(ctx, e, key, &args)
+		// An answer is at most 1 MiB as the route writes it (Answer shapes, item 3): a paged read
+		// that does not fit reads again with half its items, and keeps its continuation.
+		for err == nil && answerBytes(result) > maxSignedAnswer {
+			n := pageItems(result)
+			if n <= 1 {
+				return nil, ErrSignedTooLarge
+			}
+			args = signedArgs{values: e.Args, limit: int64(n / 2)}
+			result, err = d.signedRead(ctx, e, key, &args)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -190,6 +235,8 @@ type signedArgs struct {
 	values map[string]any
 	used   []string
 	bad    bool
+	// limit, when not 0, caps the limit of a paged read whose answer was too large.
+	limit int64
 }
 
 func (a *signedArgs) str(name string) string {
@@ -212,6 +259,15 @@ func (a *signedArgs) integer(name string) (int64, bool) {
 	n, ok := v.(int64)
 	a.bad = a.bad || !ok
 	return n, ok
+}
+
+// pageLimit reads the limit of a paged read, capped by a.limit.
+func (a *signedArgs) pageLimit() int64 {
+	n, _ := a.integer("limit")
+	if a.limit > 0 && (n == 0 || n > a.limit) {
+		return a.limit
+	}
+	return n
 }
 
 // check refuses unknown or mistyped arguments.
@@ -237,7 +293,7 @@ func (d *Daemon) signedRead(ctx context.Context, e signed.Envelope, key Maintain
 	case "board_list":
 		filter := args.str("filter")
 		after, _ := args.integer("after")
-		limit, _ := args.integer("limit")
+		limit := args.pageLimit()
 		if err := args.check(); err != nil {
 			return nil, err
 		}
@@ -251,14 +307,14 @@ func (d *Daemon) signedRead(ctx context.Context, e signed.Envelope, key Maintain
 	case "decision_history":
 		reference := args.str("reference")
 		after, _ := args.integer("after")
-		limit, _ := args.integer("limit")
+		limit := args.pageLimit()
 		if err := args.check(); err != nil {
 			return nil, err
 		}
 		return d.store.maintainerHistory(ctx, reference, after, int(limit))
 	case "inbox":
 		after, _ := args.integer("after")
-		limit, _ := args.integer("limit")
+		limit := args.pageLimit()
 		if err := args.check(); err != nil {
 			return nil, err
 		}
@@ -266,7 +322,7 @@ func (d *Daemon) signedRead(ctx context.Context, e signed.Envelope, key Maintain
 	case "room_list":
 		// The rooms are few; after and limit page them in room order.
 		after, _ := args.integer("after")
-		limit, _ := args.integer("limit")
+		limit := args.pageLimit()
 		if err := args.check(); err != nil {
 			return nil, err
 		}
@@ -288,7 +344,7 @@ func (d *Daemon) signedRead(ctx context.Context, e signed.Envelope, key Maintain
 	case "room_read":
 		room := args.str("room")
 		after, _ := args.integer("after")
-		limit, _ := args.integer("limit")
+		limit := args.pageLimit()
 		if err := args.check(); err != nil {
 			return nil, err
 		}
@@ -655,12 +711,44 @@ func (d *Daemon) SignedSession(ctx context.Context, data []byte) (string, string
 	if !inWindow(d.store.now(), e.Created) {
 		return "", "", signedRefusal("time", "the envelope is not within 5 minutes of this computer's clock")
 	}
-	a := &signedAction{key: key}
-	if err := d.store.auditAccepted(ctx, "maintainer_login", "key:"+key.Client+" by "+a.signerText()); err != nil {
+	if err := d.store.signedLogin(ctx, key, e.Created); err != nil {
 		return "", "", err
 	}
 	token, err := d.auth.startSigned(key)
-	return token, "key:" + key.Client, err
+	if err != nil {
+		return "", "", err
+	}
+	// A removal that committed since the login's transaction ends the new session too; one
+	// after this check ends it in the removal's own step (endKey).
+	if err := stillAuthorized(ctx, d.store.db, key); err != nil {
+		d.auth.endKey(key.KeyID)
+		return "", "", err
+	}
+	return token, "key:" + key.Client, nil
+}
+
+// signedLogin checks the session envelope's authorization and time inside the transaction that
+// records the login (Decision 3.3; review K5-F2).
+func (s *Store) signedLogin(ctx context.Context, key MaintainerKey, created int64) error {
+	ctx = noAudit(ctx)
+	tx, err := s.begin(ctx, ordinary)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := stillAuthorized(ctx, tx.Tx, key); err != nil {
+		return err
+	}
+	now := s.now()
+	if !inWindow(now, created) {
+		return signedRefusal("time", "the envelope is not within 5 minutes of this computer's clock")
+	}
+	a := &signedAction{key: key}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO audit(at,action,target,result) VALUES (?,?,?,'accepted')`,
+		now.UnixMilli(), "maintainer_login", "key:"+key.Client+" by "+a.signerText()); err != nil {
+		return tx.fail(err)
+	}
+	return tx.Commit()
 }
 
 // MaintainerTokenHeader carries a signed session's token on the loopback API, whose

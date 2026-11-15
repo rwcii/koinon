@@ -676,3 +676,62 @@ func TestSignedComputersAndChanges(t *testing.T) {
 		t.Fatal("the wait outlived the key")
 	}
 }
+
+// A signed read's answer fits 1 MiB as the route writes it: an inbox page of bodies that JSON
+// escapes sixfold reads fewer messages and keeps its continuation (review K5-F1).
+func TestSignedAnswerBound(t *testing.T) {
+	d, _ := startTestDaemon(t)
+	s := d.store
+	a := join(t, s, "codex", "synthetic-signed-h", "")
+	body := strings.Repeat("\x01", maxBody)
+	for i := 0; i < 3; i++ {
+		if _, err := s.Send(context.Background(), Key{"codex", a.ID}, "maintainer", body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c := newSignedClient(t, d, 14)
+	first, err := c.do("inbox", map[string]any{"limit": int64(100)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := first.(Inbox)
+	if size := answerBytes(first); size > maxSignedAnswer || !page.More || len(page.Messages) == 0 || len(page.Messages) >= 3 {
+		t.Fatalf("first page: %d bytes, %d messages, more %v", size, len(page.Messages), page.More)
+	}
+	seen := len(page.Messages)
+	for page.More {
+		next, err := c.do("inbox", map[string]any{"after": page.Messages[len(page.Messages)-1].Seq, "limit": int64(100)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if answerBytes(next) > maxSignedAnswer {
+			t.Fatalf("page: %d bytes", answerBytes(next))
+		}
+		page = next.(Inbox)
+		seen += len(page.Messages)
+	}
+	if seen != 3 {
+		t.Fatalf("messages read: %d", seen)
+	}
+}
+
+// A session's login checks the authorization in its own transaction: a removal that commits
+// after the envelope's checks refuses the login and writes no accepted record (review K5-F2).
+func TestSignedLoginAfterRemoval(t *testing.T) {
+	d, _ := startTestDaemon(t)
+	c := newSignedClient(t, d, 15)
+	key, err := currentAuthorization(context.Background(), d.store.db, c.key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.store.RemoveMaintainerKey(context.Background(), c.key); err != nil {
+		t.Fatal(err)
+	}
+	wantCode(t, "login after removal", d.store.signedLogin(context.Background(), key, time.Now().Unix()), "signature_refused", "key_removed")
+	wantCode(t, "old login", d.store.signedLogin(context.Background(), key, time.Now().Unix()-signedWindow-5), "signature_refused", "key_removed")
+	var logins int
+	d.store.db.QueryRow(`SELECT COUNT(*) FROM audit WHERE action='maintainer_login'`).Scan(&logins)
+	if logins != 0 {
+		t.Fatalf("logins: %d", logins)
+	}
+}
