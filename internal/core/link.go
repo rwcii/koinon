@@ -52,6 +52,8 @@ type linkObservation struct {
 	State string `json:"state"`
 	At    int64  `json:"at,omitempty"`
 	Error string `json:"error,omitempty"`
+	// Connected is the time of the last connected observation, kept through later ones.
+	Connected int64 `json:"connected,omitempty"`
 	// gen is the link generation of the connection that this observation saw.
 	gen uint64
 }
@@ -420,7 +422,12 @@ func (d *Daemon) observe(gen uint64, id, state, problem string) {
 	if d.link.observed == nil {
 		d.link.observed = map[string]linkObservation{}
 	}
-	d.link.observed[id] = linkObservation{State: state, At: d.linkNow().Unix(), Error: problem, gen: gen}
+	now := d.linkNow().Unix()
+	connected := d.link.observed[id].Connected
+	if state == "connected" {
+		connected = now
+	}
+	d.link.observed[id] = linkObservation{State: state, At: now, Error: problem, Connected: connected, gen: gen}
 }
 
 func linkRefuse(conn net.Conn, err error) {
@@ -458,6 +465,10 @@ func (d *Daemon) serveLink(raw net.Conn, gen uint64) {
 		f, err := link.ReadFrame(conn)
 		if err != nil {
 			return
+		}
+		if f.Op == "maintainer" {
+			// A forwarded changes wait runs up to 30 seconds before its reply (#693 chunk 2).
+			conn.SetDeadline(time.Now().Add(maxChangeWait*time.Second + forwardExchange + linkIOTimeout))
 		}
 		reply, closeAfter, err := d.linkOperation(pin, f, gen)
 		if err != nil {
@@ -569,6 +580,8 @@ func (d *Daemon) linkOperation(pin string, f link.Frame, gen uint64) (link.Frame
 		return reply, false, err
 	case "deliver", "cancel":
 		return d.answerDeliver(pin, f, gen)
+	case "maintainer":
+		return d.answerMaintainer(pin, f, gen)
 	case "unpair":
 		var body linkPairID
 		if f.Decode(&body) != nil {

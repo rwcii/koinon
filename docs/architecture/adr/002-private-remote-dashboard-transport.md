@@ -399,8 +399,9 @@ or control operation. Implementation: `internal/core/link_messages.go`,
 - **Shipped:** the keys, the envelope checks, receipts, the signed session of
   `koinon mcp --maintainer --signed` and the actions on a node's own pin (#693 chunk 1,
   `internal/signed`, `internal/core/signed_actions.go`, `internal/core/maintainer_keys.go`,
-  `internal/core/signed_computers.go`). The link operation `maintainer` and the Serve route
-  follow in chunks 2 and 3; until then an envelope for another pin is refused.
+  `internal/core/signed_computers.go`); the link operation `maintainer`, in frames of up to
+  1 MiB (#693 chunk 2, `internal/core/signed_forward.go`, `internal/link/frame.go`). The Serve
+  route follows in chunk 3.
 - **Review when:** as PDR 011, Decision 6.
 
 ### Alternatives Considered

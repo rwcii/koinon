@@ -107,8 +107,10 @@ The listener takes TLS 1.3 only, with a client certificate required and session 
 refuses every other key in the handshake with the `bad_certificate` alert, before any
 application data, and records it as the last refused key. On the TLS stream each frame is a
 4-byte big-endian length and a JSON object (`op`, `body`, or `error` and `detail`), at most 128
-KiB, with unknown fields refused; a connection carries at most 64 frames. The operations are
-`directory` and `name-update` (below), `deliver` and `cancel` (Messages, below),
+KiB (1 MiB for `maintainer` and its reply `maintainer-ok`), with unknown fields refused; a
+connection carries at most 64 frames. The operations are
+`directory` and `name-update` (below), `deliver` and `cancel` (Messages, below), `maintainer`
+(Signed maintainer actions, Other computers),
 `pair-hello` (`secret`, `name`, `dns`, `ips`, `port`; only an unpaired key with an open
 invitation's secret, which is used at once; the reply `hello-ok` has the pair `id` and `name`),
 `pair-confirm` (`id`), `ping` (`id`), `unpair` (`id`), and `introductions`, `introduced` and
@@ -2835,8 +2837,9 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     strings, integers within ±(2^53−1), booleans, and only `changes` `versions` is an object (of
     strings); no float, null, array, duplicate key, invalid UTF-8 or unpaired surrogate escape.
     An envelope is at most 512 KiB. The checks run in this order and stop at the first refusal,
-    `signature_refused` with `details.reason`: the form (`version`); the target (in this release
-    another pin is `invalid_request`, as forwarding comes later); the key's current
+    `signature_refused` with `details.reason`: the form (`version`); the target (`target`: a pin
+    that is neither this computer's nor a paired computer's, which goes on the link, Other
+    computers below); the key's current
     authorization (`key_unknown`, `key_removed`) and `auth` (`authorization_changed`); the
     signature (`signature`). A read then needs `created` within 5 minutes of this computer's
     clock (`time`), and its key is checked again after the read. A write runs in one store
@@ -2873,6 +2876,37 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     differs or the wait ends; the topics are `inbox`, `decisions`, each room ID and
     `computers`, whose version moves when a pair, a name, a state or a reason changes and is
     stored in the settings row `signed.computers`. A removal of the key ends a waiting request.
+  - **Other computers** (#693 chunk 2). An envelope whose `target` is a paired computer's pin
+    goes on that pair's link unchanged as the operation `maintainer` (`envelope`: the standard
+    base64 of its exact bytes); the node does not check its key or signature and keeps no
+    receipt. The
+    other computer runs it as for its own route, for its own pin only (another pin is
+    `signature_refused` with `target`), and never sends it on; it refuses `computers`
+    (`invalid_request`), its `changes` has no `computers` topic, and its `peers` and
+    `peer_status` give the fields of its link directory entries only (`name`, `address`,
+    `family`, `role`, `repository`, `activity`, `activity_at`; PDR 011, Decision 2). It runs a
+    write only while the pair and the link generation stand, checked again under the link lock
+    just before the write. Its reply `maintainer-ok` has `status` (its route's HTTP status) and
+    `answer` (its route's JSON); a paged read fits that frame and keeps `more` and
+    `next_after`. The node returns the status and answer unchanged. The node refuses `session`
+    and `computers` signed for a paired computer's pin (`invalid_request`; for an unknown pin
+    the target refusal comes first), and answers with status 409:
+    `computer_offline` (`details`: `target`, `last_seen`, the time of the last connected
+    observation of that pair or 0, and `reason`, such as `link_remote_required` when this
+    computer's link is closed) when it could not connect and sent nothing, so the action did
+    not run; a pair removed while the node connected is `signature_refused` with `target`, and
+    nothing is sent; `outcome_unknown` (`target`, `request`) once it has written any byte of
+    the frame and no valid answer came back (none, another reply, or an answer that is not an
+    object whose `ok` is true with status 200 and a `result`, or false with a refusal status and
+    a non-empty string `code`), or the request
+    ended, so the action may have run: `outcome` on that computer, or the same envelope again,
+    tells. A link refusal that the other computer gives before it runs
+    anything (`link_operation_unknown` from a computer without this release,
+    `link_pair_not_found`, `link_remote_required`, `invalid_request`, `link_frame_too_large`)
+    comes back with its code and `details.target`. The node connects within 15 seconds and
+    waits for the answer the `changes` wait (at most 30 seconds) and 15 seconds more; the
+    signed route's write deadline is 70 seconds, and `koinon mcp --maintainer --signed` waits
+    85 seconds for a call.
   - **Sessions.** `POST /v1/maintainer/signed/session` takes a `session` envelope (`args`
     `{"client"}`) as its body and answers as `/v1/maintainer/session` does, with `client`
     `key:CLIENT` from the authorization; it writes the audit record `maintainer_login` with
@@ -2884,7 +2918,12 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     a signed token is not a secret token. `koinon mcp --maintainer --signed` reads the session
     envelope from the first line of standard input (at most 512 KiB, LF or CRLF) and serves
     one tool, `signed` (`envelope`: the object, or a string of its JSON text), which answers
-    the target's answer unchanged; it has no resources.
+    the target's answer unchanged; it has no resources. It runs each `tools/call` at once, so a
+    `changes` wait holds no other call, and answers each by its own `id`, in any order; at most
+    128 calls are in flight (one wait for each target a node can have, and as many actions),
+    and a call beyond that is answered at once with `too_many_calls` (`details.limit`) and
+    reaches no daemon. `maintainer_token_expired` from any call ends the server after the
+    calls in flight have answered; the end of standard input also lets them answer first.
   - **Identity.** A signed write records `via` `key:CLIENT`; a verdict also stores the
     authorization's user, key ID and client, which the answer, the maintainer's history
     (`signer`) and the dashboard (`by USER (CLIENT)`) show, also after the key's removal; an

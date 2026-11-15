@@ -255,7 +255,9 @@ maintainer secret is in PDR 009; Remote is in PDR 010.
 - **Shipped:** chunk 1, the keys (`koinon maintainer key add`, `list`, `remove`), the envelope
   checks, once-only receipts and `outcome`, the signed session of
   `koinon mcp --maintainer --signed` and every action on a node's own pin, with the signer on
-  verdicts. Chunks 2 (forwarding on the link) and 3 (the Remote route) follow.
+  verdicts. Chunk 2, forwarding on the link: an action for a paired computer's pin goes on the
+  link unchanged as the operation `maintainer` and its answer comes back unchanged, with
+  `computer_offline` and `outcome_unknown` from the node. Chunk 3 (the Remote route) follows.
 
 ## Conclusion
 

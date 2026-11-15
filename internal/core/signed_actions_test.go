@@ -153,7 +153,7 @@ func TestSignedActionChecks(t *testing.T) {
 	good := c.envelope("inbox", map[string]any{"limit": int64(10)}, c.request(), now, nil)
 	wantCode(t, "changed argument", run([]byte(strings.Replace(string(good), `"limit":10`, `"limit":11`, 1))), "signature_refused", "signature")
 	wantCode(t, "unknown field", run([]byte(strings.Replace(string(good), `"v":`, `"x":1,"v":`, 1))), "signature_refused", "version")
-	wantCode(t, "other pin", run(c.envelope("inbox", nil, c.request(), now, map[string]any{"target": strings.Repeat("cd", 32)})), "invalid_request", "")
+	wantCode(t, "other pin", run(c.envelope("inbox", nil, c.request(), now, map[string]any{"target": strings.Repeat("cd", 32)})), "signature_refused", "target")
 	wantCode(t, "old read", run(c.envelope("inbox", nil, c.request(), now-signedWindow-5, nil)), "signature_refused", "time")
 	wantCode(t, "future read", run(c.envelope("inbox", nil, c.request(), now+signedWindow+5, nil)), "signature_refused", "time")
 	wantCode(t, "unknown op", run(c.envelope("room_create", nil, c.request(), now, nil)), "invalid_request", "")

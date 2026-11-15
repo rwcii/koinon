@@ -141,12 +141,16 @@ func (d *Daemon) checkEnvelope(ctx context.Context, data []byte) (signed.Envelop
 	if e.Op == "enroll" {
 		return e, MaintainerKey{}, signedRefusal("version", "an enrollment statement is added with koinon maintainer key add")
 	}
-	id, err := d.linkIdentity()
-	if err != nil {
-		return e, MaintainerKey{}, err
+	own, forwarded := forwardedPin(ctx)
+	if !forwarded {
+		id, err := d.linkIdentity()
+		if err != nil {
+			return e, MaintainerKey{}, err
+		}
+		own = id.Pin
 	}
-	if e.Target != id.Pin {
-		return e, MaintainerKey{}, Refusal{"invalid_request", "the target is another computer; forwarding is not built yet"}
+	if e.Target != own {
+		return e, MaintainerKey{}, signedRefusal("target", "the envelope is for another computer")
 	}
 	key, err := currentAuthorization(ctx, d.store.db, e.Key)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -217,6 +221,19 @@ func boundRefusal(err error) error {
 }
 
 func (d *Daemon) signedAction(ctx context.Context, data []byte) (any, error) {
+	// An envelope for a paired computer goes on the link unchanged (Decision 5.4); one that came
+	// over the link runs here or nowhere.
+	if _, forwarded := forwardedPin(ctx); !forwarded {
+		if e, err := signed.Parse(data); err == nil {
+			id, err := d.linkIdentity()
+			if err != nil {
+				return nil, err
+			}
+			if e.Target != id.Pin {
+				return d.signedForward(ctx, e, data)
+			}
+		}
+	}
 	e, key, err := d.checkEnvelope(ctx, data)
 	if err != nil {
 		return nil, err
@@ -233,7 +250,7 @@ func (d *Daemon) signedAction(ctx context.Context, data []byte) (any, error) {
 		result, err := d.signedRead(ctx, e, key, &args)
 		// An answer is at most 1 MiB as the route writes it (Answer shapes, item 3): a paged read
 		// that does not fit reads again with half its items, and keeps its continuation.
-		for err == nil && answerBytes(result) > maxSignedAnswer {
+		for err == nil && answerBytes(result) > signedAnswerLimit(ctx) {
 			n := pageItems(result)
 			if n <= 1 {
 				return nil, ErrSignedTooLarge
@@ -394,6 +411,10 @@ func (d *Daemon) signedRead(ctx context.Context, e signed.Envelope, key Maintain
 		if err := args.check(); err != nil {
 			return nil, err
 		}
+		if _, forwarded := forwardedPin(ctx); forwarded {
+			dir, err := d.remotePeers(ctx)
+			return map[string]any{"peers": dir.Entries, "truncated": dir.Truncated}, err
+		}
 		peers, truncated, err := d.store.maintainerPeers(ctx)
 		if err != nil {
 			return nil, err
@@ -404,6 +425,9 @@ func (d *Daemon) signedRead(ctx context.Context, e signed.Envelope, key Maintain
 		if err := args.check(); err != nil {
 			return nil, err
 		}
+		if _, forwarded := forwardedPin(ctx); forwarded {
+			return d.remotePeer(ctx, peer)
+		}
 		if link.IsRemoteAddress(peer) {
 			return d.remotePeerStatus(peer)
 		}
@@ -411,6 +435,9 @@ func (d *Daemon) signedRead(ctx context.Context, e signed.Envelope, key Maintain
 	case "computers":
 		if err := args.check(); err != nil {
 			return nil, err
+		}
+		if _, forwarded := forwardedPin(ctx); forwarded {
+			return nil, Refusal{"invalid_request", "computers is an operation of the node: sign it for the node's own pin"}
 		}
 		view, _, err := d.computersView(ctx)
 		return view, err
@@ -432,7 +459,8 @@ func (d *Daemon) signedRead(ctx context.Context, e signed.Envelope, key Maintain
 		if wait < 0 || wait > maxChangeWait {
 			return nil, Refusal{"invalid_request", "wait_seconds is 0 to 30"}
 		}
-		return d.signedChanges(ctx, key, held, time.Duration(wait)*time.Second)
+		_, forwarded := forwardedPin(ctx)
+		return d.signedChanges(ctx, key, held, time.Duration(wait)*time.Second, !forwarded)
 	case "outcome":
 		request := args.str("request")
 		_, ok := args.integer("created")
@@ -847,10 +875,19 @@ func (d *Daemon) signedRoutes(mux *http.ServeMux) {
 			failure(w, err)
 			return
 		}
-		// The server's write deadline is 10 seconds; a changes wait gets its 30 seconds and 5
-		// seconds more.
-		http.NewResponseController(w).SetWriteDeadline(time.Now().Add((maxChangeWait + 5) * time.Second))
+		// The server's write deadline is 10 seconds; a signed action gets the longest forwarded
+		// one, a changes wait on a paired computer, and more.
+		http.NewResponseController(w).SetWriteDeadline(time.Now().Add(signedRouteWrite))
 		result, err := d.SignedAction(r.Context(), data)
+		if answer, ok := result.(forwardedAnswer); ok && err == nil {
+			// The target's answer, unchanged.
+			w.Header().Set("Content-Type", "application/json")
+			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("X-Content-Type-Options", "nosniff")
+			w.WriteHeader(answer.status)
+			w.Write(append(answer.body, '\n'))
+			return
+		}
 		maintainerRead(w, result, err)
 	})
 }

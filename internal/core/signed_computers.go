@@ -203,7 +203,7 @@ func changedTopics(held, current map[string]string) []string {
 // the topics whose version differs from held. Without held versions it answers at once. It
 // reads again every changePoll until a topic changes or wait ends; a removal of the key, a
 // cancelled request or a daemon stop ends it.
-func (d *Daemon) signedChanges(ctx context.Context, key MaintainerKey, held map[string]string, wait time.Duration) (map[string]any, error) {
+func (d *Daemon) signedChanges(ctx context.Context, key MaintainerKey, held map[string]string, wait time.Duration, node bool) (map[string]any, error) {
 	timer := time.NewTimer(wait)
 	defer timer.Stop()
 	ticker := time.NewTicker(changePoll)
@@ -213,11 +213,14 @@ func (d *Daemon) signedChanges(ctx context.Context, key MaintainerKey, held map[
 		if err != nil {
 			return nil, err
 		}
-		_, computers, err := d.computersView(ctx)
-		if err != nil {
-			return nil, err
+		// The computers topic is the node's (Decision 6.3); a forwarded wait has none.
+		if node {
+			_, computers, err := d.computersView(ctx)
+			if err != nil {
+				return nil, err
+			}
+			versions[changeComputers] = computers
 		}
-		versions[changeComputers] = computers
 		changed := []string{}
 		if held != nil {
 			changed = changedTopics(held, versions)

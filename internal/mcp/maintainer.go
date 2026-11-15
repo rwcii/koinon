@@ -143,7 +143,14 @@ type maintainerServer struct {
 	// expired is closed when the long poll reads maintainer_token_expired.
 	expired    chan struct{}
 	expireOnce sync.Once
+	// calls counts a signed session's tool calls in flight, and slots bounds them.
+	calls sync.WaitGroup
+	slots chan struct{}
 }
+
+// maxSignedCalls bounds a signed session's tool calls in flight: a client keeps one changes
+// wait per target, at most link.MaxPairs + 1, with room for as many actions besides.
+const maxSignedCalls = 128
 
 // changePoll is a running long poll and the means to end and join it.
 type changePoll struct {
@@ -159,11 +166,23 @@ const pollSeconds = 25
 // of its change notices reads that code, it returns ErrTokenExpired, also while the input is
 // open and idle. A request in progress gets its reply first. The long poll ends before
 // ServeMaintainer returns, so nothing is written after it.
-func ServeMaintainer(ctx context.Context, c MaintainerConfig, in io.Reader, out io.Writer) error {
+func ServeMaintainer(ctx context.Context, c MaintainerConfig, in io.Reader, out io.Writer) (err error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	s := &maintainerServer{c: c, out: json.NewEncoder(out), subs: map[string]string{}, expired: make(chan struct{})}
+	s := &maintainerServer{c: c, out: json.NewEncoder(out), subs: map[string]string{}, expired: make(chan struct{}), slots: make(chan struct{}, maxSignedCalls)}
 	defer s.stopPoll()
+	// A signed session's calls in flight write their replies before the server returns, and
+	// an expiry that one of them reads, also after the end of the input, is the result.
+	defer func() {
+		s.calls.Wait()
+		select {
+		case <-s.expired:
+			if err == nil {
+				err = ErrTokenExpired
+			}
+		default:
+		}
+	}()
 	type input struct {
 		line []byte
 		err  error
@@ -246,11 +265,11 @@ func (s *maintainerServer) handle(ctx context.Context, line []byte) bool {
 			s.reply(r.ID, map[string]any{"tools": maintainerTools})
 		}
 	case "tools/call":
-		call := s.call
 		if s.c.Signed {
-			call = s.signedCall
+			s.signedAsync(ctx, r)
+			return false
 		}
-		result, expired := call(ctx, r.Params)
+		result, expired := s.call(ctx, r.Params)
 		s.reply(r.ID, result)
 		return expired
 	case "resources/list", "resources/read", "resources/subscribe", "resources/unsubscribe":
@@ -377,6 +396,30 @@ func invalidArguments(text string) map[string]any {
 	return result(map[string]any{"ok": false, "code": "invalid_arguments", "error": refusalText(text)}, true)
 }
 
+// signedAsync runs one signed tool call in its own goroutine, so that a changes wait does not
+// hold the session's other calls (Decisions 5.3 and 6.2 of the signed maintainer contract). A
+// call beyond maxSignedCalls is refused at once with nothing sent. maintainer_token_expired
+// from any call ends the server after the calls in flight have answered.
+func (s *maintainerServer) signedAsync(ctx context.Context, r rpcRequest) {
+	select {
+	case s.slots <- struct{}{}:
+	default:
+		s.reply(r.ID, result(map[string]any{"ok": false, "code": "too_many_calls",
+			"error": "too many calls of this session are in flight; send it again when one has answered", "details": map[string]any{"limit": maxSignedCalls}}, true))
+		return
+	}
+	s.calls.Add(1)
+	go func() {
+		defer s.calls.Done()
+		defer func() { <-s.slots }()
+		answer, expired := s.signedCall(ctx, r.Params)
+		s.reply(r.ID, answer)
+		if expired {
+			s.expireOnce.Do(func() { close(s.expired) })
+		}
+	}()
+}
+
 // signedCall runs the signed tool: it takes the envelope out of the call as the client wrote
 // it and posts those bytes with the session's token. It reports whether the daemon answered
 // maintainer_token_expired.
@@ -415,8 +458,8 @@ func (s *maintainerServer) signedCall(ctx context.Context, raw json.RawMessage) 
 		return invalidArguments("missing argument envelope: a JSON object or a string of its JSON text"), false
 	}
 	data, err := s.withBearer(func(address, bearer string) (json.RawMessage, error) {
-		// A changes wait answers within its 30 seconds; the rest is the daemon's own time.
-		return core.CallEnvelope(ctx, address, bearer, "/v1/maintainer/signed", envelope, s.c.Token, 45*time.Second)
+		// A forwarded changes wait answers within the node's write deadline; this is longer.
+		return core.CallEnvelope(ctx, address, bearer, "/v1/maintainer/signed", envelope, s.c.Token, core.SignedCallTimeout)
 	})
 	if err != nil {
 		return refusal(core.Key{Family: "maintainer"}, err), code(err) == ErrTokenExpired.Code
