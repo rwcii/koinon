@@ -371,7 +371,7 @@ func (d *Daemon) signedRead(ctx context.Context, e signed.Envelope, key Maintain
 		if err := args.check(); err != nil {
 			return nil, err
 		}
-		view, _, err := d.computersView()
+		view, _, err := d.computersView(ctx)
 		return view, err
 	case "changes":
 		raw, given := args.values["versions"]

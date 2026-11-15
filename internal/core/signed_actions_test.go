@@ -650,6 +650,15 @@ func TestSignedComputersAndChanges(t *testing.T) {
 	if renamed := c.must("computers", nil)["computers"].([]any)[0].(map[string]any); renamed["name"] != "gamma" {
 		t.Fatalf("renamed: %v", renamed)
 	}
+	// The computers version is stored: a daemon that starts again from the same store gives
+	// the same version for the same view (review K6-F1).
+	a.d.computers.mu.Lock()
+	a.d.computers.loaded, a.d.computers.saved = false, computersSaved{}
+	a.d.computers.mu.Unlock()
+	if same := c.must("changes", map[string]any{"versions": versions, "wait_seconds": int64(1)}); len(same["changed"].([]any)) != 0 ||
+		same["versions"].(map[string]any)["computers"] != versions["computers"] {
+		t.Fatalf("after a restart of the topic: %v, held %v", same, versions)
+	}
 	for name, args := range map[string]map[string]any{
 		"long wait":       {"wait_seconds": int64(31)},
 		"short version":   {"versions": map[string]any{"inbox": "1"}},

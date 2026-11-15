@@ -8,9 +8,12 @@ package core
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sync"
 	"time"
@@ -20,22 +23,31 @@ import (
 
 const changeComputers = "computers"
 
-// computersTopic keeps the computers topic's version in the daemon's memory. Its versions
-// start at the daemon's start time in microseconds, so a version after a restart is larger
-// than every version before it, and a client's held version never matches a new view by
-// chance.
+// computersTopic is the computers topic's version with the state that decides when it moves.
+// The store keeps it in the settings row computersSetting, so the version survives a restart
+// as the other topics' versions do (Decision 6.2; review K6-F1): the daemon reads it at its
+// first use and stores each change before it answers with it.
 type computersTopic struct {
 	mu     sync.Mutex
-	base   int64
-	n      int64
-	digest string
-	// states holds each pin's state and when it began.
-	states map[string]computerState
+	loaded bool
+	saved  computersSaved
+}
+
+// computersSetting is the settings row of the computers topic.
+const computersSetting = "signed.computers"
+
+// computersSaved is the stored computers topic: its counter, the digest of the view it counts,
+// and each pin's state with the time the state began.
+type computersSaved struct {
+	N      int64                    `json:"n"`
+	Digest string                   `json:"digest"`
+	States map[string]computerState `json:"states"`
 }
 
 type computerState struct {
-	state, reason string
-	since         int64
+	State  string `json:"state"`
+	Reason string `json:"reason"`
+	Since  int64  `json:"since"`
 }
 
 // Computer is one paired computer as computers gives it.
@@ -62,7 +74,7 @@ type ComputerNode struct {
 // computersView reads the node's pairs and their connection states, from the link state and
 // the link's observations, without the Serve inspection of koinon link status. It returns the
 // view and its topic version.
-func (d *Daemon) computersView() (ComputersView, string, error) {
+func (d *Daemon) computersView(ctx context.Context) (ComputersView, string, error) {
 	id, err := d.linkIdentity()
 	if err != nil {
 		return ComputersView{}, "", err
@@ -84,10 +96,21 @@ func (d *Daemon) computersView() (ComputersView, string, error) {
 	t := &d.computers
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if t.states == nil {
-		t.base, t.states = time.Now().UnixMicro(), map[string]computerState{}
+	if !t.loaded {
+		var data string
+		err := d.store.db.QueryRowContext(ctx, `SELECT value FROM settings WHERE name=?`, computersSetting).Scan(&data)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+		case err != nil:
+			return ComputersView{}, "", err
+		default:
+			if err := json.Unmarshal([]byte(data), &t.saved); err != nil {
+				return ComputersView{}, "", err
+			}
+		}
+		t.loaded = true
 	}
-	seen := map[string]bool{}
+	next := computersSaved{N: t.saved.N, Digest: t.saved.Digest, States: map[string]computerState{}}
 	for _, p := range s.Pairs {
 		if p.State != link.Paired {
 			continue
@@ -97,22 +120,16 @@ func (d *Daemon) computersView() (ComputersView, string, error) {
 		if o.State == "connected" {
 			state = "connected"
 		}
-		prior, known := t.states[p.Pin]
-		if !known || prior.state != state || prior.reason != o.Error {
+		prior, known := t.saved.States[p.Pin]
+		if !known || prior.State != state || prior.Reason != o.Error {
 			since := o.At
 			if known {
 				since = now
 			}
-			prior = computerState{state: state, reason: o.Error, since: since}
-			t.states[p.Pin] = prior
+			prior = computerState{State: state, Reason: o.Error, Since: since}
 		}
-		seen[p.Pin] = true
-		view.Computers = append(view.Computers, Computer{Pin: p.Pin, Name: p.Effective, State: state, Reason: o.Error, Since: prior.since})
-	}
-	for pin := range t.states {
-		if !seen[pin] {
-			delete(t.states, pin)
-		}
+		next.States[p.Pin] = prior
+		view.Computers = append(view.Computers, Computer{Pin: p.Pin, Name: p.Effective, State: state, Reason: o.Error, Since: prior.Since})
 	}
 	slices.SortFunc(view.Computers, func(a, b Computer) int {
 		if a.Name < b.Name {
@@ -126,11 +143,37 @@ func (d *Daemon) computersView() (ComputersView, string, error) {
 	// The version moves when a pair, a name, a state or a reason changes.
 	data, _ := json.Marshal(view)
 	sum := sha256.Sum256(data)
-	if digest := hex.EncodeToString(sum[:]); digest != t.digest {
-		t.digest = digest
-		t.n++
+	if digest := hex.EncodeToString(sum[:]); digest != next.Digest {
+		next.Digest = digest
+		next.N++
 	}
-	return view, fmt.Sprintf("%020d", t.base+t.n), nil
+	if !maps.Equal(next.States, t.saved.States) || next.N != t.saved.N {
+		if err := d.store.saveComputers(ctx, next); err != nil {
+			return ComputersView{}, "", err
+		}
+		t.saved = next
+	}
+	return view, fmt.Sprintf("%020d", t.saved.N), nil
+}
+
+// saveComputers stores the computers topic. It is a control write: the topic is small and
+// replaced in place.
+func (s *Store) saveComputers(ctx context.Context, saved computersSaved) error {
+	data, err := json.Marshal(saved)
+	if err != nil {
+		return err
+	}
+	ctx = noAudit(ctx)
+	tx, err := s.begin(ctx, control)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO settings(name,value,updated_at) VALUES(?,?,?)
+		ON CONFLICT(name) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at`, computersSetting, string(data), s.now().UnixMilli()); err != nil {
+		return tx.fail(err)
+	}
+	return tx.Commit()
 }
 
 // validVersions bounds a signed changes request's versions: at most one per topic that can
@@ -170,7 +213,7 @@ func (d *Daemon) signedChanges(ctx context.Context, key MaintainerKey, held map[
 		if err != nil {
 			return nil, err
 		}
-		_, computers, err := d.computersView()
+		_, computers, err := d.computersView(ctx)
 		if err != nil {
 			return nil, err
 		}
