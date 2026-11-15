@@ -778,3 +778,47 @@ func TestSignedLoginAfterRemoval(t *testing.T) {
 		t.Fatalf("logins: %d", logins)
 	}
 }
+
+// room_list pages with more and next_after, and a refusal's text is bounded, so that a refusal
+// that names a long field or operation fits an answer too (review K5-F1 follow-up).
+func TestSignedRoomPagesAndRefusalBound(t *testing.T) {
+	d, root, bearer := maintainerDaemon(t)
+	for i := 0; i < 3; i++ {
+		if _, err := d.store.CreateRoom(context.Background(), fmt.Sprintf("room-key-%d", i), fmt.Sprintf("room-%d", i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c := newSignedClient(t, d, 16)
+	first := c.must("room_list", map[string]any{"limit": int64(2)})
+	if len(first["rooms"].([]any)) != 2 || first["more"] != true || first["next_after"] != float64(2) {
+		t.Fatalf("first page: %v", first)
+	}
+	last := c.must("room_list", map[string]any{"after": int64(2), "limit": int64(2)})
+	if len(last["rooms"].([]any)) != 1 || last["more"] != false || last["next_after"] != nil {
+		t.Fatalf("last page: %v", last)
+	}
+	now := time.Now().Unix()
+	long := c.envelope(strings.Repeat("<", 200000), nil, c.request(), now, nil)
+	_, err := d.SignedAction(context.Background(), long)
+	var refusal Refusal
+	if !errors.As(err, &refusal) || refusal.Code != "invalid_request" || len(refusal.Message) > MaxRefusalMessage {
+		t.Fatalf("long op: %v", err)
+	}
+	session, _ := newSignedSessionToken(t, d, bearer, c)
+	status, reply := postEnvelope(t, d, bearer, "/v1/maintainer/signed", session, long)
+	if data, _ := json.Marshal(reply); status != 400 || len(data) > maxSignedAnswer || reply["code"] != "invalid_request" {
+		t.Fatalf("route: %d %d bytes", status, len(data))
+	}
+	_ = root
+}
+
+// newSignedSessionToken opens a signed session for c over the route.
+func newSignedSessionToken(t *testing.T, d *Daemon, bearer string, c *signedClient) (string, map[string]any) {
+	t.Helper()
+	status, reply := postEnvelope(t, d, bearer, "/v1/maintainer/signed/session", "", c.envelope("session", map[string]any{"client": "voice"}, c.request(), time.Now().Unix(), nil))
+	token, _ := reply["token"].(string)
+	if status != 200 || token == "" {
+		t.Fatalf("session: %d %v", status, reply)
+	}
+	return token, reply
+}

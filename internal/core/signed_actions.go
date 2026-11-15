@@ -186,6 +186,37 @@ func inWindow(now time.Time, created int64) bool {
 // SignedAction runs one envelope whose target is this computer and returns the operation's
 // result, as the maintainer routes answer it (Answer shapes).
 func (d *Daemon) SignedAction(ctx context.Context, data []byte) (any, error) {
+	result, err := d.signedAction(ctx, data)
+	return result, boundRefusal(err)
+}
+
+// boundRefusal cuts a refusal's text, which can name a field or an operation of the envelope,
+// to MaxRefusalMessage bytes, so that a refusal fits an answer's bound too.
+func boundRefusal(err error) error {
+	cut := func(text string) string {
+		if len(text) <= MaxRefusalMessage {
+			return text
+		}
+		n := MaxRefusalMessage
+		for n > 0 && !utf8.RuneStart(text[n]) {
+			n--
+		}
+		return text[:n]
+	}
+	var work WorkRefusal
+	if errors.As(err, &work) {
+		work.Message = cut(work.Message)
+		return work
+	}
+	var refusal Refusal
+	if errors.As(err, &refusal) {
+		refusal.Message = cut(refusal.Message)
+		return refusal
+	}
+	return err
+}
+
+func (d *Daemon) signedAction(ctx context.Context, data []byte) (any, error) {
 	e, key, err := d.checkEnvelope(ctx, data)
 	if err != nil {
 		return nil, err
@@ -334,13 +365,23 @@ func (d *Daemon) signedRead(ctx context.Context, e signed.Envelope, key Maintain
 			return nil, err
 		}
 		views := []maintainerRoom{}
+		more := false
 		for i, r := range rooms {
-			if int64(i) < after || (limit > 0 && int64(len(views)) >= limit) {
+			if int64(i) < after {
 				continue
+			}
+			if limit > 0 && int64(len(views)) >= limit {
+				more = true
+				break
 			}
 			views = append(views, maintainerRoom{r.ID, r.Name, r.Revision, r.CreatedAt, r.Members})
 		}
-		return map[string]any{"rooms": views}, nil
+		// A page that stops before the last room says so, with the after of the next page.
+		page := map[string]any{"rooms": views, "more": more}
+		if more {
+			page["next_after"] = after + int64(len(views))
+		}
+		return page, nil
 	case "room_read":
 		room := args.str("room")
 		after, _ := args.integer("after")
@@ -693,6 +734,11 @@ func shownSnapshot(reference string, item DecisionItem) string {
 // envelope's checks of Decision 3.3, then a token with the limits of a maintainer token, for
 // the authorization's client. It returns the token and the client, key:CLIENT.
 func (d *Daemon) SignedSession(ctx context.Context, data []byte) (string, string, error) {
+	token, client, err := d.signedSession(ctx, data)
+	return token, client, boundRefusal(err)
+}
+
+func (d *Daemon) signedSession(ctx context.Context, data []byte) (string, string, error) {
 	e, key, err := d.checkEnvelope(ctx, data)
 	if err != nil {
 		return "", "", err
