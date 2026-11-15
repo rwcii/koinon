@@ -677,6 +677,40 @@ func TestSignedComputersAndChanges(t *testing.T) {
 	}
 }
 
+// A signed verdict shows its signer: the answer, the maintainer's history and the dashboard
+// say USER (CLIENT), also after the key's removal; an agent's history does not (Decision 7).
+func TestSignedVerdictIdentity(t *testing.T) {
+	d, root, _ := maintainerDaemon(t)
+	s, ctx := d.store, context.Background()
+	a := join(t, s, "codex", "synthetic-signed-g", "")
+	aKey := Key{"codex", a.ID}
+	mustCreate(t, s, aKey, "ID-1", DecisionFields{Title: ptr("Synthetic identity"), Kind: ptr("decision"), Recipients: &[]string{a.Name}})
+	c := newSignedClient(t, d, 13)
+	snapshot, revision := snapshotOf(t, c, "ID-1")
+	v := c.must("decision_verdict", map[string]any{"reference": "ID-1", "revision": revision, "snapshot": snapshot, "verdict": "approved"})
+	signer, _ := v["signer"].(map[string]any)
+	if signer["user"] != "maintainer" || signer["client"] != "voice" || signer["key_id"] != c.key || v["via"] != "key:voice" {
+		t.Fatalf("answer: %v", v)
+	}
+	if _, err := s.RemoveMaintainerKey(ctx, c.key); err != nil {
+		t.Fatal(err)
+	}
+	page, err := s.maintainerHistory(ctx, "ID-1", 0, 0)
+	if err != nil || len(page.Verdicts) != 1 || page.Verdicts[0].Signer == nil || *page.Verdicts[0].Signer != (VerdictSigner{"maintainer", "voice", c.key}) ||
+		page.Verdicts[0].Via != "key:voice" {
+		t.Fatalf("history: %+v %v", page, err)
+	}
+	agent, err := s.DecisionHistory(ctx, aKey, "ID-1", 0, 0, false)
+	if err != nil || len(agent.Verdicts) != 1 || agent.Verdicts[0].Signer != nil || agent.Verdicts[0].Via != "" {
+		t.Fatalf("agent history: %+v %v", agent, err)
+	}
+	client := newActionClient(t, d, root)
+	view := dashboardDo(t, d, "GET", "/dashboard/decisions?ref=ID-1", client.cookie, nil, nil)
+	if view.status != 200 || !strings.Contains(view.body, ", by maintainer (voice), via key:voice") {
+		t.Fatalf("board: %d", view.status)
+	}
+}
+
 // A signed read's answer fits 1 MiB as the route writes it: an inbox page of bodies that JSON
 // escapes sixfold reads fewer messages and keeps its continuation (review K5-F1).
 func TestSignedAnswerBound(t *testing.T) {

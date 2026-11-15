@@ -97,6 +97,16 @@ type DecisionVerdict struct {
 	// Via is the maintainer client that gave the verdict, dashboard or mcp:NAME (PDR 009,
 	// Decision 4). The maintainer's reads fill it; an agent's read leaves it empty.
 	Via string `json:"via,omitempty"`
+	// Signer is the user, client and key of a signed verdict, from the target's authorization
+	// (#693; PDR 011 Decision 6). The maintainer's reads fill it.
+	Signer *VerdictSigner `json:"signer,omitempty"`
+}
+
+// VerdictSigner names who signed a verdict; the record keeps it after the key is removed.
+type VerdictSigner struct {
+	User   string `json:"user"`
+	Client string `json:"client"`
+	KeyID  string `json:"key_id"`
 }
 
 // DecisionHistoryPage is one page of an item's verdicts in verdict ID order.
@@ -328,6 +338,9 @@ func (s *Store) DecisionVerdict(ctx context.Context, reference string, revision 
 	}
 	result := DecisionVerdict{ID: verdictID, Revision: revision, Verdict: verdict, Note: note, At: now,
 		Snapshot: DecisionSnapshot{Title: item.Title, Where: item.Where, Context: item.Context, Recommendation: item.Recommendation, Commands: item.Commands}}
+	if signerUser != "" {
+		result.Signer = &VerdictSigner{User: signerUser, Client: signerClient, KeyID: signerKey}
+	}
 	// Every verdict goes to the item's recipients and to its author (#537).
 	names, err := recipientNames(ctx, tx.Tx, id)
 	if err != nil {
@@ -942,9 +955,9 @@ func decisionHistory(ctx context.Context, tx querier, reference string, after in
 	if err != nil {
 		return DecisionHistoryPage{}, err
 	}
-	via := `''`
+	via := `'','','',''`
 	if withVia {
-		via = `via`
+		via = `via,signer_user,signer_client,signer_key`
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT id,revision,verdict,note,created_at,superseded_at,snapshot,`+via+` FROM decision_verdicts
 		WHERE item_id=? AND id>? ORDER BY id LIMIT ?`, id, after, limit+1)
@@ -955,9 +968,13 @@ func decisionHistory(ctx context.Context, tx querier, reference string, after in
 	for rows.Next() {
 		var v DecisionVerdict
 		var snapshot string
-		if err := rows.Scan(&v.ID, &v.Revision, &v.Verdict, &v.Note, &v.At, &v.SupersededAt, &snapshot, &v.Via); err != nil {
+		var signer VerdictSigner
+		if err := rows.Scan(&v.ID, &v.Revision, &v.Verdict, &v.Note, &v.At, &v.SupersededAt, &snapshot, &v.Via, &signer.User, &signer.Client, &signer.KeyID); err != nil {
 			rows.Close()
 			return DecisionHistoryPage{}, err
+		}
+		if signer.User != "" {
+			v.Signer = &signer
 		}
 		if json.Unmarshal([]byte(snapshot), &v.Snapshot) != nil {
 			rows.Close()
