@@ -21,8 +21,11 @@ import (
 // A secret is never an argument: set reads it from the terminal with echo off, or from
 // the first line of standard input.
 func maintainerCommand(ctx context.Context, args []string, in io.Reader, out io.Writer) error {
+	if len(args) > 0 && args[0] == "key" {
+		return maintainerKeyCommand(ctx, args[1:], out)
+	}
 	if len(args) < 2 || args[0] != "secret" || args[1] != "set" && args[1] != "generate" && args[1] != "clear" {
-		return usageError{"invalid_request", "use koinon maintainer secret set, generate or clear"}
+		return usageError{"invalid_request", "use koinon maintainer secret set, generate or clear, or koinon maintainer key add, list or remove"}
 	}
 	action := args[1]
 	root, err := platform.DefaultStateDir()

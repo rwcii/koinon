@@ -501,6 +501,7 @@ func (d *Daemon) handler() http.Handler {
 	d.roomRoutes(mux)
 	d.decisionRoutes(mux)
 	d.maintainerRoutes(mux)
+	d.maintainerKeyRoutes(mux)
 	d.maintainerSessionRoutes(mux)
 	d.linkMaintainerRoutes(mux)
 	mux.HandleFunc("POST /v1/dashboard/links", func(w http.ResponseWriter, r *http.Request) {

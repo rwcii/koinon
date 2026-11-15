@@ -65,6 +65,15 @@ func signedRefusal(reason, message string) error {
 	return WorkRefusal{Code: "signature_refused", Message: message, Details: map[string]any{"reason": reason}}
 }
 
+// signedError turns a refusal of the envelope package into signature_refused with its reason.
+func signedError(err error) error {
+	var r signed.Refusal
+	if errors.As(err, &r) {
+		return signedRefusal(r.Reason, r.Error())
+	}
+	return err
+}
+
 // ErrSignedRequestConflict refuses a request ID that this authorization used for another
 // envelope (Decision 4.2).
 var ErrSignedRequestConflict = Refusal{"request_conflict", "this request ID was used for another action; sign a new request ID"}
@@ -81,12 +90,8 @@ var signedOps = map[string]bool{"board_list": true, "decision_get": true, "decis
 // the authorization.
 func (d *Daemon) checkEnvelope(ctx context.Context, data []byte) (signed.Envelope, MaintainerKey, error) {
 	e, err := signed.Parse(data)
-	var parsed signed.Refusal
-	if errors.As(err, &parsed) {
-		return e, MaintainerKey{}, signedRefusal(parsed.Reason, parsed.Error())
-	}
 	if err != nil {
-		return e, MaintainerKey{}, err
+		return e, MaintainerKey{}, signedError(err)
 	}
 	if e.Op == "enroll" {
 		return e, MaintainerKey{}, signedRefusal("version", "an enrollment statement is added with koinon maintainer key add")
@@ -109,9 +114,7 @@ func (d *Daemon) checkEnvelope(ctx context.Context, data []byte) (signed.Envelop
 		return e, MaintainerKey{}, signedRefusal("authorization_changed", "the key was added again since this envelope's authorization")
 	}
 	if err := signed.Verify(e, key.public); err != nil {
-		var r signed.Refusal
-		errors.As(err, &r)
-		return e, MaintainerKey{}, signedRefusal(r.Reason, r.Error())
+		return e, MaintainerKey{}, signedError(err)
 	}
 	return e, key, nil
 }

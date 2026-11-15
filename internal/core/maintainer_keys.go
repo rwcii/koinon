@@ -8,6 +8,7 @@ import (
 	"crypto/ed25519"
 	"database/sql"
 	"errors"
+	"net/http"
 
 	"github.com/rwcii/koinon/internal/signed"
 )
@@ -65,14 +66,16 @@ var (
 )
 
 // AddMaintainerKey stores an authorization from a checked enrollment statement. A key that has
-// a current authorization gets the new one in its place, in the same transaction.
+// a current authorization gets the new one in its place, in the same transaction, with the
+// audit record of ctx.
 func (s *Store) AddMaintainerKey(ctx context.Context, en signed.Enrollment, addedBy string) (MaintainerKey, error) {
-	now := s.now().UnixMilli()
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, ordinary)
 	if err != nil {
 		return MaintainerKey{}, err
 	}
 	defer tx.Rollback()
+	tx.audited = true
+	now := s.now().UnixMilli()
 	var seen int
 	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM maintainer_authorizations WHERE id=?`, en.Authorization).Scan(&seen); err != nil {
 		return MaintainerKey{}, err
@@ -81,12 +84,13 @@ func (s *Store) AddMaintainerKey(ctx context.Context, en signed.Enrollment, adde
 		return MaintainerKey{}, ErrStatementUsed
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE maintainer_authorizations SET removed_at=? WHERE key_id=? AND removed_at=0`, now, en.KeyID); err != nil {
-		return MaintainerKey{}, err
+		return MaintainerKey{}, tx.fail(err)
 	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO maintainer_authorizations(id,key_id,public_key,user,client,created,added_at,added_by)
 		VALUES(?,?,?,?,?,?,?,?)`, en.Authorization, en.KeyID, []byte(en.PublicKey), en.User, en.Client, en.Created, now, addedBy); err != nil {
-		return MaintainerKey{}, err
+		return MaintainerKey{}, tx.fail(err)
 	}
+	setAuditTarget(ctx, "key "+en.KeyID+" for "+en.User+" ("+en.Client+")")
 	if err := tx.Commit(); err != nil {
 		return MaintainerKey{}, err
 	}
@@ -94,15 +98,17 @@ func (s *Store) AddMaintainerKey(ctx context.Context, en signed.Enrollment, adde
 }
 
 // RemoveMaintainerKey ends the key's current authorization. The removal is stored before it
-// returns; an action that waits for the store afterwards finds no current authorization.
+// returns; an action that waits for the store afterwards finds no current authorization. It is
+// a control write, so a full store still takes it.
 func (s *Store) RemoveMaintainerKey(ctx context.Context, keyID string) (MaintainerKey, error) {
-	now := s.now().UnixMilli()
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, err := s.begin(ctx, control)
 	if err != nil {
 		return MaintainerKey{}, err
 	}
 	defer tx.Rollback()
-	key, err := currentAuthorization(ctx, tx, keyID)
+	tx.audited = true
+	now := s.now().UnixMilli()
+	key, err := currentAuthorization(ctx, tx.Tx, keyID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return MaintainerKey{}, ErrKeyNotFound
 	}
@@ -110,8 +116,9 @@ func (s *Store) RemoveMaintainerKey(ctx context.Context, keyID string) (Maintain
 		return MaintainerKey{}, err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE maintainer_authorizations SET removed_at=? WHERE id=?`, now, key.Authorization); err != nil {
-		return MaintainerKey{}, err
+		return MaintainerKey{}, tx.fail(err)
 	}
+	setAuditTarget(ctx, "key "+key.KeyID+" for "+key.User+" ("+key.Client+")")
 	if err := tx.Commit(); err != nil {
 		return MaintainerKey{}, err
 	}
@@ -151,4 +158,63 @@ func currentAuthorization(ctx context.Context, q querier, keyID string) (Maintai
 		WHERE key_id=? AND removed_at=0`, keyID).Scan(&k.Authorization, &k.KeyID, &public, &k.User, &k.Client, &k.AddedAt, &k.AddedBy)
 	k.public = ed25519.PublicKey(public)
 	return k, err
+}
+
+// maintainerKeyRoutes add koinon maintainer key add, list and remove, with the computer's own
+// login (Decision 1 of the signed maintainer contract): a key is added only from an enrollment
+// statement for this computer's pin, signed within 10 minutes, once.
+func (d *Daemon) maintainerKeyRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("POST /v1/maintainer/keys", func(w http.ResponseWriter, r *http.Request) {
+		var request struct {
+			Action    string `json:"action"`
+			Statement string `json:"statement"`
+			KeyID     string `json:"key_id"`
+			All       bool   `json:"all"`
+		}
+		// JSON escaping can grow a statement to six times its size.
+		if err := decodeLimit(w, r, &request, 6*signed.MaxEnvelopeBytes+256); err != nil {
+			failure(w, err)
+			return
+		}
+		ctx := withOrigin(r.Context(), "cli")
+		switch request.Action {
+		case "list":
+			keys, err := d.store.MaintainerKeys(ctx, request.All)
+			maintainerRead(w, map[string]any{"keys": keys}, err)
+		case "add":
+			ctx, pending := withAudit(ctx, "maintainer-key-add", "statement")
+			key, err := d.addMaintainerKey(ctx, request.Statement)
+			if err != nil {
+				d.store.auditRefusal(ctx, pending, errorCode(err))
+			}
+			maintainerRead(w, key, err)
+		case "remove":
+			ctx, pending := withAudit(ctx, "maintainer-key-remove", "key "+auditName(request.KeyID))
+			key, err := d.store.RemoveMaintainerKey(ctx, request.KeyID)
+			if err != nil {
+				d.store.auditRefusal(ctx, pending, errorCode(err))
+			}
+			maintainerRead(w, key, err)
+		default:
+			failure(w, ErrInvalid)
+		}
+	})
+}
+
+// addMaintainerKey checks an enrollment statement for this computer's pin and stores its
+// authorization.
+func (d *Daemon) addMaintainerKey(ctx context.Context, statement string) (MaintainerKey, error) {
+	e, err := signed.Parse([]byte(statement))
+	if err != nil {
+		return MaintainerKey{}, signedError(err)
+	}
+	id, err := d.linkIdentity()
+	if err != nil {
+		return MaintainerKey{}, err
+	}
+	en, err := signed.CheckEnrollment(e, id.Pin, d.store.now().Unix())
+	if err != nil {
+		return MaintainerKey{}, signedError(err)
+	}
+	return d.store.AddMaintainerKey(ctx, en, "cli")
 }
