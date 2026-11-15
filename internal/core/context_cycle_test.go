@@ -56,6 +56,9 @@ func (f *fakeAdapter) Inspect(ctx context.Context, t CycleTarget, fence CycleFen
 		}
 		f.record("cancel copy mode")
 	}
+	// The daemon's own cycle loop reads the pane while a test changes it (#679).
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	return f.pane, f.inspect
 }
 
@@ -94,13 +97,18 @@ func (f *fakeAdapter) Answer(ctx context.Context, _ CycleTarget, prompt string, 
 }
 func (f *fakeAdapter) Dialog(context.Context, CycleTarget) (CycleDialog, error) {
 	f.record("dialog")
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	return f.dialog, nil
 }
 func (f *fakeAdapter) Choose(ctx context.Context, _ CycleTarget, digest, option string, fence CycleFence) (bool, error) {
 	if f.beforeChoose != nil {
 		f.beforeChoose()
 	}
-	if digest != f.dialog.Digest {
+	f.mu.Lock()
+	shown := f.dialog.Digest
+	f.mu.Unlock()
+	if digest != shown {
 		return false, ErrCycleDialogChanged
 	}
 	if err := fence(ctx); err != nil {
