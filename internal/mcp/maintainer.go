@@ -166,13 +166,23 @@ const pollSeconds = 25
 // of its change notices reads that code, it returns ErrTokenExpired, also while the input is
 // open and idle. A request in progress gets its reply first. The long poll ends before
 // ServeMaintainer returns, so nothing is written after it.
-func ServeMaintainer(ctx context.Context, c MaintainerConfig, in io.Reader, out io.Writer) error {
+func ServeMaintainer(ctx context.Context, c MaintainerConfig, in io.Reader, out io.Writer) (err error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	s := &maintainerServer{c: c, out: json.NewEncoder(out), subs: map[string]string{}, expired: make(chan struct{}), slots: make(chan struct{}, maxSignedCalls)}
 	defer s.stopPoll()
-	// A signed session's calls in flight write their replies before the server returns.
-	defer s.calls.Wait()
+	// A signed session's calls in flight write their replies before the server returns, and
+	// an expiry that one of them reads, also after the end of the input, is the result.
+	defer func() {
+		s.calls.Wait()
+		select {
+		case <-s.expired:
+			if err == nil {
+				err = ErrTokenExpired
+			}
+		default:
+		}
+	}()
 	type input struct {
 		line []byte
 		err  error

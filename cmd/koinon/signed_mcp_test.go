@@ -386,3 +386,38 @@ func (w *afterWriter) late() bool {
 	defer w.mu.Unlock()
 	return w.wrote
 }
+
+// A call that reads maintainer_token_expired after the input ended makes the run's result
+// maintainer_token_expired, not nil (review C2-10-F1).
+func TestSignedMCPExpiryAfterEOF(t *testing.T) {
+	f := newSignedFixture(t)
+	inR, inW, _ := os.Pipe()
+	var out bytes.Buffer
+	done := make(chan error, 1)
+	go func() {
+		done <- run(context.Background(), []string{"mcp", "--maintainer", "--signed", "--state-dir", f.root, "--address", f.address}, inR, &out)
+	}()
+	inW.WriteString(string(f.envelope("session", map[string]any{"client": "koinon-voice"})) + "\n")
+	time.Sleep(time.Second)
+	var removed bytes.Buffer
+	if err := run(context.Background(), []string{"maintainer", "key", "remove", f.keyID, "--state-dir", f.root, "--address", f.address}, strings.NewReader(""), &removed); err != nil {
+		t.Fatal(err)
+	}
+	call, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+		"params": map[string]any{"name": "signed", "arguments": map[string]any{"envelope": json.RawMessage(f.envelope("inbox", map[string]any{}))}}})
+	inW.Write(append(call, '\n'))
+	inW.Close()
+	var refused core.RefusedError
+	select {
+	case err := <-done:
+		if !errors.As(err, &refused) || refused.Code != "maintainer_token_expired" {
+			t.Fatalf("result: %v, output %q", err, out.String())
+		}
+	case <-time.After(15 * time.Second):
+		t.Fatal("the run did not end")
+	}
+	if !strings.Contains(out.String(), "maintainer_token_expired") {
+		t.Fatalf("output: %q", out.String())
+	}
+	inR.Close()
+}
