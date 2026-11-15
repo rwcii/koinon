@@ -14,7 +14,7 @@ into a dated release section when promoted to `main`.
   `computers` and `changes`. Each verdict records the key's user and client and shows
   `by USER (CLIENT)`. An action signed for a paired computer goes over the link unchanged and
   runs there, under the key that computer added; both computers need this release. A computer
-  that cannot be reached answers `computer_offline` and nothing runs; an answer lost after the
+  that cannot be reached answers `computer_offline` within 3 seconds and nothing runs; an answer lost after the
   action was sent is `outcome_unknown`, and `outcome` on that computer tells what happened. A
   client with no Koinon on its computer reaches a computer at its Remote address, which serves
   the two signed routes with the session's token as the bearer, and no other API. A session

@@ -112,7 +112,19 @@ type linkRuntime struct {
 	// mu.
 	userspace     bool
 	userspaceAt   time.Time
-	userspaceRead sync.Mutex
+	userspaceRead modeRead
+}
+
+// modeRead is a lock whose wait ends with the caller's context, so that a read of the
+// Tailscale mode by one caller never holds another caller past its own deadline (#693).
+type modeRead struct {
+	once sync.Once
+	c    chan struct{}
+}
+
+func (m *modeRead) slot() chan struct{} {
+	m.once.Do(func() { m.c = make(chan struct{}, 1) })
+	return m.c
 }
 
 func (d *Daemon) linkNow() time.Time {
@@ -150,9 +162,15 @@ func (d *Daemon) linkUserspace(ctx context.Context) bool {
 	if userspace, fresh := d.linkUserspaceCached(); fresh {
 		return userspace
 	}
-	// One read at a time: a caller that waited here uses the read that just finished.
-	d.link.userspaceRead.Lock()
-	defer d.link.userspaceRead.Unlock()
+	// One read at a time: a caller that waited here uses the read that just finished. A
+	// caller whose context ends while it waits uses the last answer; its dial then ends too.
+	select {
+	case d.link.userspaceRead.slot() <- struct{}{}:
+	case <-ctx.Done():
+		userspace, _ := d.linkUserspaceCached()
+		return userspace
+	}
+	defer func() { <-d.link.userspaceRead.slot() }()
 	userspace, fresh := d.linkUserspaceCached()
 	if fresh {
 		return userspace

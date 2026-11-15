@@ -245,8 +245,9 @@ func TestSignedRemoteForward(t *testing.T) {
 	_, versions := mustForwardVersions(t, a.d, token, c)
 	slow := func(dial func(context.Context, string) (net.Conn, error)) func(context.Context, string) (net.Conn, error) {
 		return func(ctx context.Context, address string) (net.Conn, error) {
+			// Slow, within the connect bound.
 			select {
-			case <-time.After(5 * time.Second):
+			case <-time.After(forwardConnect * 2 / 3):
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			}

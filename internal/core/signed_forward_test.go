@@ -5,9 +5,12 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -578,3 +581,159 @@ func TestSignedForwardRoute(t *testing.T) {
 }
 
 func base64Of(data []byte) string { return base64.StdEncoding.EncodeToString(data) }
+
+// #693 Acceptance 6: a computer that is off answers computer_offline at once. Its Serve port
+// can take the TCP connection with no TLS answer behind it; the connect bound covers every
+// address together. A computer that the node last saw offline, or that answers slowly within
+// the bound, still runs the action.
+func TestSignedForwardOfflineAtOnce(t *testing.T) {
+	n, a, b := pairedLinkHosts(t)
+	c := newSignedClient(t, b.d, 47)
+	f := viaNode(c, a.d)
+	p, _ := pairWith(t, a, b)
+	setDial := func(dial func(context.Context, string) (net.Conn, error)) {
+		a.d.link.mu.Lock()
+		a.d.link.dial = dial
+		a.d.link.mu.Unlock()
+	}
+	// The computer was last seen offline and is back: the action runs.
+	a.d.observe(a.d.openGen(), p.ID, "offline", "synthetic")
+	status, body := answerOf(t, a.d, context.Background(), f.envelope("board_list", nil, f.request(), time.Now().Unix(), nil))
+	if status != 200 {
+		t.Fatalf("back after offline: %d %s", status, body)
+	}
+	// A handshake that comes late but within the bound runs the action.
+	setDial(func(ctx context.Context, address string) (net.Conn, error) {
+		select {
+		case <-time.After(forwardConnect / 2):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		return n.dial(ctx, address)
+	})
+	status, body = answerOf(t, a.d, context.Background(), f.envelope("board_list", nil, f.request(), time.Now().Unix(), nil))
+	if status != 200 {
+		t.Fatalf("slow handshake: %d %s", status, body)
+	}
+	// Two saved addresses; each takes the TCP connection and never answers the handshake.
+	a.d.link.mu.Lock()
+	s, err := link.ReadState(a.root)
+	if err == nil {
+		i := slices.IndexFunc(s.Pairs, func(q link.Pair) bool { return q.ID == p.ID })
+		s.Pairs[i].IPs = []string{b.ip, "100.64.0.9"}
+		err = link.WriteState(a.root, s)
+	}
+	a.d.link.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var tried []string
+	setDial(func(ctx context.Context, address string) (net.Conn, error) {
+		mu.Lock()
+		tried = append(tried, address)
+		mu.Unlock()
+		client, server := net.Pipe()
+		go func() { defer server.Close(); io.Copy(io.Discard, server) }()
+		return client, nil
+	})
+	for _, observed := range []string{"connected", "offline"} {
+		a.d.observe(a.d.openGen(), p.ID, observed, "synthetic")
+		mu.Lock()
+		tried = nil
+		mu.Unlock()
+		request, now := f.request(), time.Now().Unix()
+		started := time.Now()
+		status, body := answerOf(t, a.d, context.Background(), f.envelope("send",
+			map[string]any{"to": "nobody", "body": "a synthetic silent send"}, request, now, nil))
+		elapsed := time.Since(started)
+		wantAnswer(t, "silent TLS, "+observed, status, body, 409, "computer_offline")
+		if elapsed > 4*time.Second {
+			t.Fatalf("observed %s: computer_offline after %s", observed, elapsed)
+		}
+		mu.Lock()
+		if len(tried) == 0 || tried[0] != b.ip+":47672" {
+			t.Errorf("observed %s: dials %v", observed, tried)
+		}
+		mu.Unlock()
+		if outcome := c.must("outcome", map[string]any{"request": request, "created": now}); outcome["state"] != "unknown_request" {
+			t.Fatalf("outcome on B: %v", outcome)
+		}
+	}
+	// As live (#693, 2026-11-15): the first address refuses at once and the second takes no
+	// TCP connection at all.
+	setDial(func(ctx context.Context, address string) (net.Conn, error) {
+		if address == b.ip+":47672" {
+			return nil, errors.New("synthetic: connection refused")
+		}
+		<-ctx.Done()
+		return nil, ctx.Err()
+	})
+	started := time.Now()
+	status, body = answerOf(t, a.d, context.Background(), f.envelope("board_list", nil, f.request(), time.Now().Unix(), nil))
+	wantAnswer(t, "refused, then silent", status, body, 409, "computer_offline")
+	if elapsed := time.Since(started); elapsed > 4*time.Second {
+		t.Fatalf("refused, then silent: computer_offline after %s", elapsed)
+	}
+	// A caller's shorter deadline still ends the connect.
+	ctx, cancel := context.WithTimeout(context.Background(), forwardConnect/6)
+	defer cancel()
+	started = time.Now()
+	status, body = answerOf(t, a.d, ctx, f.envelope("board_list", nil, f.request(), time.Now().Unix(), nil))
+	if elapsed := time.Since(started); elapsed > forwardConnect/2 {
+		t.Fatalf("cancelled connect answered after %s: %d %s", elapsed, status, body)
+	}
+}
+
+// A6-F1: a read of the Tailscale mode by another caller holds a signed action no longer than
+// its own connect bound or its caller's shorter deadline, and the action sends nothing.
+func TestSignedForwardModeReadContention(t *testing.T) {
+	for _, shorter := range []bool{false, true} {
+		t.Run(map[bool]string{false: "connect bound", true: "caller deadline"}[shorter], func(t *testing.T) {
+			_, a, b := pairedLinkHosts(t)
+			c := newSignedClient(t, b.d, 48)
+			f := viaNode(c, a.d)
+			a.d.link.mu.Lock()
+			a.d.link.dial, a.d.link.userspaceAt = nil, time.Time{}
+			a.d.link.mu.Unlock()
+			slot := a.d.link.userspaceRead.slot()
+			slot <- struct{}{} // another caller reads the mode
+			held := true
+			release := func() {
+				if held {
+					<-slot
+					held = false
+				}
+			}
+			defer release()
+			ctx, bound := context.Background(), forwardConnect+time.Second
+			if shorter {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, forwardConnect/15)
+				defer cancel()
+				bound = forwardConnect / 3
+			}
+			request, now := f.request(), time.Now().Unix()
+			var status int
+			var body string
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				status, body = answerOf(t, a.d, ctx, f.envelope("ack", map[string]any{"through": int64(0)}, request, now, nil))
+			}()
+			select {
+			case <-done:
+			case <-time.After(bound):
+				release()
+				<-done
+				t.Fatalf("held past %s by another caller's mode read: %d %s", bound, status, body)
+			}
+			if !shorter {
+				wantAnswer(t, "mode read held", status, body, 409, "computer_offline")
+			}
+			if outcome := c.must("outcome", map[string]any{"request": request, "created": now}); outcome["state"] != "unknown_request" {
+				t.Fatalf("outcome on B: %v", outcome)
+			}
+		})
+	}
+}
