@@ -15,7 +15,9 @@ import (
 	"io"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // Version is the envelope version and the domain of its signed bytes.
@@ -80,6 +82,14 @@ func (e Envelope) Digest() string {
 func Parse(data []byte) (Envelope, error) {
 	if len(data) > MaxEnvelopeBytes {
 		return Envelope{}, refuse("version", "the envelope is larger than %d bytes", MaxEnvelopeBytes)
+	}
+	// The decoder replaces invalid UTF-8 and unpaired surrogate escapes with U+FFFD, so they
+	// are refused before it reads them (RFC 8785, section 3.2.2.2).
+	if !utf8.Valid(data) {
+		return Envelope{}, refuse("version", "the envelope is not valid UTF-8")
+	}
+	if err := checkEscapes(data); err != nil {
+		return Envelope{}, refuse("version", "%v", err)
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.UseNumber()
@@ -189,6 +199,52 @@ func Parse(data []byte) (Envelope, error) {
 	return e, nil
 }
 
+// checkEscapes refuses a \u escape of a surrogate that is not one half of a pair: a high
+// surrogate followed at once by a low one. Other errors are left to the decoder.
+func checkEscapes(data []byte) error {
+	unpaired := errors.New("a \\u escape is an unpaired surrogate")
+	high := false
+	for i := 0; i < len(data); i++ {
+		if data[i] != '\\' || i+1 >= len(data) || data[i+1] != 'u' {
+			if high {
+				return unpaired
+			}
+			if data[i] == '\\' {
+				i++ // the escaped character, which may be a backslash
+			}
+			continue
+		}
+		if i+6 > len(data) {
+			break
+		}
+		v, err := strconv.ParseUint(string(data[i+2:i+6]), 16, 16)
+		if err != nil {
+			break
+		}
+		switch {
+		case v >= 0xd800 && v <= 0xdbff:
+			if high {
+				return unpaired
+			}
+			high = true
+		case v >= 0xdc00 && v <= 0xdfff:
+			if !high {
+				return unpaired
+			}
+			high = false
+		default:
+			if high {
+				return unpaired
+			}
+		}
+		i += 5
+	}
+	if high {
+		return unpaired
+	}
+	return nil
+}
+
 // strict decodes one JSON value with no duplicate key, no float, no null and no array.
 func strict(dec *json.Decoder, depth int) (any, error) {
 	if depth > 3 {
@@ -268,7 +324,9 @@ func canon(b *bytes.Buffer, v any) error {
 			if i > 0 {
 				b.WriteByte(',')
 			}
-			quote(b, k)
+			if err := quote(b, k); err != nil {
+				return err
+			}
 			b.WriteByte(':')
 			if err := canon(b, x[k]); err != nil {
 				return err
@@ -281,11 +339,13 @@ func canon(b *bytes.Buffer, v any) error {
 			if i > 0 {
 				b.WriteByte(',')
 			}
-			quote(b, s)
+			if err := quote(b, s); err != nil {
+				return err
+			}
 		}
 		b.WriteByte(']')
 	case string:
-		quote(b, x)
+		return quote(b, x)
 	case int64:
 		fmt.Fprintf(b, "%d", x)
 	case int:
@@ -299,8 +359,12 @@ func canon(b *bytes.Buffer, v any) error {
 }
 
 // quote writes a JSON string as RFC 8785 does: the short escapes, \u00XX for other control
-// characters, and every other character as itself.
-func quote(b *bytes.Buffer, s string) {
+// characters, and every other character as itself. A string that is not valid UTF-8 has no
+// RFC 8785 form and is refused.
+func quote(b *bytes.Buffer, s string) error {
+	if !utf8.ValidString(s) {
+		return errors.New("a string is not valid UTF-8")
+	}
 	b.WriteByte('"')
 	for _, r := range s {
 		switch r {
@@ -327,6 +391,7 @@ func quote(b *bytes.Buffer, s string) {
 		}
 	}
 	b.WriteByte('"')
+	return nil
 }
 
 // KeyID gives SHA256: and the unpadded standard base64 of the public key's SHA-256.

@@ -135,12 +135,31 @@ func TestParseRefusals(t *testing.T) {
 		"short request": strings.Replace(string(good), "request-0000000001", "short", 1),
 		"two objects":   string(good) + "{}",
 		"too large":     strings.Replace(string(good), `"after":0`, `"after":0,"pad":"`+strings.Repeat("a", MaxEnvelopeBytes)+`"`, 1),
+		// RFC 8785 section 3.2.2.2: invalid Unicode is an error, never U+FFFD (review K2-F1).
+		"lone high surrogate": strings.Replace(string(good), `"after":0`, `"after":0,"s":"\ud800"`, 1),
+		"lone low surrogate":  strings.Replace(string(good), `"after":0`, `"after":0,"s":"\udead"`, 1),
+		"high then text":      strings.Replace(string(good), `"after":0`, `"after":0,"s":"\ud800x"`, 1),
+		"high then high":      strings.Replace(string(good), `"after":0`, `"after":0,"s":"\ud800\ud800"`, 1),
+		"high at the end":     strings.Replace(string(good), `"after":0`, `"after":0,"s":"x\uD800"`, 1),
+		"invalid byte":        strings.Replace(string(good), `"after":0`, "\"after\":0,\"s\":\"\xff\"", 1),
 	}
 	for name, data := range cases {
 		var refusal Refusal
 		if _, err := Parse([]byte(data)); !errors.As(err, &refusal) || refusal.Code != "signature_refused" {
 			t.Errorf("%s: %v", name, err)
 		}
+	}
+	// Valid text that looks like those forms is kept.
+	for name, value := range map[string]string{"pair": `\ud83d\ude00`, "escaped backslash": `\\ud800`, "replacement character": "\ufffd"} {
+		if _, err := Parse([]byte(strings.Replace(string(good), `"after":0`, `"after":0,"s":"`+value+`"`, 1))); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if _, err := Canonical(string([]byte{0xff})); err == nil {
+		t.Error("Canonical took invalid UTF-8")
+	}
+	if _, err := Canonical(map[string]any{"a": []string{"ok", "\xff"}}); err == nil {
+		t.Error("Canonical took invalid UTF-8 in an array")
 	}
 	// An enroll statement carries no auth or request.
 	enroll := base()
