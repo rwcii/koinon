@@ -454,7 +454,8 @@ source, real proxy, platform, and physical-device evidence.
 
 The remote landing page is **Attention**: pending maintainer decisions and their
 oldest age, unread maintainer direct messages and canonical room posts, cached
-agent problems, and recent action receipts. Unknown activity is labeled. Counts
+agent problems, a handoff cycle that waits on text in a session's input box, and recent
+action receipts. Unknown activity is labeled. Counts
 and source links come from one SQLite snapshot; the receipts are this origin's
 unexpired ones. **Mark displayed snapshot read on this browser** advances only this
 browser session's cursors; it never acknowledges an agent inbox

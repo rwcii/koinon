@@ -450,6 +450,9 @@ type contextRow struct {
 	// Dialog is the native dialog that the managed cycle waits on and that the adapter does
 	// not answer itself: the maintainer's response applies only to this dialog.
 	Dialog *CycleDialog
+	// DraftBlocks is draftBlockedText while the requester's handoff cycle waits on text in
+	// its input box, else "" (#711).
+	DraftBlocks string
 	// Subagents is, for a Claude requester at waiting_ready, the count of its background
 	// subagents running since the request, "unknown" when they cannot all be read, else ""
 	// (#467).
@@ -488,6 +491,13 @@ func (s *Store) contextRowOf(session Session, enable ContextEnable, now int64) c
 		}
 		if v, err := cycles[0].view(context.Background(), s.db, role); err == nil {
 			row.Managed = &v
+			if role == "requester" {
+				if blocked, err := draftBlockedCycles(context.Background(), s.db); err == nil {
+					if blocked[k] == v.ID {
+						row.DraftBlocks = draftBlockedText
+					}
+				}
+			}
 			if v.State == cycleWaitingReady && role == "requester" && cycles[0].Family == "claude" {
 				row.Subagents = "unknown"
 				if requested, err := cycleRequestedAt(context.Background(), s.db, cycles[0]); err == nil {

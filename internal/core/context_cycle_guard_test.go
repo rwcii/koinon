@@ -860,6 +860,81 @@ func TestContextCycleReadyTimeSurvivesDialog(t *testing.T) {
 	}
 }
 
+// #711: a repeat for text in the input box tells the maintainer on Attention and the Sessions
+// row, with unknown activity, and still after the session reports ready again; a later
+// repeat for another reason, and an ended cycle, take the line away.
+func TestContextCycleDraftBlocksTheClear(t *testing.T) {
+	f := newCycleFixture(t)
+	ctx := context.Background()
+	shown := func(name string, want bool) {
+		t.Helper()
+		data, err := f.s.attention(ctx, "synthetic-browser")
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines := 0
+		for _, p := range data.Problems {
+			if p.Detail == draftBlockedText {
+				lines++
+				if p.Label != f.session.Name || p.Href != "/dashboard/sessions?q="+url.QueryEscape(f.session.Name) {
+					t.Fatalf("%s: problem %+v", name, p)
+				}
+			}
+		}
+		enables, err := f.s.contextEnables(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		row := f.s.contextRowOf(f.reload(t, f.k), enables[f.k], f.clock.UnixMilli())
+		if want && (lines != 1 || row.DraftBlocks != draftBlockedText) || !want && (lines != 0 || row.DraftBlocks != "") {
+			t.Fatalf("%s: %d Attention lines, Sessions %v; want %v (%+v)", name, lines, row.DraftBlocks, want, data.Problems)
+		}
+	}
+	ready, _ := f.readyCycle(t)
+	shown("ready", false)
+	// The deadline passes with text in the input box: overwatch asks again.
+	f.adapter.pane = PaneState{Seen: "input_not_empty"}
+	f.clock = time.UnixMilli(ready.StageDeadline)
+	f.step(t)
+	again := f.status(t, f.k)
+	if again.State != cycleWaitingReady || again.Reason != "not_idle.input_not_empty" {
+		t.Fatalf("asked again: %+v", again)
+	}
+	shown("draft", true)
+	// The session reports again: the cycle is ready, and the draft is still the newest cause.
+	name := f.handoff(t, "claude", "2026-10-13-130000.md", "synthetic handoff 2")
+	second, err := f.s.ContextCycleReady(ctx, f.k, "synthetic-epoch-1", again.ID, again.Revision, name)
+	if err != nil || second.State != cycleReady {
+		t.Fatalf("second ready: %+v %v", second, err)
+	}
+	shown("ready after the draft", true)
+	// A turn, not a draft, holds the next ready stage.
+	f.adapter.pane = PaneState{Seen: "status_busy"}
+	f.clock = time.UnixMilli(second.StageDeadline)
+	f.step(t)
+	if v := f.status(t, f.k); v.Reason != "not_idle.status_busy" {
+		t.Fatalf("busy repeat: %+v", v)
+	}
+	shown("busy after the draft", false)
+	// Another draft, then the maintainer turns the Enable off: the cycle ends.
+	f.adapter.pane = PaneState{Seen: "input_not_empty"}
+	third := f.status(t, f.k)
+	name = f.handoff(t, "claude", "2026-10-13-140000.md", "synthetic handoff 3")
+	if _, err := f.s.ContextCycleReady(ctx, f.k, "synthetic-epoch-1", third.ID, third.Revision, name); err != nil {
+		t.Fatal(err)
+	}
+	f.clock = time.UnixMilli(f.status(t, f.k).StageDeadline)
+	f.step(t)
+	shown("second draft", true)
+	if _, err := f.s.SetContextEnableNow(roomCtx("context-enable"), f.session.Name, false); err != nil {
+		t.Fatal(err)
+	}
+	if v := f.status(t, f.k); !cycleTerminal(v.State) {
+		t.Fatalf("after disable: %+v", v)
+	}
+	shown("ended", false)
+}
+
 // A requester that reported ready but kept working is asked again under a new revision; its
 // second report, at an idle prompt, gets the clear (#431).
 func TestContextCycleAsksAgainWhenThePaneStaysBusy(t *testing.T) {

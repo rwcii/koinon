@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"html"
 	"math/rand/v2"
 	"os"
 	"os/exec"
@@ -1021,6 +1022,47 @@ func TestContextCycleReadyAtEventLimit(t *testing.T) {
 	want := "The managed context cycle ended: failed (event_limit). No context clear will follow this reply: go on with your work."
 	if reply["next"] != want {
 		t.Fatalf("next %q, want %q", reply["next"], want)
+	}
+}
+
+// #711: the Attention page and the Sessions row show the draft line while a handoff cycle's
+// newest repeat found text in the input box, never the text itself.
+func TestDashboardShowsTheDraftThatBlocksTheClear(t *testing.T) {
+	adapter := &fakeAdapter{pane: PaneState{Idle: true}, probe: CycleProbe{Entry: "koinon-pickup"}}
+	previous := cycleAdapters
+	cycleAdapters = map[string]CycleAdapter{"claude": adapter}
+	t.Cleanup(func() { cycleAdapters = previous })
+	d, root := startTestDaemon(t)
+	s := d.store
+	a := join(t, s, "claude", "synthetic-draft-a", namedRepo(t, "cycle-draft"))
+	pid, start := liveHost(t)
+	fixtureExec(s, `UPDATE sessions SET host_pid=?,host_start=?,tmux_socket='/tmp/synthetic-socket',tmux_pane='%3' WHERE family='claude' AND id=?`, pid, start, a.ID)
+	a, _ = scanSession(s.db.QueryRow(sessionQuery+` WHERE s.family=? AND s.id=?`, "claude", a.ID), s.now().UnixMilli())
+	if _, err := s.SetContextEnable(roomCtx("context-enable"), a.Name, a.Revision, 0, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Observe(context.Background(), Observation{Caller: Key{"claude", a.ID}, Context: &ObservedValue{Source: "claude_statusline",
+		At: s.now().UnixMilli(), LimitTokens: int64p(1000), UsedTokens: int64p(950), Epoch: "synthetic-epoch-1"}}); err != nil {
+		t.Fatal(err)
+	}
+	var id string
+	if err := s.db.QueryRow(`SELECT cycle_id FROM context_cycles`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	client := newActionClient(t, d, root)
+	line := html.EscapeString(draftBlockedText)
+	for _, path := range []string{"/dashboard/sessions", "/dashboard/attention"} {
+		if page := dashboardDo(t, d, "GET", path, client.cookie, nil, nil); page.status != 200 || strings.Contains(page.body, line) {
+			t.Fatalf("%s before a draft: %d", path, page.status)
+		}
+	}
+	// The newest repeat of the waiting cycle found text in the input box.
+	fixtureExec(s, `INSERT INTO context_cycle_events(cycle_id,ordinal,at,stage,result,reason) VALUES (?,99,?,?,'entered','not_idle.input_not_empty')`,
+		id, s.now().UnixMilli(), cycleWaitingReady)
+	for _, path := range []string{"/dashboard/sessions", "/dashboard/attention"} {
+		if page := dashboardDo(t, d, "GET", path, client.cookie, nil, nil); page.status != 200 || strings.Count(page.body, line) != 1 {
+			t.Fatalf("%s with a draft: %d %s", path, page.status, page.body)
+		}
 	}
 }
 
