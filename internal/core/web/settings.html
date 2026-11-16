@@ -10,19 +10,19 @@
 <td data-label="Change"><form id="context-{{$row.Family}}" method="post" action="/dashboard/actions/context-family-settings" class="inline"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="family" value="{{$row.Family}}"><button type="submit" aria-label="Save the context handoff of {{$row.Family}}">Save</button></form></td>
 </tr>{{end}}</tbody></table>
 <p><small>The family mode and threshold are defaults; no session runs a handoff cycle or compaction until it is enabled on the Sessions page. <code>native_compaction</code> (Codex only) enters Codex's own <code>/compact</code> at the threshold, once Codex is idle; no mode changes a native setting. Save changes that family only, applies to its sessions at once and enables none of them; the audit log records it.</small></p>{{end}}
-{{define "actions"}}<details class="action" open><summary>Signed-in remote devices</summary>
+{{define "actions"}}<details class="action" id="signed-in-devices" data-section="signed-in-devices"><summary>Signed-in remote devices</summary>
 {{if .Remote}}<p>Signed in until {{ms .SessionExpires}}. This is a fixed 48-hour window.</p>{{end}}
 <p><small>Each entry is a browser session. Last observed use does not prove that a person is online.</small></p>
 <div id="remote-devices">Loading signed-in devices…</div>
 <button type="button" id="revoke-all-devices">Forget all remote devices</button>
-<p id="device-status" role="status"></p></details>{{if .Remote}}<details class="action" open><summary>Draft recovery on this browser</summary>
+<p id="device-status" role="status"></p></details>{{if .Remote}}<details class="action" id="draft-recovery" data-section="draft-recovery"><summary>Draft recovery on this browser</summary>
 <label><input type="checkbox" id="save-drafts"> Save drafts on this browser</label>
 <p><small>Off initially. Stores unsent messages and decision feedback as private text on this browser for seven days. Revoking an offline browser cannot erase it until it reconnects.</small></p>
-<button type="button" id="clear-drafts">Clear saved drafts</button><p id="draft-status" role="status"></p></details>{{end}}<details class="action remote-panel" id="remote-access" open><summary>Remote access</summary>
+<button type="button" id="clear-drafts">Clear saved drafts</button><p id="draft-status" role="status"></p></details>{{end}}<details class="action remote-panel" id="remote-access" data-section="remote-access"><summary>Remote access</summary>
 <div id="remote-panel">{{if .Data.Remote}}{{template "remote" .Data.Remote}}{{else}}<p>Open Koinon on your phone. Let’s check your computer first.</p>
 <p><a href="/dashboard/remote/status?setup=1#remote-access">Get started</a></p>{{end}}</div>
 <p id="remote-read-status" role="status" hidden></p></details>
-{{with .Data.Link}}<details class="action" id="computers" open><summary>Computers</summary>
+{{with .Data.Link}}<details class="action" id="computers" data-section="computers"><summary>Computers</summary>
 <p>Pair this computer with Koinon on your other computers, so that their agent sessions can exchange messages. Both computers need remote access on.</p>
 {{if not .Remote}}<p>Turn on remote access above first.</p>
 {{else if not .Configured}}<h3>Name this computer</h3>
@@ -78,12 +78,12 @@
 {{with .Rejected}}<p>Last refused key: <code>{{.Fingerprint}}</code> at {{unix .At}}. A computer that you did not pair tried to connect, or one that you unpaired.</p>{{end}}
 {{with .Error}}<p>{{.}}</p>{{end}}
 </details>{{end}}
-<details class="action" open><summary>Spoken alert</summary>
+<details class="action" id="spoken-alert" data-section="spoken-alert"><summary>Spoken alert</summary>
 <p><label><input type="checkbox" id="speak-switch" disabled> Speak when a decision or task starts to wait</label>
 <button type="button" id="speak-test" disabled>Test</button></p>
 <p id="speak-status"><small>The alert needs the dashboard script.</small></p>
 <p><small>This browser speaks the alert, for example "koinon: a decision waits for you", with the repository of each item, while a dashboard page is open. The switch covers every repository of this Koinon instance. The browser keeps it for this dashboard address (scheme, host and port), so 127.0.0.1, [::1], an SSH tunnel's port and a new port each have their own switch. A browser speaks only after a click on the page: after a reload, the alert waits for your next click.</small></p></details>
-<details class="action" open><summary>Change the session timing</summary>
+<details class="action" id="session-timing" data-section="session-timing"><summary>Change the session timing</summary>
 <form method="post" action="/dashboard/actions/settings"><input type="hidden" name="csrf" value="{{.CSRF}}">
 <label>Registration lifetime, seconds <input name="lifetime_seconds" type="number" min="60" max="3600" required value="{{.Data.Current.LifetimeSeconds}}"></label>
 <label>Renewal interval, seconds <input name="renewal_seconds" type="number" min="30" max="1800" required value="{{.Data.Current.RenewalSeconds}}"></label>

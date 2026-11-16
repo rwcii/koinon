@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Every section of the Settings page starts closed (#719). The browser keeps the sections that
+  you leave open, so they open again after an action reloads the page and when you come back;
+  a link such as `/dashboard/settings#remote-access` opens its section and no longer closes the
+  others.
 - The Settings page changes each family's context handoff in its own row of the Context handoff
   table (#720): a Mode drop-down and a Threshold field show the family's current values, and
   the row's Save changes that family only. The separate "Change a family's context handoff"
