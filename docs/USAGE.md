@@ -954,7 +954,11 @@ word is not shown, and an unknown family shows none (#718). **all families** sho
 again. These counts are totals of the whole list too, and the search, the status, the sort,
 the next pages and the return after an action keep the family; choosing a family starts at the
 first page. With a family chosen, **Select all sessions on this page** selects that family's
-sessions.
+sessions. **Change the selected sessions** then also offers **Enable managed context** and
+**Disable managed context**: each selected session's Enable turns on or off as its own Enable
+button turns it, so each session runs its family's mode at its family's threshold, or at its
+own threshold when it has one. A session whose Enable changed since the page was loaded, or
+whose cycle is unavailable, is refused with its own audit record, and the others change.
 
 Each changed session gets the dashboard action's audit record (`purge`, `unpurge`, `retire`,
 `clear`) with the origin `by cli`; a session that changed since the selection is refused with

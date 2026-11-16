@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The Sessions page shows the sessions of one agent family with an exact match, from a row of
+  family counts, in place of a text search that also matched names and directories (#718).
+  **Change the selected sessions** can enable or disable managed context for every selected
+  session at once; each session uses its own family's mode and threshold, and gets its own
+  audit record.
 - The Settings page changes each family's context handoff in its own row of the Context handoff
   table (#720): a Mode drop-down and a Threshold field show the family's current values, and
   the row's Save changes that family only. The separate "Change a family's context handoff"
