@@ -30,7 +30,10 @@ type fakeDashboard struct {
 	network *core.DashboardAddress // what runs
 	remote  bool
 	port    int
-	broken  bool // remote access is on, but its Serve mapping is missing
+	broken  bool   // remote access is on, but its Serve mapping is missing
+	runPort int    // the Serve port that runs, when it differs from the saved one
+	backend string // "" is a systemd user service; launchd, or background without a manager
+	down    bool
 	calls   []string
 	fail    map[string]bool // remote_disable, remote_enable, restart, open
 }
@@ -69,8 +72,24 @@ func (f *fakeDashboard) networkStatus() *core.DashboardNetworkStatus {
 // the network address saved for the next start; f.network is what runs now.
 func setupConfigure(t *testing.T, f *fakeDashboard, asked bool, saved *core.DashboardAddress) *env {
 	t.Helper()
-	e := newEnv(t, "systemd")
+	backend := f.backend
+	if backend == "" || backend == "background" {
+		backend = "systemd"
+	}
+	e := newEnv(t, backend)
 	f.state = e.o.StateDir
+	if f.backend == "background" {
+		e.r.fail = func(argv []string) bool { return argv[0] == "systemctl" }
+	} else {
+		// The service file that install wrote for this installation.
+		artifact := e.o.Services.DaemonArtifact()
+		if err := os.MkdirAll(filepath.Dir(artifact), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(artifact, e.o.Services.RenderDaemon(Binary(e.o.Prefix), e.o.StateDir), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	f.pid = 100
 	if f.fail == nil {
 		f.fail = map[string]bool{}
@@ -96,18 +115,49 @@ func setupConfigure(t *testing.T, f *fakeDashboard, asked bool, saved *core.Dash
 	}
 	e.o.Address = "127.0.0.1:47681"
 	e.o.Wait = 5 * time.Second
+	e.o.Version = "v1"
 	e.o.Status = func(context.Context, string, string) (json.RawMessage, error) {
-		if f.fail["down"] {
+		if f.fail["down"] || f.down {
 			return nil, errors.New("connection refused")
 		}
-		return json.Marshal(map[string]any{"pid": f.pid, "maintainer_secret_set": f.secret, "dashboard_network": f.networkStatus()})
+		return json.Marshal(map[string]any{"pid": f.pid, "version": "v1", "maintainer_secret_set": f.secret, "dashboard_network": f.networkStatus()})
+	}
+	// The new daemon opens the saved network address.
+	started := func() {
+		saved, err := core.ReadDashboardAddress(f.state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.pid++
+		f.network = saved
+		if f.fail["open"] && saved != nil {
+			f.secret = false
+		}
+	}
+	e.o.Stop = func(pid int) error {
+		f.calls = append(f.calls, "stop "+strconv.Itoa(pid))
+		f.down = true
+		return nil
+	}
+	e.o.Background = func(binary, state, log string) (Started, error) {
+		f.calls = append(f.calls, "background "+binary+" "+state)
+		if f.fail["restart"] {
+			return Started{}, errors.New("no start")
+		}
+		f.down = false
+		started()
+		return Started{PID: f.pid, Abort: func() error { return nil }, Release: func() error { return nil }}, nil
 	}
 	e.o.Call = func(_ context.Context, _, _, path string, _ any) (json.RawMessage, error) {
 		switch path {
 		case "/v1/remote/status":
 			s := core.RemoteStatus{Configured: f.remote, Listener: "off", Serve: "off", Phone: "unverified"}
 			if f.remote {
-				s.Listener, s.Serve, s.URL = "ready", "ready", fmt.Sprintf("https://board.example.ts.net:%d/dashboard/", f.port)
+				port := f.port
+				if f.runPort != 0 {
+					port = f.runPort
+				}
+				s.Listener, s.Serve, s.URL = "ready", "ready", fmt.Sprintf("https://board.example.ts.net:%d/dashboard/", port)
 				if f.broken {
 					s.Serve = "missing"
 				}
@@ -129,7 +179,7 @@ func setupConfigure(t *testing.T, f *fakeDashboard, asked bool, saved *core.Dash
 		if f.fail["remote_enable"] {
 			return "", core.RefusedError{Code: "remote_setup_required"}
 		}
-		f.remote, f.port, f.broken = true, port, false
+		f.remote, f.port, f.broken, f.runPort = true, port, false, 0
 		f.writeRemote(t)
 		return "https://board.example.ts.net/dashboard/", nil
 	}
@@ -143,21 +193,12 @@ func setupConfigure(t *testing.T, f *fakeDashboard, asked bool, saved *core.Dash
 	}
 	run := e.o.Services.Run
 	e.o.Services.Run = func(ctx context.Context, argv ...string) ([]byte, error) {
-		if len(argv) == 4 && argv[2] == "restart" {
+		if len(argv) == 4 && argv[2] == "restart" || len(argv) == 3 && argv[1] == "kickstart" {
 			f.calls = append(f.calls, "restart")
 			if f.fail["restart"] {
 				return []byte("refused"), errors.New("exit 1")
 			}
-			// The new daemon opens the saved network address.
-			saved, err := core.ReadDashboardAddress(f.state)
-			if err != nil {
-				t.Fatal(err)
-			}
-			f.pid++
-			f.network = saved
-			if f.fail["open"] && saved != nil {
-				f.secret = false
-			}
+			started()
 		}
 		return run(ctx, argv...)
 	}
@@ -201,13 +242,15 @@ func TestConfigureDashboardTransitions(t *testing.T) {
 		{name: "local again", asked: true, target: DashboardTarget{Choice: DashboardLocal},
 			steps: []string{}, calls: []string{}, choice: DashboardLocal},
 		{name: "1 to 2", f: fakeDashboard{secret: true}, asked: true, target: DashboardTarget{Choice: DashboardTailnet},
-			steps: []string{"remote_enable"}, calls: []string{"remote_enable 443"}, choice: DashboardTailnet, port: 443},
+			steps: []string{"remote_enable", "tailnet_open"}, calls: []string{"remote_enable 443"}, choice: DashboardTailnet, port: 443},
 		{name: "2 again at the saved port", f: fakeDashboard{secret: true, remote: true, port: 8444}, asked: true, target: DashboardTarget{Choice: DashboardTailnet},
 			steps: []string{}, calls: []string{}, choice: DashboardTailnet, port: 8444},
 		{name: "2 to another port", f: fakeDashboard{secret: true, remote: true, port: 443}, asked: true, target: DashboardTarget{Choice: DashboardTailnet, HTTPSPort: 8444},
-			steps: []string{"remote_enable"}, calls: []string{"remote_enable 8444"}, choice: DashboardTailnet, port: 8444},
+			steps: []string{"remote_enable", "tailnet_open"}, calls: []string{"remote_enable 8444"}, choice: DashboardTailnet, port: 8444},
 		{name: "2 at the saved port, not ready", f: fakeDashboard{secret: true, remote: true, port: 443, broken: true}, asked: true, target: DashboardTarget{Choice: DashboardTailnet},
-			steps: []string{"remote_enable"}, calls: []string{"remote_enable 443"}, choice: DashboardTailnet, port: 443},
+			steps: []string{"remote_enable", "tailnet_open"}, calls: []string{"remote_enable 443"}, choice: DashboardTailnet, port: 443},
+		{name: "2 saved at 8444 but 443 runs", f: fakeDashboard{secret: true, remote: true, port: 8444, runPort: 443}, asked: true, target: DashboardTarget{Choice: DashboardTailnet},
+			steps: []string{"remote_enable", "tailnet_open"}, calls: []string{"remote_enable 8444"}, choice: DashboardTailnet, port: 8444},
 		{name: "2 to 1", f: fakeDashboard{secret: true, remote: true, port: 443}, asked: true, target: DashboardTarget{Choice: DashboardLocal},
 			steps: []string{"remote_disable"}, calls: []string{"remote_disable"}, choice: DashboardLocal, port: 443},
 		{name: "1 to 3", f: fakeDashboard{secret: true}, asked: true, target: DashboardTarget{Choice: DashboardNetwork, Address: "192.0.2.10:8443"},
@@ -220,8 +263,14 @@ func TestConfigureDashboardTransitions(t *testing.T) {
 			steps: []string{}, calls: []string{}, choice: DashboardNetwork, network: addressA},
 		{name: "3 saved but not open yet", f: fakeDashboard{secret: true}, saved: addressA, target: DashboardTarget{Choice: DashboardNetwork},
 			steps: []string{"daemon_restart", "network_address_open"}, calls: []string{"restart"}, choice: DashboardNetwork, network: addressA},
+		{name: "3 saved at B but A runs", f: fakeDashboard{secret: true, network: addressA}, saved: addressB, target: DashboardTarget{Choice: DashboardNetwork},
+			steps: []string{"daemon_restart", "network_address_open"}, calls: []string{"restart"}, choice: DashboardNetwork, network: addressB},
+		{name: "1 to 3 on launchd", f: fakeDashboard{secret: true, backend: "launchd"}, asked: true, target: DashboardTarget{Choice: DashboardNetwork, Address: "192.0.2.10:8443"},
+			steps: []string{"save_network_address", "daemon_restart", "network_address_open"}, calls: []string{"restart"}, choice: DashboardNetwork, network: addressA},
+		{name: "3 to 1 without a manager", f: fakeDashboard{secret: true, network: addressA, backend: "background"}, saved: addressA, target: DashboardTarget{Choice: DashboardLocal},
+			steps: []string{"save_no_network_address", "daemon_restart"}, calls: []string{"stop 100", "background BINARY STATE"}, choice: DashboardLocal},
 		{name: "3 to 2", f: fakeDashboard{secret: true, network: addressA}, saved: addressA, target: DashboardTarget{Choice: DashboardTailnet},
-			steps: []string{"save_no_network_address", "daemon_restart", "remote_enable"}, calls: []string{"restart", "remote_enable 443"}, choice: DashboardTailnet, port: 443},
+			steps: []string{"save_no_network_address", "daemon_restart", "remote_enable", "tailnet_open"}, calls: []string{"restart", "remote_enable 443"}, choice: DashboardTailnet, port: 443},
 		{name: "2 to 3", f: fakeDashboard{secret: true, remote: true, port: 443}, asked: true, target: DashboardTarget{Choice: DashboardNetwork, Address: "192.0.2.10:8443"},
 			steps: []string{"remote_disable", "save_network_address", "daemon_restart", "network_address_open"}, calls: []string{"remote_disable", "restart"}, choice: DashboardNetwork, port: 443, network: addressA},
 		{name: "both to 3", f: fakeDashboard{secret: true, remote: true, port: 443, network: addressA}, saved: addressA, target: DashboardTarget{Choice: DashboardNetwork},
@@ -241,6 +290,9 @@ func TestConfigureDashboardTransitions(t *testing.T) {
 			}
 			if f.calls == nil {
 				f.calls = []string{}
+			}
+			for i, call := range tc.calls {
+				tc.calls[i] = strings.NewReplacer("BINARY", Binary(e.o.Prefix), "STATE", e.o.StateDir).Replace(call)
 			}
 			if !reflect.DeepEqual(f.calls, tc.calls) {
 				t.Fatalf("calls %v, want %v", f.calls, tc.calls)
@@ -339,7 +391,7 @@ func TestConfigureDashboardRefusesWithoutEffects(t *testing.T) {
 			if err == nil || !strings.HasPrefix(err.Error(), tc.code) {
 				t.Fatal(err)
 			}
-			if len(f.calls) != 0 || len(e.r.calls) != 0 {
+			if len(f.calls) != 0 || len(changingCalls(e.r.calls)) != 0 {
 				t.Fatalf("calls %v %v", f.calls, e.r.calls)
 			}
 			if after := stateFiles(t, e.o.StateDir); !reflect.DeepEqual(before, after) {
@@ -416,5 +468,100 @@ func TestAskDashboardTargetDefaults(t *testing.T) {
 				t.Fatal("the question changed something", f.calls)
 			}
 		})
+	}
+}
+
+// changingCalls drops the manager calls that only read.
+func changingCalls(calls []string) []string {
+	var changing []string
+	for _, call := range calls {
+		if !strings.Contains(call, "show-environment") && !strings.HasPrefix(call, "launchctl print") && !strings.Contains(call, "is-active") {
+			changing = append(changing, call)
+		}
+	}
+	return changing
+}
+
+// A restart goes only through this installation's own service: a user service file that runs
+// another state directory or binary, or a missing one with a manager, is refused before the
+// first change, and the file stays as it was (#685, review of 9da7258).
+func TestConfigureDashboardRefusesAnotherService(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		backend string
+		write   func(e *env) []byte
+	}{
+		{name: "another state directory", write: func(e *env) []byte {
+			return e.o.Services.RenderDaemon(Binary(e.o.Prefix), filepath.Join(filepath.Dir(e.o.StateDir), "other-state"))
+		}},
+		{name: "another binary", write: func(e *env) []byte {
+			return e.o.Services.RenderDaemon(filepath.Join(filepath.Dir(e.o.Prefix), "other", "koinon"), e.o.StateDir)
+		}},
+		{name: "another state directory on launchd", backend: "launchd", write: func(e *env) []byte {
+			return e.o.Services.RenderDaemon(Binary(e.o.Prefix), filepath.Join(filepath.Dir(e.o.StateDir), "other-state"))
+		}},
+		{name: "another state directory without a manager", backend: "background", write: func(e *env) []byte {
+			return e.o.Services.RenderDaemon(Binary(e.o.Prefix), filepath.Join(filepath.Dir(e.o.StateDir), "other-state"))
+		}},
+		{name: "no service file with a manager", write: func(*env) []byte { return nil }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := fakeDashboard{secret: true, backend: tc.backend}
+			e := setupConfigure(t, &f, true, nil)
+			artifact := e.o.Services.DaemonArtifact()
+			data := tc.write(e)
+			os.MkdirAll(filepath.Dir(artifact), 0700)
+			if data == nil {
+				os.Remove(artifact)
+			} else if err := os.WriteFile(artifact, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			before := stateFiles(t, e.o.StateDir)
+			_, err := ConfigureDashboard(context.Background(), e.o, DashboardTarget{Choice: DashboardNetwork, Address: "192.0.2.10:8443"})
+			if err == nil || !strings.HasPrefix(err.Error(), "service_mismatch: ") {
+				t.Fatal(err)
+			}
+			if after := stateFiles(t, e.o.StateDir); !reflect.DeepEqual(before, after) || len(f.calls) != 0 || len(changingCalls(e.r.calls)) != 0 {
+				t.Fatalf("changed: %v %v", f.calls, e.r.calls)
+			}
+			now, _ := os.ReadFile(artifact)
+			if data != nil && string(now) != string(data) {
+				t.Fatal("the other service file was rewritten")
+			}
+		})
+	}
+}
+
+// After a restart or an enable, the change checks the target's own address and port, not only
+// that something runs (#685, review of 9da7258).
+func TestConfigureDashboardChecksTheTargetEndpoint(t *testing.T) {
+	// The restarted daemon opens another address than the one saved.
+	f := fakeDashboard{secret: true}
+	e := setupConfigure(t, &f, true, nil)
+	run := e.o.Services.Run
+	e.o.Services.Run = func(ctx context.Context, argv ...string) ([]byte, error) {
+		out, err := run(ctx, argv...)
+		if len(argv) == 4 && argv[2] == "restart" {
+			f.network = addressB
+		}
+		return out, err
+	}
+	c, err := ConfigureDashboard(context.Background(), e.o, DashboardTarget{Choice: DashboardNetwork, Address: "192.0.2.10:8443"})
+	if err == nil || !reflect.DeepEqual(stepNames(c), []string{"save_network_address", "daemon_restart", "network_address_open FAILED"}) ||
+		!strings.Contains(c.Steps[2].Error, "192.0.2.11:9443") {
+		t.Fatal(stepNames(c), err)
+	}
+	// Remote access answers enabled, but at another port.
+	g := fakeDashboard{secret: true}
+	e = setupConfigure(t, &g, true, nil)
+	enable := e.o.RemoteEnable
+	e.o.RemoteEnable = func(ctx context.Context, state, address string, port int) (string, error) {
+		url, err := enable(ctx, state, address, port)
+		g.runPort = 443
+		return url, err
+	}
+	c, err = ConfigureDashboard(context.Background(), e.o, DashboardTarget{Choice: DashboardTailnet, HTTPSPort: 8444})
+	if err == nil || !reflect.DeepEqual(stepNames(c), []string{"remote_enable", "tailnet_open FAILED"}) || !strings.Contains(c.Steps[1].Error, "8444") {
+		t.Fatal(stepNames(c), err)
 	}
 }

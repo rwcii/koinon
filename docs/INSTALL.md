@@ -385,7 +385,9 @@ kept, else the port is 443, and a network answer without a saved address needs
 
 Before the first change it checks the options, that the daemon answers, the network address
 (as install does), and that this installation's binary is present (give `--prefix` when the
-installation has one). The tailnet and network answers need the maintainer secret: at a
+installation has one). When the answer needs a daemon restart, a user service file must be the
+one that install writes for this binary and state directory; another one, or none while a
+service manager answers, is refused with `service_mismatch`, and the file is not changed. The tailnet and network answers need the maintainer secret: at a
 terminal it offers to set or generate one, and without a terminal it is refused with
 `remote_secret_required`. A refusal, "not now" or ended input (Ctrl-D) changes nothing.
 
@@ -398,10 +400,11 @@ needs, and reports each one:
 | `save_no_network_address` or `save_choice` | Saves the local answer and removes a saved network address. |
 | `save_network_address` | Saves the new network address. |
 | `daemon_restart` | Starts the daemon again through this installation's service: the user service, the background process, or on macOS the LaunchDaemon of system mode. Open dashboard pages reconnect; a page on an old network address loses its connection. |
-| `network_address_open` | Checks that the network address opened. |
+| `network_address_open` | Checks that the network address runs at the chosen address and port. |
 | `remote_enable` | Turns remote access on at the port, as `koinon remote enable --https-port PORT` does. A new port on remote access that is on ends remote sign-ins. |
+| `tailnet_open` | Checks that the tailnet URL is ready at the chosen port. |
 
-An answer that is already saved and running changes nothing. When a step fails, the command
+An answer that is already saved, and runs at its own address or port, changes nothing. When a step fails, the command
 stops: the earlier steps stay done, and the result names the command that finishes the failed
 step. `--json` gives the result as a report. Install and `--dashboard-address` keep working as
 above.

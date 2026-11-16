@@ -1,10 +1,12 @@
 package install
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 
@@ -243,14 +245,16 @@ func ConfigureDashboard(ctx context.Context, o Options, target DashboardTarget) 
 	}
 	runtime := before.Runtime
 	remoteOn := before.Choice == DashboardTailnet || before.Choice == DashboardMixed
-	networkRuns := runtime.Network != nil && runtime.Network.Code == "running"
-	tailnetReady := runtime.Remote.Configured && runtime.Remote.Listener == "ready" && runtime.Remote.Serve == "ready" && runtime.Remote.Error == ""
+	// What runs counts only at the target's own address and port, so a saved choice that
+	// waits for a restart, or a failed earlier restart, is not taken as done.
+	networkRuns := c.Network != nil && networkOpen(runtime.Network, *c.Network)
+	tailnetRuns := tailnetOpen(runtime.Remote, c.HTTPSPort)
 	// The steps that the target needs; an equal choice that runs needs none.
 	disable := remoteOn && target.Choice != DashboardTailnet
 	removeNetwork := before.Network != nil && target.Choice != DashboardNetwork
 	writeNetwork := c.Network != nil && (before.Network == nil || *before.Network != *c.Network)
 	restart := removeNetwork || writeNetwork || c.Network != nil && !networkRuns || c.Network == nil && runtime.Network != nil
-	enable := target.Choice == DashboardTailnet && (!remoteOn || before.HTTPSPort != c.HTTPSPort || !tailnetReady)
+	enable := target.Choice == DashboardTailnet && (!remoteOn || before.HTTPSPort != c.HTTPSPort || !tailnetRuns)
 	saveLocal := target.Choice != DashboardNetwork && !before.Asked
 	if !disable && !removeNetwork && !writeNetwork && !restart && !enable && !saveLocal {
 		c.Steps = []DashboardStep{}
@@ -259,6 +263,12 @@ func ConfigureDashboard(ctx context.Context, o Options, target DashboardTarget) 
 	}
 	if !binaryPresent(binary) {
 		return c, fmt.Errorf("install_not_found: no installed koinon is at %s; give the --prefix of this installation", binary)
+	}
+	var restartDaemon func() error
+	if restart {
+		if restartDaemon, err = dashboardRestart(ctx, o, binary); err != nil {
+			return c, err
+		}
 	}
 	if target.Choice != DashboardLocal && !runtime.SecretSet {
 		if o.Line == nil {
@@ -335,7 +345,7 @@ func ConfigureDashboard(ctx context.Context, o Options, target DashboardTarget) 
 			effect = "The daemon restarts; a page open on the old network address loses its connection."
 		}
 		if err := step("daemon_restart", effect, restartCommand(o, binary), func() error {
-			return restartDaemon(ctx, o, binary)
+			return restartDaemon()
 		}); err != nil {
 			return fail(err)
 		}
@@ -345,15 +355,15 @@ func ConfigureDashboard(ctx context.Context, o Options, target DashboardTarget) 
 				if err != nil {
 					return err
 				}
-				if n := status.DashboardNetwork; n == nil || n.Code != "running" {
+				if n := status.DashboardNetwork; !networkOpen(n, *c.Network) {
 					code := "not configured"
 					if n != nil {
-						code = n.Code
+						code = n.Code + " at " + n.Address
 						if n.Step != "" {
 							code += ": " + n.Step
 						}
 					}
-					return errors.New("the network address is not open: " + code)
+					return errors.New("the network address " + c.Network.Address() + " is not open: " + code)
 				}
 				return nil
 			}); err != nil {
@@ -374,6 +384,22 @@ func ConfigureDashboard(ctx context.Context, o Options, target DashboardTarget) 
 		}); err != nil {
 			return fail(err)
 		}
+		if err := step("tailnet_open", "", remoteEnableCommand(o, binary, c.HTTPSPort), func() error {
+			data, err := o.Call(ctx, o.Address, bearer, "/v1/remote/status", nil)
+			var status core.RemoteStatus
+			if err == nil {
+				err = json.Unmarshal(data, &status)
+			}
+			if err != nil {
+				return err
+			}
+			if !tailnetOpen(&status, c.HTTPSPort) {
+				return fmt.Errorf("the tailnet is not open at HTTPS port %d: listener %s, Serve %s, URL %s", c.HTTPSPort, status.Listener, status.Serve, status.URL)
+			}
+			return nil
+		}); err != nil {
+			return fail(err)
+		}
 	}
 	after, err := ReadDashboardCurrent(ctx, o)
 	if err != nil {
@@ -383,23 +409,62 @@ func ConfigureDashboard(ctx context.Context, o Options, target DashboardTarget) 
 	return c, nil
 }
 
-// restartDaemon starts the answering daemon again through the backend of this installation,
-// as install does after a network change, and waits for a new process.
-func restartDaemon(ctx context.Context, o Options, binary string) error {
+// networkOpen reports whether the network listener runs at a's address and bind.
+func networkOpen(n *core.DashboardNetworkStatus, a core.DashboardAddress) bool {
+	return n != nil && n.Code == "running" && n.Address == a.Address() && n.Bind == a.Bind()
+}
+
+// tailnetOpen reports whether remote access is ready at the Serve HTTPS port.
+func tailnetOpen(r *core.RemoteStatus, port int) bool {
+	if r == nil || !r.Configured || r.Listener != "ready" || r.Serve != "ready" || r.Error != "" {
+		return false
+	}
+	u, err := url.Parse(r.URL)
+	if err != nil || u.Scheme != "https" {
+		return false
+	}
+	runs := remote.DefaultHTTPSPort
+	if u.Port() != "" {
+		if runs, err = strconv.Atoi(u.Port()); err != nil {
+			return false
+		}
+	}
+	return runs == port
+}
+
+// dashboardRestart checks, before any change, that the daemon of this state directory starts
+// again through this installation's own backend, and returns that restart. A user service must
+// be the one that install writes for this binary and state directory: configure never
+// rewrites a service that runs another installation, with or without a service manager. The macOS system daemon keeps install's
+// own check. Without a service manager, the background daemon at this state directory's address
+// is stopped and started again, as install does.
+func dashboardRestart(ctx context.Context, o Options, binary string) (func() error, error) {
 	system, err := systemMode(ctx, o)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	before, err := readStatus(ctx, o)
-	if err != nil {
-		return err
+	if system == nil {
+		// A service file that exists must be this installation's, also without a manager,
+		// where install still writes it; with a manager, it must exist.
+		artifact := o.Services.DaemonArtifact()
+		data, err := os.ReadFile(artifact)
+		missing := errors.Is(err, os.ErrNotExist)
+		if missing && o.Services.Available(ctx) || !missing && (err != nil || !bytes.Equal(data, o.Services.RenderDaemon(binary, o.StateDir))) {
+			return nil, fmt.Errorf("service_mismatch: the user service %s is not the one that %s writes for state directory %s; give this installation's --prefix and --state-dir, or run %s to write it", artifact, binary, o.StateDir, restartCommand(o, binary))
+		}
 	}
-	o.dashboardChanged = true
-	r := Report{Binary: binary, Backend: o.Services.Backend, Artifact: o.Services.DaemonArtifact(), StateDir: o.StateDir}
-	if err := startService(ctx, o, &r, system, &before); err != nil {
-		return err
-	}
-	return waitForNewDaemon(ctx, o, before.PID)
+	return func() error {
+		before, err := readStatus(ctx, o)
+		if err != nil {
+			return err
+		}
+		o.dashboardChanged = true
+		r := Report{Binary: binary, Backend: o.Services.Backend, Artifact: o.Services.DaemonArtifact(), StateDir: o.StateDir}
+		if err := startService(ctx, o, &r, system, &before); err != nil {
+			return err
+		}
+		return waitForNewDaemon(ctx, o, before.PID)
+	}, nil
 }
 
 // binaryPresent reports whether the installed binary is a regular file.

@@ -486,10 +486,11 @@ again, with the current values as the defaults. `--choice local|tailnet|network`
 `--https-port` for the tailnet and `--dashboard-address` for a network address, gives the
 answer without a terminal. It checks the options, the daemon, the target address and the
 installed binary, and gets the maintainer secret that the answer needs, before the first
-change; a refusal or ended input changes nothing. Then it closes the old access before it
+change; a refusal or ended input changes nothing. A restart goes only through the service that
+install wrote for this binary and state directory; another service is refused, not rewritten. Then it closes the old access before it
 opens the new one: a remote disable, the saved network setting, one daemon restart through
-the installation's own backend, and a remote enable. An equal answer that already runs
-changes nothing. Each step names its effect on sign-ins, and a failed step names the command
+the installation's own backend, and a remote enable, and it checks that the chosen address
+or port runs. An equal answer that already runs at its own address or port changes nothing. Each step names its effect on sign-ins, and a failed step names the command
 that finishes it; the earlier steps stay done.
 
 **Reason and scope:** One command and one order replace two command groups. A network address
