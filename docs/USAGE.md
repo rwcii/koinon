@@ -713,7 +713,9 @@ sign in with the maintainer secret. One-time links continue to work on loopback 
 
 The choice persists across restarts and upgrades. A later install resolves a saved FQDN again;
 daemon starts bind the selected IP. `koinon install --dashboard-address none` removes the
-network choice. The agent API and agent MCP transport stay on their existing local paths.
+network choice. `koinon remote configure` shows where the dashboard opens and changes the
+answer in one step; at a terminal it asks the install question again
+([installation](INSTALL.md#change-where-the-dashboard-opens)). The agent API and agent MCP transport stay on their existing local paths.
 If the secret is missing or the selected IP is unavailable, loopback remains available and
 install/status name the reason and the next step. After setting a missing secret, run
 `koinon install` to start the network listener. Clearing the secret refuses network requests
@@ -753,6 +755,7 @@ koinon remote enable     # start the dashboard-only listener and the Serve mappi
 koinon remote enable --https-port 10443  # the same on another Serve HTTPS port, saved for later enables (443 by default)
 koinon remote status     # configuration, listener, Serve and Tailscale state; add --json for the report
 koinon remote disable    # stop the listener, end remote logins, remove only Koinon's own mapping
+koinon remote configure  # show where the dashboard opens; change it with --choice local|tailnet|network, or at a terminal
 ```
 
 Remote access needs a maintainer secret. On the phone, sign in at the URL with the secret,

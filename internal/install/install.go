@@ -96,6 +96,9 @@ type Options struct {
 	Inspect     func(context.Context, setup.Options) setup.Inspection
 	Permissions func(setup.Options, bool) (setup.PermissionsResult, error)
 	Status      func(ctx context.Context, address, secret string) (json.RawMessage, error)
+	// Call calls a daemon route, as core.Call does; koinon remote configure reads the remote
+	// status through it (#685).
+	Call func(ctx context.Context, address, secret, path string, body any) (json.RawMessage, error)
 	// Background starts the daemon without a service manager, in its own session, with its
 	// output in log (#619).
 	Background func(binary, state, log string) (Started, error)
@@ -761,18 +764,7 @@ func Install(ctx context.Context, o Options) (Report, error) {
 		r.SourceStep = fmt.Sprintf("this ran the installed binary, so nothing was copied; to install %s, run %s install", r.OtherBinary, shellQuote(r.OtherBinary))
 	}
 	// start starts the daemon through the backend that this installation uses.
-	start := func(before *daemonStatus) error {
-		if system != nil {
-			r.Artifact = o.Services.SystemArtifact()
-			if err := o.Services.InstallSystem(ctx, platform.SystemInstall{Binary: r.Binary, State: o.StateDir, Plist: *system,
-				StatusPID: func(ctx context.Context) (int, error) { return statusPID(ctx, o) }, Wait: o.SystemWait}); err != nil {
-				return err
-			}
-			r.Service = "system"
-			return nil
-		}
-		return startAgent(ctx, o, &r, before)
-	}
+	start := func(before *daemonStatus) error { return startService(ctx, o, &r, system, before) }
 	if err := start(before); err != nil {
 		return r, err
 	}
@@ -866,6 +858,22 @@ func removeRetiredInstructions(o Options, r *Report) error {
 	}
 	r.RetiredInstructions = &RetiredInstructions{Path: path, Result: result}
 	return nil
+}
+
+// startService starts the daemon through the backend that this installation uses: the macOS
+// LaunchDaemon when system is set, else the user service, else a background process.
+// koinon remote configure starts it again the same way (#685).
+func startService(ctx context.Context, o Options, r *Report, system *platform.SystemPlist, before *daemonStatus) error {
+	if system != nil {
+		r.Artifact = o.Services.SystemArtifact()
+		if err := o.Services.InstallSystem(ctx, platform.SystemInstall{Binary: r.Binary, State: o.StateDir, Plist: *system,
+			StatusPID: func(ctx context.Context) (int, error) { return statusPID(ctx, o) }, Wait: o.SystemWait}); err != nil {
+			return err
+		}
+		r.Service = "system"
+		return nil
+	}
+	return startAgent(ctx, o, r, before)
 }
 
 // startAgent writes the user service and, unless NoStart, starts it and waits for the daemon.

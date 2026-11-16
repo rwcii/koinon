@@ -360,6 +360,55 @@ secret, then run `koinon install` to start the listener. If a selected IP went a
 again with an available address; a saved FQDN is resolved again. The daemon log names a failed
 network bind and its address.
 
+### Change where the dashboard opens
+
+The install asks its question once. To see or change the answer later, use one command
+(#685; PDR 010, section 10):
+
+```sh
+koinon remote configure                        # shows the choice; at a terminal, asks the question again
+koinon remote configure --choice local         # 1. Only on this computer
+koinon remote configure --choice tailnet [--https-port PORT]           # 2. this computer and your tailnet
+koinon remote configure --choice network [--dashboard-address HOST:PORT]  # 3. also on a network address
+```
+
+It shows the saved answer in the words of the install question, and on separate lines what
+the daemon runs now: the network address and the tailnet. A saved state with both a network
+address and the tailnet is named as such; any answer replaces it. When the daemon does not
+answer, what runs now is unknown, and the saved answer still shows. At a terminal, without
+`--choice`, it then asks the install question with the current values as the defaults: the
+answer, the Serve HTTPS port, and the network host and port. Without a terminal and without
+`--choice`, it only shows the choice. `--https-port` goes only with `--choice tailnet`, and
+`--dashboard-address` only with `--choice network`; without them, the saved port or address is
+kept, else the port is 443, and a network answer without a saved address needs
+`--dashboard-address`.
+
+Before the first change it checks the options, that the daemon answers, the network address
+(as install does), and that this installation's binary is present (give `--prefix` when the
+installation has one). When the answer needs a daemon restart, a user service file must be the
+one that install writes for this binary and state directory; another one, or none while a
+service manager answers, is refused with `service_mismatch`, and the file is not changed. The tailnet and network answers need the maintainer secret: at a
+terminal it offers to set or generate one, and without a terminal it is refused with
+`remote_secret_required`. A refusal, "not now" or ended input (Ctrl-D) changes nothing.
+
+Then it closes the old access before it opens the new one, with only the steps that the answer
+needs, and reports each one:
+
+| Step | Effect |
+| --- | --- |
+| `remote_disable` | Turns remote access off. Remote sign-ins on your tailnet end. |
+| `save_no_network_address` or `save_choice` | Saves the local answer and removes a saved network address. |
+| `save_network_address` | Saves the new network address. |
+| `daemon_restart` | Starts the daemon again through this installation's service: the user service, the background process, or on macOS the LaunchDaemon of system mode. Open dashboard pages reconnect; a page on an old network address loses its connection. |
+| `network_address_open` | Checks that the network address runs at the chosen address and port. |
+| `remote_enable` | Turns remote access on at the port, as `koinon remote enable --https-port PORT` does. A new port on remote access that is on ends remote sign-ins. |
+| `tailnet_open` | Checks that the tailnet URL is ready at the chosen port. |
+
+An answer that is already saved, and runs at its own address or port, changes nothing. When a step fails, the command
+stops: the earlier steps stay done, and the result names the command that finishes the failed
+step. `--json` gives the result as a report. Install and `--dashboard-address` keep working as
+above.
+
 ### System mode on macOS
 
 The launchd agent runs in the desktop login's `gui/<uid>` domain, so it stops when that login

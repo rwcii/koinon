@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- `koinon remote configure` shows where the dashboard opens and changes the install answer in
+  one step (#685). At a terminal it asks the install question again, with the current values as
+  the defaults; `--choice local|tailnet|network`, with `--https-port` or `--dashboard-address`,
+  gives the answer from a script. It refuses before the first change, closes the old access
+  before it opens the new one, restarts the daemon through the installation's own service when
+  the network address changes, and names each step's effect on sign-ins.
 - A maintainer client can act with its own key (#693, PDR 011 Decision 6). `koinon maintainer
   key add --statement FILE` adds a client's Ed25519 key from a statement that the client signed
   for this computer, once; `koinon maintainer key list` and `remove` show and remove keys.
