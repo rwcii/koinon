@@ -362,8 +362,10 @@ func ConfigureDashboard(ctx context.Context, o Options, target DashboardTarget) 
 		}
 	}
 	if enable {
+		// Only a new port on remote access that is on takes the disable steps first (PDR 010,
+		// section 7); an enable at the same port repairs the listener or Serve mapping.
 		effect := ""
-		if remoteOn {
+		if remoteOn && before.HTTPSPort != c.HTTPSPort {
 			effect = "Remote sign-ins on your tailnet end."
 		}
 		if err := step("remote_enable", effect, remoteEnableCommand(o, binary, c.HTTPSPort), func() error {

@@ -30,6 +30,7 @@ type fakeDashboard struct {
 	network *core.DashboardAddress // what runs
 	remote  bool
 	port    int
+	broken  bool // remote access is on, but its Serve mapping is missing
 	calls   []string
 	fail    map[string]bool // remote_disable, remote_enable, restart, open
 }
@@ -107,6 +108,9 @@ func setupConfigure(t *testing.T, f *fakeDashboard, asked bool, saved *core.Dash
 			s := core.RemoteStatus{Configured: f.remote, Listener: "off", Serve: "off", Phone: "unverified"}
 			if f.remote {
 				s.Listener, s.Serve, s.URL = "ready", "ready", fmt.Sprintf("https://board.example.ts.net:%d/dashboard/", f.port)
+				if f.broken {
+					s.Serve = "missing"
+				}
 			}
 			return json.Marshal(s)
 		case "/v1/remote/disable":
@@ -125,7 +129,7 @@ func setupConfigure(t *testing.T, f *fakeDashboard, asked bool, saved *core.Dash
 		if f.fail["remote_enable"] {
 			return "", core.RefusedError{Code: "remote_setup_required"}
 		}
-		f.remote, f.port = true, port
+		f.remote, f.port, f.broken = true, port, false
 		f.writeRemote(t)
 		return "https://board.example.ts.net/dashboard/", nil
 	}
@@ -202,6 +206,8 @@ func TestConfigureDashboardTransitions(t *testing.T) {
 			steps: []string{}, calls: []string{}, choice: DashboardTailnet, port: 8444},
 		{name: "2 to another port", f: fakeDashboard{secret: true, remote: true, port: 443}, asked: true, target: DashboardTarget{Choice: DashboardTailnet, HTTPSPort: 8444},
 			steps: []string{"remote_enable"}, calls: []string{"remote_enable 8444"}, choice: DashboardTailnet, port: 8444},
+		{name: "2 at the saved port, not ready", f: fakeDashboard{secret: true, remote: true, port: 443, broken: true}, asked: true, target: DashboardTarget{Choice: DashboardTailnet},
+			steps: []string{"remote_enable"}, calls: []string{"remote_enable 443"}, choice: DashboardTailnet, port: 443},
 		{name: "2 to 1", f: fakeDashboard{secret: true, remote: true, port: 443}, asked: true, target: DashboardTarget{Choice: DashboardLocal},
 			steps: []string{"remote_disable"}, calls: []string{"remote_disable"}, choice: DashboardLocal, port: 443},
 		{name: "1 to 3", f: fakeDashboard{secret: true}, asked: true, target: DashboardTarget{Choice: DashboardNetwork, Address: "192.0.2.10:8443"},
@@ -249,7 +255,7 @@ func TestConfigureDashboardTransitions(t *testing.T) {
 				t.Fatalf("runtime %+v %+v", a.Runtime.Network, a.Runtime.Remote)
 			}
 			for _, s := range c.Steps {
-				want := map[string]bool{"remote_disable": true, "daemon_restart": true}[s.Step] || s.Step == "remote_enable" && tc.f.remote
+				want := map[string]bool{"remote_disable": true, "daemon_restart": true}[s.Step] || s.Step == "remote_enable" && tc.f.remote && tc.f.port != tc.port
 				if (s.Effect != "") != want {
 					t.Fatalf("step %s effect %q", s.Step, s.Effect)
 				}
