@@ -96,6 +96,9 @@ type Options struct {
 	Inspect     func(context.Context, setup.Options) setup.Inspection
 	Permissions func(setup.Options, bool) (setup.PermissionsResult, error)
 	Status      func(ctx context.Context, address, secret string) (json.RawMessage, error)
+	// Call calls a daemon route, as core.Call does; koinon remote configure reads the remote
+	// status through it (#685).
+	Call func(ctx context.Context, address, secret, path string, body any) (json.RawMessage, error)
 	// Background starts the daemon without a service manager, in its own session, with its
 	// output in log (#619).
 	Background func(binary, state, log string) (Started, error)
