@@ -360,3 +360,55 @@ func stateFiles(t *testing.T, root string) map[string]string {
 	}
 	return files
 }
+
+// The question of koinon remote configure has the current values as its defaults, checks each
+// answer as the first install does, and ended input gives no answer (#685, C2).
+func TestAskDashboardTargetDefaults(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		f       fakeDashboard
+		asked   bool
+		saved   *core.DashboardAddress
+		answers []string
+		prompts []string
+		target  DashboardTarget
+		ok      bool
+	}{
+		{name: "tailnet keeps its port", f: fakeDashboard{secret: true, remote: true, port: 8444}, asked: true, answers: []string{"", ""},
+			prompts: []string{"Choice [2]: ", "Tailscale Serve HTTPS port [8444]: "}, target: DashboardTarget{Choice: DashboardTailnet, HTTPSPort: 8444}, ok: true},
+		{name: "network keeps its address", f: fakeDashboard{secret: true, network: addressA}, saved: addressA, answers: []string{"", "", ""},
+			prompts: []string{"Choice [3]: ", "Address number, or a fully qualified name of this host [192.0.2.10]: ", "Port [8443]: "},
+			target: DashboardTarget{Choice: DashboardNetwork, Address: "192.0.2.10:8443"}, ok: true},
+		{name: "network to another port", f: fakeDashboard{secret: true, network: addressA}, saved: addressA, answers: []string{"", "", "9443"},
+			prompts: []string{"Choice [3]: ", "Address number, or a fully qualified name of this host [192.0.2.10]: ", "Port [8443]: "},
+			target: DashboardTarget{Choice: DashboardNetwork, Address: "192.0.2.10:9443"}, ok: true},
+		{name: "local to tailnet takes the install default", asked: true, answers: []string{"2", ""},
+			prompts: []string{"Choice [1]: ", "Tailscale Serve HTTPS port [443]: "}, target: DashboardTarget{Choice: DashboardTailnet, HTTPSPort: 443}, ok: true},
+		{name: "both has no default", f: fakeDashboard{secret: true, remote: true, network: addressA}, saved: addressA, answers: []string{"", "1"},
+			prompts: []string{"Choice: ", "Choice: "}, target: DashboardTarget{Choice: DashboardLocal}, ok: true},
+		{name: "ended at the choice", f: fakeDashboard{secret: true}, asked: true,
+			prompts: []string{"Choice [1]: "}},
+		{name: "ended at the port", f: fakeDashboard{secret: true, network: addressA}, saved: addressA, answers: []string{"", ""},
+			prompts: []string{"Choice [3]: ", "Address number, or a fully qualified name of this host [192.0.2.10]: ", "Port [8443]: "}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := tc.f
+			e := setupConfigure(t, &f, tc.asked, tc.saved)
+			sc := &script{t: t, answers: tc.answers}
+			e.o.Line = sc.line
+			e.o.HostAddresses = func() ([]string, error) { return []string{"192.0.2.10", "192.0.2.11"}, nil }
+			before := stateFiles(t, e.o.StateDir)
+			current, err := ReadDashboardCurrent(context.Background(), e.o)
+			if err != nil {
+				t.Fatal(err)
+			}
+			target, ok, err := AskDashboardTarget(context.Background(), e.o, current)
+			if err != nil || ok != tc.ok || target != tc.target || !reflect.DeepEqual(sc.prompts, tc.prompts) {
+				t.Fatalf("%+v %t %v %q", target, ok, err, sc.prompts)
+			}
+			if after := stateFiles(t, e.o.StateDir); !reflect.DeepEqual(before, after) || len(f.calls) != 0 {
+				t.Fatal("the question changed something", f.calls)
+			}
+		})
+	}
+}

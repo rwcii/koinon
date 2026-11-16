@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -273,6 +275,78 @@ func TestRemoteConfigureAppliesChoice(t *testing.T) {
 		reply.Change.Steps[0] != (install.DashboardStep{Step: "remote_disable", Done: true, Effect: "Remote sign-ins on your tailnet end."}) ||
 		reply.Change.After == nil || reply.Change.After.Choice != install.DashboardLocal || reply.Change.After.Runtime.Remote.Configured {
 		t.Fatalf("%s %v", out, err)
+	}
+	adapter.mu.Lock()
+	defer adapter.mu.Unlock()
+	if adapter.commands != 2 {
+		t.Fatal("Serve writes", adapter.commands)
+	}
+}
+
+// At a terminal, configure shows the current choice, asks the install question with the
+// current values as defaults and applies the answer; ended input changes nothing (#685, C2).
+func TestRemoteConfigureAsksAtTerminal(t *testing.T) {
+	ctx := context.Background()
+	adapter := &remoteCLIAdapter{}
+	dir := t.TempDir()
+	root := filepath.Join(dir, "state")
+	d, err := core.Start(core.Config{StateDir: root, Listen: []string{"127.0.0.1:0"}, Tailscale: adapter, SecretCost: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	address := d.Addresses()[0]
+	prefix := filepath.Join(dir, "prefix")
+	if err := os.MkdirAll(filepath.Dir(install.Binary(prefix)), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(install.Binary(prefix), []byte("synthetic binary"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := run(ctx, []string{"maintainer", "secret", "set", "--state-dir", root, "--address", address}, strings.NewReader("synthetic-long-secret\n"), &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(ctx, []string{"remote", "enable", "--https-port", "8444", "--state-dir", root, "--address", address}, strings.NewReader(""), &out); err != nil {
+		t.Fatal(err)
+	}
+	saved := configureTerminal
+	defer func() { configureTerminal = saved }()
+	// answer runs configure at a fake terminal that gets input and ends after it.
+	answer := func(input string) (string, string, error) {
+		r, w, err := os.Pipe()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Close()
+		tell, err := os.CreateTemp(dir, "tell")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer tell.Close()
+		w.WriteString(input)
+		w.Close()
+		configureTerminal = func(ctx context.Context, _ io.Reader) *terminal {
+			return &terminal{ctx: ctx, file: r, in: bufio.NewReader(r), tell: tell}
+		}
+		var out bytes.Buffer
+		err = run(ctx, []string{"remote", "configure", "--prefix", prefix, "--state-dir", root, "--address", address}, strings.NewReader(""), &out)
+		told, _ := os.ReadFile(tell.Name())
+		return out.String(), string(told), err
+	}
+	o, told, err := answer("")
+	if err != nil || o != "" || !strings.HasPrefix(told, "Saved choice: 2. On this computer and your tailnet, through Tailscale Serve (HTTPS port 8444)\n") ||
+		!strings.Contains(told, "Choice [2]: ") || !strings.HasSuffix(told, "The input ended; nothing changed.\n") {
+		t.Fatalf("%q %q %v", o, told, err)
+	}
+	// Two empty answers keep the choice and its port: nothing changes.
+	o, told, err = answer("\n\n")
+	if err != nil || !strings.HasPrefix(o, "No change: the dashboard already opens this way.\n") || !strings.Contains(told, "Tailscale Serve HTTPS port [8444]: ") {
+		t.Fatalf("%q %q %v", o, told, err)
+	}
+	o, _, err = answer("1\n")
+	if err != nil || !strings.HasPrefix(o, "Done: remote_disable. Remote sign-ins on your tailnet end.\nSaved choice: 1. Only on this computer\n") {
+		t.Fatalf("%q %v", o, err)
 	}
 	adapter.mu.Lock()
 	defer adapter.mu.Unlock()

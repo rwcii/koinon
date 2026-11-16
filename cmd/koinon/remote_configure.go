@@ -91,14 +91,26 @@ func remoteConfigure(ctx context.Context, args []string, in io.Reader, out io.Wr
 		fmt.Fprintln(out, "To change it, run koinon remote configure at a terminal, or give --choice local, tailnet or network.")
 		return nil
 	}
-	if *choice == "" {
-		return usageError{"remote_configure_unavailable", "this build asks no question; give --choice local, tailnet or network"}
-	}
+	target := install.DashboardTarget{Choice: *choice, HTTPSPort: *httpsPort, Address: *dashboardAddress}
 	if t != nil {
-		o.Line, o.NewSecret = t.line, t.newSecret
+		o.Line, o.NewSecret, o.Tell = t.line, t.newSecret, t.tell
 		o.RemoteEnable = installRemoteEnable(t)
 	}
-	change, err := install.ConfigureDashboard(ctx, o, install.DashboardTarget{Choice: *choice, HTTPSPort: *httpsPort, Address: *dashboardAddress})
+	if *choice == "" {
+		// At a terminal, the install question again, with the current values as defaults.
+		for _, line := range install.DescribeDashboard(current) {
+			fmt.Fprintln(t.tell, line)
+		}
+		var ok bool
+		if target, ok, err = install.AskDashboardTarget(ctx, o, current); err != nil {
+			return coded(err)
+		}
+		if !ok {
+			fmt.Fprintln(t.tell, "The input ended; nothing changed.")
+			return nil
+		}
+	}
+	change, err := install.ConfigureDashboard(ctx, o, target)
 	if *asJSON {
 		printJSON(out, struct {
 			OK     bool                    `json:"ok"`

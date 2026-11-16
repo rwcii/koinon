@@ -405,3 +405,32 @@ func binaryPresent(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && info.Mode().IsRegular()
 }
+
+// AskDashboardTarget puts the install question again at the terminal of o.Line, with the
+// current values as the defaults (#685). It checks each answer as the first install does.
+// Ended input returns ok false: no answer, so nothing changes.
+func AskDashboardTarget(ctx context.Context, o Options, c DashboardCurrent) (DashboardTarget, bool, error) {
+	if err := o.defaults(); err != nil {
+		return DashboardTarget{}, false, err
+	}
+	d := dashboardDefaults{choice: map[string]string{DashboardLocal: "1", DashboardTailnet: "2", DashboardNetwork: "3"}[c.Choice],
+		httpsPort: c.HTTPSPort, port: DefaultDashboardPort}
+	if d.httpsPort == 0 {
+		d.httpsPort = remote.DefaultHTTPSPort
+	}
+	if c.Network != nil {
+		d.host, d.port = c.Network.Host, c.Network.Port
+	}
+	local, port, network, err := askDashboardWith(ctx, o, d)
+	switch {
+	case err != nil:
+		return DashboardTarget{}, false, err
+	case network != nil:
+		return DashboardTarget{Choice: DashboardNetwork, Address: network.Address()}, true, nil
+	case port != 0:
+		return DashboardTarget{Choice: DashboardTailnet, HTTPSPort: port}, true, nil
+	case local:
+		return DashboardTarget{Choice: DashboardLocal}, true, nil
+	}
+	return DashboardTarget{}, false, nil
+}
