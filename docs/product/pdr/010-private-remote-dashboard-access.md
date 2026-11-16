@@ -504,6 +504,33 @@ dashboard page. A macOS system-mode restart uses install's own checks.
 command groups to combine; `koinon install --ask-dashboard`, which also does an install's
 service and setup work that a change of the choice does not need.
 
+## 11. Refinement: Settings sections start closed (#719)
+
+**Decided by:** Robert Capps, 2026-11-16, on the decision board (approved).
+
+**Context:** Robert Capps, 2026-11-16, terminal: "settings page. each setting group, like
+"Signed-in remote devices" "Computers" etc... should be closed on page load. only the
+currently open section(s) should remain open." Six Settings sections opened on every load:
+Signed-in remote devices, Draft recovery on this browser, Remote access, Computers, Spoken
+alert and Change the session timing. The **Go remote** link (`#remote-access`) closed every
+other section. His words did not say what "currently open" means: the sections open when an
+action reloads the page, or also the sections open when he comes back to the page later. The
+options: keep the open sections across the reload after an action only, or also on a later
+return in the same browser.
+
+**Decision:** every Settings section starts closed. The browser keeps the sections that he
+leaves open, so they open again after an action reloads the page and when he comes back to
+Settings in the same browser; all others stay closed. A link to a section, such as
+`#remote-access`, opens that section and keeps the other open sections.
+
+**Reason and scope:** he asked for closed sections on load and for his open sections to stay
+open. The kept state is a per-browser convenience in local storage for the dashboard address:
+another browser or a private window starts with every section closed. Scope: the Settings
+page only.
+
+**Alternatives considered:** keeping the open sections only across the reload after an action,
+which is simpler, but a later visit starts with every section closed.
+
 ## Conclusion
 
 Remote access reuses the dashboard's actions and login while making setup
@@ -526,3 +553,4 @@ unverified connectivity and action outcomes stay labeled as such.
 | 2026-11-12 | Record Andrew's v2 implementation authorization, fixed 48-hour policy, durable sessions and explicit recovery scope. |
 | 2026-11-13 | Record Robert Capps's decision REL-SCOPE-673: §9 ships in v0.11.0 as his decision; Andrew stays the proposer. §5 is superseded for remote browsers. |
 | 2026-11-16 | Record Robert Capps's decision k685-remote-configure: section 10, `koinon remote configure` (#685). |
+| 2026-11-16 | Record Robert Capps's decision k719-open-sections: section 11, Settings sections start closed (#719). |
