@@ -151,8 +151,16 @@ func (s *Store) attention(ctx context.Context, browser string, origins ...string
 	if err != nil {
 		return data, err
 	}
+	blocked, err := draftBlockedCycles(ctx, tx)
+	if err != nil {
+		return data, err
+	}
 	s.observed.mu.Lock()
 	for _, session := range sessions {
+		// A draft blocks the clear whatever the session's observed activity (#711).
+		if _, ok := blocked[Key{session.Family, session.ID}]; ok {
+			data.Problems = append(data.Problems, attentionLink{session.Name, "/dashboard/sessions?q=" + url.QueryEscape(session.Name), draftBlockedText})
+		}
 		if session.State != "active" {
 			data.Problems = append(data.Problems, attentionLink{session.Name, "/dashboard/sessions?q=" + url.QueryEscape(session.Name), "Registration expired; current activity unknown"})
 			continue
@@ -236,3 +244,30 @@ func (s *Store) markAttentionRead(ctx context.Context, browser string, direct, r
 // attentionCursorLife is how long a browser's Attention read position is kept after its
 // last mark: the 48-hour remote login plus the 7 days that its session row is kept.
 const attentionCursorLife = remoteSessionLifetime + 7*24*time.Hour
+
+// draftBlockedText is the line that tells the maintainer why a handoff cycle waits (#711).
+const draftBlockedText = "Handoff cycle waits: the session's input box holds text. Clear it so the cycle can clear the context."
+
+// draftBlockedCycles returns, by requester, the unfinished handoff cycles whose newest repeat
+// found text in the session's input box (#711): the clear waits until the input is empty. It
+// reads only the stored cycle events: the newest repeat wins, so a cycle back in ready after a
+// new report still shows it, and a later repeat for another reason clears it.
+func draftBlockedCycles(ctx context.Context, q querier) (map[Key]string, error) {
+	rows, err := q.QueryContext(ctx, `SELECT c.family,c.session_id,c.cycle_id FROM context_cycles c WHERE c.state IN (?,?)
+		AND (SELECT e.reason FROM context_cycle_events e WHERE e.cycle_id=c.cycle_id AND e.stage=? AND e.reason LIKE 'not_idle.%'
+			ORDER BY e.ordinal DESC LIMIT 1)=?`, cycleWaitingReady, cycleReady, cycleWaitingReady, "not_idle.input_not_empty")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	blocked := map[Key]string{}
+	for rows.Next() {
+		var k Key
+		var id string
+		if err := rows.Scan(&k.Family, &k.ID, &id); err != nil {
+			return nil, err
+		}
+		blocked[k] = id
+	}
+	return blocked, rows.Err()
+}

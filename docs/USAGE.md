@@ -582,6 +582,8 @@ become idle within two minutes of its ready report, `overwatch` sends the reques
 new revision, and the session pauses, writes its handoff and reports ready again; the cycle's
 30-minute lifetime and its event limit bound the repeats. The Sessions page shows
 each session's current or newest cycle: its stage, the stage deadline and each recorded step.
+While the newest repeat found text in the session's input box, the Sessions row and the
+Attention page say so: clear the input box so that the cycle can clear the context.
 Disabling, retiring or purging the session, a family mode change, or a holder
 choice for its address ends the cycle; a cycle that fails or cannot be proven ends the
 session's Enable.
