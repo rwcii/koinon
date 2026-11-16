@@ -466,10 +466,12 @@ choices supporting the authorized spec, not separately dictated maintainer polic
 Review when field device acceptance exposes retention/recovery issues or capacity
 requires revision. Actual phone/platform evidence is tracked in the v2 sprint.
 
-## 10. Refinement: Change the dashboard choice in one command (proposed)
+## 10. Refinement: Change the dashboard choice in one command
 
-**Status:** Proposed. It waits for the maintainer's verdict on board card
-k685-remote-configure (revision 1). Until then this section is a proposal, not a decision.
+**Decided by:** Robert Capps, 2026-11-16, board card k685-remote-configure (approved, revision
+2). The card asked to approve the command and its scope as built, with two review fixes: a
+restart only through this installation's own service, and checks of the chosen address or
+port. claude-koinon proposed it; codex-koinon reviewed it.
 
 **Source:** Issue #685 (2026-11-14), which says: "The maintainer decides the name and the
 scope."
@@ -480,7 +482,7 @@ enable` or `disable` with `koinon install --dashboard-address HOST:PORT` or `non
 changes needed two commands in the right order. The dashboard's switch (section 8) gives one
 change only, to this computer and the tailnet.
 
-**Proposal:** `koinon remote configure` shows the saved answer in the words of the install
+**Decision:** `koinon remote configure` shows the saved answer in the words of the install
 question, and what runs now on separate lines. At a terminal it asks the install question
 again, with the current values as the defaults. `--choice local|tailnet|network`, with
 `--https-port` for the tailnet and `--dashboard-address` for a network address, gives the
@@ -495,7 +497,12 @@ that finishes it; the earlier steps stay done.
 
 **Reason and scope:** One command and one order replace two command groups. A network address
 can now also be opened by this command, not only by an install step (section 8). The
-dashboard's switch keeps its own order and is not changed.
+dashboard's switch keeps its own order and is not changed. The command line only: no new
+dashboard page. A macOS system-mode restart uses install's own checks.
+
+**Alternatives considered:** documenting the command pairs in INSTALL, which leaves two
+command groups to combine; `koinon install --ask-dashboard`, which also does an install's
+service and setup work that a change of the choice does not need.
 
 ## Conclusion
 
@@ -518,4 +525,4 @@ unverified connectivity and action outcomes stay labeled as such.
 | 2026-11-12 | Record Robert Capps's request for a "localhost and tailnet only" choice (#665). |
 | 2026-11-12 | Record Andrew's v2 implementation authorization, fixed 48-hour policy, durable sessions and explicit recovery scope. |
 | 2026-11-13 | Record Robert Capps's decision REL-SCOPE-673: §9 ships in v0.11.0 as his decision; Andrew stays the proposer. §5 is superseded for remote browsers. |
-| 2026-11-16 | Propose section 10, `koinon remote configure` (#685), until the verdict on card k685-remote-configure. |
+| 2026-11-16 | Record Robert Capps's decision k685-remote-configure: section 10, `koinon remote configure` (#685). |

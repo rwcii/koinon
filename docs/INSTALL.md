@@ -363,7 +363,7 @@ network bind and its address.
 ### Change where the dashboard opens
 
 The install asks its question once. To see or change the answer later, use one command
-(#685; proposed in PDR 010, section 10, until the maintainer's verdict):
+(#685; PDR 010, section 10):
 
 ```sh
 koinon remote configure                        # shows the choice; at a terminal, asks the question again
