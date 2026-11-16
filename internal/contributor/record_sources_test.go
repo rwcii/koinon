@@ -9,11 +9,16 @@ import (
 	"testing"
 )
 
-// cardSource finds a decision board card named as a source, such as "board card
-// TAILSCALE-AUTO-656" or "(card LINK-693-SIGNED, revision 10", also when the line wraps
-// between the word and the reference (#723). A label inside a record, such as
-// "READY-TIMEOUT-ENABLE-487 in PDR 006, Decision 2", names the record and is not a match.
-var cardSource = regexp.MustCompile("(?i)\\bcards?\\s+`?[a-z0-9]+(?:-[a-z0-9]+)+")
+// cardSource finds a decision board card named as a decision's source (#723): a card named
+// with the board ("board card TAILSCALE-AUTO-656", "on the decision board as card X") or
+// with its revision or approval ("(card LINK-693-SIGNED, revision 10", "Card X (a board),
+// approved"), also when the line wraps. A label or a runtime address next to the governing
+// record, such as "READY-TIMEOUT-ENABLE-487 in PDR 006, Decision 2" or "PDR 011 Decision 6
+// (card LINK-693-SIGNED)", is not a source and is not a match.
+var cardSource = regexp.MustCompile("(?i)\\bboard(?: as)? cards? `?" + cardID +
+	"|\\bcards? `?" + cardID + "`?(?:,? revision\\b|,? \\(?approved\\b| \\([^)]*\\bboard\\),? approved\\b)")
+
+const cardID = "[a-z0-9]+(?:-[a-z0-9]+)+"
 
 // cardSources joins the lines of each paragraph, so that a wrapped reference is found and a
 // heading such as "## Scope cards" does not join the next paragraph.
@@ -35,6 +40,9 @@ func TestRecordsNameNoCardAsSource(t *testing.T) {
 		"- **Decided by:** Robert Capps, 2026-11-07, on the decision board, card\n  CARD-FORM-AT-WRITE-635, revision 3",
 		"**Decided by:** Robert Capps, 2026-11-16, board card k685-remote-configure (approved, revision",
 		"for the live check (card `LINK-670-LIVE`, revision 2)",
+		"The revision goes on the decision\nboard as card LINK-693-SIGNED.",
+		"- Card kv-693-ssh (koinon-voice board), approved 2026-11-14: Voice connects",
+		"approved board card\nRECORD-MODE-589 on 2026-11-03",
 	} {
 		if len(cardSources(text)) != 1 {
 			t.Errorf("not found as a card source: %q", text)
@@ -47,6 +55,8 @@ func TestRecordsNameNoCardAsSource(t *testing.T) {
 		"each of its 25 card references is in an ADR, PDR or WDR",
 		"a card reference or a verdict ID",
 		"## Scope cards\n\ncodex-koinon reviewed each scope card",
+		"PDR 011 Decision 6 (card LINK-693-SIGNED) holds the decision and its context.",
+		"The runtime reads card `LINK-693-SIGNED` by reference; the governing source is PDR 011 Decision 6.",
 	} {
 		if found := cardSources(text); len(found) != 0 {
 			t.Errorf("a record citation found as a card source: %q: %v", text, found)
