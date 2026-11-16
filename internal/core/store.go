@@ -1390,6 +1390,31 @@ func (s *Store) List(ctx context.Context) ([]Session, bool, error) {
 	return result, truncated, nil
 }
 
+// FamilyCount is the number of agent sessions of one family, for the Sessions page (#718).
+type FamilyCount struct {
+	Family string
+	Count  int64
+}
+
+// familyCounts counts the agent sessions of each family in the whole store, in family order,
+// as Counts counts them by state.
+func (s *Store) familyCounts(ctx context.Context) ([]FamilyCount, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT family,COUNT(*) FROM sessions s WHERE family!='maintainer' AND `+notParticipantRow+` GROUP BY family ORDER BY family`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	counts := []FamilyCount{}
+	for rows.Next() {
+		var c FamilyCount
+		if err := rows.Scan(&c.Family, &c.Count); err != nil {
+			return nil, err
+		}
+		counts = append(counts, c)
+	}
+	return counts, rows.Err()
+}
+
 func (s *Store) Counts(ctx context.Context) (map[string]int64, error) {
 	counts := map[string]int64{"total": 0, "active": 0, "expired": 0, "retired": 0}
 	rows, err := s.db.QueryContext(ctx, `SELECT CASE WHEN retired_at!=0 THEN 'retired'

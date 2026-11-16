@@ -3134,6 +3134,12 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     when any session was refused; an unknown action or more than 100 selections is
     `invalid_request`, a known action without a selection is `no_selection` (#442), and a
     purge without the confirmation is `confirmation_required` and changes nothing (#388). The sessions view has a box before each agent session's name.
+    `context-on` and `context-off` (#718) turn each selected session's managed context Enable on
+    or off, as `context-enable` does for one session, with an `enable:family:id` value for each
+    selected session: the Enable revision that the page showed. The change is bound to the
+    selected key, not to a name; each session gets its own `context-enable` audit record, and a
+    changed Enable is `context_enable_changed`, an unavailable cycle `context_cycle_unavailable`,
+    and a missing or malformed Enable revision `invalid_request`, for that session only.
   - `release` (`repository`, `work_id`, `revision`, `generation`, `consumer`): the work release
     of the claim's owner, with the checkpoint `Released by the maintainer from the dashboard`;
     the work event names family and name `maintainer`. Stale values get the work refusal codes.

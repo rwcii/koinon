@@ -353,7 +353,7 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 	// the same confirmation as the single purge.
 	mux.HandleFunc("POST /dashboard/actions/bulk", authed(bulkFormLimit, func(w http.ResponseWriter, r *http.Request, _ string) {
 		action, selected := r.PostForm.Get("action"), r.PostForm["s"]
-		known := slices.Contains([]string{"retire", "purge", "unpurge", "clear"}, action)
+		known := slices.Contains([]string{"retire", "purge", "unpurge", "clear", "context-on", "context-off"}, action)
 		if !known || len(selected) == 0 || len(selected) > bulkLimit {
 			// An empty selection has its own notice, so the person knows to select sessions (#442).
 			code := "invalid_request"
@@ -383,13 +383,27 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 				}
 			}
 			k := Key{family, id}
-			ctx, pending := withAudit(r.Context(), action, family+":"+id)
+			audited := action
+			if action == "context-on" || action == "context-off" {
+				// Each session's Enable is audited as the single action audits it (#718).
+				audited = "context-enable"
+			}
+			ctx, pending := withAudit(r.Context(), audited, family+":"+id)
 			var err error
 			switch {
 			case !validKey(family, id) || revision < 1 || len(value) > 512:
 				err = ErrInvalid
 			case k == maintainerKey:
 				err = Refusal{"maintainer_session", "the maintainer session is built in"}
+			case action == "context-on" || action == "context-off":
+				// The page carries the Enable revision it showed for each session, so an
+				// Enable that changed since then is refused, as the single action refuses it.
+				enable, perr := strconv.ParseInt(r.PostForm.Get("enable:"+family+":"+id), 10, 64)
+				if perr != nil || enable < 0 {
+					err = ErrInvalid
+				} else {
+					_, err = d.store.SetContextEnableOf(ctx, k, revision, enable, action == "context-on")
+				}
 			case action == "retire":
 				_, err = d.store.Mutate(ctx, Mutation{Family: family, ID: id, IfRevision: revision}, true)
 			case action == "purge" || action == "unpurge":
