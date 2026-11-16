@@ -52,6 +52,22 @@ func waitLinkStateIs(t *testing.T, h *linkHost, s Session, id, want string) {
 	})
 }
 
+// receivedCount is the number of ids whose outbox row on h is received.
+func receivedCount(t *testing.T, h *linkHost, ids []string) int {
+	t.Helper()
+	n := 0
+	for _, id := range ids {
+		var state string
+		if err := h.d.store.db.QueryRow(`SELECT state FROM link_outbox WHERE xid=?`, id).Scan(&state); err != nil {
+			t.Fatal(err)
+		}
+		if state == "received" {
+			n++
+		}
+	}
+	return n
+}
+
 func bodies(t *testing.T, h *linkHost, s Session) []string {
 	t.Helper()
 	var out []string
@@ -732,8 +748,13 @@ func TestLinkMessageLongQueue(t *testing.T) {
 	if err := b.d.remoteEnable(context.Background(), 0); err != nil {
 		t.Fatal(err)
 	}
+	// Each message is its own store work on both computers, in order, so the wait grows with
+	// the queue; a stall still fails after 10 s without a newly received message (#713).
+	start := time.Now()
 	a.d.linkKick(a.state(t).Pairs[0].ID)
-	waitLinkStateIs(t, a, sender, ids[len(ids)-1], "received")
+	last := ids[len(ids)-1]
+	waitProgress(t, "the long queue was not received", start, time.Duration(len(ids))*time.Second, 10*time.Second,
+		func() int { return receivedCount(t, a, ids) }, func() bool { return linkStateOf(t, a, sender, last) == "received" })
 	var unknown int
 	if err := a.d.store.db.QueryRow(`SELECT COUNT(*) FROM link_outbox WHERE unknown=1 OR state<>'received'`).Scan(&unknown); err != nil || unknown != 0 {
 		t.Fatalf("rows not received cleanly: %d %v", unknown, err)
