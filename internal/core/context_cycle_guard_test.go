@@ -758,6 +758,25 @@ func TestContextCycleRequestAsksToPauseAndStayIdle(t *testing.T) {
 	}
 }
 
+// #697: the ready answer of a cycle that goes on keeps each family's pause; the answer of an
+// ended cycle, for every family, says that no clear follows and asks for no pause.
+func TestReadyNextOfAnEndedCycle(t *testing.T) {
+	going := CycleView{State: cycleReady}
+	if readyNext("claude", going) != cycleReadyNext || readyNext("deepseek", going) != deepSeekReadyNext {
+		t.Fatal("a cycle that goes on lost its pause")
+	}
+	for _, ended := range []CycleView{{State: cycleFailed, Reason: "event_limit"}, {State: cycleCancelled, Reason: "disabled"},
+		{State: cycleComplete}, {State: cycleUncertain, Reason: "lifecycle_split"}} {
+		for _, family := range []string{"claude", "deepseek", "codex"} {
+			next := readyNext(family, ended)
+			if !strings.Contains(next, "ended: "+ended.State) || !strings.Contains(next, "No context clear will follow this reply: go on with your work.") ||
+				strings.Contains(next, "stay idle") || ended.Reason != "" && !strings.Contains(next, "("+ended.Reason+")") {
+				t.Fatalf("%s %+v: %s", family, ended, next)
+			}
+		}
+	}
+}
+
 // A repeated request names its own ready deadline, which the cycle's lifetime caps (#467).
 func TestContextCycleRepeatNamesCappedDeadline(t *testing.T) {
 	f := newCycleFixture(t)

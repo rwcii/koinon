@@ -273,7 +273,8 @@ while fresh and for the current published name.
   shows and the handoff file name by that deadline. Then end your turn and stay idle: the
   cycle clears your context at your idle prompt, and enters Koinon's own pickup skill, koinon-pickup, which the
   daemon writes for the person and which loads skill.pickup. If your pane does not become
-  idle, overwatch sends the request again under a new revision; pause and report again.
+  idle, overwatch sends the request again under a new revision; pause and report again. If
+  the reply says that the cycle ended, no clear follows: go on with your work.
 - After a clear, call context_cycle_status. For a cycle in reset_verified or waiting_pickup,
   with or without a repository, finish your canonical pickup of the returned handoff file, then
   call context_cycle_pickup with the cycle ID, revision, file name, outcome resumed or paused,

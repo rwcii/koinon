@@ -978,6 +978,52 @@ func TestContextCycleControlsAtSaturation(t *testing.T) {
 	}
 }
 
+// #697: a ready report that ends its cycle, here at the event limit, answers the failed
+// cycle, and its next says that no clear follows, not to stay idle.
+func TestContextCycleReadyAtEventLimit(t *testing.T) {
+	adapter := &fakeAdapter{pane: PaneState{Idle: true}, probe: CycleProbe{Entry: "koinon-pickup"}}
+	previous := cycleAdapters
+	cycleAdapters = map[string]CycleAdapter{"claude": adapter}
+	t.Cleanup(func() { cycleAdapters = previous })
+	d, root := startTestDaemon(t)
+	s := d.store
+	repo := namedRepo(t, "cycle-event-limit")
+	a := join(t, s, "claude", "synthetic-limit-a", repo)
+	pid, start := liveHost(t)
+	fixtureExec(s, `UPDATE sessions SET host_pid=?,host_start=?,tmux_socket='/tmp/synthetic-socket',tmux_pane='%3' WHERE family='claude' AND id=?`, pid, start, a.ID)
+	a, _ = scanSession(s.db.QueryRow(sessionQuery+` WHERE s.family=? AND s.id=?`, "claude", a.ID), s.now().UnixMilli())
+	if _, err := s.SetContextEnable(roomCtx("context-enable"), a.Name, a.Revision, 0, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Observe(context.Background(), Observation{Caller: Key{"claude", a.ID}, Context: &ObservedValue{Source: "claude_statusline",
+		At: s.now().UnixMilli(), LimitTokens: int64p(1000), UsedTokens: int64p(950), Epoch: "synthetic-epoch-1"}}); err != nil {
+		t.Fatal(err)
+	}
+	var id string
+	if err := s.db.QueryRow(`SELECT cycle_id FROM context_cycles`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("_handoff/\n"), 0o644)
+	os.MkdirAll(filepath.Join(repo, "_handoff", "claude"), 0o700)
+	os.WriteFile(filepath.Join(repo, "_handoff", "claude", "2026-10-13-120000.md"), []byte("synthetic handoff"), 0o600)
+	// The cycle has credit to end, but not for another stage: the report ends it.
+	fixtureExec(s, `UPDATE context_cycles SET credit=? WHERE cycle_id=?`, cycleTerminalPages, id)
+	secret, err := ReadSecret(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, reply := post(t, d.Addresses()[0], secret, "/v1/cycles/ready", map[string]any{"caller": map[string]any{"family": "claude", "id": a.ID},
+		"epoch": "synthetic-epoch-1", "cycle_id": id, "revision": 1, "artifact": "2026-10-13-120000.md"})
+	cycle, _ := reply["cycle"].(map[string]any)
+	if status != 200 || cycle["state"] != cycleFailed || cycle["reason"] != "event_limit" {
+		t.Fatalf("ready at the event limit: %d %v", status, reply)
+	}
+	want := "The managed context cycle ended: failed (event_limit). No context clear will follow this reply: go on with your work."
+	if reply["next"] != want {
+		t.Fatalf("next %q, want %q", reply["next"], want)
+	}
+}
+
 // The Sessions page shows the cycle's stage, deadline and history without a native ID,
 // epoch, pane, socket or report; the own-cycle API refuses unknown fields.
 func TestContextCycleDashboardAndRoutes(t *testing.T) {

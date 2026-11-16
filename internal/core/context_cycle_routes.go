@@ -37,12 +37,7 @@ func (d *Daemon) cycleRoutes(mux *http.ServeMux) {
 		d.store.ToolCall(request.Caller)
 		cycle, err := d.store.ContextCycleReady(r.Context(), request.Caller, request.Epoch, request.CycleID, request.Revision, request.Artifact)
 		if err == nil {
-			// The requester stays paused: the clear waits for its idle prompt (#431).
-			next := cycleReadyNext
-			if request.Caller.Family == "deepseek" {
-				next = deepSeekReadyNext
-			}
-			respond(w, 200, map[string]any{"ok": true, "cycle": cycle, "next": next})
+			respond(w, 200, map[string]any{"ok": true, "cycle": cycle, "next": readyNext(request.Caller.Family, cycle)})
 			return
 		}
 		cycleReply(w, cycle, err)
