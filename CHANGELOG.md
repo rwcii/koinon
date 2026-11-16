@@ -8,6 +8,10 @@ into a dated release section when promoted to `main`.
 - The verdict record instruction and the installed guide say that the repository record holds a
   board decision and is its source, and that neither the card reference nor the verdict ID is
   cited as the source (#723). Koinon's own records no longer name a card as a decision's source.
+- Every section of the Settings page starts closed (#719). The browser keeps the sections that
+  you leave open, so they open again after an action reloads the page and when you come back;
+  a link such as `/dashboard/settings#remote-access` opens its section and no longer closes the
+  others.
 - The Sessions page shows the sessions of one agent family with an exact match, from a row of
   family counts, in place of a text search that also matched names and directories (#718).
   **Change the selected sessions** can enable or disable managed context for every selected

@@ -7,12 +7,7 @@
   var status = document.getElementById("remote-read-status");
   var pending = false, checked = new URL(window.location.href).searchParams.get("remote_setup") === "1";
   var refreshed = 0, ticketBusy = false, ticketURL = "", ticketDeadline = 0;
-  // Opening Go remote focuses setup; other Settings sections stay available.
-  if (new URL(window.location.href).hash === "#remote-access") {
-    document.querySelectorAll("details.action").forEach(function (section) {
-      if (section.id !== "remote-access") { section.open = false; }
-    });
-  }
+  // sections.js opens the Remote access section for a #remote-access link (#719).
   function discardTicket() {
     if (ticketURL) { URL.revokeObjectURL(ticketURL); }
     ticketURL = ""; ticketDeadline = 0;
