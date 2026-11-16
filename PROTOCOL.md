@@ -39,7 +39,10 @@ port and reports `remote` (`https_port`, and `url`, or `error` and `step`). The 
 authenticated `dashboard-access` action (`mode` `tailnet`) enables remote access with the
 saved port, saves `dashboard-local.json`, removes `dashboard-address.json` and closes the
 network listener after its own response; a failed enable changes neither file, and a failed
-write keeps the listener open (`dashboard_access_partial`). After a secret
+write keeps the listener open (`dashboard_access_partial`). `koinon remote configure` (#685) reads
+the same files and the daemon's status, and changes the answer with the same steps in one
+order: remote disable, the two files, one daemon restart, then remote enable; it refuses
+before the first change, and a failed step stops it with `dashboard_change_incomplete`. After a secret
 set at those questions, the install restarts the daemon once; a failed restart reports
 `dashboard_network.code` `dashboard_restart_failed` with its step, and the install fails with
 `daemon_restart_failed`.
@@ -60,7 +63,7 @@ The secret and state files are user-owned regular files, mode 0600; the state ro
 Secrets, runtime session identifiers and response bodies stay in the state directory, outside
 repositories.
 
-An additional optional browser surface is managed by `koinon remote enable|status|disable`
+An additional optional browser surface is managed by `koinon remote enable|status|disable|configure`
 (ADR 002, PDR 010). Tailscale Serve supplies private HTTPS on the host's `.ts.net`
 name and forwards to a dedicated `127.0.0.1` HTTP listener. That listener serves
 only the dashboard and static assets, with `/` redirecting to `/dashboard/`, and the two
