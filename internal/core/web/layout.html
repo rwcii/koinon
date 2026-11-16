@@ -10,7 +10,7 @@
 <script src="/dashboard/static/recovery.js" defer></script>
 <script src="/dashboard/static/app.js" defer></script>
 <script src="/dashboard/static/speak.js" defer></script>
-{{if eq .View "settings"}}<script src="/dashboard/static/devices.js" defer></script><script src="/dashboard/static/remote.js" defer></script>{{end}}
+{{if eq .View "settings"}}<script src="/dashboard/static/devices.js" defer></script><script src="/dashboard/static/remote.js" defer></script><script src="/dashboard/static/sections.js" defer></script>{{end}}
 {{if eq .View "pair"}}<script src="/dashboard/static/pair.js" defer></script>{{end}}
 </head>
 <body{{if .Remote}} data-remote="true" data-remote-session="{{.RemoteSessionID}}" data-host-time="{{.Now.UnixMilli}}"{{if .AuthReason}} data-auth-reason="{{.AuthReason}}"{{end}}{{end}}>

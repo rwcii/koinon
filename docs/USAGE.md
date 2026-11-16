@@ -473,6 +473,13 @@ lifetime (default 900 seconds), the renewal interval of `koinon mcp` (default 30
 most half the lifetime) and the succession guard (default 30 seconds, at least 30). A change
 applies at once, without a restart, and the audit log records it.
 
+Each section of the Settings page, such as Remote access or Computers, starts closed (#719).
+This browser keeps the sections that you leave open: they open again after an action reloads
+the page and when you come back to Settings. A link to a section, such as
+`/dashboard/settings#remote-access`, opens that section and keeps the others as they are. The
+open sections are kept in this browser's local storage for the dashboard address, so another
+browser or a private window starts with every section closed.
+
 The Settings page also sets each family's context handoff mode and threshold, in that family's
 row of the Context handoff table: its Mode drop-down and Threshold field show the current
 values, and its Save changes that family only (#720). The defaults are Claude
