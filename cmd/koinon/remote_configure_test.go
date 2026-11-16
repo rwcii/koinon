@@ -257,7 +257,7 @@ func TestRemoteConfigureAppliesChoice(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, err := configure("--choice", "tailnet", "--https-port", "8444")
-	if err != nil || out != "Done: save_choice\nDone: remote_enable\n"+
+	if err != nil || out != "Done: save_choice\nDone: remote_enable\nDone: tailnet_open\n"+
 		"Saved choice: 2. On this computer and your tailnet, through Tailscale Serve (HTTPS port 8444)\n"+
 		"Running now, network address: none\n"+
 		"Running now, tailnet: open at https://board.example.ts.net:8444/dashboard/\n" {
