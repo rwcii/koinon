@@ -432,9 +432,13 @@ func TestLinkIntroductionCapacityIsAllOrNone(t *testing.T) {
 	if p, _ := pairWith(t, c, b); !p.Asking {
 		t.Fatalf("stopped asking: %+v", p)
 	}
-	// The stale introductions go (their pairs do not exist); the next ask gets alpha.
+	// The stale introductions go (their pairs do not exist); the next ask gets alpha. Each one
+	// is a read and a write of the link state, in order, so the wait grows with their number; a
+	// stall still fails after 10 s without one gone (#713).
+	start := time.Now()
 	b.d.passNow()
-	waitFor(t, "beta kept stale introductions", func() bool { return len(introsOf(t, b)) == 0 && !b.d.introBusy() })
+	waitProgress(t, "beta kept stale introductions", start, link.MaxIntros*100*time.Millisecond, 10*time.Second,
+		func() int { return -len(introsOf(t, b)) }, func() bool { return len(introsOf(t, b)) == 0 && !b.d.introBusy() })
 	c.d.passNow()
 	waitFor(t, "alpha never got gamma", func() bool { _, ok := pairWith(t, a, c); return ok && !b.d.introBusy() })
 	requireMesh(t, a, b, c)

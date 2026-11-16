@@ -203,6 +203,69 @@ func waitFor(t *testing.T, what string, ok func() bool) {
 	}
 }
 
+// waitProgress waits for done on work whose length grows with its size, such as a long
+// queue on a slow host (#713). It fails when the work is not done within budget of start, or
+// when progress, a count that grows as the work goes on, reaches no new best value for
+// stallAfter. A repeated or lower value is no progress.
+func waitProgress(t *testing.T, what string, start time.Time, budget, stallAfter time.Duration, progress func() int, done func() bool) {
+	t.Helper()
+	if err := progressWait(time.Now, time.Sleep, start, budget, stallAfter, progress, done); err != nil {
+		t.Fatalf("%s: %v", what, err)
+	}
+}
+
+// progressWait is waitProgress with its clock and sleep given.
+func progressWait(now func() time.Time, sleep func(time.Duration), start time.Time, budget, stallAfter time.Duration,
+	progress func() int, done func() bool) error {
+	best, last := progress(), start
+	for !done() {
+		at := now()
+		if at.Sub(start) > budget {
+			return fmt.Errorf("not done within %v (progress %d)", budget, best)
+		}
+		if p := progress(); p > best {
+			best, last = p, at
+		} else if at.Sub(last) > stallAfter {
+			return fmt.Errorf("no progress for %v (progress %d)", stallAfter, best)
+		}
+		sleep(20 * time.Millisecond)
+	}
+	return nil
+}
+
+// #713: a slow wait that keeps making progress may pass the old fixed 10 s; one that stops,
+// or only repeats or loses its best value, fails after the stall bound; one too slow for its
+// budget fails at the budget.
+func TestProgressWait(t *testing.T) {
+	run := func(budget time.Duration, values func(poll int) int, doneAt int) error {
+		clock := time.Unix(1000, 0)
+		start, poll := clock, 0
+		return progressWait(func() time.Time { return clock }, func(time.Duration) { clock = clock.Add(time.Second); poll++ },
+			start, budget, 10*time.Second, func() int { return values(poll) },
+			// The cap ends a wait that would never end, so a missing check fails at once.
+			func() bool { return doneAt >= 0 && poll >= doneAt || poll > 1000 })
+	}
+	// One step every 5 s for 60 s: done, far beyond 10 s.
+	if err := run(100*time.Second, func(poll int) int { return poll / 5 }, 60); err != nil {
+		t.Fatalf("steady progress: %v", err)
+	}
+	// No step at all: fails after the stall bound.
+	if err := run(100*time.Second, func(int) int { return 3 }, -1); err == nil || !strings.Contains(err.Error(), "no progress for 10s") {
+		t.Fatalf("frozen: %v", err)
+	}
+	// Values that go up and back down never pass the best value: no reset.
+	if err := run(100*time.Second, func(poll int) int { return 5 + poll%2 }, -1); err == nil || !strings.Contains(err.Error(), "no progress for 10s") {
+		t.Fatalf("repeating: %v", err)
+	}
+	if err := run(100*time.Second, func(poll int) int { return 5 - poll }, -1); err == nil || !strings.Contains(err.Error(), "no progress for 10s") {
+		t.Fatalf("falling: %v", err)
+	}
+	// Steady progress that is too slow for its budget fails at the budget.
+	if err := run(30*time.Second, func(poll int) int { return poll / 5 }, -1); err == nil || !strings.Contains(err.Error(), "not done within 30s") {
+		t.Fatalf("too slow: %v", err)
+	}
+}
+
 func pairByAdvertised(t *testing.T, h *linkHost, advertised string) link.Pair {
 	t.Helper()
 	for _, p := range h.state(t).Pairs {
