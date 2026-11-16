@@ -948,6 +948,13 @@ so the selection stays. The counts above the list (all, active, expired, retired
 sessions of one status when chosen (`status=active`, `expired` or `retired` in the address);
 **all** shows every session again. The chosen count is marked, the counts stay totals, and the
 search, the sort and the next pages keep the status.
+A second row of counts shows the sessions of one agent family (`family=codex` in the address),
+by an exact match of the family name: a session whose name, alias or directory only contains the
+word is not shown, and an unknown family shows none (#718). **all families** shows every family
+again. These counts are totals of the whole list too, and the search, the status, the sort,
+the next pages and the return after an action keep the family; choosing a family starts at the
+first page. With a family chosen, **Select all sessions on this page** selects that family's
+sessions.
 
 Each changed session gets the dashboard action's audit record (`purge`, `unpurge`, `retire`,
 `clear`) with the origin `by cli`; a session that changed since the selection is refused with
