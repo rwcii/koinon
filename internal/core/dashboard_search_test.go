@@ -29,7 +29,7 @@ func TestDashboardSessionSearch(t *testing.T) {
 	}
 	search := func(q string) []string {
 		t.Helper()
-		page, next, err := s.dashboardSessions(ctx, sortOrder(t, &sessionSort, "name", "asc", ""), q, "")
+		page, next, err := s.dashboardSessions(ctx, sortOrder(t, &sessionSort, "name", "asc", ""), q, "", "")
 		if err != nil || next != "" {
 			t.Fatalf("search %q: %v %q", q, err, next)
 		}
@@ -56,7 +56,7 @@ func TestDashboardSessionSearch(t *testing.T) {
 	if got := search("no-such-session"); len(got) != 0 {
 		t.Fatalf("no match: %v", got)
 	}
-	if _, _, err := s.dashboardSessions(ctx, sortOrder(t, &sessionSort, "", "", ""), strings.Repeat("x", dashboardSearchMax+1), ""); err != ErrInvalid {
+	if _, _, err := s.dashboardSessions(ctx, sortOrder(t, &sessionSort, "", "", ""), strings.Repeat("x", dashboardSearchMax+1), "", ""); err != ErrInvalid {
 		t.Fatalf("long search: %v", err)
 	}
 }
@@ -75,7 +75,7 @@ func TestDashboardSessionSearchPaging(t *testing.T) {
 	}
 	for _, dir := range []string{"asc", "desc"} {
 		rows := pageAll(t, &sessionSort, "name", dir, func(o dashboardSort) ([]Session, string, error) {
-			return s.dashboardSessions(ctx, o, "search-match", "")
+			return s.dashboardSessions(ctx, o, "search-match", "", "")
 		})
 		checkOrder(t, "search by name", dir, rows, want, func(r Session) []any { return []any{r.Name, r.Family, r.ID} })
 		for _, r := range rows {
@@ -227,7 +227,7 @@ func TestDashboardSessionStatusFilter(t *testing.T) {
 	} {
 		for _, dir := range []string{"asc", "desc"} {
 			rows := pageAll(t, &sessionSort, "name", dir, func(o dashboardSort) ([]Session, string, error) {
-				return s.dashboardSessions(ctx, o, c.search, c.state)
+				return s.dashboardSessions(ctx, o, c.search, c.state, "")
 			})
 			checkOrder(t, "status "+c.state, dir, rows, c.want, func(r Session) []any { return []any{r.Name, r.Family, r.ID} })
 			for _, r := range rows {
@@ -238,7 +238,7 @@ func TestDashboardSessionStatusFilter(t *testing.T) {
 		}
 	}
 	for _, state := range []string{"bogus", "Active", "purge-marked"} {
-		if _, _, err := s.dashboardSessions(ctx, sortOrder(t, &sessionSort, "", "", ""), "", state); err != ErrInvalid {
+		if _, _, err := s.dashboardSessions(ctx, sortOrder(t, &sessionSort, "", "", ""), "", state, ""); err != ErrInvalid {
 			t.Fatalf("status %q: %v", state, err)
 		}
 	}

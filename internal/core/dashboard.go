@@ -532,8 +532,12 @@ type sessionsData struct {
 	// Status is the status filter shown ("" is all); the counts stay totals under it.
 	Status string
 	Counts map[string]int64
-	Sort   dashboardSort
-	Next   string
+	// Family is the family filter shown ("" is all families), and Families each family's
+	// count in the whole store (#718).
+	Family   string
+	Families []FamilyCount
+	Sort     dashboardSort
+	Next     string
 	// Computers are the receivers of paired computers, one group each (#670).
 	Computers []remoteGroup
 }
@@ -605,7 +609,7 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		sessions, next, err := d.store.dashboardSessions(ctx, order, q.Get("q"), q.Get("status"))
+		sessions, next, err := d.store.dashboardSessions(ctx, order, q.Get("q"), q.Get("status"), q.Get("family"))
 		if err != nil {
 			return nil, err
 		}
@@ -634,12 +638,17 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+		families, err := d.store.familyCounts(ctx)
+		if err != nil {
+			return nil, err
+		}
 		enables, err := d.store.contextEnables(ctx)
 		if err != nil {
 			return nil, err
 		}
 		now := d.store.now().UnixMilli()
-		result := sessionsData{Rows: make([]sessionRow, 0, len(sessions)), Search: q.Get("q"), Status: q.Get("status"), Counts: counts, Sort: order, Next: next,
+		result := sessionsData{Rows: make([]sessionRow, 0, len(sessions)), Search: q.Get("q"), Status: q.Get("status"), Counts: counts,
+			Family: q.Get("family"), Families: families, Sort: order, Next: next,
 			Computers: remoteGroups(d.remoteRows())}
 		for _, s := range sessions {
 			result.Rows = append(result.Rows, sessionRow{Session: s, Work: claims[s.Family+":"+s.ID], Observed: d.store.sessionObservations(pull, s), Participant: byAddress[s.Address],
