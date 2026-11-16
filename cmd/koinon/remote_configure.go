@@ -28,6 +28,7 @@ func remoteConfigure(ctx context.Context, args []string, in io.Reader, out io.Wr
 	flags := flag.NewFlagSet("remote configure", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	state := flags.String("state-dir", root, "private Go state directory")
+	prefix := flags.String("prefix", "", "Go installation prefix, for the daemon restart")
 	address := addressFlag(flags)
 	asJSON := flags.Bool("json", false, "print the result as JSON")
 	choice := flags.String("choice", "", "the answer: local, tailnet or network")
@@ -67,13 +68,13 @@ func remoteConfigure(ctx context.Context, args []string, in io.Reader, out io.Wr
 	if err := resolveAddress(flags); err != nil {
 		return err
 	}
-	o := install.Options{StateDir: *state, Address: *address}
+	o := install.Options{Prefix: *prefix, StateDir: *state, Address: *address, Version: version, Tell: os.Stderr}
 	current, err := install.ReadDashboardCurrent(ctx, o)
 	if err != nil {
 		return coded(err)
 	}
 	var t *terminal
-	if *choice == "" && !*asJSON {
+	if !*asJSON {
 		t = configureTerminal(ctx, in)
 	}
 	if *choice == "" && t == nil {
@@ -90,5 +91,43 @@ func remoteConfigure(ctx context.Context, args []string, in io.Reader, out io.Wr
 		fmt.Fprintln(out, "To change it, run koinon remote configure at a terminal, or give --choice local, tailnet or network.")
 		return nil
 	}
-	return usageError{"remote_configure_unavailable", "this build only shows the dashboard choice"}
+	if *choice == "" {
+		return usageError{"remote_configure_unavailable", "this build asks no question; give --choice local, tailnet or network"}
+	}
+	if t != nil {
+		o.Line, o.NewSecret = t.line, t.newSecret
+		o.RemoteEnable = installRemoteEnable(t)
+	}
+	change, err := install.ConfigureDashboard(ctx, o, install.DashboardTarget{Choice: *choice, HTTPSPort: *httpsPort, Address: *dashboardAddress})
+	if *asJSON {
+		printJSON(out, struct {
+			OK     bool                    `json:"ok"`
+			Change install.DashboardChange `json:"change"`
+		}{err == nil, change})
+		return coded(err)
+	}
+	printDashboardChange(out, change)
+	return coded(err)
+}
+
+// printDashboardChange shows each step with its effect, then the choice after the change.
+func printDashboardChange(out io.Writer, c install.DashboardChange) {
+	if c.Steps != nil && !c.Changed {
+		fmt.Fprintln(out, "No change: the dashboard already opens this way.")
+	}
+	for _, s := range c.Steps {
+		line := "Done: " + s.Step
+		if !s.Done {
+			line = "Failed: " + s.Step + ": " + s.Error + ". To finish it, run " + s.Finish
+		}
+		if s.Effect != "" && s.Done {
+			line += ". " + s.Effect
+		}
+		fmt.Fprintln(out, line)
+	}
+	if c.After != nil {
+		for _, line := range install.DescribeDashboard(*c.After) {
+			fmt.Fprintln(out, line)
+		}
+	}
 }

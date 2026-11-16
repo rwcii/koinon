@@ -219,3 +219,64 @@ func TestRemoteConfigureRefusesUnreadableChoice(t *testing.T) {
 		t.Fatal(err, out.String())
 	}
 }
+
+// With --choice, configure applies the answer, reports each step with its effect on sign-ins
+// and then the choice; the same answer again changes nothing (#685, C3 to C5).
+func TestRemoteConfigureAppliesChoice(t *testing.T) {
+	ctx := context.Background()
+	adapter := &remoteCLIAdapter{}
+	dir := t.TempDir()
+	root := filepath.Join(dir, "state")
+	d, err := core.Start(core.Config{StateDir: root, Listen: []string{"127.0.0.1:0"}, Tailscale: adapter, SecretCost: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	address := d.Addresses()[0]
+	prefix := filepath.Join(dir, "prefix")
+	if err := os.MkdirAll(filepath.Dir(install.Binary(prefix)), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(install.Binary(prefix), []byte("synthetic binary"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	configure := func(args ...string) (string, error) {
+		var out bytes.Buffer
+		err := run(ctx, append([]string{"remote", "configure", "--prefix", prefix, "--state-dir", root, "--address", address}, args...), strings.NewReader(""), &out)
+		return out.String(), err
+	}
+	// The tailnet answer needs the maintainer secret; without one and without a terminal,
+	// nothing changes.
+	if out, err := configure("--choice", "tailnet"); err == nil || !strings.Contains(err.Error(), "remote_secret_required") || out != "" {
+		t.Fatal(out, err)
+	}
+	var secret bytes.Buffer
+	if err := run(ctx, []string{"maintainer", "secret", "set", "--state-dir", root, "--address", address}, strings.NewReader("synthetic-long-secret\n"), &secret); err != nil {
+		t.Fatal(err)
+	}
+	out, err := configure("--choice", "tailnet", "--https-port", "8444")
+	if err != nil || out != "Done: save_choice\nDone: remote_enable\n"+
+		"Saved choice: 2. On this computer and your tailnet, through Tailscale Serve (HTTPS port 8444)\n"+
+		"Running now, network address: none\n"+
+		"Running now, tailnet: open at https://board.example.ts.net:8444/dashboard/\n" {
+		t.Fatalf("%q %v", out, err)
+	}
+	if out, err := configure("--choice", "tailnet"); err != nil || !strings.HasPrefix(out, "No change: the dashboard already opens this way.\nSaved choice: 2.") {
+		t.Fatalf("%q %v", out, err)
+	}
+	out, err = configure("--choice", "local", "--json")
+	var reply struct {
+		OK     bool                    `json:"ok"`
+		Change install.DashboardChange `json:"change"`
+	}
+	if err != nil || json.Unmarshal([]byte(out), &reply) != nil || !reply.OK || !reply.Change.Changed || len(reply.Change.Steps) != 1 ||
+		reply.Change.Steps[0] != (install.DashboardStep{Step: "remote_disable", Done: true, Effect: "Remote sign-ins on your tailnet end."}) ||
+		reply.Change.After == nil || reply.Change.After.Choice != install.DashboardLocal || reply.Change.After.Runtime.Remote.Configured {
+		t.Fatalf("%s %v", out, err)
+	}
+	adapter.mu.Lock()
+	defer adapter.mu.Unlock()
+	if adapter.commands != 2 {
+		t.Fatal("Serve writes", adapter.commands)
+	}
+}
