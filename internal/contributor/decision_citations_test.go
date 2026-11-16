@@ -12,7 +12,7 @@ import (
 
 // retiredRecordReferences are the card references of the entries of the retired record file
 // (#623). Each decision now lives in the ADR, PDR or WDR that holds its rule (WDR 001,
-// Decision 7), and documents cite it by that record and its card reference.
+// Decision 7), and documents cite that record, with the card reference as a label in it.
 var retiredRecordReferences = []string{"493-1", "493-2", "493-3", "493-4", "493-5", "493-6", "COMPACT-ENABLE-509",
 	"PICKUP-WAIT-525", "DECISION-RECORDS-536", "WORK-LIMIT-529", "SUBAGENT-CLEAR-533", "BOARD-VERDICTS-537", "CLI-RULES-550",
 	"SPEAK-SCOPE-553", "CARD-FORM-562", "IDLE-COMPACT-564", "CLAUDE-IDLE-566", "PULLED-IDLE-569", "GROK-IDLE-568",
@@ -28,8 +28,8 @@ func retiredFileNamed(name string) bool {
 	return name == "CHANGELOG.md" || name == "docs/engineering/wdr/001-decision-records-govern-constraints.md" || strings.HasSuffix(name, "_test.go")
 }
 
-// Tracked documents name a decision board verdict by its card reference, never by its
-// verdict ID (#536). The retired record file is gone, no other tracked file names it, and each
+// Tracked documents cite the repository record that holds a decision, never its verdict ID
+// (#536, #723). The retired record file is gone, no other tracked file names it, and each
 // of its card references is in an ADR, PDR or WDR (#623). The same script checks pull request
 // text in CI and commit messages in the commit-msg hook.
 func TestDecisionCitationsResolve(t *testing.T) {

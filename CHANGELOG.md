@@ -5,6 +5,9 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The verdict record instruction and the installed guide say that the repository record holds a
+  board decision and is its source, and that neither the card reference nor the verdict ID is
+  cited as the source (#723). Koinon's own records no longer name a card as a decision's source.
 - The Sessions page shows the sessions of one agent family with an exact match, from a row of
   family counts, in place of a text search that also matched names and directories (#718).
   **Change the selected sessions** can enable or disable managed context for every selected

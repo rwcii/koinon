@@ -91,8 +91,8 @@ is kept privately. Revisit when preview testing ends and the route is removed.
 
 - **Decided by:** Robert Capps, directly in the terminal.
 - **Date:** 2026-11-14.
-- **Context:** REL-SCOPE-673 asks for an iPhone sign-in, a daemon restart and a check after one
-  hour (board card PHONE-673-TEST). On a test daemon of the merged #673, the iPhone stayed
+- **Context:** REL-SCOPE-673 (PDR 010 Refinement 9) asks for an iPhone sign-in, a daemon restart
+  and a check after one hour. On a test daemon of the merged #673, the iPhone stayed
   signed in across the restart, and then the iPhone and a desktop browser both lost the
   sign-in while the daemon kept both sign-ins valid. The main lead, not proven: the installed
   Koinon on HTTPS port 443 and the test daemon on 8444 used one cookie name, and browsers do

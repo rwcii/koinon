@@ -156,9 +156,9 @@ question and the options), Decision, Reason and scope, and Review when (a known 
 calls for a review of the decision; leave it out when there is none). Put a declined decision
 into the record's Alternatives Considered. decision_get, decision_pending and the verdict
 message give the verdict, the card text and this instruction. Correct the spelling and typing
-errors in quoted words (notes, feedback and quotes), and keep their meaning and wording. Name a
-decision by its card reference, never by verdict ID: a verdict ID exists only in this machine's
-store. How a project cites its decisions is that project's own rule. Recorded text is public
+errors in quoted words (notes, feedback and quotes), and keep their meaning and wording. The
+repository record holds the decision itself and is its source: cite neither the card reference
+nor the verdict ID as the source, because both exist only in this machine's store. How a project cites its decisions is that project's own rule. Recorded text is public
 repository text, so write every card as public text (#536). koinon decision export --as FAMILY:ID PATH writes
 every item, live and deep-archived, as JSON lines to a new private file outside a Git work
 tree, which a person or CI can read without the daemon.

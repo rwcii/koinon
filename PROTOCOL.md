@@ -2529,8 +2529,8 @@ agent, when the verdict decides how the project works, to record the decision in
 repository that the item was created in, in the pull request that does the work, in the ADR,
 PDR, WDR or sprint document that holds the rule, with Decided by (the person's name, not a
 role), Date, Context, Decision, Reason and scope, and Review when; a declined decision goes
-into Alternatives Considered; the decision is named by its card reference, never by verdict
-ID. An item read carries `author_repository`, the repository of the participant that the item
+into Alternatives Considered; the repository record holds the decision itself and is its
+source, and neither the card reference nor the verdict ID is cited as the source (#723). An item read carries `author_repository`, the repository of the participant that the item
 stored for its author at create; a plain peer's item has none. A snapshot stores the item's
 `where` since #536; an older snapshot has none. The `decision_record` tool and `koinon
 decision record` are removed (#623). The ship skill no longer declares the `Decision record`

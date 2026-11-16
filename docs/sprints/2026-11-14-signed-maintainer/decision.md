@@ -1,7 +1,7 @@
 # Signed maintainer actions across linked computers (#693): decision and contract
 
-Status: approved by Robert Capps on 2026-11-15 (card LINK-693-SIGNED, revision 10, at 4e324d5;
-recorded as PDR 011 Decision 6). claude-koinon, codex-koinon, claude-koinon-voice and
+Status: approved by Robert Capps on 2026-11-15 on the decision board, at 4e324d5; recorded as
+PDR 011 Decision 6 (LINK-693-SIGNED). claude-koinon, codex-koinon, claude-koinon-voice and
 codex-koinon-voice agree (rwcii/koinon-voice c85b9cb). Built in three chunks with Koinon Voice
 (rwcii/koinon-voice#36).
 
@@ -16,7 +16,7 @@ Robert Capps, 2026-11-14, terminal:
   identity"
 - Relayed by claude-koinon-voice from its terminal: "I would rather voice just contain the
   parts needed to communicate with full koinon nodes. I don't want it to run koinon itself."
-- Card kv-693-ssh (koinon-voice board), approved 2026-11-14: Voice connects only to Koinon
+- Approved on the decision board of koinon-voice, 2026-11-14: Voice connects only to Koinon
   nodes and reaches paired computers through the links; its SSH connectors stay until this
   ships.
 
@@ -26,8 +26,8 @@ it registered signed it, not because of the connection it came over. Each verdic
 user of that key.
 
 This changes PDR 011 Decision 2 (LINK-670-WHAT), whose review condition is met: "the maintainer
-wants to write to the other computer from one dashboard". The revision goes on the decision
-board as card LINK-693-SIGNED.
+wants to write to the other computer from one dashboard". The revision went to the decision
+board; PDR 011 Decision 6 (LINK-693-SIGNED) records its approval.
 
 ## Terms
 
@@ -402,7 +402,7 @@ The Serve route (Decision 5.2):
 
 ## Records
 
-- PDR 011 Decision 2 revised (card LINK-693-SIGNED), and a new PDR 011 decision for keys and
+- PDR 011 Decision 2 revised (PDR 011 Decision 6, LINK-693-SIGNED), and a new PDR 011 decision for keys and
   identity.
 - ADR 002: the signed envelope, the `maintainer` link operation and the Serve route.
 - PROTOCOL.md: the envelope, the routes and the errors.
