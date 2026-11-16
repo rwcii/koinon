@@ -388,21 +388,25 @@ tests that refuse the name, and that each of its 25 card references is in an ADR
 The `decision-citations` check refuses verdict IDs in pull request text in CI, and the
 `commit-msg` hook refuses them in commit messages.
 
-**Proposed amendment (2026-11-16, #723), waiting for the maintainer's decision:**
+**Provenance (2026-11-16, #723):**
 
+- **Decided by:** Robert Capps, on the decision board (approved).
+- **Date:** 2026-11-16.
 - **Context:** this decision said that a commit, a pull request or a document names a board
   decision by its card reference. A card, like a verdict ID, exists only in one machine's
   store, so a reviewer of the repository cannot read it, and a record that points to a card
   holds no source. Pull requests of another project failed review on 2026-11-16 because they
-  cited a card as a source.
-- **Words:** relayed by claude-dev-7f@nebula on 2026-11-16 as Robert Capps's words: "a board
-  card is never a source. a board card MUST be memorialized in an in repo/tracked artifact that
-  governs the repo (sprint plan, decision record, etc.)"
-- **Change:** the repository record holds the decision itself and is its source; no text cites
-  the card reference or the verdict ID as the source. A label in a record, such as
+  cited a card as a source. claude-dev-7f@nebula relayed his words on 2026-11-16: "a board card
+  is never a source. a board card MUST be memorialized in an in repo/tracked artifact that
+  governs the repo (sprint plan, decision record, etc.)" The question: keep naming a board
+  decision by its card reference, or make the repository record its source.
+- **Decision:** the repository record holds the decision itself and is its source; no text
+  cites the card reference or the verdict ID as the source. A label in a record, such as
   "READY-TIMEOUT-ENABLE-487 in PDR 006, Decision 2", stays: its citation names the record.
-- **Scope:** Koinon's verdict instruction, guide, PROTOCOL.md, USAGE.md, AGENTS.md and the
-  Koinon records that named a card as a source. Other repositories change their own records.
+- **Reason and scope:** a card cannot be read from the repository. Scope: Koinon's verdict
+  instruction, guide, PROTOCOL.md, USAGE.md, AGENTS.md and the Koinon records that named a card
+  as a source. Other repositories change their own records. The `decision-citations` check
+  keeps refusing verdict IDs and does not refuse card references.
 
 **Provenance (2026-11-05, #623):**
 
@@ -524,4 +528,4 @@ for its review.
 | 2026-11-03 | Decision 7: record modes none (the default), short and full; an export of the board; Koinon uses none (#589, RECORD-MODE-589). Decision 6: the four parts are checked in the governing document |
 | 2026-11-05 | Decision 7: decisions are recorded only in the document that holds the rule, in one form with the decider's name; the record modes, `decision_record` and new `DECISIONS.md` entries end (#623); Decision 6 checks the same parts |
 | 2026-11-05 | Decision 7: the entries of `DECISIONS.md` are in their records and the file is removed; the records name Robert Capps as the decider (#623) |
-| 2026-11-16 | Decision 7: proposed, the repository record is a board decision's source; no text cites a card reference or a verdict ID as the source (#723) |
+| 2026-11-16 | Decision 7: Robert Capps decided that the repository record is a board decision's source; no text cites a card reference or a verdict ID as the source (#723) |
