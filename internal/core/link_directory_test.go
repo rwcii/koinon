@@ -214,23 +214,29 @@ func waitProgress(t *testing.T, what string, start time.Time, budget, stallAfter
 	}
 }
 
-// progressWait is waitProgress with its clock and sleep given.
+// progressWait is waitProgress with its clock and sleep given. Each round reads the clock
+// after its callbacks, so their time counts, and checks both deadlines before it accepts
+// completion or new progress: work done, or progress made, after a deadline still fails.
 func progressWait(now func() time.Time, sleep func(time.Duration), start time.Time, budget, stallAfter time.Duration,
 	progress func() int, done func() bool) error {
 	best, last := progress(), start
-	for !done() {
+	for {
+		finished, p := done(), progress()
 		at := now()
 		if at.Sub(start) > budget {
-			return fmt.Errorf("not done within %v (progress %d)", budget, best)
+			return fmt.Errorf("not done within %v (progress %d)", budget, max(best, p))
 		}
-		if p := progress(); p > best {
+		if at.Sub(last) > stallAfter {
+			return fmt.Errorf("no progress for %v (progress %d)", stallAfter, max(best, p))
+		}
+		if p > best {
 			best, last = p, at
-		} else if at.Sub(last) > stallAfter {
-			return fmt.Errorf("no progress for %v (progress %d)", stallAfter, best)
+		}
+		if finished {
+			return nil
 		}
 		sleep(20 * time.Millisecond)
 	}
-	return nil
 }
 
 // #713: a slow wait that keeps making progress may pass the old fixed 10 s; one that stops,
@@ -263,6 +269,29 @@ func TestProgressWait(t *testing.T) {
 	// Steady progress that is too slow for its budget fails at the budget.
 	if err := run(30*time.Second, func(poll int) int { return poll / 5 }, -1); err == nil || !strings.Contains(err.Error(), "not done within 30s") {
 		t.Fatalf("too slow: %v", err)
+	}
+	// Work that is done only after its budget, such as a start that took it all, fails.
+	start := time.Unix(1000, 0)
+	late := start.Add(2 * time.Second)
+	err := progressWait(func() time.Time { return late }, func(time.Duration) {}, start, time.Second, 10*time.Second,
+		func() int { return 1 }, func() bool { return true })
+	if err == nil || !strings.Contains(err.Error(), "not done within 1s") {
+		t.Fatalf("done after the budget: %v", err)
+	}
+	// Each new value comes 11 s after the last one: no gap may pass the stall bound.
+	clock, poll := start, 0
+	err = progressWait(func() time.Time { return clock }, func(time.Duration) { clock = clock.Add(11 * time.Second); poll++ },
+		start, 100*time.Second, 10*time.Second, func() int { return poll }, func() bool { return poll >= 3 })
+	if err == nil || !strings.Contains(err.Error(), "no progress for 10s") {
+		t.Fatalf("progress after each stall: %v", err)
+	}
+	// The callbacks' own time counts: progress that each read finds only 11 s after the last
+	// one is a stall, although every read finds a new value.
+	clock, poll = start, 0
+	err = progressWait(func() time.Time { return clock }, func(time.Duration) {}, start, 100*time.Second, 10*time.Second,
+		func() int { clock = clock.Add(11 * time.Second); poll++; return poll }, func() bool { return false })
+	if err == nil || !strings.Contains(err.Error(), "no progress for 10s") {
+		t.Fatalf("slow progress read: %v", err)
 	}
 }
 
