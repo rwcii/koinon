@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The Settings page changes each family's context handoff in its own row of the Context handoff
+  table (#720): a Mode drop-down and a Threshold field show the family's current values, and
+  the row's Save changes that family only. The separate "Change a family's context handoff"
+  section is gone.
 - `koinon remote configure` shows where the dashboard opens and changes the install answer in
   one step (#685). At a terminal it asks the install question again, with the current values as
   the defaults; `--choice local|tailnet|network`, with `--https-port` or `--dashboard-address`,

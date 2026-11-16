@@ -349,7 +349,7 @@ func TestDashboardContextPolicy(t *testing.T) {
 		t.Fatalf("audit: %+v", records[0])
 	}
 	settings := dashboardDo(t, d, "GET", "/dashboard/settings", client.cookie, nil, nil)
-	if settings.status != 200 || !strings.Contains(settings.body, "native_compaction") || !strings.Contains(settings.body, "<td>claude</td><td>handoff_cycle</td><td>80%</td>") {
+	if settings.status != 200 || !strings.Contains(settings.body, "native_compaction") || !strings.Contains(settings.body, `<td data-label="Family">claude</td><td data-label="Mode"><select name="mode" form="context-claude" aria-label="Mode for claude"><option value="observe">observe</option><option value="handoff_cycle" selected>handoff_cycle</option></select></td><td data-label="Threshold"><input name="threshold" form="context-claude" type="number" min="1" max="100" required value="80"`) {
 		t.Fatalf("settings page: %d %s", settings.status, settings.body)
 	}
 }
@@ -434,5 +434,72 @@ func TestContextSelectionRacesDisable(t *testing.T) {
 	enables, _ := s.contextEnables(context.Background())
 	if row := s.contextRowOf(a, enables[Key{"claude", "synthetic-a"}], s.now().UnixMilli()); row.Enable.Enabled || row.Reason != "not_enabled" {
 		t.Fatalf("after disable: %+v", row)
+	}
+}
+
+// The Context handoff table changes each family in its own row (#720): the row shows the
+// family's current mode and threshold, offers native_compaction only to Codex, and its Save
+// changes that family alone, with its audit record and no Enable.
+func TestDashboardContextPolicyInline(t *testing.T) {
+	d, root := startTestDaemon(t)
+	s := d.store
+	if err := s.SetContextPolicy(roomCtx("context-family-settings"), "claude", "observe", 40); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetContextPolicy(roomCtx("context-family-settings"), "codex", "handoff_cycle", 60); err != nil {
+		t.Fatal(err)
+	}
+	client := newActionClient(t, d, root)
+	row := func(body, family string) string {
+		t.Helper()
+		start := strings.Index(body, `<td data-label="Family">`+family+`</td>`)
+		if start < 0 {
+			t.Fatalf("no row for %s", family)
+		}
+		end := strings.Index(body[start:], "</tr>")
+		return body[start : start+end]
+	}
+	page := dashboardDo(t, d, "GET", "/dashboard/settings", client.cookie, nil, nil)
+	if page.status != 200 || strings.Contains(page.body, "Change a family&#39;s context handoff") || strings.Contains(page.body, "Change a family's context handoff") {
+		t.Fatalf("settings page: %d", page.status)
+	}
+	claude, codex := row(page.body, "claude"), row(page.body, "codex")
+	for _, want := range []string{`<option value="observe" selected>observe</option>`, `<option value="handoff_cycle">handoff_cycle</option>`,
+		`form="context-claude"`, `value="40"`, `<form id="context-claude" method="post" action="/dashboard/actions/context-family-settings"`,
+		`<input type="hidden" name="csrf" value="` + client.csrf + `">`, `<input type="hidden" name="family" value="claude">`} {
+		if !strings.Contains(claude, want) {
+			t.Fatalf("claude row lacks %q:\n%s", want, claude)
+		}
+	}
+	if strings.Contains(claude, "native_compaction") {
+		t.Fatalf("claude row offers native_compaction:\n%s", claude)
+	}
+	for _, want := range []string{`<option value="handoff_cycle" selected>handoff_cycle</option>`, `<option value="native_compaction">native_compaction</option>`, `value="60"`} {
+		if !strings.Contains(codex, want) {
+			t.Fatalf("codex row lacks %q:\n%s", want, codex)
+		}
+	}
+	// One row's Save changes that family only.
+	before := count(t, s, `SELECT COUNT(*) FROM audit WHERE action='context-family-settings' AND result='accepted'`)
+	if got := client.do("context-family-settings", url.Values{"family": {"agy"}, "mode": {"handoff_cycle"}, "threshold": {"55"}}); got != "context_policy_saved" {
+		t.Fatalf("agy change: %s", got)
+	}
+	if p := policyOf(t, s, "agy"); p.Mode != "handoff_cycle" || p.Threshold != 55 {
+		t.Fatalf("agy: %+v", p)
+	}
+	if p := policyOf(t, s, "claude"); p.Mode != "observe" || p.Threshold != 40 {
+		t.Fatalf("claude changed: %+v", p)
+	}
+	if p := policyOf(t, s, "codex"); p.Mode != "handoff_cycle" || p.Threshold != 60 {
+		t.Fatalf("codex changed: %+v", p)
+	}
+	if count(t, s, `SELECT COUNT(*) FROM audit WHERE action='context-family-settings' AND result='accepted' AND target='context agy mode handoff_cycle threshold 55 by dashboard'`) != 1 ||
+		count(t, s, `SELECT COUNT(*) FROM audit WHERE action='context-family-settings' AND result='accepted'`) != before+1 ||
+		count(t, s, `SELECT COUNT(*) FROM context_enables`) != 0 {
+		t.Fatalf("the row's change was not audited once, or it enabled a session: %+v", auditAll(t, s))
+	}
+	page = dashboardDo(t, d, "GET", "/dashboard/settings", client.cookie, nil, nil)
+	if agy := row(page.body, "agy"); !strings.Contains(agy, `<option value="handoff_cycle" selected>handoff_cycle</option>`) || !strings.Contains(agy, `value="55"`) {
+		t.Fatalf("agy row after the change:\n%s", agy)
 	}
 }

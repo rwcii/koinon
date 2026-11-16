@@ -5,10 +5,11 @@
 <dt>Last change</dt><dd>{{ms .Data.UpdatedAt}}</dd>
 </dl>
 <h2>Context handoff</h2>
-<table><thead><tr><th>Family</th><th>Mode</th><th>Threshold</th></tr></thead><tbody>{{range .Data.Context}}<tr>
-<td>{{.Family}}</td><td>{{.Mode}}{{with .Error}}<br><small>stored value not applied: {{.}}</small>{{end}}</td><td>{{.Threshold}}%</td>
+<table id="context-policy"><thead><tr><th>Family</th><th>Mode</th><th>Threshold</th><th>Change</th></tr></thead><tbody>{{range $row := .Data.Context}}<tr>
+<td data-label="Family">{{$row.Family}}</td><td data-label="Mode"><select name="mode" form="context-{{$row.Family}}" aria-label="Mode for {{$row.Family}}">{{range $.Data.Modes}}{{if or (ne . "native_compaction") (eq $row.Family "codex")}}<option value="{{.}}"{{if eq . $row.Mode}} selected{{end}}>{{.}}</option>{{end}}{{end}}</select>{{with $row.Error}}<br><small>stored value not applied: {{.}}</small>{{end}}</td><td data-label="Threshold"><input name="threshold" form="context-{{$row.Family}}" type="number" min="1" max="100" required value="{{$row.Threshold}}" aria-label="Threshold for {{$row.Family}}, percent of the context limit">%</td>
+<td data-label="Change"><form id="context-{{$row.Family}}" method="post" action="/dashboard/actions/context-family-settings" class="inline"><input type="hidden" name="csrf" value="{{$.CSRF}}"><input type="hidden" name="family" value="{{$row.Family}}"><button type="submit" aria-label="Save the context handoff of {{$row.Family}}">Save</button></form></td>
 </tr>{{end}}</tbody></table>
-<p><small>The family mode and threshold are defaults; no session runs a handoff cycle or compaction until it is enabled on the Sessions page. <code>native_compaction</code> (Codex only) enters Codex's own <code>/compact</code> at the threshold, once Codex is idle; no mode changes a native setting.</small></p>{{end}}
+<p><small>The family mode and threshold are defaults; no session runs a handoff cycle or compaction until it is enabled on the Sessions page. <code>native_compaction</code> (Codex only) enters Codex's own <code>/compact</code> at the threshold, once Codex is idle; no mode changes a native setting. Save changes that family only, applies to its sessions at once and enables none of them; the audit log records it.</small></p>{{end}}
 {{define "actions"}}<details class="action" open><summary>Signed-in remote devices</summary>
 {{if .Remote}}<p>Signed in until {{ms .SessionExpires}}. This is a fixed 48-hour window.</p>{{end}}
 <p><small>Each entry is a browser session. Last observed use does not prove that a person is online.</small></p>
@@ -89,10 +90,4 @@
 <label>Succession guard, seconds <input name="guard_seconds" type="number" min="30" max="600" required value="{{.Data.Current.GuardSeconds}}"></label>
 <button type="submit">Save</button></form>
 <p><small>The three values are checked together: the renewal interval must be at most half the lifetime. A change applies at once, without a restart, and the audit log records it.</small></p></details>
-<details class="action"><summary>Change a family's context handoff</summary>
-<form method="post" action="/dashboard/actions/context-family-settings"><input type="hidden" name="csrf" value="{{.CSRF}}">
-<label>Family <select name="family">{{range .Data.Context}}<option value="{{.Family}}">{{.Family}}</option>{{end}}</select></label>
-<label>Mode <select name="mode">{{range .Data.Modes}}<option value="{{.}}">{{.}}</option>{{end}}</select></label>
-<label>Threshold, percent of the context limit <input name="threshold" type="number" min="1" max="100" required value="75"></label>
-<button type="submit">Save</button></form>
-<p><small>A change applies to the family's sessions at once and enables none of them. The audit log records it.</small></p></details>{{end}}
+{{end}}
