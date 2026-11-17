@@ -48,7 +48,7 @@ for page in "$FAKE/$name.json" "$FAKE/$name"-*.json; do
 done
 `
 
-// A Tests or lifecycle run is rerun only when no runner acquired any of its failed jobs, at
+// A Tests, lifecycle or release run is rerun only when no runner acquired any of its failed jobs, at
 // most twice, and never for a failure that ran, a stale event or an API error (#630; WDR 004,
 // Decision 6).
 func TestRerunUnacquired(t *testing.T) {
@@ -56,7 +56,7 @@ func TestRerunUnacquired(t *testing.T) {
 		t.Skip("jq is not installed")
 	}
 	workflow := read(t, ".github/workflows/rerun-unacquired.yml")
-	for _, want := range []string{"workflow_run:", `workflows: ["Tests", "Native Go lifecycle evidence"]`, "types: [completed]",
+	for _, want := range []string{"workflow_run:", `workflows: ["Tests", "Native Go lifecycle evidence", "Release binaries"]`, "types: [completed]",
 		"github.event.workflow_run.conclusion == 'failure'", "github.event.workflow_run.run_attempt < 3", "actions: write", "checks: read",
 		"contents: read", "ref: ${{ github.event.repository.default_branch }}", "persist-credentials: false", "timeout-minutes: 5",
 		"sh scripts/rerun-unacquired.sh"} {
@@ -81,6 +81,13 @@ func TestRerunUnacquired(t *testing.T) {
 		{"every failed job unacquired", "1", map[string]string{
 			"jobs.json":          `{"jobs":[{"id":1,"conclusion":"success","runner_id":7,"steps":[{"conclusion":"success"}]},` + waiting + `,{"id":3,"conclusion":"failure","runner_id":null}]}`,
 			"annotations-2.json": unacquired, "annotations-3.json": unacquired, "run.json": failed}, true, false},
+		// The v0.12.0 release run (#729): build and the Linux Homebrew check passed, the macOS check
+		// got no runner, and publish and homebrew were skipped; a skipped job is not a failure.
+		{"release run with skipped publication", "1", map[string]string{
+			"jobs.json": `{"jobs":[{"id":1,"conclusion":"success","runner_id":7,"steps":[{"conclusion":"success"}]},` + waiting +
+				`,{"id":3,"conclusion":"success","runner_id":9,"steps":[{"conclusion":"success"}]},{"id":4,"conclusion":"skipped","runner_id":0,"steps":[]},` +
+				`{"id":5,"conclusion":"skipped","runner_id":0,"steps":[]}]}`,
+			"annotations-2.json": unacquired, "run.json": failed}, true, false},
 		{"second attempt", "2", map[string]string{"jobs.json": `{"jobs":[` + waiting + `]}`, "annotations-2.json": unacquired,
 			"run.json": `{"run_attempt":2,"status":"completed","conclusion":"failure"}`}, true, false},
 		{"a failed job ran", "1", map[string]string{"jobs.json": `{"jobs":[` + waiting + `,` + ran + `]}`, "annotations-2.json": unacquired, "run.json": failed}, false, false},
