@@ -286,8 +286,9 @@ holds the rule, in the pull request that does the work, in this form:
 
 A declined decision goes into the record's Alternatives Considered. Koinon writes no record
 file. The agent writes the decision succinctly, corrects the spelling and typing errors in your
-words, and names the decision by its card reference, never by verdict ID, which exists only in
-this machine's store. How a project cites its decisions is that project's own rule. A decision
+words, and writes the decision itself into the record, which is its source: neither the card
+reference nor the verdict ID is cited as the source, because both exist only in this machine's
+store. How a project cites its decisions is that project's own rule. A decision
 is recorded only in the repository that its item was created in. Recorded text is public, so
 agents write every card as public text.
 

@@ -159,8 +159,7 @@ them as standard options, but they don't all need to be present in ALL cards if 
 relevant data." (CARD-LABELS-582, #582).
 Intent: each card gives these parts under the same labels, and a card leaves out a label that
 has nothing to say. Card form at the write:
-- **Decided by:** Robert Capps, 2026-11-07, on the decision board, card CARD-FORM-AT-WRITE-635,
-  revision 3, "approved", with no note.
+- **Decided by:** Robert Capps, 2026-11-07, on the decision board, "approved", with no note.
 - **Context:** cards had drifted from the form, and the form text had not changed. The form was
   only in the guide, which a session reads once and can lose at a compaction. Robert Capps: "the
   point of koinon is to allow agents to run semi-autonomously. I won't be there to prompt it to
@@ -177,8 +176,7 @@ has nothing to say. Card form at the write:
 - **Review when:** agents leave notes unanswered and cards drift again.
 
 Fix loop and On track:
-- **Decided by:** Robert Capps, 2026-11-09, on the decision board, card CARD-LOOP-SCOPE,
-  revision 2, "approved", with no note.
+- **Decided by:** Robert Capps, 2026-11-09, on the decision board, "approved", with no note.
 - **Context:** Robert Capps: "I see claude consistently get stuck in an infinite fix loop." Many
   cards on a local board asked for one more fix, retry or exception after earlier fixes of the
   same deliverable. On the meaning of on track: "I'm mostly concerned that the agent is working

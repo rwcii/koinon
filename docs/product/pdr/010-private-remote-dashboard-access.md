@@ -327,7 +327,7 @@ needed to identify the cause.
 
 ## 6. Decision: The terminal runs the Linux operator step after confirmation
 
-**Decided by:** Robert Capps, 2026-11-12, board card TAILSCALE-AUTO-656 (#656).
+**Decided by:** Robert Capps, 2026-11-12, on the decision board (#656).
 
 **Context:** On Linux, tailscaled lets only root or the Tailscale operator change Serve,
 and an ordinary account cannot make itself operator: the first grant needs sudo. Since
@@ -420,8 +420,8 @@ step.
 ## 9. Refinement: Remote control v2 fixed sign-in and recovery
 
 **Requested by:** Andrew Deugarte (@andyde8), 2026-11-12, direct conversation.
-**Decided by:** Robert Capps, 2026-11-13, board card REL-SCOPE-673 (approved, revision 2),
-for release v0.11.0. Robert Capps takes as his own decisions the fixed 48-hour sign-in that
+**Decided by:** Robert Capps, 2026-11-13, on the decision board (approved), for release
+v0.11.0. Robert Capps takes as his own decisions the fixed 48-hour sign-in that
 survives a restart, and crash survival with its storage-failure, process-loss and
 clock-rollback limit. His words: "this is the next release. Why defer it?" and "673 comes
 with .11". The [sprint decision record](../../sprints/2026-11-12-remote-control-v2/decision.md)
@@ -468,10 +468,9 @@ requires revision. Actual phone/platform evidence is tracked in the v2 sprint.
 
 ## 10. Refinement: Change the dashboard choice in one command
 
-**Decided by:** Robert Capps, 2026-11-16, board card k685-remote-configure (approved, revision
-2). The card asked to approve the command and its scope as built, with two review fixes: a
-restart only through this installation's own service, and checks of the chosen address or
-port. claude-koinon proposed it; codex-koinon reviewed it.
+**Decided by:** Robert Capps, 2026-11-16, on the decision board (approved). The approval was
+for the command and its scope as built, with two review fixes: a restart only through this
+installation's own service, and checks of the chosen address or port. claude-koinon proposed it; codex-koinon reviewed it.
 
 **Source:** Issue #685 (2026-11-14), which says: "The maintainer decides the name and the
 scope."

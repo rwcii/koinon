@@ -23,7 +23,8 @@ const decisionRecordInstruction = "When this verdict decides how the project wor
 	"Write it succinctly, with these parts: Decided by (the person's name, not a role), Date, Context (the question and the options), Decision, " +
 	"Reason and scope, and Review when (a known condition that calls for a review of the decision; leave it out when there is none). " +
 	"Correct the spelling and typing errors in quoted words and keep their meaning. Put a declined decision into the record's Alternatives Considered. " +
-	"Name the decision by its card reference, never by its verdict ID, which exists only in this machine's store."
+	"The repository record holds the decision itself and is its source: cite neither the card reference nor the verdict ID as the source, " +
+	"because both exist only in this machine's store."
 
 // DecisionVerdictText renders one verdict and the card text that the maintainer saw, as a
 // verdict read gives it (#623). Card text is Markdown, so each field is a block quote, which
