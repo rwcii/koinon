@@ -15,3 +15,12 @@ codex-koinon reviewed the chunk 01 criteria before the plan, 2026-11-17.
 | Replace the whole backticked placeholder, so the citation renders as a link | Accepted |
 
 ## Plan review
+
+codex-koinon reviewed a0edec6, 2026-11-17: two P2 findings and two notes.
+
+| Finding | Disposition |
+| --- | --- |
+| PLAN-F1 (P2): the plan can end with no released archive that the installer can use | Accepted: a delivery check after the release that carries chunk 02; #732 stays open until it passes. It authorizes no merge to main, tag or publication |
+| PLAN-F2 (P2): no plan file pins the seven approved draft hashes | Accepted: chunk 01 lists them, as privately supplied inputs |
+| N1: use the required full-suite command | Accepted: `go test -race -timeout 30m ./...` |
+| N2: test symbolic links in parent and root folders, and an archive entry that escapes | Accepted, as fixture tests with no host installation |

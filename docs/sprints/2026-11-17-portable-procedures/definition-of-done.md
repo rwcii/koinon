@@ -23,7 +23,7 @@ macOS (WDR 004, Decision 3).
   control that it finds a planted one.
 - `agents/skills/README.md` has a row for each; PDR 008 Decisions 1 and 5 and the Document
   History; LICENSE; CHANGELOG Unreleased.
-- Full `go test -race ./...`, `go vet ./...` and `go vet -tags native ./internal/nativetest/`,
+- Full `go test -race -timeout 30m ./...`, `go vet ./...` and `go vet -tags native ./internal/nativetest/`,
   `gofmt -l .` empty, `git diff --check`, the four `CGO_ENABLED=0` builds, and exact-head CI
   on Linux, macOS and the native lifecycle jobs: the binary embeds the new skills.
 
@@ -32,10 +32,19 @@ macOS (WDR 004, Decision 3).
 - `scripts/install-skills.sh VERSION`, POSIX `sh`, checked with `sh -n`.
 - The release workflow adds `koinon-skills.tar.gz` (every `agents/skills/*/SKILL.md` of the
   tag) and its line in SHA256SUMS.
-- Tests against a synthetic release folder: a good hash writes each skill as
-  `koinon-NAME/SKILL.md` with only its `name:` line changed; a wrong hash writes nothing; a
-  symbolic link entry is kept; `koinon-guide` is skipped; the OpenCode and agy roots only when
-  their folder exists; a second run reports unchanged. A test shows that `koinon install`
-  afterwards replaces the copies with its entries.
+- Tests against a synthetic release folder and synthetic home folders, with no host
+  installation: a good hash writes each skill as `koinon-NAME/SKILL.md` with only its `name:`
+  line changed; a wrong hash writes nothing; a symbolic link is kept, as an entry, as its
+  directory and as a skill root or its parent; an archive with an entry that escapes its
+  folder, an absolute path or a non-regular file writes nothing outside the intended roots and
+  is refused; `koinon-guide` is skipped; the OpenCode and agy roots only when their folder
+  exists; a second run reports unchanged. A test shows that `koinon install` afterwards
+  replaces the copies with its entries.
 - PDR 008 Decision 2, docs/INSTALL.md and CHANGELOG; the release workflow change runs on its
   pull request path.
+
+## Delivery check (after the release that carries chunk 02)
+
+- The release has `koinon-skills.tar.gz`, and its line in SHA256SUMS matches.
+- `scripts/install-skills.sh` of that release, run with that VERSION in isolated synthetic
+  home folders, writes the expected entries and a second run reports unchanged.
