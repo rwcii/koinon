@@ -3,7 +3,7 @@ adr: "002"
 title: "Private Remote Dashboard Transport"
 status: accepted
 created: "2026-11-11"
-updated: "2026-11-14"
+updated: "2026-11-15"
 authors:
   - "Andrew Deugarte (@andyde8)"
 reviewers: []
@@ -378,6 +378,35 @@ or control operation. Implementation: `internal/core/link_messages.go`,
   link (TLS 1.3, pinned keys, the raw TCP Serve mapping) does not change.
 - **Review when:** as PDR 011, Decision 5.
 
+**Amendment (LINK-693-SIGNED):**
+
+- **Decided by:** Robert Capps. **Date:** 2026-11-15, revision 10, approved on the decision
+  board (#693). The context, options and quotes are in PDR 011, Decision 6.
+- **Decision:** maintainer actions cross the link as envelopes that a maintainer client signs
+  with its own Ed25519 key, for one target computer (its pin) and one authorization that the
+  target's own login added (`koinon maintainer key add`). The target checks the key, the
+  signature, a 5-minute window and a once-only receipt in the write's store transaction, and
+  records the key's user and client. Keys, pairing, the secret, Remote and settings stay with
+  each computer's own login, and the maintainer secret still never crosses the link. A node
+  runs an action for its own pin; it forwards one for another pin unchanged as the link
+  operation `maintainer`, in frames of up to 1 MiB; and Remote serves `/v1/maintainer/signed`,
+  which takes only signed envelopes, for a client with no Koinon on its computer. The agent API
+  stays on loopback.
+- **Reason and scope:** a computer trusts a maintainer action because a key that it registered
+  signed it, not because of the link or the Serve route it came over; a node cannot change an
+  action without breaking its signature. The node is trusted to show the target's answers
+  (#696).
+- **Shipped:** the keys, the envelope checks, receipts, the signed session of
+  `koinon mcp --maintainer --signed` and the actions on a node's own pin (#693 chunk 1,
+  `internal/signed`, `internal/core/signed_actions.go`, `internal/core/maintainer_keys.go`,
+  `internal/core/signed_computers.go`); the link operation `maintainer`, in frames of up to
+  1 MiB (#693 chunk 2, `internal/core/signed_forward.go`, `internal/link/frame.go`); and the
+  Serve route: the Remote listener serves `/v1/maintainer/signed/session` and
+  `/v1/maintainer/signed`, the same handlers as the loopback API, behind the pinned Host check,
+  with the session's token as the bearer (#693 chunk 3, `remoteDashboardHandler` in
+  `internal/core/dashboard_remote.go`).
+- **Review when:** as PDR 011, Decision 6.
+
 ### Alternatives Considered
 
 A link listener on any LAN, tailnet or VPN address (revision 4); LAN only; tailnet device
@@ -460,5 +489,6 @@ Serve mapping and records recoverable lifecycle transitions.
 | 2026-11-13 | Decision 4: the link carries the receiver directory and name updates (#670 chunk 02). |
 | 2026-11-13 | Decision 4: the link carries agent direct messages, queued at the sender (#670 chunk 03). |
 | 2026-11-14 | Decision 4, amendment LINK-GROUP-JOIN (Robert Capps, #683): the inviting computer introduces a new computer to its other paired computers. |
+| 2026-11-15 | Decision 4, amendment LINK-693-SIGNED (Robert Capps, #693): signed maintainer actions; chunk 1 ships keys, checks, receipts and the signed session on a node's own pin. |
 | 2026-11-12 | Record Andrew's v2 implementation authorization, fixed 48-hour policy, durable sessions and explicit recovery scope. |
 | 2026-11-13 | Decision 5: Robert Capps takes the v2 policy choices as his and puts v2 in v0.11.0 (REL-SCOPE-673). |

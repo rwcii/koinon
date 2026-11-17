@@ -52,6 +52,8 @@ type linkObservation struct {
 	State string `json:"state"`
 	At    int64  `json:"at,omitempty"`
 	Error string `json:"error,omitempty"`
+	// Connected is the time of the last connected observation, kept through later ones.
+	Connected int64 `json:"connected,omitempty"`
 	// gen is the link generation of the connection that this observation saw.
 	gen uint64
 }
@@ -110,7 +112,19 @@ type linkRuntime struct {
 	// mu.
 	userspace     bool
 	userspaceAt   time.Time
-	userspaceRead sync.Mutex
+	userspaceRead modeRead
+}
+
+// modeRead is a lock whose wait ends with the caller's context, so that a read of the
+// Tailscale mode by one caller never holds another caller past its own deadline (#693).
+type modeRead struct {
+	once sync.Once
+	c    chan struct{}
+}
+
+func (m *modeRead) slot() chan struct{} {
+	m.once.Do(func() { m.c = make(chan struct{}, 1) })
+	return m.c
 }
 
 func (d *Daemon) linkNow() time.Time {
@@ -148,9 +162,15 @@ func (d *Daemon) linkUserspace(ctx context.Context) bool {
 	if userspace, fresh := d.linkUserspaceCached(); fresh {
 		return userspace
 	}
-	// One read at a time: a caller that waited here uses the read that just finished.
-	d.link.userspaceRead.Lock()
-	defer d.link.userspaceRead.Unlock()
+	// One read at a time: a caller that waited here uses the read that just finished. A
+	// caller whose context ends while it waits uses the last answer; its dial then ends too.
+	select {
+	case d.link.userspaceRead.slot() <- struct{}{}:
+	case <-ctx.Done():
+		userspace, _ := d.linkUserspaceCached()
+		return userspace
+	}
+	defer func() { <-d.link.userspaceRead.slot() }()
 	userspace, fresh := d.linkUserspaceCached()
 	if fresh {
 		return userspace
@@ -420,7 +440,12 @@ func (d *Daemon) observe(gen uint64, id, state, problem string) {
 	if d.link.observed == nil {
 		d.link.observed = map[string]linkObservation{}
 	}
-	d.link.observed[id] = linkObservation{State: state, At: d.linkNow().Unix(), Error: problem, gen: gen}
+	now := d.linkNow().Unix()
+	connected := d.link.observed[id].Connected
+	if state == "connected" {
+		connected = now
+	}
+	d.link.observed[id] = linkObservation{State: state, At: now, Error: problem, Connected: connected, gen: gen}
 }
 
 func linkRefuse(conn net.Conn, err error) {
@@ -458,6 +483,10 @@ func (d *Daemon) serveLink(raw net.Conn, gen uint64) {
 		f, err := link.ReadFrame(conn)
 		if err != nil {
 			return
+		}
+		if f.Op == "maintainer" {
+			// A forwarded changes wait runs up to 30 seconds before its reply (#693 chunk 2).
+			conn.SetDeadline(time.Now().Add(maxChangeWait*time.Second + forwardExchange + linkIOTimeout))
 		}
 		reply, closeAfter, err := d.linkOperation(pin, f, gen)
 		if err != nil {
@@ -569,6 +598,8 @@ func (d *Daemon) linkOperation(pin string, f link.Frame, gen uint64) (link.Frame
 		return reply, false, err
 	case "deliver", "cancel":
 		return d.answerDeliver(pin, f, gen)
+	case "maintainer":
+		return d.answerMaintainer(pin, f, gen)
 	case "unpair":
 		var body linkPairID
 		if f.Decode(&body) != nil {
@@ -1409,6 +1440,24 @@ type LinkStatus struct {
 	Error         string           `json:"error,omitempty"`
 }
 
+// pairObservation is a pair's state as the status shows it at now: pending, offline (with the
+// listener's absence as its reason) or connected while its connection is recent and of this
+// link generation.
+func pairObservation(p link.Pair, o linkObservation, open bool, gen uint64, now int64) linkObservation {
+	switch {
+	case p.State == link.Pending:
+		o = linkObservation{State: "pending", At: p.Created}
+	case !open:
+		o = linkObservation{State: "offline", At: o.At, Error: ErrLinkRemoteOff.Code}
+	case o.State == "connected" && (now-o.At > int64(linkConnectedFor/time.Second) || o.gen != gen):
+		// A connection of an earlier generation is not a connection now.
+		o.State = "offline"
+	case o.State == "":
+		o.State = "offline"
+	}
+	return o
+}
+
 func (d *Daemon) linkStatus(ctx context.Context) LinkStatus {
 	result := LinkStatus{Listener: "off", Serve: "off", Pairs: []LinkPairStatus{}}
 	d.remote.mu.Lock()
@@ -1468,18 +1517,7 @@ func (d *Daemon) linkStatus(ctx context.Context) LinkStatus {
 	d.link.mu.Unlock()
 	result.Introductions = len(s.Intros)
 	for _, p := range s.Pairs {
-		o := observed[p.ID]
-		switch {
-		case p.State == link.Pending:
-			o = linkObservation{State: "pending", At: p.Created}
-		case !open:
-			o = linkObservation{State: "offline", At: o.At, Error: ErrLinkRemoteOff.Code}
-		case o.State == "connected" && (now-o.At > int64(linkConnectedFor/time.Second) || o.gen != gen):
-			// A connection of an earlier generation is not a connection now.
-			o.State = "offline"
-		case o.State == "":
-			o.State = "offline"
-		}
+		o := pairObservation(p, observed[p.ID], open, gen, now)
 		// The oldest waiting messages to this computer, its head first, and the newest
 		// finished ones, without bodies (#670 chunk 03).
 		queue, waiting, _, _ := d.store.linkQueue(ctx, p.ID, linkStatusQueue, linkStatusQueue)

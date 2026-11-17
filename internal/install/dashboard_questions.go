@@ -25,23 +25,44 @@ const DefaultDashboardPort = 8443
 // tailnet", with the Serve HTTPS port for the second, or the resolved network address. Ended
 // input returns none of them, so nothing is saved.
 func askDashboard(ctx context.Context, o Options) (bool, int, *core.DashboardAddress, error) {
+	return askDashboardWith(ctx, o, dashboardDefaults{choice: "1", httpsPort: remote.DefaultHTTPSPort, port: DefaultDashboardPort})
+}
+
+// dashboardDefaults are the answers that an empty line takes: the first install's defaults,
+// or koinon remote configure's current values (#685). An empty choice takes no default.
+type dashboardDefaults struct {
+	choice    string
+	httpsPort int
+	host      string
+	port      int
+}
+
+func askDashboardWith(ctx context.Context, o Options, d dashboardDefaults) (bool, int, *core.DashboardAddress, error) {
 	fmt.Fprintln(o.Tell, "Where should the dashboard open?")
 	fmt.Fprintln(o.Tell, "  1. Only on this computer")
 	fmt.Fprintln(o.Tell, "  2. On this computer and your tailnet, through Tailscale Serve, with a login by the maintainer secret (recommended on a computer in a tailnet; no network address)")
 	fmt.Fprintln(o.Tell, "  3. Also on a network address, over HTTPS, with a login by the maintainer secret")
 	for network := false; !network; {
-		answer, err := o.Line("Choice [1]: ")
+		prompt := "Choice: "
+		if d.choice != "" {
+			prompt = "Choice [" + d.choice + "]: "
+		}
+		answer, err := o.Line(prompt)
 		if errors.Is(err, io.EOF) {
 			return false, 0, nil, nil
 		}
 		if err != nil {
 			return false, 0, nil, err
 		}
-		switch strings.ToLower(strings.TrimSpace(answer)) {
-		case "", "1":
+		answer = strings.ToLower(strings.TrimSpace(answer))
+		if answer == "" {
+			answer = d.choice
+		}
+		switch answer {
+		case "1":
 			return true, 0, nil, nil
 		case "2":
-			port, err := askHTTPSPort(o)
+			port, err := askHTTPSPort(o, d.httpsPort)
 			if err != nil || port == 0 {
 				return false, 0, nil, err
 			}
@@ -65,7 +86,11 @@ func askDashboard(ctx context.Context, o Options) (bool, int, *core.DashboardAdd
 				fmt.Fprintf(o.Tell, "  %d. %s\n", i+1, address)
 			}
 		}
-		answer, err := o.Line("Address number, or a fully qualified name of this host: ")
+		prompt := "Address number, or a fully qualified name of this host: "
+		if d.host != "" {
+			prompt = "Address number, or a fully qualified name of this host [" + d.host + "]: "
+		}
+		answer, err := o.Line(prompt)
 		if errors.Is(err, io.EOF) {
 			return false, 0, nil, nil
 		}
@@ -73,6 +98,9 @@ func askDashboard(ctx context.Context, o Options) (bool, int, *core.DashboardAdd
 			return false, 0, nil, err
 		}
 		host := strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(answer), "["), "]")
+		if host == "" {
+			host = d.host
+		}
 		if host == "" {
 			continue
 		}
@@ -83,7 +111,7 @@ func askDashboard(ctx context.Context, o Options) (bool, int, *core.DashboardAdd
 			}
 			host = addresses[n-1]
 		}
-		port, err := o.Line(fmt.Sprintf("Port [%d]: ", DefaultDashboardPort))
+		port, err := o.Line(fmt.Sprintf("Port [%d]: ", d.port))
 		if errors.Is(err, io.EOF) {
 			return false, 0, nil, nil
 		}
@@ -91,7 +119,7 @@ func askDashboard(ctx context.Context, o Options) (bool, int, *core.DashboardAdd
 			return false, 0, nil, err
 		}
 		if port = strings.TrimSpace(port); port == "" {
-			port = strconv.Itoa(DefaultDashboardPort)
+			port = strconv.Itoa(d.port)
 		}
 		a, err := o.ResolveDashboard(ctx, net.JoinHostPort(host, port))
 		if err != nil {
@@ -102,10 +130,11 @@ func askDashboard(ctx context.Context, o Options) (bool, int, *core.DashboardAdd
 	}
 }
 
-// askHTTPSPort asks for the Serve HTTPS port of the tailnet answer; ended input returns 0.
-func askHTTPSPort(o Options) (int, error) {
+// askHTTPSPort asks for the Serve HTTPS port of the tailnet answer, with def as the default;
+// ended input returns 0.
+func askHTTPSPort(o Options, def int) (int, error) {
 	for {
-		answer, err := o.Line(fmt.Sprintf("Tailscale Serve HTTPS port [%d]: ", remote.DefaultHTTPSPort))
+		answer, err := o.Line(fmt.Sprintf("Tailscale Serve HTTPS port [%d]: ", def))
 		if errors.Is(err, io.EOF) {
 			return 0, nil
 		}
@@ -114,7 +143,7 @@ func askHTTPSPort(o Options) (int, error) {
 		}
 		answer = strings.TrimSpace(answer)
 		if answer == "" {
-			return remote.DefaultHTTPSPort, nil
+			return def, nil
 		}
 		if n, err := strconv.Atoi(answer); err == nil && remote.ValidHTTPSPort(n) && answer == strconv.Itoa(n) {
 			return n, nil

@@ -122,18 +122,21 @@ func TestDecisionReadsGiveTheRecordForm(t *testing.T) {
 
 // The record instruction gives the record form of WDR 001, Decision 7 (#623): the document
 // that holds the rule, the parts of a decision, a declined decision in Alternatives
-// Considered, and the card reference, never the verdict ID; it names no record file or tool,
-// and leaves the citation rule to the project (#580).
+// Considered, and the repository record as the decision's source, never the card reference or
+// the verdict ID (#723); it names no record file or tool, and leaves the citation form to the
+// project (#580).
 func TestDecisionRecordInstructionGivesTheForm(t *testing.T) {
 	for _, want := range []string{"ADR, PDR, WDR or sprint document that holds the rule", "in the pull request that does the work",
 		"Decided by (the person's name, not a role)", "Date", "Context (the question and the options)", "Decision", "Reason and scope",
-		"Review when", "succinctly", "spelling and typing errors", "Alternatives Considered", "card reference", "never by its verdict ID",
+		"Review when", "succinctly", "spelling and typing errors", "Alternatives Considered",
+		"The repository record holds the decision itself and is its source",
+		"cite neither the card reference nor the verdict ID as the source", "both exist only in this machine's store",
 		"Koinon writes no record file"} {
 		if !strings.Contains(decisionRecordInstruction, want) {
 			t.Errorf("instruction lacks %q", want)
 		}
 	}
-	for _, bad := range []string{"DECISIONS.md", "decision_record", "Decision record fact", "cite", "Cite"} {
+	for _, bad := range []string{"DECISIONS.md", "decision_record", "Decision record fact", "Cite ", "cite the decision", "by its card reference"} {
 		if strings.Contains(decisionRecordInstruction, bad) {
 			t.Errorf("instruction holds %q", bad)
 		}

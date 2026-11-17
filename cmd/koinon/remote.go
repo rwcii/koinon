@@ -35,8 +35,11 @@ func remoteQR(link string) (string, error) {
 }
 
 func remoteCommand(ctx context.Context, args []string, in io.Reader, out io.Writer) error {
+	if len(args) > 0 && args[0] == "configure" {
+		return remoteConfigure(ctx, args[1:], in, out)
+	}
 	if len(args) == 0 || args[0] != "enable" && args[0] != "status" && args[0] != "disable" {
-		return usageError{"invalid_request", "use koinon remote enable|status|disable"}
+		return usageError{"invalid_request", "use koinon remote enable|status|disable|configure"}
 	}
 	root, err := platform.DefaultStateDir()
 	if err != nil {

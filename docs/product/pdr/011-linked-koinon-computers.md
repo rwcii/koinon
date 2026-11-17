@@ -3,7 +3,7 @@ pdr: "011"
 title: "Linked Koinon Computers"
 status: accepted
 created: "2026-11-12"
-updated: "2026-11-14"
+updated: "2026-11-15"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -36,9 +36,12 @@ own Koinon daemon, exchange direct messages (#670). The maintainer pairs two com
 (ADR 002, Decision 4). Each computer advertises a name that it chooses, and agents address a
 session on another computer as `NAME@COMPUTER`. A message to a computer that cannot be reached
 waits in a queue on the sending computer until the other computer stores it or refuses it.
-Memory, work, rooms, decisions and context cycles stay on each computer.
+Memory, work, rooms, decisions and context cycles stay on each computer. Signed maintainer
+actions cross, so that one maintainer client works the boards and inboxes of all paired
+computers (Decision 6).
 
-Robert Capps approved each decision below on the decision board on 2026-11-12. The decision
+Robert Capps approved Decisions 1 to 4 on the decision board on 2026-11-12, Decision 5 on
+2026-11-14 and Decision 6 on 2026-11-15. The decision
 records with their full context are in
 [the sprint's decision record](../../sprints/2026-11-12-system-link/decision.md); LINK-670-PAIR,
 how computers pair and how link traffic is protected, is in ADR 002, Decision 4. The work ships
@@ -108,6 +111,11 @@ maintainer secret is in PDR 009; Remote is in PDR 010.
   each with its pair and the sender's `NAME@COMPUTER` and `origin` `link`; a sender family of
   maintainer or overwatch is refused; the link has no other operation; bodies cross only on the
   paired link and stay in each daemon's private store (the outbox, its streams and the inbox).
+- **Amendment (LINK-693-SIGNED):** the review condition "the maintainer wants to write to the
+  other computer from one dashboard" is met. Item 3's "no operation that acts as the
+  maintainer" and item 5's maintainer inbox and decision board now hold only for unsigned
+  traffic: signed maintainer actions cross, as Decision 6 says. Agent messages keep items 1 to
+  4, and an agent message that names a maintainer or overwatch sender is still refused.
 
 ## 4. Decision 3: Addresses (LINK-670-ADDR)
 
@@ -209,6 +217,55 @@ maintainer secret is in PDR 009; Remote is in PDR 010.
   then shows it as rejected until the maintainer unpairs it there. The new computer's earlier
   pairs are not introduced to the inviting group.
 
+## 7. Decision 6: Signed maintainer actions across the link (LINK-693-SIGNED)
+
+- **Decided by:** Robert Capps. **Date:** 2026-11-15, revision 10, approved on the decision
+  board (#693).
+- **Context:** Koinon Voice reached each computer's board and inbox through a maintainer
+  connector over SSH, with one secret per computer. Robert Capps, 2026-11-14, terminal: "yes,
+  carry maintainer traffic over the links", and "koinon-voice should create a keypair per
+  user/install, and maintainer messages are signed before transmission, public keys can be
+  registered with remote systems as authorized keys. this also gives us a way to tie auth to
+  username. maintainer board decisions could gain identity". The options for which computers
+  accept maintainer actions were each paired computer at once, or per pair and off by default;
+  he chose signed actions with keys that each computer registers. For a computer that is off,
+  he chose "No queue for now" (queuing is #695). For a client with no Koinon on its computer,
+  he chose "Remote address, signed-only" over speaking the link protocol as a client. Relayed
+  from his words to Koinon Voice: "I would rather voice just contain the parts needed to
+  communicate with full koinon nodes. I don't want it to run koinon itself."
+- **Decision:** the contract at `docs/sprints/2026-11-14-signed-maintainer/decision.md`
+  (4e324d5, with the wire details of dfb2ed7):
+  1. Each maintainer client install has one Ed25519 key per user. The maintainer enrolls it on
+     each computer with that computer's own login or secret, from a signed enrollment statement
+     that works once. A group join carries no keys.
+  2. Each maintainer action is an envelope signed for one target computer (its link key pin)
+     and one enrollment. The target checks the key, the enrollment, the signature, a 5-minute
+     window and a once-only receipt in one store transaction.
+  3. The board read, every verdict, history, the inbox and ack, send, room reads and posts,
+     peers, changes and outcome cross. Pairing, keys, the secret, Remote and settings stay with
+     each computer's own login.
+  4. A verdict, message, post or ack records the user name and client of the target's key.
+  5. A client uses the Koinon on its own computer, or another computer's Remote address on a
+     route that takes only signed actions. That node forwards actions on the link unchanged.
+- **Reason and scope:** one maintainer client works all paired computers, and each computer
+  trusts an action because a key it registered signed it, not because of the link it came
+  over. The node is trusted to show the target's answers; target-signed answers are #696.
+- **Review when:** a queue for an offline computer is wanted (#695), a node must not be
+  trusted to show answers (#696), or computers of other people connect (Decision 1).
+- **Shipped:** chunk 1, the keys (`koinon maintainer key add`, `list`, `remove`), the envelope
+  checks, once-only receipts and `outcome`, the signed session of
+  `koinon mcp --maintainer --signed` and every action on a node's own pin, with the signer on
+  verdicts. Chunk 2, forwarding on the link: an action for a paired computer's pin goes on the
+  link unchanged as the operation `maintainer` and its answer comes back unchanged, with
+  `computer_offline` and `outcome_unknown` from the node. Chunk 3, the Remote route: a
+  computer's Remote address serves the signed session and action routes, with the session's
+  token as the bearer, and no other API. The live checks (LINK-693-LIVE, with the tailnet
+  access of LINK-693-ACL) ran on 2026-11-15 with a Koinon Voice build and two test nodes, one
+  on Linux and one on macOS, and met Acceptance 1 to 7. They found that a computer that is off
+  answered `computer_offline` only after 15 seconds; #703 bounds the connect to 3 seconds, and
+  the check passed again on that build. A reply lost on the target's side, a write held across
+  the end of its window and Acceptance 4 have tests only.
+
 ## Conclusion
 
 The maintainer pairs their own computers once; agents then reach sessions on them by
@@ -223,3 +280,6 @@ computer keeps its own stores and controls.
 | 2026-11-13 | Chunk 02: the receiver directory and NAME@COMPUTER addresses shipped; delivery pending (#670). |
 | 2026-11-13 | Chunk 03: messages between paired computers shipped: the queue, its delivery order and states, replies on the pair, cancel and the limits (#670). |
 | 2026-11-14 | Decision 5, LINK-GROUP-JOIN, approved by Robert Capps: one join adds a computer to the group (#683). |
+| 2026-11-15 | Decision 6, LINK-693-SIGNED, approved by Robert Capps: signed maintainer actions across the link; Decision 2 amended (#693). |
+| 2026-11-15 | Decision 6: chunk 1 shipped, signed actions on a node's own pin (#693). |
+| 2026-11-15 | Decision 6: chunks 2 and 3 shipped (#700, #701); the live checks with Koinon Voice passed on Linux and macOS, after the fix of #703 (#693). |

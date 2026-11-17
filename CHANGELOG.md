@@ -5,6 +5,87 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-11-17 — Signed maintainer actions across your computers, and a dashboard address you can change
+
+This release lets a maintainer client act with its own key, also on your other linked
+computers (#693). `koinon remote configure` changes where the dashboard opens in one step
+(#685), and the Sessions page selects the sessions of one agent family and turns managed
+context on or off for all of them (#718). The store moves to schema 39.
+
+- The verdict record instruction and the installed guide say that the repository record holds a
+  board decision and is its source, and that neither the card reference nor the verdict ID is
+  cited as the source (#723). Koinon's own records no longer name a card as a decision's source.
+- Every section of the Settings page starts closed (#719). The browser keeps the sections that
+  you leave open, so they open again after an action reloads the page and when you come back;
+  a link such as `/dashboard/settings#remote-access` opens its section and no longer closes the
+  others.
+- The Sessions page shows the sessions of one agent family with an exact match, from a row of
+  family counts, in place of a text search that also matched names and directories (#718).
+  **Change the selected sessions** can enable or disable managed context for every selected
+  session at once; each session uses its own family's mode and threshold, and gets its own
+  audit record.
+- The Settings page changes each family's context handoff in its own row of the Context handoff
+  table (#720): a Mode drop-down and a Threshold field show the family's current values, and
+  the row's Save changes that family only. The separate "Change a family's context handoff"
+  section is gone.
+- `koinon remote configure` shows where the dashboard opens and changes the install answer in
+  one step (#685). At a terminal it asks the install question again, with the current values as
+  the defaults; `--choice local|tailnet|network`, with `--https-port` or `--dashboard-address`,
+  gives the answer from a script. It refuses before the first change, closes the old access
+  before it opens the new one, restarts the daemon through the installation's own service when
+  the network address changes, and names each step's effect on sign-ins.
+- A maintainer client can act with its own key (#693, PDR 011 Decision 6). `koinon maintainer
+  key add --statement FILE` adds a client's Ed25519 key from a statement that the client signed
+  for this computer, once; `koinon maintainer key list` and `remove` show and remove keys.
+  `koinon mcp --maintainer --signed` opens a session with a signed envelope in place of the
+  secret and serves the tool `signed`, which runs each action that the client signed for this
+  computer once: board reads, verdicts, the inbox and ack, send, rooms, peers, `outcome`,
+  `computers` and `changes`. An action under an authorization that is not the key's current one
+  on this computer is refused with `authorization_changed`; its text says that the key was
+  added again only when this computer replaced that authorization (#702). Each verdict records the key's user and client and shows
+  `by USER (CLIENT)`. An action signed for a paired computer goes over the link unchanged and
+  runs there, under the key that computer added; both computers need this release. A computer
+  that cannot be reached answers `computer_offline` within 3 seconds and nothing runs; an answer lost after the
+  action was sent is `outcome_unknown`, and `outcome` on that computer tells what happened. A
+  client with no Koinon on its computer reaches a computer at its Remote address, which serves
+  the two signed routes with the session's token as the bearer, and no other API. A session
+  has at most 128 actions in flight. The state schema moves to 39:
+  a schema 38 binary refuses the upgraded store.
+- When a handoff cycle waits because the session's input box holds text, the Attention page
+  and the session's row on the Sessions page say so (#711): clear the input box and the cycle
+  goes on. Before, the cycle only repeated its request until its event limit.
+- A ready report that ends its managed context cycle, such as at the cycle's event limit, no
+  longer tells the session to stay paused and idle (#697). Its `next` names the ended state and
+  reason and says that no context clear will follow, so the session goes on with its work.
+- `koinon setup opencode` works with OpenCode 2 (#692). OpenCode 2.3.0 writes an MCP server into
+  the current directory's project file unless `--global` is given, and its `mcp list` no longer
+  shows the server's command, so setup left an `opencode.json` in the directory where it ran
+  and `koinon install --plan` asked for `koinon setup opencode` again after every run. Setup now
+  passes `--global` to OpenCode 2, runs OpenCode in its global configuration directory, and
+  reads the entry from the global files that each version loads, in its order;
+  `koinon uninstall` removes both versions' entries. `--opencode-config` now reaches OpenCode's
+  own `mcp add`. Remove an `opencode.json` that an earlier
+  setup left in a project when it holds only the koinon server.
+
+Upgrade from v0.11.2 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary, rewrites the skill entries and moves the store to schema 39. A
+v0.11.x binary refuses a schema 39 store, so you cannot go back to v0.11.x after the upgrade
+(docs/INSTALL.md). The restart ends current local dashboard logins: log in again with the
+Koinon password, or run `koinon dashboard` for a one-time link. A remote sign-in keeps the rest
+of its fixed 48-hour window. Homebrew then shows the steps that `koinon install --plan` finds;
+run them, and run `koinon install --plan` again to check. A running `koinon mcp` server runs
+the new release without a session restart.
+
+Upgrade notes:
+
+- A signed maintainer action for a linked computer runs only when both computers have v0.12.0.
+  Upgrade each computer that a client acts on, then add the client's key there with
+  `koinon maintainer key add`.
+- A host without a service manager, such as a container, runs the daemon in the background:
+  after `brew upgrade koinon`, run `koinon install` there to start it on the new binary.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+
 ## 2026-11-14 — Computer links work where Tailscale runs in userspace networking mode
 
 This release lets a computer whose Tailscale runs in userspace networking mode, as in many

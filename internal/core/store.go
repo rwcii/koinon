@@ -367,7 +367,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 38
+const schemaVersion = 39
 
 // workItemsV16Columns are the work item columns before schema 17, which its rebuild copies.
 const workItemsV16Columns = `store,work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,created_at,created_consumer,
@@ -954,6 +954,13 @@ func migrate(db *sql.DB, version, target int) error {
 			return err
 		}
 	}
+	if version < 39 && target >= 39 {
+		// Version 39: authorized maintainer client keys, the receipts of signed writes and the
+		// signer of a verdict (#693, LINK-693-SIGNED).
+		if _, err := tx.Exec(maintainerKeyTablesV39); err != nil {
+			return err
+		}
+	}
 	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", target)); err != nil {
 		return err
 	}
@@ -1381,6 +1388,31 @@ func (s *Store) List(ctx context.Context) ([]Session, bool, error) {
 		result = result[:1000]
 	}
 	return result, truncated, nil
+}
+
+// FamilyCount is the number of agent sessions of one family, for the Sessions page (#718).
+type FamilyCount struct {
+	Family string
+	Count  int64
+}
+
+// familyCounts counts the agent sessions of each family in the whole store, in family order,
+// as Counts counts them by state.
+func (s *Store) familyCounts(ctx context.Context) ([]FamilyCount, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT family,COUNT(*) FROM sessions s WHERE family!='maintainer' AND `+notParticipantRow+` GROUP BY family ORDER BY family`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	counts := []FamilyCount{}
+	for rows.Next() {
+		var c FamilyCount
+		if err := rows.Scan(&c.Family, &c.Count); err != nil {
+			return nil, err
+		}
+		counts = append(counts, c)
+	}
+	return counts, rows.Err()
 }
 
 func (s *Store) Counts(ctx context.Context) (map[string]int64, error) {

@@ -685,6 +685,23 @@ const cycleReadyNext = "Paused and ready: end your turn now, start no other work
 const deepSeekReadyNext = "Paused and ready: end your turn now, start no other work and stay idle. Overwatch starts a new harness " +
 	"session once this session is idle and enters /koinon-pickup there."
 
+// readyNext is the instruction of a ready report's answer. The requester of a cycle that goes
+// on stays paused: the clear waits for its idle prompt (#431). A report can also end the
+// cycle, such as at its event limit; then no clear comes and the session goes on (#697).
+func readyNext(family string, cycle CycleView) string {
+	switch {
+	case cycleTerminal(cycle.State):
+		ended := "The managed context cycle ended: " + cycle.State
+		if cycle.Reason != "" {
+			ended += " (" + cycle.Reason + ")"
+		}
+		return ended + ". No context clear will follow this reply: go on with your work."
+	case family == "deepseek":
+		return deepSeekReadyNext
+	}
+	return cycleReadyNext
+}
+
 // cycleRepeatable reports whether a ready cycle whose stage deadline passed asks its
 // requester again (#431): the pane was read and was not at its idle prompt, such as a turn in
 // progress, a draft, an unknown registry status or no input line found (pane_not_ready when

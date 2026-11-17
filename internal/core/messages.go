@@ -645,6 +645,9 @@ func (s *Store) ackIf(ctx context.Context, caller Key, through int64, dashboard 
 	}
 	defer tx.Rollback()
 	tx.audited = true
+	if result, found, err := operationReplay[int64](tx); found || err != nil {
+		return result, err
+	}
 	if !dashboard {
 		if err := active(ctx, tx.Tx, s.now().UnixMilli(), caller); err != nil {
 			return 0, err
@@ -695,6 +698,7 @@ func (s *Store) ackIf(ctx context.Context, caller Key, through int64, dashboard 
 		}
 		acked = through
 	}
+	tx.operationResult(acked)
 	return acked, tx.Commit()
 }
 

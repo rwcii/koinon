@@ -39,7 +39,10 @@ port and reports `remote` (`https_port`, and `url`, or `error` and `step`). The 
 authenticated `dashboard-access` action (`mode` `tailnet`) enables remote access with the
 saved port, saves `dashboard-local.json`, removes `dashboard-address.json` and closes the
 network listener after its own response; a failed enable changes neither file, and a failed
-write keeps the listener open (`dashboard_access_partial`). After a secret
+write keeps the listener open (`dashboard_access_partial`). `koinon remote configure` (#685) reads
+the same files and the daemon's status, and changes the answer with the same steps in one
+order: remote disable, the two files, one daemon restart, then remote enable; it refuses
+before the first change, and a failed step stops it with `dashboard_change_incomplete`. After a secret
 set at those questions, the install restarts the daemon once; a failed restart reports
 `dashboard_network.code` `dashboard_restart_failed` with its step, and the install fails with
 `daemon_restart_failed`.
@@ -60,12 +63,14 @@ The secret and state files are user-owned regular files, mode 0600; the state ro
 Secrets, runtime session identifiers and response bodies stay in the state directory, outside
 repositories.
 
-An additional optional browser surface is managed by `koinon remote enable|status|disable`
+An additional optional browser surface is managed by `koinon remote enable|status|disable|configure`
 (ADR 002, PDR 010). Tailscale Serve supplies private HTTPS on the host's `.ts.net`
 name and forwards to a dedicated `127.0.0.1` HTTP listener. That listener serves
-only the dashboard and static assets, with `/` redirecting to `/dashboard/`;
-`/v1/` is absent. It accepts the exact configured external Host and validates
-write Origin against the saved HTTPS origin, ignoring proxy identity and
+only the dashboard and static assets, with `/` redirecting to `/dashboard/`, and the two
+signed maintainer routes `POST /v1/maintainer/signed/session` and `POST /v1/maintainer/signed`
+(Signed maintainer actions, Sessions); every other `/v1/` path is absent. It accepts the exact
+configured external Host and validates
+dashboard write Origin against the saved HTTPS origin, ignoring proxy identity and
 forwarding headers as authority. The existing LAN HTTPS listener is independent.
 
 The private, owner-checked mode-0600 `remote-dashboard.json` records version,
@@ -107,8 +112,10 @@ The listener takes TLS 1.3 only, with a client certificate required and session 
 refuses every other key in the handshake with the `bad_certificate` alert, before any
 application data, and records it as the last refused key. On the TLS stream each frame is a
 4-byte big-endian length and a JSON object (`op`, `body`, or `error` and `detail`), at most 128
-KiB, with unknown fields refused; a connection carries at most 64 frames. The operations are
-`directory` and `name-update` (below), `deliver` and `cancel` (Messages, below),
+KiB (1 MiB for `maintainer` and its reply `maintainer-ok`), with unknown fields refused; a
+connection carries at most 64 frames. The operations are
+`directory` and `name-update` (below), `deliver` and `cancel` (Messages, below), `maintainer`
+(Signed maintainer actions, Other computers),
 `pair-hello` (`secret`, `name`, `dns`, `ips`, `port`; only an unpaired key with an open
 invitation's secret, which is used at once; the reply `hello-ok` has the pair `id` and `name`),
 `pair-confirm` (`id`), `ping` (`id`), `unpair` (`id`), and `introductions`, `introduced` and
@@ -627,7 +634,9 @@ caller, epoch, host, pane, socket or another session.
   fixed-width slot, which is written in place even when ordinary storage is full
   (docs/CONTEXT-CYCLE-STORAGE.md). A successful report also
   returns `next`, the instruction to end the turn, start no other work and stay idle, because the clear waits for the
-  idle prompt.
+  idle prompt. A report that ends the cycle, such as at its event limit, answers the ended cycle,
+  and its `next` names the state and reason, says that no context clear will follow and that
+  the session goes on with its work.
 - `POST /v1/cycles/pickup` (`context_cycle_pickup`) takes `cycle_id`, `revision`, the same file
   name, `outcome` `resumed` or `paused` and a `report` of 1 to 1,024 UTF-8 bytes. A cycle at
   `reset_verified` or `waiting_pickup` completes when the caller runs under a new epoch (the
@@ -1366,6 +1375,14 @@ The socket is an absolute clean path without control characters, at most 4,096 b
 pane matches `%` followed by 1–9 digits. The optional `executable` (#418) is the absolute tmux
 that the session's own terminal runs, with the same path rules as the socket. Invalid values
 return `invalid_request`.
+
+Schema 39 (#693) adds `maintainer_authorizations` (each authorization of a maintainer client
+key: its ID, key ID, public key, user, client, the statement's created time, when and by whom it
+was added, and its removal time; rows are never deleted, and at most one per key is current),
+`signed_receipts` (one per authorization and request: op, digest, state `recorded` or
+`refused`, code, result and times, kept 7 days), and `signer_user`, `signer_key` and
+`signer_client` on `decision_verdicts`, empty for a verdict that no key signed. A schema 38
+binary refuses the upgraded store.
 
 Schema 38 (#670 chunk 03) adds `link_outbox` (the queue to paired computers: cross-node ID,
 pair, sender, recipient NAME, the pair's name at send, body, sequence and digest once at the
@@ -2512,8 +2529,8 @@ agent, when the verdict decides how the project works, to record the decision in
 repository that the item was created in, in the pull request that does the work, in the ADR,
 PDR, WDR or sprint document that holds the rule, with Decided by (the person's name, not a
 role), Date, Context, Decision, Reason and scope, and Review when; a declined decision goes
-into Alternatives Considered; the decision is named by its card reference, never by verdict
-ID. An item read carries `author_repository`, the repository of the participant that the item
+into Alternatives Considered; the repository record holds the decision itself and is its
+source, and neither the card reference nor the verdict ID is cited as the source (#723). An item read carries `author_repository`, the repository of the participant that the item
 stored for its author at create; a plain peer's item has none. A snapshot stores the item's
 `where` since #536; an older snapshot has none. The `decision_record` tool and `koinon
 decision record` are removed (#623). The ship skill no longer declares the `Decision record`
@@ -2797,6 +2814,142 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   `maintainer_token_expired`, the server writes the reply of a request in progress, writes the
   code to standard error and exits with status 1, also while standard input is open and idle.
   A poll that no daemon answers is tried again after 1 second, doubling to at most 30 seconds.
+- **Signed maintainer actions** (#693; PDR 011, Decision 6; contract
+  `docs/sprints/2026-11-14-signed-maintainer/decision.md`). A maintainer client keeps an Ed25519
+  key per user and install and signs each action; the computer that runs it checks the signature
+  against a key that its own login added.
+  - **Keys.** `koinon maintainer key add --statement FILE`, `key list [--all]` and
+    `key remove KEY_ID` send `POST /v1/maintainer/keys` with `{"action": "add"|"list"|"remove",
+    "statement", "key_id", "all"}` and the bearer secret, as `koinon maintainer secret` does. A
+    statement is an envelope (below) with `op` `enroll`, `args` `{"user", "client",
+    "public_key"}`, this computer's pin as `target` and no `auth` or `request`; `user` is 1–32 of
+    `a-z0-9._-` starting with a letter, `client` 1–32 of `a-z0-9-` starting with a letter or
+    digit, `public_key` the standard
+    base64 of the raw 32-byte key. `add` refuses (`signature_refused` with `details.reason`) a
+    statement for another pin (`target`), one whose `key` is not the key ID of `public_key`
+    (`key_unknown`), a bad signature (`signature`) and one not within 10 minutes of this
+    computer's clock (`time`); one that this computer added before is `statement_used`, also
+    after a removal and a restart. The authorization ID is the hex SHA-256 of the statement's
+    signed bytes. A new statement for a key that has a current authorization replaces it.
+    `remove` of a key with no current authorization is `key_unknown`. Schema 39 keeps every
+    authorization with its removal time; `list` gives `authorization`, `key_id`, `user`,
+    `client`, `added_at`, `added_by` (`cli`) and, with `all`, `removed_at`. Adding and removing
+    write the audit records `maintainer-key-add` and `maintainer-key-remove` with
+    `key KEY_ID for USER (CLIENT) by cli`; a removal is stored before the command returns.
+  - **Envelope.** One JSON object with exactly `v` (`koinon-maintainer-1`), `key` (`SHA256:`
+    and the unpadded standard base64 of the key's SHA-256), `auth` (the authorization ID),
+    `target` (the pin), `op`, `args`, `request` (16–128 of `A-Za-z0-9_-`), `created` (Unix
+    seconds) and `sig`: the padded standard base64 Ed25519 signature of `koinon-maintainer-1`, a
+    newline and the RFC 8785 bytes of the object without `sig`. Keys are ASCII, values are
+    strings, integers within ±(2^53−1), booleans, and only `changes` `versions` is an object (of
+    strings); no float, null, array, duplicate key, invalid UTF-8 or unpaired surrogate escape.
+    An envelope is at most 512 KiB. The checks run in this order and stop at the first refusal,
+    `signature_refused` with `details.reason`: the form (`version`); the target (`target`: a pin
+    that is neither this computer's nor a paired computer's, which goes on the link, Other
+    computers below); the key's current
+    authorization (`key_unknown`, `key_removed`) and `auth` (`authorization_changed`); the
+    signature (`signature`). A read then needs `created` within 5 minutes of this computer's
+    clock (`time`), and its key is checked again after the read. A write runs in one store
+    transaction: the key's authorization again, the receipt of (`auth`, `request`), then the
+    5-minute `time` check, the operation and its receipt. A refusal's text is at most 1 KiB.
+  - **Operations** on this computer's pin, with the maintainer routes' checks and answers:
+    `board_list` (`filter`, `after`, `limit`), `decision_get` (`reference`),
+    `decision_history` (`reference`, `after`, `limit`), `inbox` (`after`, `limit`), `room_list`
+    (`after`, `limit`; answers `rooms`, `more` and, with more, `next_after`), `room_read`
+    (`room`, `after`, `limit`), `peers`, `peer_status` (`peer`); the writes `decision_verdict`
+    (`reference`, `revision`, `snapshot`, `verdict`, `note`), `ack` (`through`), `send` (`to`,
+    `body`, `reply_to`) and `room_post` (`room`, `body`); and `outcome`, `computers` and
+    `changes`. An unknown argument or one of the wrong type is `invalid_request`.
+    `snapshot` is the hex SHA-256 of the RFC 8785 bytes of `{"reference", "revision", "kind",
+    "title", "where", "context", "recommendation", "agent_text", "commands"}` as `decision_get`
+    shows them (`commands` the shown commands, `[]` when none); another snapshot is
+    `snapshot_changed`. An answer is at most 1 MiB as the route writes it: a paged read that
+    does not fit reads again with half its items and keeps `more` and `next_after`; one that
+    cannot page is `too_large`.
+  - **Receipts.** Each write keeps a receipt per (authorization, request) for 7 days with the
+    digest of its signed bytes and its whole answer, or the code and details of a refusal of
+    the operation's own checks before any change (`stale_revision`, `decided`,
+    `snapshot_changed`). The same envelope answers the receipt again, also after a restart and
+    while the store refuses new writes; another envelope with that request is
+    `request_conflict`. `outcome` (`request`, `created`) answers `{"state": "recorded",
+    "result"}`, `{"state": "refused", "code", "details"}` or `{"state": "unknown_request",
+    "now"}`, read with the clock in one store transaction that checks the envelope's
+    authorization again; after the key is added again, an `outcome` under the old
+    authorization is `authorization_changed`.
+  - **Computers and changes.** `computers` answers `{"node": {"pin", "name"}, "computers":
+    [{"pin", "name", "state" (connected, offline), "reason", "since"}]}` for the paired
+    computers. `changes` (`versions`: topic to 20-character version; `wait_seconds` 0–30)
+    answers `{"versions", "changed"}` at once without `versions`, else when a topic's version
+    differs or the wait ends; the topics are `inbox`, `decisions`, each room ID and
+    `computers`, whose version moves when a pair, a name, a state or a reason changes and is
+    stored in the settings row `signed.computers`. A removal of the key ends a waiting request.
+  - **Other computers** (#693 chunk 2). An envelope whose `target` is a paired computer's pin
+    goes on that pair's link unchanged as the operation `maintainer` (`envelope`: the standard
+    base64 of its exact bytes); the node does not check its key or signature and keeps no
+    receipt. The
+    other computer runs it as for its own route, for its own pin only (another pin is
+    `signature_refused` with `target`), and never sends it on; it refuses `computers`
+    (`invalid_request`), its `changes` has no `computers` topic, and its `peers` and
+    `peer_status` give the fields of its link directory entries only (`name`, `address`,
+    `family`, `role`, `repository`, `activity`, `activity_at`; PDR 011, Decision 2). It runs a
+    write only while the pair and the link generation stand, checked again under the link lock
+    just before the write. Its reply `maintainer-ok` has `status` (its route's HTTP status) and
+    `answer` (its route's JSON); a paged read fits that frame and keeps `more` and
+    `next_after`. The node returns the status and answer unchanged. The node refuses `session`
+    and `computers` signed for a paired computer's pin (`invalid_request`; for an unknown pin
+    the target refusal comes first), and answers with status 409:
+    `computer_offline` (`details`: `target`, `last_seen`, the time of the last connected
+    observation of that pair or 0, and `reason`, such as `link_remote_required` when this
+    computer's link is closed) when it could not connect and sent nothing, so the action did
+    not run; a pair removed while the node connected is `signature_refused` with `target`, and
+    nothing is sent; `outcome_unknown` (`target`, `request`) once it has written any byte of
+    the frame and no valid answer came back (none, another reply, or an answer that is not an
+    object whose `ok` is true with status 200 and a `result`, or false with a refusal status and
+    a non-empty string `code`), or the request
+    ended, so the action may have run: `outcome` on that computer, or the same envelope again,
+    tells. A link refusal that the other computer gives before it runs
+    anything (`link_operation_unknown` from a computer without this release,
+    `link_pair_not_found`, `link_remote_required`, `invalid_request`, `link_frame_too_large`)
+    comes back with its code and `details.target`. The node connects and authenticates within 3 seconds at
+    all of the computer's addresses together, so a computer that is off answers
+    `computer_offline` at once, also when its Serve port takes the connection; then it waits
+    for the answer the `changes` wait (at most 30 seconds) and 15 seconds more. The signed
+    route's write deadline is 58 seconds, and `koinon mcp --maintainer --signed` waits 73
+    seconds for a call.
+  - **Sessions.** `POST /v1/maintainer/signed/session` takes a `session` envelope (`args`
+    `{"client"}`) as its body and answers as `/v1/maintainer/session` does, with `client`
+    `key:CLIENT` from the authorization; it writes the audit record `maintainer_login` with
+    `key:CLIENT by USER (CLIENT) key KEY_ID`. `POST /v1/maintainer/signed` takes one envelope as
+    its body and the session's token in `Koinon-Maintainer-Token`, as the loopback API's
+    `Authorization` holds the daemon's bearer secret; an unknown or ended token,
+    or one whose key's authorization ended, is `maintainer_token_expired` (409) before the body
+    is read. A session has at most 128 actions in flight; one more is answered at once, before
+    its body is read, with 429 `too_many_calls` (`details.limit`), and another session is not
+    held by it. The Remote listener (#693 chunk 3) serves these two routes with the same answers
+    and needs no bearer secret: the session route takes the session envelope alone, and the
+    action route takes the token as `Authorization: Bearer TOKEN` only; no dashboard cookie,
+    secret or secret token opens it, and a signed token opens no dashboard page. Any other
+    method of the two paths is 405, and any other `/v1/` path 404. The routes do not need the
+    maintainer secret to be set; turning Remote on still does. The login's audit record ends
+    with ` via remote`. A signed request on Remote holds the surface only for its admission and
+    ends when Remote is turned off, so a turn-off does not wait for a `changes` wait; its answer
+    may then not arrive, and a write that had not committed does not run later. A signed
+    session has the token's limits, ends with its key's authorization and at
+    a daemon restart, not at a change of the secret. A secret token is not a signed token, and
+    a signed token is not a secret token. `koinon mcp --maintainer --signed` reads the session
+    envelope from the first line of standard input (at most 512 KiB, LF or CRLF) and serves
+    one tool, `signed` (`envelope`: the object, or a string of its JSON text), which answers
+    the target's answer unchanged; it has no resources. It runs each `tools/call` at once, so a
+    `changes` wait holds no other call, and answers each by its own `id`, in any order; at most
+    128 calls are in flight (one wait for each target a node can have, and as many actions),
+    and a call beyond that is answered at once with `too_many_calls` (`details.limit`) and
+    reaches no daemon. `maintainer_token_expired` from any call ends the server after the
+    calls in flight have answered; the end of standard input also lets them answer first.
+  - **Identity.** A signed write records `via` `key:CLIENT`; a verdict also stores the
+    authorization's user, key ID and client, which the answer, the maintainer's history
+    (`signer`) and the dashboard (`by USER (CLIENT)`) show, also after the key's removal; an
+    agent's history shows neither. The audit record of a signed action ends with
+    `by USER (CLIENT) key KEY_ID`.
 - **Request protection.** Every loopback dashboard request must name a literal loopback IP with a port in
   `Host` (`127.0.0.1:PORT` or `[::1]:PORT`; `localhost` and other names are refused). PORT may
   differ from the listener's, as through an SSH tunnel from another local port (ADR 001,
@@ -2981,6 +3134,12 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     when any session was refused; an unknown action or more than 100 selections is
     `invalid_request`, a known action without a selection is `no_selection` (#442), and a
     purge without the confirmation is `confirmation_required` and changes nothing (#388). The sessions view has a box before each agent session's name.
+    `context-on` and `context-off` (#718) turn each selected session's managed context Enable on
+    or off, as `context-enable` does for one session, with an `enable:family:id` value for each
+    selected session: the Enable revision that the page showed. The change is bound to the
+    selected key, not to a name; each session gets its own `context-enable` audit record, and a
+    changed Enable is `context_enable_changed`, an unavailable cycle `context_cycle_unavailable`,
+    and a missing or malformed Enable revision `invalid_request`, for that session only.
   - `release` (`repository`, `work_id`, `revision`, `generation`, `consumer`): the work release
     of the claim's owner, with the checkpoint `Released by the maintainer from the dashboard`;
     the work event names family and name `maintainer`. Stale values get the work refusal codes.

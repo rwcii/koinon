@@ -450,6 +450,9 @@ type contextRow struct {
 	// Dialog is the native dialog that the managed cycle waits on and that the adapter does
 	// not answer itself: the maintainer's response applies only to this dialog.
 	Dialog *CycleDialog
+	// DraftBlocks is draftBlockedText while the requester's handoff cycle waits on text in
+	// its input box, else "" (#711).
+	DraftBlocks string
 	// Subagents is, for a Claude requester at waiting_ready, the count of its background
 	// subagents running since the request, "unknown" when they cannot all be read, else ""
 	// (#467).
@@ -488,6 +491,13 @@ func (s *Store) contextRowOf(session Session, enable ContextEnable, now int64) c
 		}
 		if v, err := cycles[0].view(context.Background(), s.db, role); err == nil {
 			row.Managed = &v
+			if role == "requester" {
+				if blocked, err := draftBlockedCycles(context.Background(), s.db); err == nil {
+					if blocked[k] == v.ID {
+						row.DraftBlocks = draftBlockedText
+					}
+				}
+			}
 			if v.State == cycleWaitingReady && role == "requester" && cycles[0].Family == "claude" {
 				row.Subagents = "unknown"
 				if requested, err := cycleRequestedAt(context.Background(), s.db, cycles[0]); err == nil {
@@ -522,8 +532,12 @@ type sessionsData struct {
 	// Status is the status filter shown ("" is all); the counts stay totals under it.
 	Status string
 	Counts map[string]int64
-	Sort   dashboardSort
-	Next   string
+	// Family is the family filter shown ("" is all families), and Families each family's
+	// count in the whole store (#718).
+	Family   string
+	Families []FamilyCount
+	Sort     dashboardSort
+	Next     string
 	// Computers are the receivers of paired computers, one group each (#670).
 	Computers []remoteGroup
 }
@@ -595,7 +609,7 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		sessions, next, err := d.store.dashboardSessions(ctx, order, q.Get("q"), q.Get("status"))
+		sessions, next, err := d.store.dashboardSessions(ctx, order, q.Get("q"), q.Get("status"), q.Get("family"))
 		if err != nil {
 			return nil, err
 		}
@@ -624,12 +638,17 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+		families, err := d.store.familyCounts(ctx)
+		if err != nil {
+			return nil, err
+		}
 		enables, err := d.store.contextEnables(ctx)
 		if err != nil {
 			return nil, err
 		}
 		now := d.store.now().UnixMilli()
-		result := sessionsData{Rows: make([]sessionRow, 0, len(sessions)), Search: q.Get("q"), Status: q.Get("status"), Counts: counts, Sort: order, Next: next,
+		result := sessionsData{Rows: make([]sessionRow, 0, len(sessions)), Search: q.Get("q"), Status: q.Get("status"), Counts: counts,
+			Family: q.Get("family"), Families: families, Sort: order, Next: next,
 			Computers: remoteGroups(d.remoteRows())}
 		for _, s := range sessions {
 			result.Rows = append(result.Rows, sessionRow{Session: s, Work: claims[s.Family+":"+s.ID], Observed: d.store.sessionObservations(pull, s), Participant: byAddress[s.Address],

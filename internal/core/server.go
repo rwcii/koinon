@@ -36,6 +36,10 @@ type Config struct {
 }
 
 type Daemon struct {
+	// computers is the node's computers topic of signed changes waits (#693).
+	computers computersTopic
+	// signedCalls counts the actions in flight of each signed session (#693 chunk 3).
+	signedCalls       signedCalls
 	remote            remoteRuntime
 	link              linkRuntime
 	release           string
@@ -501,6 +505,8 @@ func (d *Daemon) handler() http.Handler {
 	d.roomRoutes(mux)
 	d.decisionRoutes(mux)
 	d.maintainerRoutes(mux)
+	d.maintainerKeyRoutes(mux)
+	d.signedRoutes(mux)
 	d.maintainerSessionRoutes(mux)
 	d.linkMaintainerRoutes(mux)
 	mux.HandleFunc("POST /v1/dashboard/links", func(w http.ResponseWriter, r *http.Request) {
@@ -576,16 +582,34 @@ func Call(ctx context.Context, address, secret, path string, body any) (json.Raw
 // CallTimeout is Call with its own time limit, for a request that the daemon answers later,
 // such as the long poll of the maintainer's change notices.
 func CallTimeout(ctx context.Context, address, secret, path string, body any, timeout time.Duration) (json.RawMessage, error) {
+	if body == nil {
+		return callRaw(ctx, address, secret, path, nil, nil, timeout)
+	}
+	data, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	return callRaw(ctx, address, secret, path, data, nil, timeout)
+}
+
+// CallEnvelope posts one signed envelope as it is, with a signed session's token when token is
+// not empty (#693): the daemon checks the bytes that the client signed.
+func CallEnvelope(ctx context.Context, address, secret, path string, envelope []byte, token string, timeout time.Duration) (json.RawMessage, error) {
+	var header map[string]string
+	if token != "" {
+		header = map[string]string{MaintainerTokenHeader: token}
+	}
+	return callRaw(ctx, address, secret, path, envelope, header, timeout)
+}
+
+// callRaw makes one daemon request: a GET without a body, else a POST of the JSON body.
+func callRaw(ctx context.Context, address, secret, path string, body []byte, header map[string]string, timeout time.Duration) (json.RawMessage, error) {
 	if !validAddress(address) {
 		return nil, ErrInvalid
 	}
 	method, reader := http.MethodGet, io.Reader(nil)
 	if body != nil {
-		data, err := json.Marshal(body)
-		if err != nil {
-			return nil, err
-		}
-		method, reader = http.MethodPost, bytes.NewReader(data)
+		method, reader = http.MethodPost, bytes.NewReader(body)
 	}
 	transport := &http.Transport{Proxy: nil}
 	defer transport.CloseIdleConnections()
@@ -597,6 +621,9 @@ func CallTimeout(ctx context.Context, address, secret, path string, body any, ti
 	r.Header.Set("Authorization", "Bearer "+secret)
 	if body != nil {
 		r.Header.Set("Content-Type", "application/json")
+	}
+	for name, value := range header {
+		r.Header.Set(name, value)
 	}
 	response, err := client.Do(r)
 	if err != nil {

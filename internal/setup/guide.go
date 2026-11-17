@@ -156,9 +156,9 @@ question and the options), Decision, Reason and scope, and Review when (a known 
 calls for a review of the decision; leave it out when there is none). Put a declined decision
 into the record's Alternatives Considered. decision_get, decision_pending and the verdict
 message give the verdict, the card text and this instruction. Correct the spelling and typing
-errors in quoted words (notes, feedback and quotes), and keep their meaning and wording. Name a
-decision by its card reference, never by verdict ID: a verdict ID exists only in this machine's
-store. How a project cites its decisions is that project's own rule. Recorded text is public
+errors in quoted words (notes, feedback and quotes), and keep their meaning and wording. The
+repository record holds the decision itself and is its source: cite neither the card reference
+nor the verdict ID as the source, because both exist only in this machine's store. How a project cites its decisions is that project's own rule. Recorded text is public
 repository text, so write every card as public text (#536). koinon decision export --as FAMILY:ID PATH writes
 every item, live and deep-archived, as JSON lines to a new private file outside a Git work
 tree, which a person or CI can read without the daemon.
@@ -273,7 +273,8 @@ while fresh and for the current published name.
   shows and the handoff file name by that deadline. Then end your turn and stay idle: the
   cycle clears your context at your idle prompt, and enters Koinon's own pickup skill, koinon-pickup, which the
   daemon writes for the person and which loads skill.pickup. If your pane does not become
-  idle, overwatch sends the request again under a new revision; pause and report again.
+  idle, overwatch sends the request again under a new revision; pause and report again. If
+  the reply says that the cycle ended, no clear follows: go on with your work.
 - After a clear, call context_cycle_status. For a cycle in reset_verified or waiting_pickup,
   with or without a repository, finish your canonical pickup of the returned handoff file, then
   call context_cycle_pickup with the cycle ID, revision, file name, outcome resumed or paused,
@@ -445,7 +446,9 @@ paths/connections and optional terminal operations.
 	"opencode": `
 ## OpenCode
 Koinon knows each OpenCode session through the Koinon plugin that koinon setup opencode
-installs; without it the tools refuse the call. Start OpenCode through koinon opencode for
+installs; without it the tools refuse the call. Setup writes the koinon server into OpenCode's
+global configuration: mcp.koinon with OpenCode 1 (checked with 1.18.35), mcp.servers.koinon
+with OpenCode 2 (checked with 2.3.0). Start OpenCode through koinon opencode for
 participant features and its wake endpoint. A direct opencode start registers as a plain
 peer using the plugin's native identity. It has no automatic wake because it has no launcher
 wake endpoint; read waiting messages with inbox.

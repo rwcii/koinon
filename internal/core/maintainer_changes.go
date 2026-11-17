@@ -61,6 +61,19 @@ func topicURI(topic string) string {
 // changeVersions reads every counter in one read transaction, by resource URI. A deleted
 // room has no entry.
 func (s *Store) changeVersions(ctx context.Context) (map[string]string, error) {
+	topics, err := s.changeTopics(ctx)
+	if err != nil {
+		return nil, err
+	}
+	versions := map[string]string{}
+	for topic, version := range topics {
+		versions[topicURI(topic)] = version
+	}
+	return versions, nil
+}
+
+// changeTopics reads every counter in one read transaction, by topic.
+func (s *Store) changeTopics(ctx context.Context) (map[string]string, error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return nil, err
@@ -77,7 +90,7 @@ func (s *Store) changeVersions(ctx context.Context) (map[string]string, error) {
 		if err := rows.Scan(&topic, &version); err != nil {
 			return nil, err
 		}
-		versions[topicURI(topic)] = version
+		versions[topic] = version
 	}
 	return versions, rows.Err()
 }

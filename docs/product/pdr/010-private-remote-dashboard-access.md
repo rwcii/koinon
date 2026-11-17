@@ -3,7 +3,7 @@ pdr: "010"
 title: "Private Remote Dashboard Access"
 status: accepted
 created: "2026-11-11"
-updated: "2026-11-13"
+updated: "2026-11-16"
 authors:
   - "Andrew Deugarte (@andyde8)"
 reviewers: []
@@ -327,7 +327,7 @@ needed to identify the cause.
 
 ## 6. Decision: The terminal runs the Linux operator step after confirmation
 
-**Decided by:** Robert Capps, 2026-11-12, board card TAILSCALE-AUTO-656 (#656).
+**Decided by:** Robert Capps, 2026-11-12, on the decision board (#656).
 
 **Context:** On Linux, tailscaled lets only root or the Tailscale operator change Serve,
 and an ordinary account cannot make itself operator: the first grant needs sudo. Since
@@ -420,8 +420,8 @@ step.
 ## 9. Refinement: Remote control v2 fixed sign-in and recovery
 
 **Requested by:** Andrew Deugarte (@andyde8), 2026-11-12, direct conversation.
-**Decided by:** Robert Capps, 2026-11-13, board card REL-SCOPE-673 (approved, revision 2),
-for release v0.11.0. Robert Capps takes as his own decisions the fixed 48-hour sign-in that
+**Decided by:** Robert Capps, 2026-11-13, on the decision board (approved), for release
+v0.11.0. Robert Capps takes as his own decisions the fixed 48-hour sign-in that
 survives a restart, and crash survival with its storage-failure, process-loss and
 clock-rollback limit. His words: "this is the next release. Why defer it?" and "673 comes
 with .11". The [sprint decision record](../../sprints/2026-11-12-remote-control-v2/decision.md)
@@ -466,6 +466,70 @@ choices supporting the authorized spec, not separately dictated maintainer polic
 Review when field device acceptance exposes retention/recovery issues or capacity
 requires revision. Actual phone/platform evidence is tracked in the v2 sprint.
 
+## 10. Refinement: Change the dashboard choice in one command
+
+**Decided by:** Robert Capps, 2026-11-16, on the decision board (approved). The approval was
+for the command and its scope as built, with two review fixes: a restart only through this
+installation's own service, and checks of the chosen address or port. claude-koinon proposed it; codex-koinon reviewed it.
+
+**Source:** Issue #685 (2026-11-14), which says: "The maintainer decides the name and the
+scope."
+
+**Context:** The first install asks where the dashboard opens, once. A later install or
+upgrade asks nothing. To change the answer, the maintainer had to combine `koinon remote
+enable` or `disable` with `koinon install --dashboard-address HOST:PORT` or `none`, and some
+changes needed two commands in the right order. The dashboard's switch (section 8) gives one
+change only, to this computer and the tailnet.
+
+**Decision:** `koinon remote configure` shows the saved answer in the words of the install
+question, and what runs now on separate lines. At a terminal it asks the install question
+again, with the current values as the defaults. `--choice local|tailnet|network`, with
+`--https-port` for the tailnet and `--dashboard-address` for a network address, gives the
+answer without a terminal. It checks the options, the daemon, the target address and the
+installed binary, and gets the maintainer secret that the answer needs, before the first
+change; a refusal or ended input changes nothing. A restart goes only through the service that
+install wrote for this binary and state directory; another service is refused, not rewritten. Then it closes the old access before it
+opens the new one: a remote disable, the saved network setting, one daemon restart through
+the installation's own backend, and a remote enable, and it checks that the chosen address
+or port runs. An equal answer that already runs at its own address or port changes nothing. Each step names its effect on sign-ins, and a failed step names the command
+that finishes it; the earlier steps stay done.
+
+**Reason and scope:** One command and one order replace two command groups. A network address
+can now also be opened by this command, not only by an install step (section 8). The
+dashboard's switch keeps its own order and is not changed. The command line only: no new
+dashboard page. A macOS system-mode restart uses install's own checks.
+
+**Alternatives considered:** documenting the command pairs in INSTALL, which leaves two
+command groups to combine; `koinon install --ask-dashboard`, which also does an install's
+service and setup work that a change of the choice does not need.
+
+## 11. Refinement: Settings sections start closed (#719)
+
+**Decided by:** Robert Capps, 2026-11-16, on the decision board (approved).
+
+**Context:** Robert Capps, 2026-11-16, terminal: "settings page. each setting group, like
+"Signed-in remote devices" "Computers" etc... should be closed on page load. only the
+currently open section(s) should remain open." Six Settings sections opened on every load:
+Signed-in remote devices, Draft recovery on this browser, Remote access, Computers, Spoken
+alert and Change the session timing. The **Go remote** link (`#remote-access`) closed every
+other section. His words did not say what "currently open" means: the sections open when an
+action reloads the page, or also the sections open when he comes back to the page later. The
+options: keep the open sections across the reload after an action only, or also on a later
+return in the same browser.
+
+**Decision:** every Settings section starts closed. The browser keeps the sections that he
+leaves open, so they open again after an action reloads the page and when he comes back to
+Settings in the same browser; all others stay closed. A link to a section, such as
+`#remote-access`, opens that section and keeps the other open sections.
+
+**Reason and scope:** he asked for closed sections on load and for his open sections to stay
+open. The kept state is a per-browser convenience in local storage for the dashboard address:
+another browser or a private window starts with every section closed. Scope: the Settings
+page only.
+
+**Alternatives considered:** keeping the open sections only across the reload after an action,
+which is simpler, but a later visit starts with every section closed.
+
 ## Conclusion
 
 Remote access reuses the dashboard's actions and login while making setup
@@ -487,3 +551,5 @@ unverified connectivity and action outcomes stay labeled as such.
 | 2026-11-12 | Record Robert Capps's request for a "localhost and tailnet only" choice (#665). |
 | 2026-11-12 | Record Andrew's v2 implementation authorization, fixed 48-hour policy, durable sessions and explicit recovery scope. |
 | 2026-11-13 | Record Robert Capps's decision REL-SCOPE-673: §9 ships in v0.11.0 as his decision; Andrew stays the proposer. §5 is superseded for remote browsers. |
+| 2026-11-16 | Record Robert Capps's decision k685-remote-configure: section 10, `koinon remote configure` (#685). |
+| 2026-11-16 | Record Robert Capps's decision k719-open-sections: section 11, Settings sections start closed (#719). |

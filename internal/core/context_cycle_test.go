@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"html"
 	"math/rand/v2"
 	"os"
 	"os/exec"
@@ -56,6 +57,9 @@ func (f *fakeAdapter) Inspect(ctx context.Context, t CycleTarget, fence CycleFen
 		}
 		f.record("cancel copy mode")
 	}
+	// The daemon's own cycle loop reads the pane while a test changes it (#679).
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	return f.pane, f.inspect
 }
 
@@ -94,13 +98,18 @@ func (f *fakeAdapter) Answer(ctx context.Context, _ CycleTarget, prompt string, 
 }
 func (f *fakeAdapter) Dialog(context.Context, CycleTarget) (CycleDialog, error) {
 	f.record("dialog")
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	return f.dialog, nil
 }
 func (f *fakeAdapter) Choose(ctx context.Context, _ CycleTarget, digest, option string, fence CycleFence) (bool, error) {
 	if f.beforeChoose != nil {
 		f.beforeChoose()
 	}
-	if digest != f.dialog.Digest {
+	f.mu.Lock()
+	shown := f.dialog.Digest
+	f.mu.Unlock()
+	if digest != shown {
 		return false, ErrCycleDialogChanged
 	}
 	if err := fence(ctx); err != nil {
@@ -970,6 +979,93 @@ func TestContextCycleControlsAtSaturation(t *testing.T) {
 	}
 }
 
+// #697: a ready report that ends its cycle, here at the event limit, answers the failed
+// cycle, and its next says that no clear follows, not to stay idle.
+func TestContextCycleReadyAtEventLimit(t *testing.T) {
+	adapter := &fakeAdapter{pane: PaneState{Idle: true}, probe: CycleProbe{Entry: "koinon-pickup"}}
+	previous := cycleAdapters
+	cycleAdapters = map[string]CycleAdapter{"claude": adapter}
+	t.Cleanup(func() { cycleAdapters = previous })
+	d, root := startTestDaemon(t)
+	s := d.store
+	repo := namedRepo(t, "cycle-event-limit")
+	a := join(t, s, "claude", "synthetic-limit-a", repo)
+	pid, start := liveHost(t)
+	fixtureExec(s, `UPDATE sessions SET host_pid=?,host_start=?,tmux_socket='/tmp/synthetic-socket',tmux_pane='%3' WHERE family='claude' AND id=?`, pid, start, a.ID)
+	a, _ = scanSession(s.db.QueryRow(sessionQuery+` WHERE s.family=? AND s.id=?`, "claude", a.ID), s.now().UnixMilli())
+	if _, err := s.SetContextEnable(roomCtx("context-enable"), a.Name, a.Revision, 0, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Observe(context.Background(), Observation{Caller: Key{"claude", a.ID}, Context: &ObservedValue{Source: "claude_statusline",
+		At: s.now().UnixMilli(), LimitTokens: int64p(1000), UsedTokens: int64p(950), Epoch: "synthetic-epoch-1"}}); err != nil {
+		t.Fatal(err)
+	}
+	var id string
+	if err := s.db.QueryRow(`SELECT cycle_id FROM context_cycles`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("_handoff/\n"), 0o644)
+	os.MkdirAll(filepath.Join(repo, "_handoff", "claude"), 0o700)
+	os.WriteFile(filepath.Join(repo, "_handoff", "claude", "2026-10-13-120000.md"), []byte("synthetic handoff"), 0o600)
+	// The cycle has credit to end, but not for another stage: the report ends it.
+	fixtureExec(s, `UPDATE context_cycles SET credit=? WHERE cycle_id=?`, cycleTerminalPages, id)
+	secret, err := ReadSecret(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, reply := post(t, d.Addresses()[0], secret, "/v1/cycles/ready", map[string]any{"caller": map[string]any{"family": "claude", "id": a.ID},
+		"epoch": "synthetic-epoch-1", "cycle_id": id, "revision": 1, "artifact": "2026-10-13-120000.md"})
+	cycle, _ := reply["cycle"].(map[string]any)
+	if status != 200 || cycle["state"] != cycleFailed || cycle["reason"] != "event_limit" {
+		t.Fatalf("ready at the event limit: %d %v", status, reply)
+	}
+	want := "The managed context cycle ended: failed (event_limit). No context clear will follow this reply: go on with your work."
+	if reply["next"] != want {
+		t.Fatalf("next %q, want %q", reply["next"], want)
+	}
+}
+
+// #711: the Attention page and the Sessions row show the draft line while a handoff cycle's
+// newest repeat found text in the input box, never the text itself.
+func TestDashboardShowsTheDraftThatBlocksTheClear(t *testing.T) {
+	adapter := &fakeAdapter{pane: PaneState{Idle: true}, probe: CycleProbe{Entry: "koinon-pickup"}}
+	previous := cycleAdapters
+	cycleAdapters = map[string]CycleAdapter{"claude": adapter}
+	t.Cleanup(func() { cycleAdapters = previous })
+	d, root := startTestDaemon(t)
+	s := d.store
+	a := join(t, s, "claude", "synthetic-draft-a", namedRepo(t, "cycle-draft"))
+	pid, start := liveHost(t)
+	fixtureExec(s, `UPDATE sessions SET host_pid=?,host_start=?,tmux_socket='/tmp/synthetic-socket',tmux_pane='%3' WHERE family='claude' AND id=?`, pid, start, a.ID)
+	a, _ = scanSession(s.db.QueryRow(sessionQuery+` WHERE s.family=? AND s.id=?`, "claude", a.ID), s.now().UnixMilli())
+	if _, err := s.SetContextEnable(roomCtx("context-enable"), a.Name, a.Revision, 0, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Observe(context.Background(), Observation{Caller: Key{"claude", a.ID}, Context: &ObservedValue{Source: "claude_statusline",
+		At: s.now().UnixMilli(), LimitTokens: int64p(1000), UsedTokens: int64p(950), Epoch: "synthetic-epoch-1"}}); err != nil {
+		t.Fatal(err)
+	}
+	var id string
+	if err := s.db.QueryRow(`SELECT cycle_id FROM context_cycles`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	client := newActionClient(t, d, root)
+	line := html.EscapeString(draftBlockedText)
+	for _, path := range []string{"/dashboard/sessions", "/dashboard/attention"} {
+		if page := dashboardDo(t, d, "GET", path, client.cookie, nil, nil); page.status != 200 || strings.Contains(page.body, line) {
+			t.Fatalf("%s before a draft: %d", path, page.status)
+		}
+	}
+	// The newest repeat of the waiting cycle found text in the input box.
+	fixtureExec(s, `INSERT INTO context_cycle_events(cycle_id,ordinal,at,stage,result,reason) VALUES (?,99,?,?,'entered','not_idle.input_not_empty')`,
+		id, s.now().UnixMilli(), cycleWaitingReady)
+	for _, path := range []string{"/dashboard/sessions", "/dashboard/attention"} {
+		if page := dashboardDo(t, d, "GET", path, client.cookie, nil, nil); page.status != 200 || strings.Count(page.body, line) != 1 {
+			t.Fatalf("%s with a draft: %d %s", path, page.status, page.body)
+		}
+	}
+}
+
 // The Sessions page shows the cycle's stage, deadline and history without a native ID,
 // epoch, pane, socket or report; the own-cycle API refuses unknown fields.
 func TestContextCycleDashboardAndRoutes(t *testing.T) {
@@ -1065,7 +1161,7 @@ func TestContextCycleSchemaTwentyThreeKeepsExistingState(t *testing.T) {
 	room := mustRoom(t, s, "synthetic kept room")
 	mustHumanPost(t, s, room, "synthetic kept post")
 	before := rowsOf(t, s.db)
-	if _, err := fixtureExec(s, undoSchemaThirtyEight+undoSchemaThirtySeven+undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+`PRAGMA user_version=22`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaThirtyNine+undoSchemaThirtyEight+undoSchemaThirtySeven+undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+`PRAGMA user_version=22`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(s.db, 22); err != nil {
@@ -1101,7 +1197,7 @@ func TestContextCycleSchemaTwentyFourKeepsCycles(t *testing.T) {
 		return text
 	}
 	before, rows := rowText(f.s.db), rowsOf(t, f.s.db)
-	if _, err := fixtureExec(f.s, undoSchemaThirtyEight+undoSchemaThirtySeven+undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+`PRAGMA user_version=23`); err != nil {
+	if _, err := fixtureExec(f.s, undoSchemaThirtyNine+undoSchemaThirtyEight+undoSchemaThirtySeven+undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+`PRAGMA user_version=23`); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkCatalog(f.s.db, 23); err != nil {

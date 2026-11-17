@@ -286,8 +286,9 @@ holds the rule, in the pull request that does the work, in this form:
 
 A declined decision goes into the record's Alternatives Considered. Koinon writes no record
 file. The agent writes the decision succinctly, corrects the spelling and typing errors in your
-words, and names the decision by its card reference, never by verdict ID, which exists only in
-this machine's store. How a project cites its decisions is that project's own rule. A decision
+words, and writes the decision itself into the record, which is its source: neither the card
+reference nor the verdict ID is cited as the source, because both exist only in this machine's
+store. How a project cites its decisions is that project's own rule. A decision
 is recorded only in the repository that its item was created in. Recorded text is public, so
 agents write every card as public text.
 
@@ -473,8 +474,18 @@ lifetime (default 900 seconds), the renewal interval of `koinon mcp` (default 30
 most half the lifetime) and the succession guard (default 30 seconds, at least 30). A change
 applies at once, without a restart, and the audit log records it.
 
-The Settings page also sets each family's context handoff mode and threshold: Claude
-`handoff_cycle`, Codex `native_compaction` and the others `observe`, at 75 percent by default.
+Each section of the Settings page, such as Remote access or Computers, starts closed (#719).
+This browser keeps the sections that you leave open: they open again after an action reloads
+the page and when you come back to Settings. A link to a section, such as
+`/dashboard/settings#remote-access`, opens that section and keeps the others as they are. The
+open sections are kept in this browser's local storage for the dashboard address, so another
+browser or a private window starts with every section closed.
+
+The Settings page also sets each family's context handoff mode and threshold, in that family's
+row of the Context handoff table: its Mode drop-down and Threshold field show the current
+values, and its Save changes that family only (#720). The defaults are Claude
+`handoff_cycle`, Codex `native_compaction` and the others `observe`, at 75 percent; only Codex
+offers `native_compaction`.
 These are defaults only: a session runs no handoff cycle or compaction until it is enabled on
 the Sessions page, and changing a family enables nothing. The Sessions page shows
 each session's mode, threshold, Enable, whether its family has a verified cycle, and why it is
@@ -582,6 +593,8 @@ become idle within two minutes of its ready report, `overwatch` sends the reques
 new revision, and the session pauses, writes its handoff and reports ready again; the cycle's
 30-minute lifetime and its event limit bound the repeats. The Sessions page shows
 each session's current or newest cycle: its stage, the stage deadline and each recorded step.
+While the newest repeat found text in the session's input box, the Sessions row and the
+Attention page say so: clear the input box so that the cycle can clear the context.
 Disabling, retiring or purging the session, a family mode change, or a holder
 choice for its address ends the cycle; a cycle that fails or cannot be proven ends the
 session's Enable.
@@ -711,7 +724,9 @@ sign in with the maintainer secret. One-time links continue to work on loopback 
 
 The choice persists across restarts and upgrades. A later install resolves a saved FQDN again;
 daemon starts bind the selected IP. `koinon install --dashboard-address none` removes the
-network choice. The agent API and agent MCP transport stay on their existing local paths.
+network choice. `koinon remote configure` shows where the dashboard opens and changes the
+answer in one step; at a terminal it asks the install question again
+([installation](INSTALL.md#change-where-the-dashboard-opens)). The agent API and agent MCP transport stay on their existing local paths.
 If the secret is missing or the selected IP is unavailable, loopback remains available and
 install/status name the reason and the next step. After setting a missing secret, run
 `koinon install` to start the network listener. Clearing the secret refuses network requests
@@ -751,6 +766,7 @@ koinon remote enable     # start the dashboard-only listener and the Serve mappi
 koinon remote enable --https-port 10443  # the same on another Serve HTTPS port, saved for later enables (443 by default)
 koinon remote status     # configuration, listener, Serve and Tailscale state; add --json for the report
 koinon remote disable    # stop the listener, end remote logins, remove only Koinon's own mapping
+koinon remote configure  # show where the dashboard opens; change it with --choice local|tailnet|network, or at a terminal
 ```
 
 Remote access needs a maintainer secret. On the phone, sign in at the URL with the secret,
@@ -872,6 +888,40 @@ writes `maintainer_token_expired` to standard error and exits with status 1, als
 call comes. `resources/unsubscribe` ends a subscription; after the last one the process polls no
 more.
 
+#### Signed actions with a client key
+
+A maintainer client can instead keep its own Ed25519 key and sign each action (#693, PDR 011
+Decision 6). The client writes an enrollment statement for a computer; on that computer, add
+the key with the computer's own login:
+
+```sh
+koinon maintainer key add --statement voice-enroll.json   # within 10 minutes of the statement
+koinon maintainer key list          # the current keys: key ID, user (client), when and how added
+koinon maintainer key list --all    # also the removed ones
+koinon maintainer key remove SHA256:...   # the computer refuses the key's actions from now on
+```
+
+A statement adds a key once on a computer, also after a removal; to add a key again, the client
+signs a new statement. The client then runs `koinon mcp --maintainer --signed`: the first line
+of its standard input is a signed session envelope in place of the secret, and the server has
+one tool, `signed`, which takes an envelope that the client signed and answers the computer's
+answer unchanged. Each action names its computer and a request ID. A read, and a write that has
+not run yet, must arrive within 5 minutes of its signing. A write runs once: for 7 days, while its
+key's authorization stands, the same envelope or `outcome` gives its first answer again; reads
+keep no receipt. The user and client of the key
+show on each verdict (`by USER (CLIENT)`), in the history, on the dashboard and in the audit
+log. A signed session ends when its key is removed, not when the secret changes. A computer
+runs an action signed for itself, and passes one signed for a paired computer over the link
+unchanged, with that computer's answer; the key must be added on the computer that runs the
+action, and both computers need v0.12.0 or later. When the computer cannot reach the other one,
+the answer is `computer_offline` and nothing ran; when the answer is lost after the action was
+sent, it is `outcome_unknown`: ask `outcome` of that computer, or send the same envelope again.
+A client with no Koinon on its computer reaches a computer at its Remote address
+(`koinon remote enable`, on the maintainer's tailnet) on the same two signed routes, with the
+session's token as `Authorization: Bearer TOKEN`; that address serves no other API, and the
+key must be added on each computer that runs the actions. PROTOCOL.md has the envelope and the
+operations.
+
 Administrative actions require CSRF protection and are
 audited. Health reports unknown observations explicitly.
 
@@ -906,6 +956,17 @@ so the selection stays. The counts above the list (all, active, expired, retired
 sessions of one status when chosen (`status=active`, `expired` or `retired` in the address);
 **all** shows every session again. The chosen count is marked, the counts stay totals, and the
 search, the sort and the next pages keep the status.
+A second row of counts shows the sessions of one agent family (`family=codex` in the address),
+by an exact match of the family name: a session whose name, alias or directory only contains the
+word is not shown, and an unknown family shows none (#718). **all families** shows every family
+again. These counts are totals of the whole list too, and the search, the status, the sort,
+the next pages and the return after an action keep the family; choosing a family starts at the
+first page. With a family chosen, **Select all sessions on this page** selects that family's
+sessions. **Change the selected sessions** then also offers **Enable managed context** and
+**Disable managed context**: each selected session's Enable turns on or off as its own Enable
+button turns it, so each session runs its family's mode at its family's threshold, or at its
+own threshold when it has one. A session whose Enable changed since the page was loaded, or
+whose cycle is unavailable, is refused with its own audit record, and the others change.
 
 Each changed session gets the dashboard action's audit record (`purge`, `unpurge`, `retire`,
 `clear`) with the origin `by cli`; a session that changed since the selection is refused with

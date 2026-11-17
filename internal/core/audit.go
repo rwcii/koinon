@@ -56,6 +56,9 @@ func setAuditTarget(ctx context.Context, target string) {
 // with the origin of the request's context.
 func withAudit(ctx context.Context, action, target string) (context.Context, *pendingAudit) {
 	p := &pendingAudit{action: action, target: target, origin: originOf(ctx)}
+	if a := signedOf(ctx); a != nil {
+		p.origin = a.signerText()
+	}
 	return context.WithValue(ctx, auditContextKey{}, p), p
 }
 

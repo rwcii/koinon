@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"os"
@@ -305,5 +306,56 @@ func TestFrames(t *testing.T) {
 	var unknown struct{ A int }
 	if (Frame{Op: "x", Body: []byte(`{"a":1,"b":2}`)}).Decode(&unknown) == nil {
 		t.Fatal("unknown body field accepted")
+	}
+}
+
+// A maintainer frame and its reply take up to 1 MiB of encoded JSON, wrapper included; every
+// other operation keeps 128 KiB, also on the read (#693 chunk 2, C2-3).
+func TestFrameLimits(t *testing.T) {
+	sized := func(op string, n int, fill string) Frame {
+		wrapper := len(`{"op":"` + op + `","body":""}`)
+		return Frame{Op: op, Body: []byte(`"` + strings.Repeat(fill, (n-wrapper)/len(fill)) + `"`)}
+	}
+	encoded := func(f Frame) int {
+		data, _ := json.Marshal(f)
+		return len(data)
+	}
+	for _, op := range []string{"maintainer", "maintainer-ok"} {
+		exact := sized(op, MaxMaintainerFrameBytes, "a")
+		if n := encoded(exact); n != MaxMaintainerFrameBytes {
+			t.Fatalf("%s: fixture is %d bytes", op, n)
+		}
+		var buf bytes.Buffer
+		if err := WriteFrame(&buf, exact); err != nil {
+			t.Fatalf("%s at the bound: %v", op, err)
+		}
+		if got, err := ReadFrame(&buf); err != nil || got.Op != op {
+			t.Fatalf("%s read at the bound: %v", op, err)
+		}
+		over := sized(op, MaxMaintainerFrameBytes+1, "a")
+		if err := WriteFrame(&buf, over); !errors.Is(err, ErrFrameTooLarge) {
+			t.Fatalf("%s over the bound: %v", op, err)
+		}
+		// The bound is on the encoded JSON: '<' becomes <, six bytes.
+		escaped := sized(op, MaxMaintainerFrameBytes/2, "<")
+		if err := WriteFrame(&buf, escaped); !errors.Is(err, ErrFrameTooLarge) {
+			t.Fatalf("%s with HTML escaping: %v", op, err)
+		}
+	}
+	// A reader refuses another operation over 128 KiB, and any frame over 1 MiB.
+	raw := func(op string, n int) []byte {
+		data, _ := json.Marshal(sized(op, n, "a"))
+		head := make([]byte, 4)
+		binary.BigEndian.PutUint32(head, uint32(len(data)))
+		return append(head, data...)
+	}
+	if _, err := ReadFrame(bytes.NewReader(raw("ping", MaxFrameBytes))); err != nil {
+		t.Fatalf("ping at its bound: %v", err)
+	}
+	if _, err := ReadFrame(bytes.NewReader(raw("ping", MaxFrameBytes+1))); !errors.Is(err, ErrFrameTooLarge) {
+		t.Fatalf("ping over its bound: %v", err)
+	}
+	if _, err := ReadFrame(bytes.NewReader(raw("maintainer", MaxMaintainerFrameBytes+1))); err == nil {
+		t.Fatal("a frame over 1 MiB was read")
 	}
 }

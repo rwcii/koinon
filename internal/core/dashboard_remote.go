@@ -9,6 +9,16 @@ import (
 
 type remoteOriginKey struct{}
 
+// The signed routes on Remote, at the same paths as on the loopback API.
+const (
+	remoteSignedSession = "/v1/maintainer/signed/session"
+	remoteSignedAction  = "/v1/maintainer/signed"
+)
+
+func remoteSignedPath(path string) bool {
+	return path == remoteSignedSession || path == remoteSignedAction
+}
+
 func remoteOrigin(r *http.Request) string {
 	origin, _ := r.Context().Value(remoteOriginKey{}).(string)
 	return origin
@@ -42,9 +52,10 @@ func containsDashboardView(view string) bool {
 	return false
 }
 
-// remoteDashboardHandler mounts only the browser surface. Serve preserves the external
-// Host for HTTP backends (Tailscale v1.102.3 serve.go); forwarding headers confer no trust.
-// Setup pins a single HTTPS authority, never the agent listener or a browser-supplied one.
+// remoteDashboardHandler mounts only the browser surface and the two signed routes (#693
+// chunk 3; decision.md Decision 5.2). Serve preserves the external Host for HTTP backends
+// (Tailscale v1.102.3 serve.go); forwarding headers confer no trust. Setup pins a single HTTPS
+// authority, never the agent listener or a browser-supplied one.
 func (d *Daemon) remoteDashboardHandler(origin string) http.Handler {
 	u, err := url.Parse(origin)
 	valid := err == nil && u.Scheme == "https" && u.Host != "" && u.Path == "" && u.RawQuery == "" && u.User == nil && u.Fragment == ""
@@ -52,6 +63,26 @@ func (d *Daemon) remoteDashboardHandler(origin string) http.Handler {
 		dashboardHeaders(w)
 		if !valid || r.Host != u.Host {
 			http.Error(w, "foreign host", http.StatusForbidden)
+			return
+		}
+		if remoteSignedPath(r.URL.Path) {
+			if r.Method != http.MethodPost {
+				w.Header().Set("Allow", http.MethodPost)
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			// The signed routes take only signed envelopes and the signed session's token as
+			// the bearer; no cookie, secret or dashboard session counts here.
+			r = r.WithContext(context.WithValue(r.Context(), signedTransport{}, true))
+			if r.URL.Path == remoteSignedSession {
+				d.signedSessionRoute(w, r)
+			} else {
+				token, bearer := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+				if !bearer {
+					token = ""
+				}
+				d.signedActionRoute(w, r, token)
+			}
 			return
 		}
 		if r.URL.Path == "/" && (r.Method == "GET" || r.Method == "HEAD") {

@@ -199,7 +199,9 @@ certificate (#665). There are three ways to choose this:
   the saved port, removes the network address and closes it at once. If the page itself was
   open on the network address, its connection ends, and the answer links the tailnet URL. If
   remote access cannot be enabled, nothing else changes.
-- From a script: `koinon install --dashboard-address none`, then `koinon remote enable`.
+- With one command: `koinon remote configure --choice tailnet`, or `koinon remote configure` at
+  a terminal and answer 2 ([installation](INSTALL.md#change-where-the-dashboard-opens)). It
+  removes the network address and restarts the daemon before it enables remote access.
 
 ## Connect your computers
 
@@ -454,7 +456,8 @@ source, real proxy, platform, and physical-device evidence.
 
 The remote landing page is **Attention**: pending maintainer decisions and their
 oldest age, unread maintainer direct messages and canonical room posts, cached
-agent problems, and recent action receipts. Unknown activity is labeled. Counts
+agent problems, a handoff cycle that waits on text in a session's input box, and recent
+action receipts. Unknown activity is labeled. Counts
 and source links come from one SQLite snapshot; the receipts are this origin's
 unexpired ones. **Mark displayed snapshot read on this browser** advances only this
 browser session's cursors; it never acknowledges an agent inbox

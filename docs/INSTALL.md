@@ -360,6 +360,55 @@ secret, then run `koinon install` to start the listener. If a selected IP went a
 again with an available address; a saved FQDN is resolved again. The daemon log names a failed
 network bind and its address.
 
+### Change where the dashboard opens
+
+The install asks its question once. To see or change the answer later, use one command
+(#685; PDR 010, section 10):
+
+```sh
+koinon remote configure                        # shows the choice; at a terminal, asks the question again
+koinon remote configure --choice local         # 1. Only on this computer
+koinon remote configure --choice tailnet [--https-port PORT]           # 2. this computer and your tailnet
+koinon remote configure --choice network [--dashboard-address HOST:PORT]  # 3. also on a network address
+```
+
+It shows the saved answer in the words of the install question, and on separate lines what
+the daemon runs now: the network address and the tailnet. A saved state with both a network
+address and the tailnet is named as such; any answer replaces it. When the daemon does not
+answer, what runs now is unknown, and the saved answer still shows. At a terminal, without
+`--choice`, it then asks the install question with the current values as the defaults: the
+answer, the Serve HTTPS port, and the network host and port. Without a terminal and without
+`--choice`, it only shows the choice. `--https-port` goes only with `--choice tailnet`, and
+`--dashboard-address` only with `--choice network`; without them, the saved port or address is
+kept, else the port is 443, and a network answer without a saved address needs
+`--dashboard-address`.
+
+Before the first change it checks the options, that the daemon answers, the network address
+(as install does), and that this installation's binary is present (give `--prefix` when the
+installation has one). When the answer needs a daemon restart, a user service file must be the
+one that install writes for this binary and state directory; another one, or none while a
+service manager answers, is refused with `service_mismatch`, and the file is not changed. The tailnet and network answers need the maintainer secret: at a
+terminal it offers to set or generate one, and without a terminal it is refused with
+`remote_secret_required`. A refusal, "not now" or ended input (Ctrl-D) changes nothing.
+
+Then it closes the old access before it opens the new one, with only the steps that the answer
+needs, and reports each one:
+
+| Step | Effect |
+| --- | --- |
+| `remote_disable` | Turns remote access off. Remote sign-ins on your tailnet end. |
+| `save_no_network_address` or `save_choice` | Saves the local answer and removes a saved network address. |
+| `save_network_address` | Saves the new network address. |
+| `daemon_restart` | Starts the daemon again through this installation's service: the user service, the background process, or on macOS the LaunchDaemon of system mode. Open dashboard pages reconnect; a page on an old network address loses its connection. |
+| `network_address_open` | Checks that the network address runs at the chosen address and port. |
+| `remote_enable` | Turns remote access on at the port, as `koinon remote enable --https-port PORT` does. A new port on remote access that is on ends remote sign-ins. |
+| `tailnet_open` | Checks that the tailnet URL is ready at the chosen port. |
+
+An answer that is already saved, and runs at its own address or port, changes nothing. When a step fails, the command
+stops: the earlier steps stay done, and the result names the command that finishes the failed
+step. `--json` gives the result as a report. Install and `--dashboard-address` keep working as
+above.
+
 ### System mode on macOS
 
 The launchd agent runs in the desktop login's `gui/<uid>` domain, so it stops when that login
@@ -602,8 +651,9 @@ staging files.
 - What `koinon setup` added for each agent (all families by default):
   - the MCP entry, through the agent's own CLI, only while it still runs this binary,
     whether it is enabled or disabled;
-  - for OpenCode, which has no remove command, the `mcp.koinon` entry in `opencode.json` or
-    `opencode.jsonc`;
+  - for OpenCode, which has no remove command, the `mcp.koinon` (OpenCode 1) or
+    `mcp.servers.koinon` (OpenCode 2) entry in `opencode.json` or `opencode.jsonc`, both when
+    an upgrade left both;
   - the `agy` Stop hook, and the `agy` status line, whose saved original is restored;
   - the Codex SessionStart hook in `$CODEX_HOME/hooks.json` (default `~/.codex/hooks.json`),
     only while it runs this binary;
@@ -686,7 +736,19 @@ Native hook trust and optional terminal operations remain separate. Read the ins
 
 `koinon setup FAMILY` installs the MCP entry through the selected agent's CLI. Families are
 `claude`, `codex`, `agy`, `opencode`, `grok` and `deepseek`; DeepSeek uses the explicit command path
-until its MCP support is verified. `--cli ABS_PATH` selects the native CLI and `--binary
+until its MCP support is verified. For OpenCode, setup runs `opencode mcp add` in OpenCode's
+global configuration directory (`$XDG_CONFIG_HOME/opencode`, default `~/.config/opencode`) and
+reads the entry back from its files (#692): OpenCode 1 writes `mcp.koinon` (checked with
+1.18.35); OpenCode 2, whose `mcp add` lists `--global`, gets `--global` and writes
+`mcp.servers.koinon` (checked with 2.3.0). Without `--global`, OpenCode 2 writes a project file
+in the current directory, which Koinon does not use. Setup reads the files that each version
+loads: OpenCode 1 merges the entry's fields from `config.json`, `opencode.json` and
+`opencode.jsonc`; OpenCode 2 reads `opencode.json`, then `opencode.jsonc`, whose entry replaces
+the earlier one. A later file that disables or changes the entry makes setup fail with that
+message. `--opencode-config DIR` selects another global directory: OpenCode 2 gets it as
+`OPENCODE_CONFIG_DIR`; for OpenCode 1, which uses `$XDG_CONFIG_HOME/opencode`, DIR must be named
+`opencode`.
+`--cli ABS_PATH` selects the native CLI and `--binary
 ABS_PATH` selects the installed Koinon binary, as given. Without `--binary`, setup records, in
 this order (#577): the default installation's binary, `<prefix>/bin/koinon` of the default
 prefix, when the running binary is that same file, which is the binary that `koinon install`
@@ -879,7 +941,9 @@ window from sign-in and survives routine restart/upgrade within that window.
 First upgrade to remote control v2 requires fresh sign-in. Its versioned remote
 session and receipt records add no table. The same release, v0.11.0, moves the store
 to schema 38 for messages between computers (#670), and a v0.10.x binary refuses a
-schema 38 store, so a v0.11.0 store cannot go back to v0.10.x. Schema 29 originally added the secret's salted-key table;
+schema 38 store, so a v0.11.0 store cannot go back to v0.10.x. v0.12.0 moves the store to
+schema 39 for signed maintainer actions (#693), and a v0.11.x binary refuses a schema 39 store,
+so a v0.12.0 store cannot go back to v0.11.x. Schema 29 originally added the secret's salted-key table;
 upgrading a pre-secret store starts with no secret set.
 
 The daemon applies supported Go schema migrations transactionally and refuses an unknown
