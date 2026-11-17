@@ -352,7 +352,14 @@ no notice of their own.
   for a computer with no Koinon, and the project keeps only its fact files. He saw the exact
   text of each skill before it came to Koinon. He then saw and approved the changes for
   Koinon: each opening names this decision and WDR 002, Decision 1, and three sentences lose
-  the limit phrases that #487 removed from the skills.
+  the limit phrases that #487 removed from the skills. In review he directed one more change,
+  in claude-koinon's terminal on 2026-11-17: "owner-decisions.md is deprecated. it should
+  follow the same constraints as the refusal-review and decision record skill, verifying that
+  the decisions are memorialized in the appropriate tracked repo artifact, like a decision
+  record, sprint document, etc. there shall be no running log of decisions." So
+  `refusal-audit` writes no decision file: it asks the owner each open item through the
+  project's decision process and records the answer in the tracked artifact that holds the
+  rule, and a decision that no tracked artifact holds is not a source.
 - **Copyright:** asked which copyright holder the skills name, he answered in that project's
   terminal, relayed: "Robert Capps and Stratovera, LLC". In claude-koinon's terminal he first
   chose the option "Koinon LICENSE" (Robert Capps, no notice in the skills); asked which of the

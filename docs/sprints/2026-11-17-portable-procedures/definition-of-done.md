@@ -8,7 +8,9 @@ macOS (WDR 004, Decision 3).
 - `agents/skills/NAME/SKILL.md` for each of the seven. Each differs from the draft that the
   maintainer saw only in the changes that he approved: the opening (its Koinon record and
   WDR 002, Decision 1), and in `provenance` and `refusal-audit` the sentences with the #487
-  limit phrases "Do not guess", "not proof" and "adds no approval step". The pull request lists
+  limit phrases "Do not guess", "not proof" and "adds no approval step", and in `refusal-audit`
+  the change that the maintainer directed: no `owner-decisions.md` and no running log of
+  decisions; a decision is a source only in a tracked artifact. The pull request lists
   each draft SHA-256, each final SHA-256 and the diff; the observer checks them against the
   drafts. `TestSkillTextHasNoLimitPhrases` covers the seven, with one expected step each. A contributor test compares each final file's SHA-256 with
   a constant; a later change of a skill updates its constant in the same pull request.

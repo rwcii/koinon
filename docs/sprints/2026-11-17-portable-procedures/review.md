@@ -31,3 +31,12 @@ codex-koinon reviewed a0edec6, 2026-11-17: two P2 findings and two notes.
 proof" twice, "adds no approval step") and the drafts' opening, which lacked "(WDR 002,
 Decision 1)". The maintainer saw the exact diff and approved it on 2026-11-17 ("Approve the
 changes"); the plan's "one change" became these changes.
+
+While chunk 01 was in review, the maintainer directed: "owner-decisions.md is deprecated. it
+should follow the same constraints as the refusal-review and decision record skill, verifying
+that the decisions are memorialized in the appropriate tracked repo artifact, like a decision
+record, sprint document, etc. there shall be no running log of decisions." (2026-11-17, terminal.)
+`refusal-audit` no longer writes `owner-decisions.md`; it asks each open item through the
+project's decision process, records the answer in the tracked artifact that holds the rule, and
+counts a decision as a source only when a tracked artifact holds it. The C1-F1 guard fix stays:
+the records quote his words, which name `owner-decisions.md`.

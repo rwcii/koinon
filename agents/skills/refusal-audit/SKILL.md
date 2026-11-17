@@ -64,14 +64,13 @@ Inputs:
 
 - the repository and one full commit hash to audit;
 - the owner's request for the audit, with its date;
-- the places where the owner's decisions live: decision records, issue comments, a decision
-  board, the instruction files that the owner wrote.
+- the tracked artifacts of the repository that hold the owner's decisions: decision records,
+  sprint documents and plans, and the instruction files that the owner wrote.
 
 Outputs, in the audit's artifact folder (step 1):
 
 - `inventory.md`: one row for each constraint, grouped by root cause;
 - `proposals.md`: one fix proposal for each root cause that needs a change;
-- `owner-decisions.md`: only the items that need the owner's decision;
 - `coverage.md`: what the audit read, what it did not read, and why.
 
 ## Step 1: Set up
@@ -203,8 +202,12 @@ For each root that is not "keep", write one proposal with:
 For a removed code condition or test, add a positive test that shows that the intended work now
 runs. For a removed guard that looks like a check, name it and give the reason in the change.
 
-Put the items that need the owner's decision in `owner-decisions.md`, each with a
-recommendation. If a second reader ran, also list each point where the readers still disagree.
+Ask the owner each item that needs the owner's decision through the project's decision
+process, one item at a time, with a recommendation (Appendix C, A question for the owner).
+Record the answer in the tracked artifact that holds the rule, such as a decision record, a
+sprint document or the plan, in the change that does the work. The audit keeps no running log
+of decisions. If a second reader ran, also list in `proposals.md` each point where the readers
+still disagree.
 
 ## Step 9: Deliver the fixes
 
@@ -306,8 +309,9 @@ works alone. If the project defines its own source kinds in the Rule source fact
    draft or proposed record is not a decision.
 2. **The requirement of the issue or plan** that the work delivers. It covers that work, not
    other work.
-3. **The owner's own words**, quoted exactly, with the date, the question they answered and a
-   locator. A complete record of an owner decision states four things:
+3. **The owner's own words**, quoted exactly in the tracked artifact that holds the rule, with
+   the date, the question they answered and a locator. A complete record of an owner decision
+   states four things:
    - the question it answered;
    - the options that were on the table;
    - the answer, quoted, with its date;
@@ -322,6 +326,13 @@ works alone. If the project defines its own source kinds in the Rule source fact
 
 A routine argument check or a demonstrated capability limit needs no further source. It never
 becomes an approval step.
+
+A decision is a source only when a tracked artifact of the repository holds it: a decision
+record, a sprint document or the plan that the work delivers. A decision board item, an issue
+comment, a chat message, an agent's memory or a log of decisions alone is not a source: a
+reviewer of the repository cannot read it, or it is a copy. When the owner's decision exists
+only there, the finding is to record it in the artifact that holds the rule, with its question,
+answer, date, reason and scope, or to remove the constraint.
 
 ### What does not prove the owner's personal decision
 
@@ -410,11 +421,10 @@ One block for each root that is not "keep".
 - **Tests:** <the positive test that shows the work now runs, where code or tests change>
 ```
 
-### owner-decisions.md
+### A question for the owner
 
-Only the items that need the owner, each with a recommendation. If a second reader ran, also list
-each point where the readers still disagree. Use the project's recommendation form if it has
-one; otherwise use this form.
+One item that needs the owner, with a recommendation. Use the project's recommendation form if
+it has one; otherwise use this form.
 
 ```markdown
 ## Recommendation: <the action, in one line>
