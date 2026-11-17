@@ -24,3 +24,10 @@ codex-koinon reviewed a0edec6, 2026-11-17: two P2 findings and two notes.
 | PLAN-F2 (P2): no plan file pins the seven approved draft hashes | Accepted: chunk 01 lists them, as privately supplied inputs |
 | N1: use the required full-suite command | Accepted: `go test -race -timeout 30m ./...` |
 | N2: test symbolic links in parent and root folders, and an archive entry that escapes | Accepted, as fixture tests with no host installation |
+
+## Changes found while building chunk 01
+
+`TestSkillTextHasNoLimitPhrases` (#487) refused three draft sentences ("Do not guess", "not
+proof" twice, "adds no approval step") and the drafts' opening, which lacked "(WDR 002,
+Decision 1)". The maintainer saw the exact diff and approved it on 2026-11-17 ("Approve the
+changes"); the plan's "one change" became these changes.

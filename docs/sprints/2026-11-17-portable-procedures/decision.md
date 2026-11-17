@@ -33,7 +33,9 @@ Decision 2).
 
 1. The catalog holds seven more skills: `preflight`, `provenance`, `refusal-audit`,
    `standards-review`, `record`, `sprint-closeout` and `standards-audit`. Each one is the text
-   that the maintainer saw, with one change: its procedure source names its Koinon record.
+   that the maintainer saw, with the changes that he approved on 2026-11-17: the opening names
+   its Koinon record and the authorization of WDR 002, Decision 1, and three sentences lose the
+   limit phrases that #487 removed from the skills.
    Each runs in every supported agent family with the adopting project's facts.
 2. `koinon install` and the daemon write a `koinon-NAME` entry for each of them, as for the
    other catalog skills.

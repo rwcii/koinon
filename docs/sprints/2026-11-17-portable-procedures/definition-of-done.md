@@ -6,9 +6,11 @@ macOS (WDR 004, Decision 3).
 ## The seven skills (chunk 01)
 
 - `agents/skills/NAME/SKILL.md` for each of the seven. Each differs from the draft that the
-  maintainer saw only in its procedure-source line, which names its Koinon record. The pull
-  request lists each draft SHA-256, each final SHA-256 and that one-line diff; the observer
-  checks them against the drafts. A contributor test compares each final file's SHA-256 with
+  maintainer saw only in the changes that he approved: the opening (its Koinon record and
+  WDR 002, Decision 1), and in `provenance` and `refusal-audit` the sentences with the #487
+  limit phrases "Do not guess", "not proof" and "adds no approval step". The pull request lists
+  each draft SHA-256, each final SHA-256 and the diff; the observer checks them against the
+  drafts. `TestSkillTextHasNoLimitPhrases` covers the seven, with one expected step each. A contributor test compares each final file's SHA-256 with
   a constant; a later change of a skill updates its constant in the same pull request.
 - Each repository-facts block parses (`library.Embedded`), its fields and defaults are the
   drafts' fields, and each item is within the catalog bounds (PDR 008, Decision 4): 26 items

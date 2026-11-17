@@ -2,7 +2,8 @@
 
 Cites `../decision.md` (Acceptance 1-4) and `../definition-of-done.md` (The seven skills).
 
-1. Copy each draft into `agents/skills/NAME/SKILL.md` byte for byte. The drafts were supplied
+1. Copy each draft into `agents/skills/NAME/SKILL.md` byte for byte, then make only the
+   changes that the maintainer approved on 2026-11-17 (see `definition-of-done.md`). The drafts were supplied
    privately; these are the SHA-256 values of the text that the maintainer saw (provenance is
    the revision without its cost section, reported to him):
 
@@ -17,7 +18,7 @@ Cites `../decision.md` (Acceptance 1-4) and `../definition-of-done.md` (The seve
    | standards-audit | `be4467826000349b81f2cd127fdf67b32c5cf3d407e152212602ce48314f09b3` |
  Change only its
    backticked placeholder `` `<Koinon record for ...>` `` to `[PDR 008](link), Decision 5`, the record of this
-   decision. Show the maintainer the seven changed lines before the pull request.
+   decision. Show the maintainer every change before the pull request.
 2. PDR 008: Decision 5, "Procedures that adopting projects bring to the catalog", with the
    source, decision, reason, scope and the copyright answer from `decision.md`; Decision 1's
    skill count (14 to 21) and its list of the skills with required facts; the Document History.

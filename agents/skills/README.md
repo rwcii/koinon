@@ -23,6 +23,13 @@ slash-command wrappers that load these same skills. Rules for writing a skill ar
 | [spin-down](spin-down/SKILL.md) | Collect each session's handoff and complete the team stop plan. |
 | [recover-team](recover-team/SKILL.md) | Reconcile team state and carry out a restart plan. |
 | [koinon-guide](koinon-guide/SKILL.md) | Read installed runtime guidance and catalog recommendations. |
+| [preflight](preflight/SKILL.md) | Run the project's enabled review lenses locally before a pull request, and post one result bound to the head. |
+| [provenance](provenance/SKILL.md) | Record each commit's AI-development usage as a Git note, and recount the branch before the merge. |
+| [refusal-audit](refusal-audit/SKILL.md) | Audit a whole repository once for refusal traps, grouped by root cause, with one fix proposal for each. |
+| [standards-review](standards-review/SKILL.md) | Start an independent standards review of a frozen commit in a fresh context, bound to the head. |
+| [record](record/SKILL.md) | Write or change a decision record: route it to its kind and repository, number it and run the record checks. |
+| [sprint-closeout](sprint-closeout/SKILL.md) | Finish a sprint: a handoff while its candidates wait, a closeout after they merge, and a read-only policy check. |
+| [standards-audit](standards-audit/SKILL.md) | Audit a repository or path in a fresh context for decisions that have no record. |
 
 A typical change runs `check`, then `ship`, with the other agent family running `peer-review` and `refusal-review`.
 A larger deliverable starts with `sprint`. `release` promotes the result to `main`.

@@ -27,7 +27,10 @@ func TestRepositoryFactsMatchCanonicalSchemasAndPolicy(t *testing.T) {
 			required = required || field.Required
 		}
 		b, err := os.ReadFile(filepath.Join(root(t), item.Facts.Filename))
-		if os.IsNotExist(err) && !required {
+		// Koinon offers the procedures of PDR 008 Decision 5 and adopts none, so it has no fact
+		// file for them; a fact file that is present is still checked.
+		_, offered := offeredProcedures[item.Name]
+		if os.IsNotExist(err) && (!required || offered) {
 			continue
 		}
 		if err != nil {
