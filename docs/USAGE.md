@@ -913,7 +913,7 @@ show on each verdict (`by USER (CLIENT)`), in the history, on the dashboard and 
 log. A signed session ends when its key is removed, not when the secret changes. A computer
 runs an action signed for itself, and passes one signed for a paired computer over the link
 unchanged, with that computer's answer; the key must be added on the computer that runs the
-action, and both computers need this release. When the computer cannot reach the other one,
+action, and both computers need v0.12.0 or later. When the computer cannot reach the other one,
 the answer is `computer_offline` and nothing ran; when the answer is lost after the action was
 sent, it is `outcome_unknown`: ask `outcome` of that computer, or send the same envelope again.
 A client with no Koinon on its computer reaches a computer at its Remote address

@@ -40,7 +40,7 @@ reaches it through `koinon mcp`, a stdio MCP server that its agent starts. The M
 the session's identity from the agent itself, never from the model. DeepSeek uses the `koinon`
 commands instead. The agent API accepts only loopback connections that carry the user's private
 secret; the optional network and remote dashboards serve only the dashboard, behind the
-maintainer secret.
+maintainer secret, and the remote one also the two routes of signed maintainer actions.
 
 A message goes into the recipient's inbox. A wake adapter then sends the recipient a notice that
 names only the inbox and its sequence range: through `codex queue`, a Codex or Grok session's
@@ -189,12 +189,18 @@ agent sends to them with `send` to `NAME@COMPUTER`: the message is queued on the
 computer and delivered in order, and `delivery` shows whether that computer stored it.
 See [connect your computers](docs/REMOTE-DASHBOARD.md#connect-your-computers).
 
+A maintainer client can act with its own Ed25519 key in place of the secret (#693). Add its
+key once on each computer with `koinon maintainer key add --statement FILE`; the client then
+signs each action for one computer, and a computer passes an action signed for a paired
+computer over the link. Each verdict shows the key's user and client. See
+[signed actions with a client key](docs/USAGE.md#signed-actions-with-a-client-key).
+
 ## Security and storage
 
 The agent API accepts loopback connections authenticated with a private same-user secret; an
 optional HTTPS listener serves only the dashboard on a chosen local address, with the
-maintainer secret (docs/INSTALL.md), and `koinon remote` serves only the dashboard privately
-through Tailscale Serve (docs/REMOTE-DASHBOARD.md). The link between paired computers has its
+maintainer secret (docs/INSTALL.md), and `koinon remote` serves only the dashboard and the two signed maintainer routes
+privately through Tailscale Serve (docs/REMOTE-DASHBOARD.md, PROTOCOL.md). The link between paired computers has its
 own loopback TLS listener, behind its own Serve TCP mapping, and accepts only pinned keys
 (ADR 002, Decision 4).
 State directories and files enforce ownership and modes. Claude socket credentials verify

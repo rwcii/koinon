@@ -409,6 +409,24 @@ The Serve route (Decision 5.2):
 - Koinon Voice (koinon-voice#36): ADR 004 (new), ADR 001 modified, PDR 001, PDR 002, and PDR 004
   Decision 2 (the per-computer external-inference opt-in, policy unchanged, kept by pin).
 
+## The release number for signed maintainer actions (#693)
+
+- **Decided by:** Robert Capps.
+- **Date:** 2026-11-17, terminal.
+- **Context:** the release from develop after v0.11.2 holds #693 (signed maintainer actions,
+  new `koinon maintainer key` commands and `koinon mcp --maintainer --signed`), #685
+  (`koinon remote configure`), #718 (family selection and bulk managed context on the Sessions
+  page) and fixes, and moves the store from schema 38 to 39, which a v0.11.x binary refuses.
+  The agent proposed v0.12.0 for that reason. Robert asked "why 0.12?" and which user-facing
+  changes warrant the minor number; the agent named the one-way schema move and the new
+  commands of #693, #685 and #718, and said that no repository document sets a rule for
+  version numbers.
+- **Decision:** v0.12.0: "ok, 0.12 is approved."
+- **Reason and scope:** the answer names no further reason. This covers this release only; it
+  sets no rule for later version numbers.
+- **Alternatives considered:** v0.11.3 (a patch number, which would suggest that a v0.11.x
+  binary can still read the upgraded store).
+
 ## Settled with the maintainer
 
 Robert Capps, 2026-11-14, terminal, answering two questions:

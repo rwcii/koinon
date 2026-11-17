@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-11-17 — Signed maintainer actions across your computers, and a dashboard address you can change
+
+This release lets a maintainer client act with its own key, also on your other linked
+computers (#693). `koinon remote configure` changes where the dashboard opens in one step
+(#685), and the Sessions page selects the sessions of one agent family and turns managed
+context on or off for all of them (#718). The store moves to schema 39.
+
 - The verdict record instruction and the installed guide say that the repository record holds a
   board decision and is its source, and that neither the card reference nor the verdict ID is
   cited as the source (#723). Koinon's own records no longer name a card as a decision's source.
@@ -59,6 +66,25 @@ into a dated release section when promoted to `main`.
   `koinon uninstall` removes both versions' entries. `--opencode-config` now reaches OpenCode's
   own `mcp add`. Remove an `opencode.json` that an earlier
   setup left in a project when it holds only the koinon server.
+
+Upgrade from v0.11.2 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary, rewrites the skill entries and moves the store to schema 39. A
+v0.11.x binary refuses a schema 39 store, so you cannot go back to v0.11.x after the upgrade
+(docs/INSTALL.md). The restart ends current local dashboard logins: log in again with the
+Koinon password, or run `koinon dashboard` for a one-time link. A remote sign-in keeps the rest
+of its fixed 48-hour window. Homebrew then shows the steps that `koinon install --plan` finds;
+run them, and run `koinon install --plan` again to check. A running `koinon mcp` server runs
+the new release without a session restart.
+
+Upgrade notes:
+
+- A signed maintainer action for a linked computer runs only when both computers have v0.12.0.
+  Upgrade each computer that a client acts on, then add the client's key there with
+  `koinon maintainer key add`.
+- A host without a service manager, such as a container, runs the daemon in the background:
+  after `brew upgrade koinon`, run `koinon install` there to start it on the new binary.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
 
 ## 2026-11-14 — Computer links work where Tailscale runs in userspace networking mode
 
