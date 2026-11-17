@@ -501,7 +501,9 @@ func TestHomebrewFormula(t *testing.T) {
 			t.Errorf("release publish job lacks %s", want)
 		}
 	}
-	for _, want := range []string{"homebrew:", "needs: publish", "scripts/homebrew-formula.sh \"$GITHUB_REF_NAME\" dist/SHA256SUMS", "secrets.HOMEBREW_TAP_DEPLOY_KEY", "rwcii/homebrew-koinon"} {
+	for _, want := range []string{"homebrew:", "needs: publish", "scripts/homebrew-formula.sh \"$GITHUB_REF_NAME\" dist/SHA256SUMS", "secrets.HOMEBREW_TAP_DEPLOY_KEY", "rwcii/homebrew-koinon",
+		// The skills archive is in dist before its checksum line is written (#732).
+		"go run ./scripts/skills-archive dist/koinon-skills.tar.gz\n          (cd dist && sha256sum koinon-* > SHA256SUMS)"} {
 		if !strings.Contains(workflow, want) {
 			t.Errorf("release workflow lacks %s", want)
 		}
@@ -594,7 +596,8 @@ func TestHomebrewBottles(t *testing.T) {
 		t.Errorf("partial bottles accepted: %s", out)
 	}
 	workflow := read(t, ".github/workflows/release.yml")
-	for _, want := range []string{"scripts/homebrew-bottles.sh \"$bottles\" dist\n          (cd dist && sha256sum koinon-* > SHA256SUMS)",
+	// The bottles, then the skills archive (#732), are in dist before the checksums are written.
+	for _, want := range []string{"scripts/homebrew-bottles.sh \"$bottles\" dist\n          # The skills of this release for a computer with no Koinon (scripts/install-skills.sh).\n          go run ./scripts/skills-archive dist/koinon-skills.tar.gz\n          (cd dist && sha256sum koinon-* > SHA256SUMS)",
 		"homebrew-check:", "needs: [build, homebrew-check]", `"file://$PWD/dist"`, "poured_from_bottle == true"} {
 		if !strings.Contains(workflow, want) {
 			t.Errorf("release workflow lacks %s", want)

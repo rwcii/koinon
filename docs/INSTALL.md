@@ -892,6 +892,29 @@ repositories for that family/root; project receipts share the repository's Git c
 directory. Schema 21 preserves existing state and adds ordinary bounded machine decisions.
 See [the adoption procedure](USAGE.md#inspect-and-adopt-an-item) before applying an item.
 
+### Skills on a computer with no Koinon
+
+Each release after v0.12.0 carries `koinon-skills.tar.gz`, every catalog skill of that
+release, with its line in `SHA256SUMS` (PDR 008, Decision 2). On a computer with no Koinon,
+`scripts/install-skills.sh` of a checkout or of the release's source installs them for the
+person who runs it:
+
+```sh
+sh scripts/install-skills.sh vMAJOR.MINOR.PATCH
+```
+
+It checks the archive's hash and every entry before it writes, and writes each skill as
+`koinon-NAME/SKILL.md`, with only its name line changed, into the roots that `koinon install`
+uses: Claude Code's configuration root (`$CLAUDE_CONFIG_DIR`, else `~/.claude`), `~/.agents`
+for Codex, and OpenCode's, agy's and Grok's configuration folders when they exist.
+`koinon-guide` needs the binary and is not written. Each entry is reported as created,
+replaced, unchanged or kept. A symbolic link at the entry file, its folder, the `skills`
+folder or the configuration folder is kept; a linked folder above them, such as a linked home,
+is written through. (`koinon install` checks only the entry file and its folder.) The copies do
+not update by themselves: run the script again for a new release, or install Koinon, whose
+`koinon install` replaces them with its own entries. The steps of a skill that use Koinon tools,
+such as messages, work claims and the decision board, need Koinon.
+
 ## Launcher paths in launchers.json
 
 After successful `koinon setup claude`, `codex`, `agy`, `opencode` or `grok`, setup records the absolute

@@ -178,6 +178,31 @@ install writes only the `koinon-NAME` entries, so a personal or project skill of
 stays as it is. An entry that is a symbolic link, or that is in a linked directory, is kept and
 reported as `kept`. Adopting the catalog item itself follows this decision.
 
+On a computer with no Koinon, `scripts/install-skills.sh VERSION` installs the full skill text
+of one pinned release (#732). Each release carries `koinon-skills.tar.gz`, every
+`agents/skills/*/SKILL.md` of its tag, built reproducibly by `scripts/skills-archive`, with its
+line in `SHA256SUMS`. The script checks that line and every archive entry before it writes,
+and writes each skill except `koinon-guide` as `koinon-NAME/SKILL.md`, with only its name line
+changed, into the roots of `core.SkillRoots`: Claude Code's and Codex's always, and OpenCode's,
+agy's and Grok's when their configuration folder exists. A symbolic link at the entry file, its
+folder, the `skills` folder or the configuration folder is kept and reported; a linked folder
+above them is written through. These copies hold the procedure itself, unlike the entries
+above; a later `koinon install` replaces them with its entries. The copies do not update by
+themselves, and the steps that use Koinon tools need Koinon.
+
+- **Decided by:** Robert Capps.
+- **Date:** 2026-11-17, approved on the decision board at 21:58 UTC.
+- **Context:** an adopting project moved its procedures into Koinon (Decision 5) and wanted the
+  skills on computers that have no Koinon: Robert Capps, relayed from that project's terminal,
+  "Can we create an installable script that deploys these skills at the dev system level if
+  koinon isn't installed?" Each entry above loads its catalog item through the daemon, so with
+  no Koinon no skill loads. The options were a script that downloads each `SKILL.md` from the
+  tag's raw files, which has no checked hash, and a `koinon` command, which needs the binary.
+- **Decision:** the release archive with its checksum line and the script above.
+- **Reason and scope:** one source for every computer, checked against the release. Scope: the
+  release archive and the script. The Grok root follows `core.SkillRoots` (#515), which
+  `koinon install` uses; the approved text named Claude Code, Codex, OpenCode and agy.
+
 **Provenance:** Requested in #145 (issue body, requirements 5–7); a request record. Machine
 default plus approved project-local target: Robert Capps, 2026-10-12, session transcript:
 "Machine-wide and approved project-local", the answer to the plan's choice of adoption target.
@@ -405,3 +430,4 @@ drift defect are ordinary corrections; they add no product decision.
 | 2026-10-23 | Decisions 1 and 2: an entry for every catalog skill, also for OpenCode and agy when their configuration directory exists (#461) |
 | 2026-10-25 | Requirements and Decisions 1–4: removed the unsourced approval step, the fact-file and catalog caveats and the "grant no permission" text; the verified-root report and the install's bare-name and symbolic-link handling are stated as code facts (#487) |
 | 2026-11-17 | Decision 5: seven procedures that an adopting project brought, offered in the catalog; LICENSE names Robert Capps and Stratovera, LLC (#732) |
+| 2026-11-17 | Decision 2: a script installs the full skill text of one pinned release on a computer with no Koinon (#732) |
