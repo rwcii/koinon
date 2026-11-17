@@ -28,6 +28,10 @@ func retiredFileNamed(name string) bool {
 	return name == "CHANGELOG.md" || name == "docs/engineering/wdr/001-decision-records-govern-constraints.md" || strings.HasSuffix(name, "_test.go")
 }
 
+// retiredFileIn finds the retired file name, in any case, as a whole file name: alone or at the
+// end of a path, but not as the end of another name such as owner-decisions.md (#732).
+var retiredFileIn = regexp.MustCompile(`(?i)(?:^|[^a-z0-9_-])` + regexp.QuoteMeta(retiredFileName) + `(?:$|[^a-z0-9_-])`)
+
 // Tracked documents cite the repository record that holds a decision, never its verdict ID
 // (#536, #723). The retired record file is gone, no other tracked file names it, and each
 // of its card references is in an ADR, PDR or WDR (#623). The same script checks pull request
@@ -65,7 +69,7 @@ func TestDecisionCitationsResolve(t *testing.T) {
 		if err != nil {
 			continue
 		}
-		if strings.Contains(strings.ToLower(string(data)), strings.ToLower(retiredFileName)) && !retiredFileNamed(name) {
+		if retiredFileIn.MatchString(string(data)) && !retiredFileNamed(name) {
 			t.Errorf("%s names %s", name, retiredFileName)
 		}
 		if record.MatchString(name) {
@@ -222,5 +226,19 @@ func TestPullRequestTextChecksCommitsOutsideMain(t *testing.T) {
 	cmd.Env = append(os.Environ(), "TITLE=Change", "BODY=Synthetic body after VERDICT 7", "BASE="+base, "HEAD="+base, "BASE_REF=main")
 	if err := cmd.Run(); err == nil {
 		t.Error("a promotion body with a verdict ID was accepted")
+	}
+}
+
+// The retired file name is found alone, in a path and in any case, and not inside another name.
+func TestRetiredFileName(t *testing.T) {
+	for _, text := range []string{retiredFileName, "see " + retiredFileName + ".", "docs/" + retiredFileName, "`" + strings.ToLower(retiredFileName) + "`", "(" + strings.ToUpper(retiredFileName) + ")"} {
+		if !retiredFileIn.MatchString(text) {
+			t.Errorf("not found in %q", text)
+		}
+	}
+	for _, text := range []string{"owner-" + strings.ToLower(retiredFileName), "my_" + retiredFileName, "x" + retiredFileName, retiredFileName + "x"} {
+		if retiredFileIn.MatchString(text) {
+			t.Errorf("found in %q", text)
+		}
 	}
 }
