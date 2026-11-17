@@ -229,10 +229,10 @@ func TestOpenPrivateWritesDoNotReopen(t *testing.T) {
 	}
 }
 
-// Supporting coverage with real scheduling: reads during repeated atomic replacements of the
-// same file are not refused. Only replacedOpens replacements in a row, each between one read's
-// open and its check, exhaust a read; a replacement syncs the file and its directory, so it
-// takes far longer than an open and a check.
+// Supporting coverage with real scheduling (#733): reads during repeated atomic replacements of
+// the same file. A read is refused only after it used all replacedOpens opens, each of which
+// found a replaced inode; under load a sustained writer can do that, as the contract allows.
+// A refusal after fewer opens, or no successful read at all, fails the test.
 func TestOpenPrivateDuringAtomicReplacements(t *testing.T) {
 	path := privateFile(t, "{}\n")
 	var stop atomic.Bool
@@ -244,18 +244,31 @@ func TestOpenPrivateDuringAtomicReplacements(t *testing.T) {
 		}
 		done <- err
 	}()
-	var readErr error
-	for i := 0; i < 5000 && readErr == nil; i++ {
-		var f *os.File
-		if f, readErr = OpenPrivate(path, os.O_RDONLY); readErr == nil {
+	read, exhausted := 0, 0
+	for i := 0; i < 5000; i++ {
+		opens := 0
+		f, err := openPrivate(path, os.O_RDONLY, func(path string, flags int) (*os.File, error) {
+			opens++
+			return openNoFollow(path, flags)
+		})
+		switch {
+		case err == nil:
 			f.Close()
+			read++
+		case err.Error() == oneLinkRefusal && opens == replacedOpens:
+			exhausted++
+		default:
+			stop.Store(true)
+			<-done
+			t.Fatalf("read %d refused after %d opens: %v", i, opens, err)
 		}
 	}
 	stop.Store(true)
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	if readErr != nil {
-		t.Fatalf("a read during replacements was refused: %v", readErr)
+	if read == 0 {
+		t.Fatalf("no read succeeded; %d used all %d opens", exhausted, replacedOpens)
 	}
+	t.Logf("%d reads, %d used all %d opens", read, exhausted, replacedOpens)
 }
