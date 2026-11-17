@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Seven more skills in the catalog, for every installed agent family as `koinon-NAME` (#732):
+  `preflight` (the project's review lenses before a pull request), `provenance` (AI usage as
+  Git notes), `refusal-audit` (a whole-repository audit of refusal traps),
+  `standards-review` (an independent standards review of a frozen commit), `record` (write
+  or change a decision record), `sprint-closeout` (finish a sprint) and `standards-audit`
+  (decisions that have no record). Each reads the project's values from
+  `.koinon/skills/NAME.md`. LICENSE names Robert Capps and Stratovera, LLC.
+
 - A read of a private state file, such as `remote-dashboard.json` or `link.json`, while the
   daemon replaces that file no longer fails with "state file must be a regular file with one
   link" (#727). The read held the file that the replacement had just removed; it now opens the
