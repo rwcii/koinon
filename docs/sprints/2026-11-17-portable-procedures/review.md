@@ -40,3 +40,7 @@ record, sprint document, etc. there shall be no running log of decisions." (2026
 project's decision process, records the answer in the tracked artifact that holds the rule, and
 counts a decision as a source only when a tracked artifact holds it. The C1-F1 guard fix stays:
 the records quote his words, which name `owner-decisions.md`.
+
+| Finding | Disposition |
+| --- | --- |
+| C1-F2 (P2): the new paragraph let a confirmed owner decision that only a message holds be removed for its missing record | Accepted: such a decision is recorded in the artifact that holds the rule; removal stays with Step 7's evidence-based dispositions |

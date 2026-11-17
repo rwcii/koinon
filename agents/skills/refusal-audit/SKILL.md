@@ -330,9 +330,9 @@ becomes an approval step.
 A decision is a source only when a tracked artifact of the repository holds it: a decision
 record, a sprint document or the plan that the work delivers. A decision board item, an issue
 comment, a chat message, an agent's memory or a log of decisions alone is not a source: a
-reviewer of the repository cannot read it, or it is a copy. When the owner's decision exists
-only there, the finding is to record it in the artifact that holds the rule, with its question,
-answer, date, reason and scope, or to remove the constraint.
+reviewer of the repository cannot read it, or it is a copy. When a confirmed decision of the
+owner exists only there, the finding is to record it in the artifact that holds the rule, with
+its question, answer, date, reason and scope.
 
 ### What does not prove the owner's personal decision
 
