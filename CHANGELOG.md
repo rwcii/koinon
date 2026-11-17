@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A read of a private state file, such as `remote-dashboard.json` or `link.json`, while the
+  daemon replaces that file no longer fails with "state file must be a regular file with one
+  link" (#727). The read held the file that the replacement had just removed; it now opens the
+  file again, at most 8 times. A write still refuses a replaced file, and every other check of
+  a state file is unchanged.
+
 ## 2026-11-17 — Signed maintainer actions across your computers, and a dashboard address you can change
 
 This release lets a maintainer client act with its own key, also on your other linked
