@@ -44,3 +44,13 @@ the records quote his words, which name `owner-decisions.md`.
 | Finding | Disposition |
 | --- | --- |
 | C1-F2 (P2): the new paragraph let a confirmed owner decision that only a message holds be removed for its missing record | Accepted: such a decision is recorded in the artifact that holds the rule; removal stays with Step 7's evidence-based dispositions |
+
+## Chunk 02 review
+
+codex-koinon reviewed the checkpoint 20e7be3, 2026-11-17: one P2 finding and one note. The
+bounded recheck of 20e7be3..4c775b3 passed.
+
+| Finding | Disposition |
+| --- | --- |
+| C2-F1 (P2): when the destination `SKILL.md` is a folder, the script moves the new file into it, exits 0 and reports it as replaced | Accepted: a check pass over every root refuses a destination that is not a folder or a regular file before anything is written; `TestInstallSkillsRefusesAnOddDestination` covers four such destinations |
+| N1: the fixtures inherit `PATH`, so they do not force each hash tool | Accepted: `TestInstallSkillsHashTools` runs the script once with only `sha256sum` and once with only `shasum`, each with a good and a wrong hash |
