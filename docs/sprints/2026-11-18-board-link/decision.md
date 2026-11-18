@@ -21,7 +21,7 @@ computers".
 ### BOARD-LINK-746: decision cards for agents on another computer
 
 - **Decided by:** Robert Capps.
-- **Date:** pending; board card BOARD-LINK-746, revision 5.
+- **Date:** 2026-11-18, revision 5, approved, after feedback on revision 2.
 - **Context:** the maintainer requires that an agent on a paired computer sees a card that
   names it and gets the card's verdicts. Revisions 1 to 3 proposed a read-only copy of the
   card on the agent's computer. Feedback on revision 2, 2026-11-18: "send a read only card,
@@ -32,16 +32,36 @@ computers".
   read from the card's own computer, the maintainer answered, 2026-11-18, terminal: "you would
   be correct", and added: "the card lives in one place. spreading read only cards around to
   other nodes is a problem. they will QUICKLY fall out of sync."
-- **Decision:** pending. Revision 5 recommends: the card lives only on its own computer; the
-  tagged agent gets a short notice with no card text, and reads and acknowledges the live
-  card on the card's computer over the link.
-- **Reason and scope:** recorded with the verdict.
+- **Decision:**
+  1. The card's computer resolves a recipient `NAME@COMPUTER` for a paired computer.
+  2. A new card, each change and each verdict send the named agent a short notice in its
+     inbox, with its ordinary wake. The notice holds the card reference, its computer, the
+     event and the revision, and no card text. Notices wait in a durable queue while the link
+     is down.
+  3. On the agent's computer, `decision_get REFERENCE@COMPUTER`, and `decision_list --filter
+     mine` and `decision_pending` for one named computer, read the live card and its verdicts
+     from the card's computer over the link. Nothing is stored there.
+  4. `decision_ack` of a remote verdict goes to the card's computer over the link, which
+     records it.
+  5. The card and all its state stay only on the card's computer. The link gives no edit, no
+     verdict and no maintainer or overwatch authority.
+  6. A computer at an earlier release shows `unsupported`; notices resume after its upgrade.
+     Direct messages never wait.
+  7. At upgrade, open cards that already name `NAME@COMPUTER` resolve it, and a notice for
+     the current verdict is sent.
+- **Reason and scope:** an agent on another computer must see and acknowledge the cards that
+  name it. One place for the card keeps it correct; copies fall out of sync. While the card's
+  computer is offline, the agent cannot read the card. This changes PDR 011, Decision 2,
+  items 3 and 5, and PDR 007, Decision 4, for remote recipients only; the rest of the board
+  stays on each computer.
 - **Alternatives considered:** a read-only copy on the agent's computer (revisions 1 to 3):
-  copies fall out of sync.
-- **Review when:** recorded with the verdict.
+  readable offline, but copies fall out of sync, and it needs a copy store and a retention
+  rule. Reading the card on request with only verdict notices (revision 1): no notice for a
+  new card or a change.
+- **Review when:** agents need to read cards while the card's computer is offline.
 
-The verdict is recorded here, in PDR 011, Decision 2 and in PDR 007, Decision 4, in the pull
-request of chunk 01, with the maintainer's words.
+PDR 011, Decision 2 and PDR 007, Decision 4 record this decision in the pull request of
+chunk 01.
 
 ## Observable acceptance
 

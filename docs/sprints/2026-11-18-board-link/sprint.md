@@ -2,8 +2,7 @@
 
 Each chunk cites `decision.md` and `definition-of-done.md`, and merges complete through ship
 into develop. Claude drives, Codex observes. One open pull request at a time. Issue #746. Scope
-review in `review.md`. No chunk starts before the verdict on BOARD-LINK-746; if the verdict
-changes the design, this plan changes before any code.
+review in `review.md`. The maintainer approved BOARD-LINK-746 revision 5 on 2026-11-18 (`decision.md`).
 
 Chunk 01 captures every event durably at the origin before anything is sent, so no notice is
 lost between the sprint's chunks or releases (acceptance 9).
