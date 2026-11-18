@@ -4,7 +4,8 @@ import "net/http"
 
 // decisionRoutes serve decision_create, decision_edit, decision_list and decision_get
 // (#206, chunk 01), decision_history, decision_pending, decision_ack, decision_close and
-// decision_restore (chunk 02), and decision_withdraw (#504). No agent route gives a verdict: only the maintainer does, on the dashboard or with a maintainer token (PDR 009). The caller comes from current native admission. A request with any
+// decision_restore (chunk 02), and decision_withdraw (#504). With a computer or pair, get, list
+// (filter mine), pending and ack run at that paired computer over the link (#746 chunk 03). No agent route gives a verdict: only the maintainer does, on the dashboard or with a maintainer token (PDR 009). The caller comes from current native admission. A request with any
 // other field, such as a verdict, dismissal, audit or agent-row field, is refused.
 func (d *Daemon) decisionRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/decisions/create", func(w http.ResponseWriter, r *http.Request) {
@@ -58,13 +59,24 @@ func (d *Daemon) decisionRoutes(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("POST /v1/decisions/list", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
-			Caller Key    `json:"caller"`
-			Filter string `json:"filter"`
-			After  int64  `json:"after"`
-			Limit  int    `json:"limit"`
+			Caller   Key    `json:"caller"`
+			Filter   string `json:"filter"`
+			After    int64  `json:"after"`
+			Limit    int    `json:"limit"`
+			Computer string `json:"computer"`
+			Pair     string `json:"pair"`
 		}
 		if err := decode(w, r, &request); err != nil {
 			failure(w, err)
+			return
+		}
+		if request.Computer != "" || request.Pair != "" {
+			if request.Filter != "mine" {
+				failure(w, decisionInvalid("filter", "must be mine for another computer"))
+				return
+			}
+			page, err := d.RemoteDecisionList(r.Context(), request.Caller, request.Computer, request.Pair, request.After, request.Limit)
+			d.remoteRespond(w, request.Caller, page, err)
 			return
 		}
 		page, err := d.store.DecisionList(r.Context(), request.Caller, request.Filter, request.After, request.Limit)
@@ -79,9 +91,28 @@ func (d *Daemon) decisionRoutes(mux *http.ServeMux) {
 		var request struct {
 			Caller    Key    `json:"caller"`
 			Reference string `json:"reference"`
+			Computer  string `json:"computer"`
+			Pair      string `json:"pair"`
 		}
 		if err := decode(w, r, &request); err != nil {
 			failure(w, err)
+			return
+		}
+		reference, computer := splitRemoteReference(request.Reference)
+		if reference != request.Reference && (computer == "" || reference == "") {
+			failure(w, decisionInvalid("reference", "must be REFERENCE or REFERENCE@COMPUTER"))
+			return
+		}
+		if computer != "" && request.Computer != "" && computer != request.Computer {
+			failure(w, decisionInvalid("reference and computer", "name two computers"))
+			return
+		}
+		if computer == "" {
+			computer = request.Computer
+		}
+		if computer != "" || request.Pair != "" {
+			item, err := d.RemoteDecisionGet(r.Context(), request.Caller, computer, request.Pair, reference)
+			d.remoteRespond(w, request.Caller, item, err)
 			return
 		}
 		item, err := d.store.DecisionGet(r.Context(), request.Caller, request.Reference)
@@ -133,12 +164,19 @@ func (d *Daemon) decisionRoutes(mux *http.ServeMux) {
 	})
 	mux.HandleFunc("POST /v1/decisions/pending", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {
-			Caller Key   `json:"caller"`
-			After  int64 `json:"after"`
-			Limit  int   `json:"limit"`
+			Caller   Key    `json:"caller"`
+			After    int64  `json:"after"`
+			Limit    int    `json:"limit"`
+			Computer string `json:"computer"`
+			Pair     string `json:"pair"`
 		}
 		if err := decode(w, r, &request); err != nil {
 			failure(w, err)
+			return
+		}
+		if request.Computer != "" || request.Pair != "" {
+			page, err := d.RemoteDecisionPending(r.Context(), request.Caller, request.Computer, request.Pair, request.After, request.Limit)
+			d.remoteRespond(w, request.Caller, page, err)
 			return
 		}
 		page, err := d.store.DecisionPending(r.Context(), request.Caller, request.After, request.Limit)
@@ -153,9 +191,16 @@ func (d *Daemon) decisionRoutes(mux *http.ServeMux) {
 		var request struct {
 			Caller     Key     `json:"caller"`
 			VerdictIDs []int64 `json:"verdict_ids"`
+			Computer   string  `json:"computer"`
+			Pair       string  `json:"pair"`
 		}
 		if err := decode(w, r, &request); err != nil {
 			failure(w, err)
+			return
+		}
+		if request.Computer != "" || request.Pair != "" {
+			result, err := d.RemoteDecisionAck(r.Context(), request.Caller, request.Computer, request.Pair, request.VerdictIDs)
+			d.remoteRespond(w, request.Caller, result, err)
 			return
 		}
 		acknowledged, err := d.store.DecisionAck(r.Context(), request.Caller, request.VerdictIDs)
@@ -234,4 +279,15 @@ func (d *Daemon) decisionRoutes(mux *http.ServeMux) {
 		d.store.ToolCall(request.Caller)
 		respond(w, 200, map[string]any{"ok": true, "result": item})
 	})
+}
+
+// remoteRespond answers a remote board call: its result with the card's computer, or its
+// refusal. Nothing of the answer is stored here.
+func (d *Daemon) remoteRespond(w http.ResponseWriter, caller Key, result any, err error) {
+	if err != nil {
+		failure(w, err)
+		return
+	}
+	d.store.ToolCall(caller)
+	respond(w, 200, map[string]any{"ok": true, "result": result})
 }

@@ -126,8 +126,9 @@ func projectNotice(raw, pair, sender string) *DecisionNotice {
 		VerdictID: n.VerdictID, Verdict: n.Verdict, Get: n.Reference + "@" + computer}
 }
 
-// decisionNoticeText is a notice's message body. It names the card and the event, and no card text.
-func decisionNoticeText(b noticeBody) string {
+// decisionNoticeText is a notice's message body. It names the card, the event and the card's
+// computer with its pair ID, which a rename never changes, and no card text.
+func decisionNoticeText(b noticeBody, computer, pair string) string {
 	var s string
 	switch b.Event {
 	case "named":
@@ -141,7 +142,12 @@ func decisionNoticeText(b noticeBody) string {
 	default:
 		s = fmt.Sprintf("Decision card %s has a verdict: %s (verdict %d on its computer, revision %d).", b.Reference, b.Verdict, b.VerdictID, b.Revision)
 	}
-	return s + " The card lives on the computer in this message's sender name; read it there with decision_get " + b.Reference + "@COMPUTER."
+	s += fmt.Sprintf(" The card lives on computer %s (pair %s); read it there with decision_get %s@%s, or reference %s and pair %s.",
+		computer, pair, b.Reference, computer, b.Reference, pair)
+	if b.Event == "verdict" {
+		s += fmt.Sprintf(" After you handle the verdict, acknowledge it with decision_ack, verdict_ids [%d] and pair %s.", b.VerdictID, pair)
+	}
+	return s
 }
 
 // signalNotices wakes the notice dispatcher after the transaction commits. The signal never
@@ -379,7 +385,7 @@ func (s *Store) noticeInsert(ctx context.Context, tx *writeTx, in noticeDelivery
 	stored, _ := json.Marshal(storedNotice{Reference: in.Reference, Event: in.Event, Revision: in.Revision, VerdictID: in.VerdictID, Verdict: in.Verdict})
 	if _, err := tx.ExecContext(ctx, `INSERT INTO messages(recipient_family,recipient_id,seq,sender_family,sender_id,sender_name,body,
 		created_at,delivery_updated_at,system_kind,decision_notice,link_pair,link_xid,link_sender) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		family, sessionID, seq, noticeFamily, "link:"+in.ID, noticeSender+"@"+in.Computer, decisionNoticeText(in.noticeBody), now, now,
+		family, sessionID, seq, noticeFamily, "link:"+in.ID, noticeSender+"@"+in.Computer, decisionNoticeText(in.noticeBody, in.Computer, in.ID), now, now,
 		noticeKind, string(stored), in.ID, in.XID, noticeSender); err != nil {
 		return linkResult{}, tx.fail(err)
 	}

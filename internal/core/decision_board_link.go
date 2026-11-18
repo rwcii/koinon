@@ -15,7 +15,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"net"
 	"slices"
 	"sort"
 	"strings"
@@ -266,6 +265,9 @@ func remoteAck(ctx context.Context, tx *writeTx, now int64, pair string, names [
 // acknowledgement's commit, as for an inbound delivery, so an unpair or a close of the link
 // that returns first leaves no later answer or acknowledgement.
 func (d *Daemon) answerBoard(pin string, f link.Frame, gen uint64) (link.Frame, bool, error) {
+	if errors.Is(d.linkFault("board-op"), errLinkOldPeer) {
+		return link.Frame{}, true, Refusal{"link_operation_unknown", "this computer does not know that link operation; update Koinon on both computers"}
+	}
 	var r boardRequest
 	if f.Decode(&r) != nil || !r.valid() {
 		return link.Frame{}, true, ErrInvalid
@@ -273,34 +275,45 @@ func (d *Daemon) answerBoard(pin string, f link.Frame, gen uint64) (link.Frame, 
 	if err := d.linkFault("before-board"); err != nil {
 		return link.Frame{}, true, err
 	}
-	d.link.mu.Lock()
-	defer d.link.mu.Unlock()
-	if d.link.gen != gen {
-		return link.Frame{}, true, ErrLinkRemoteOff
-	}
-	s, err := link.ReadState(d.root)
-	if err != nil {
-		return link.Frame{}, true, err
-	}
-	if _, ok := pairedPin(s, pin, r.ID); !ok {
-		return link.Frame{}, true, ErrLinkNoPair
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), linkIOTimeout/2)
-	defer cancel()
-	var result any
-	if r.Op == "ack" {
-		result, err = d.store.remoteAckWrite(ctx, r.ID, r.Names, r.VerdictIDs)
-	} else {
-		result, err = d.store.remoteRead(ctx, r)
+	result, err := d.boardAnswer(pin, r, gen)
+	var work WorkRefusal
+	if errors.As(err, &work) {
+		// A definite refusal of this computer's store, such as not_found, keeps its code.
+		return link.Frame{}, true, Refusal{work.Code, work.Message}
 	}
 	if err != nil {
 		return link.Frame{}, true, err
 	}
+	// A lost answer after the read or the commit, for tests. linkFault takes the link lock,
+	// so it runs after the answer released it.
 	if err := d.linkFault("after-board"); err != nil {
 		return link.Frame{}, true, err
 	}
 	reply, err := link.NewFrame("board-ok", result)
 	return reply, false, err
+}
+
+// boardAnswer runs a board request under the link lock, from the pair check through the read
+// or the acknowledgement's commit.
+func (d *Daemon) boardAnswer(pin string, r boardRequest, gen uint64) (any, error) {
+	d.link.mu.Lock()
+	defer d.link.mu.Unlock()
+	if d.link.gen != gen {
+		return nil, ErrLinkRemoteOff
+	}
+	s, err := link.ReadState(d.root)
+	if err != nil {
+		return nil, err
+	}
+	if _, ok := pairedPin(s, pin, r.ID); !ok {
+		return nil, ErrLinkNoPair
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), linkIOTimeout/2)
+	defer cancel()
+	if r.Op == "ack" {
+		return d.store.remoteAckWrite(ctx, r.ID, r.Names, r.VerdictIDs)
+	}
+	return d.store.remoteRead(ctx, r)
 }
 
 func (s *Store) remoteRead(ctx context.Context, r boardRequest) (any, error) {
@@ -431,8 +444,12 @@ func (d *Daemon) boardCall(ctx context.Context, caller Key, computer, pair strin
 		return origin, boardUncertain(p)
 	}
 	if reply.Op == "error" {
-		if reply.Error == "link_operation_unknown" {
+		switch reply.Error {
+		case "link_operation_unknown":
 			return origin, ErrBoardUnsupported
+		case "link_refused":
+			// A failure without a known cause, also one after an acknowledgement's commit.
+			return origin, boardUncertain(p)
 		}
 		return origin, WorkRefusal{Code: reply.Error, Message: reply.Detail, Details: map[string]any{"computer": p.Effective, "pair": p.ID}}
 	}
@@ -494,6 +511,3 @@ func splitRemoteReference(s string) (reference, computer string) {
 	}
 	return s, ""
 }
-
-var _ = errors.New
-var _ net.Conn

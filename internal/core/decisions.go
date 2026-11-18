@@ -990,6 +990,12 @@ func decisionPage(ctx context.Context, q querier, filter string, targets []strin
 			return DecisionPage{}, err
 		}
 	}
+	return summaryPage(summaries, limit), nil
+}
+
+// summaryPage bounds summaries, read with limit+1 rows, to one page of at most limit items
+// and decisionPageBytes, cut at an item boundary.
+func summaryPage(summaries []DecisionSummary, limit int) DecisionPage {
 	page := DecisionPage{Items: []DecisionSummary{}}
 	// The envelope as the route sends it, with the longest next_after.
 	largest := int64(math.MaxInt64)
@@ -1009,7 +1015,7 @@ func decisionPage(ctx context.Context, q querier, filter string, targets []strin
 		used += size
 		page.Items = append(page.Items, s)
 	}
-	return page, nil
+	return page
 }
 
 // cullDecisionReplays deletes, in one bounded control write, create replays whose retry

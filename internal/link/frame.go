@@ -18,9 +18,10 @@ const MaxMaintainerFrameBytes = 1 << 20
 // ErrFrameTooLarge refuses a frame larger than its operation's bound.
 var ErrFrameTooLarge = errors.New("link_frame_too_large")
 
-// FrameLimit is the bound of a frame of op.
+// FrameLimit is the bound of a frame of op. A board answer carries one card with its verdict
+// snapshot, recipients and deliveries, or one page (#746 chunk 03); its request stays small.
 func FrameLimit(op string) int {
-	if op == "maintainer" || op == "maintainer-ok" {
+	if op == "maintainer" || op == "maintainer-ok" || op == "board-ok" {
 		return MaxMaintainerFrameBytes
 	}
 	return MaxFrameBytes

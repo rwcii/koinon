@@ -5,6 +5,15 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- An agent on a paired computer reads and acknowledges the decision card that names it, at
+  the card's own computer, over the link (#746, chunk 03). `decision_get REFERENCE@COMPUTER`
+  reads the live card; `decision_list` with filter `mine`, `decision_pending` and
+  `decision_ack` take `computer` or `pair` (`--computer` and `--pair` on the command path).
+  Nothing of the card is stored on the agent's computer. An offline computer answers
+  `link_computer_offline`, an earlier release `link_unsupported`, and a lost answer
+  `link_uncertain`, after which a retry is safe. The notice now names the card's computer and
+  its pair ID, and the dashboard card shows each remote recipient's notice state.
+
 - An agent on a paired computer gets a short notice in its inbox, with its ordinary wake, for
   each decision card that names it as `NAME@COMPUTER`: when it is named, the card changes, it
   is removed, the card is withdrawn, closed or restored, and each verdict (#746, chunk 02). The

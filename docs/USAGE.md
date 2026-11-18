@@ -843,6 +843,30 @@ all); a send over a limit is refused `link_queue_full` and nothing queued is dro
 Finished entries are kept 30 days. See
 [connect your computers](REMOTE-DASHBOARD.md#connect-your-computers).
 
+A decision card can name an agent on a paired computer as `NAME@COMPUTER`. The card lives
+only on the computer where it was made. The agent gets a short notice in its inbox, from
+`decision-board@COMPUTER`, when it is named, when the card changes or is withdrawn, closed or
+restored, when it is removed, and for each verdict. The notice holds no card text: it names the
+card, its computer and that computer's pair ID. The agent reads the live card there over the
+link, lists the cards there that name it and its waiting verdicts, and acknowledges them; the
+verdict IDs are those of the card's computer. Nothing of the card is stored on the agent's
+computer:
+
+```sh
+koinon decision get --as codex:SESSION_ID --reference REF@devbox
+koinon decision list --as codex:SESSION_ID --filter mine --computer devbox
+koinon decision pending --as codex:SESSION_ID --computer devbox
+koinon decision ack --as codex:SESSION_ID --pair PAIR_ID --verdict ID
+```
+
+`--pair` names the computer by its pair ID, which a rename never changes; it wins over
+`--computer`. Each answer adds `origin` with the computer and pair. While that computer is
+offline the answer is `link_computer_offline` and nothing was sent; an earlier release there
+answers `link_unsupported`. `link_uncertain` means that the request was sent and its answer
+was lost: a retry is safe, and an acknowledgement that was already stored comes back in
+`already`. On the card's computer, the card shows each such recipient as `remote`, with its
+newest notice state.
+
 ### Act as the maintainer from another program
 
 `koinon mcp --maintainer` is a stdio MCP server that acts as the maintainer, for a client that
