@@ -15,7 +15,8 @@ release
 Merge the PR from develop to main.
 ## Publish steps
 Use the version tag on the verified main merge. The tag triggers Release binaries:
-four CGO-free binaries and SHA256SUMS, GitHub release assets, then the Homebrew tap formula.
+four CGO-free binaries, their Homebrew bottles, koinon-skills.tar.gz and SHA256SUMS; the
+homebrew-check job pours the bottles; then GitHub release assets, then the Homebrew tap formula.
 Verify all publication jobs and the resulting binaries/formula; reconcile an uncertain run.
 ## Release checks
 Dated changelog, exact-head CI and independent review, supported fresh installation evidence,

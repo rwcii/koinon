@@ -99,6 +99,12 @@ The install links `~/.local/bin/koinon` to the installed binary; when `koinon` o
 run that binary, its report names the step that fixes it (`path_step`), such as adding
 `~/.local/bin` to `PATH` on macOS. It never edits shell startup files.
 
+A computer with no Koinon can still get the skills of one release, from v0.13.0:
+`sh scripts/install-skills.sh vMAJOR.MINOR.PATCH` checks the release's `koinon-skills.tar.gz`
+and writes each skill as `koinon-NAME` into the agents' skill folders
+([docs/INSTALL.md](docs/INSTALL.md#skills-on-a-computer-with-no-koinon)). The steps of a skill
+that use Koinon tools need Koinon.
+
 ## Start agents
 
 1. **Configure each agent family once.** `koinon install --agent FAMILY` runs this for the

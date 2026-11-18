@@ -1,5 +1,6 @@
 #!/bin/sh
-# Rerun the failed jobs of one workflow run attempt when no runner acquired any of them (#630).
+# Rerun the failed jobs of one workflow run attempt when no runner acquired any of them (#630): a
+# Tests, Native Go lifecycle evidence or Release binaries run (#729).
 # A GitHub-hosted macOS job can wait for a runner until GitHub cancels it, with the annotation
 # below; no step runs, and the run fails. A run with any other failed job is not rerun, so a
 # real failure stays visible (WDR 004, Decision 6). At most two reruns: attempts 1 and 2.

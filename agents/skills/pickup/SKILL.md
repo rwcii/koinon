@@ -43,7 +43,7 @@ if [ -f "$note" ] && [ "$(wc -c < "$note")" -le 4096 ]; then
 else
   echo "no usable progress note"
 fi
-file=$(ls "$dir"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]*.md 2>/dev/null | sort | tail -1)
+file=$(ls "$dir"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]*.md 2>/dev/null | LC_ALL=C sort | tail -1)
 if [ -z "$file" ]; then
   echo "no handoff for <agent-id>"
   ls "$root/_handoff/"
@@ -60,9 +60,9 @@ them. An older handoff has Goal and success criteria and Resume here in their pl
 as its goal and its next action, without a stop. When the note is absent,
 unreadable or larger than 4 KiB, read the whole handoff and say so in the report.
 
-Handoff file names start with a UTC timestamp, so the last name in sort order is the newest.
-The handoffs are the timestamped files: `progress.md` is the note, and a directory with only the
-note has no handoff. Note the branch that the note or the handoff names; that is usually the
+Handoff file names start with a UTC timestamp, so the last name in byte order (`LC_ALL=C`) is
+the newest. The handoffs are the timestamped files: `progress.md` is the note, and a directory
+with only the note has no handoff. Note the branch that the note or the handoff names; that is usually the
 branch to resume. No handoff is a normal result; handle it as step 1 says.
 
 ## 3. Verify against the live state

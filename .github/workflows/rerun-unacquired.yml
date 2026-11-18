@@ -1,13 +1,13 @@
 name: Rerun jobs that no runner acquired
 
 # A GitHub-hosted macOS job can wait for a runner until GitHub cancels it (#630). When no runner
-# acquired any failed job of a Tests or Native Go lifecycle evidence run, its failed jobs run
-# again, at most twice. A run with another failure is not rerun, and the release account still
+# acquired any failed job of a Tests, Native Go lifecycle evidence or Release binaries run (#729),
+# its failed jobs run again, at most twice. A run with another failure is not rerun, and the release account still
 # lists each failed attempt (WDR 004, Decision 6). GitHub runs workflow_run workflows from the
 # default branch.
 on:
   workflow_run:
-    workflows: ["Tests", "Native Go lifecycle evidence"]
+    workflows: ["Tests", "Native Go lifecycle evidence", "Release binaries"]
     types: [completed]
 
 permissions:

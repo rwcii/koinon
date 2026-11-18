@@ -62,7 +62,13 @@ func TestTeamSkills(t *testing.T) {
 			t.Fatalf("%s holds a procedure:\n%s", skill.Name, content)
 		}
 	}
-	if len(want) != 13 || strings.Join(names, " ") != strings.Join(want, " ") {
+	// The seven procedures of PDR 008 Decision 5 (#732) have their entries too.
+	for _, name := range []string{"preflight", "provenance", "refusal-audit", "standards-review", "record", "sprint-closeout", "standards-audit"} {
+		if !slices.Contains(names, "koinon-"+name) {
+			t.Fatalf("no entry koinon-%s in %q", name, names)
+		}
+	}
+	if len(want) != 20 || strings.Join(names, " ") != strings.Join(want, " ") {
 		t.Fatalf("entries %q, want %q", names, want)
 	}
 	for _, name := range []string{"koinon-guide", "koinon-check", "koinon-spin-up", "koinon-handoff", "koinon-sprint"} {

@@ -56,7 +56,12 @@ func TestOpenCodeCommands(t *testing.T) {
 			t.Fatalf("%s is not intact:\n%s", command.Name, content)
 		}
 	}
-	if len(names) != 14 || slices.Contains(names, PickupSkillName) || strings.Join(names, " ") != strings.Join(want, " ") || strings.Count(strings.Join(names, " "), "koinon-guide") != 1 {
+	for _, name := range []string{"preflight", "provenance", "refusal-audit", "standards-review", "record", "sprint-closeout", "standards-audit"} {
+		if !slices.Contains(names, "koinon-"+name) {
+			t.Fatalf("no command koinon-%s in %q", name, names)
+		}
+	}
+	if len(names) != 21 || slices.Contains(names, PickupSkillName) || strings.Join(names, " ") != strings.Join(want, " ") || strings.Count(strings.Join(names, " "), "koinon-guide") != 1 {
 		t.Fatalf("commands %q, want %q", names, want)
 	}
 }

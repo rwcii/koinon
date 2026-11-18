@@ -3,7 +3,7 @@ on:
   push:
     tags: ['v*']
   pull_request:
-    paths: ['.github/workflows/release.yml', 'cmd/koinon/lifecycle.go', 'scripts/homebrew-*.sh']
+    paths: ['.github/workflows/release.yml', 'cmd/koinon/lifecycle.go', 'scripts/homebrew-*.sh', 'scripts/skills-archive/**']
   workflow_dispatch:
 permissions:
   contents: read
@@ -31,6 +31,8 @@ jobs:
           bottles="$GITHUB_REF_NAME"
           [ "$GITHUB_REF_TYPE" = tag ] || bottles=v0.0.0
           scripts/homebrew-bottles.sh "$bottles" dist
+          # The skills of this release for a computer with no Koinon (scripts/install-skills.sh).
+          go run ./scripts/skills-archive dist/koinon-skills.tar.gz
           (cd dist && sha256sum koinon-* > SHA256SUMS)
           cat dist/SHA256SUMS
       - name: Check the build's own version
