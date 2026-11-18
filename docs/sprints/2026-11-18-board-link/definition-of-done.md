@@ -92,10 +92,12 @@ real agent, a real board or another computer.
   handshake and the exchange, inside the local API server's 10-second write timeout. A shorter
   deadline of the local request wins, and a cancelled local request stops the call.
 - Outcomes: a failure before the request frame is written (not paired, offline, the dial or
-  handshake failed, an earlier release that refuses the operation, the budget ran out before
-  the write) gives a coded error that says nothing was sent: `link_computer_unknown`,
-  `link_computer_offline` or `link_unsupported`. Nothing changed on either side. A failure
-  after the request frame was written (no answer, a lost answer, the budget ran out) gives
+  handshake failed, the budget ran out before the write) gives a coded error that says
+  nothing was sent: `link_computer_unknown` or `link_computer_offline`. A definite refusal
+  from the origin (an earlier release that does not know the operation, or another refusal
+  before it runs anything) gives `link_unsupported` or the origin's code, and says that
+  nothing ran. In both cases nothing changed on either side. Only an ambiguous failure after
+  the request frame was written (no answer, a lost answer, the budget ran out) gives
   `link_uncertain` with the computer and the pair ID: an acknowledgement may have committed at
   the origin. An acknowledgement succeeds only after the origin commits it and answers; a
   retry with the same pair and verdict IDs is idempotent and answers the stored result. The

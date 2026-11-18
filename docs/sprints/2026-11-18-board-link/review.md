@@ -73,3 +73,9 @@ apply only to definite failures before the request is written, and to reads. A l
 acknowledgement answer after the request is written, also by the budget or a cancel, is
 `link_uncertain`, because the origin may have committed; it is never reported as a timeout
 with no change.
+
+codex-koinon, final recheck at 3c6c7a4ec5249e65908c55c160d0f225d52908fa: PASS; no plan
+blocker. Its reading, now stated in the definition of done: a definite refusal from the
+origin, such as an unknown operation at an earlier release, is `link_unsupported` and says
+that nothing ran, not that nothing was sent; only an ambiguous lost answer after the write is
+`link_uncertain`.
