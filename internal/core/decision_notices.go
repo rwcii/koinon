@@ -452,7 +452,9 @@ func (d *Daemon) noticeSignal() {
 }
 
 // noticeDispatch starts or wakes the notice worker of each pair with live notices, at the
-// start of generation gen and after each signal, until the generation closes.
+// start of generation gen and after each signal, until the generation closes. The signal
+// channel lives as long as the daemon: a dispatcher of a closed generation that takes a
+// signal puts it back before it ends, so the next generation's dispatcher gets it.
 func (d *Daemon) noticeDispatch(gen uint64, life context.Context) {
 	defer d.wg.Done()
 	for {
@@ -461,6 +463,10 @@ func (d *Daemon) noticeDispatch(gen uint64, life context.Context) {
 		case <-life.Done():
 			return
 		case <-d.notices:
+			if life.Err() != nil {
+				d.noticeSignal()
+				return
+			}
 		}
 	}
 }

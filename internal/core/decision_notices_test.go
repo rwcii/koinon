@@ -352,3 +352,42 @@ func TestNoticeWaitsForADisconnectedComputer(t *testing.T) {
 		t.Fatalf("notices after the reconnect: %v", got)
 	}
 }
+
+// A dispatcher of a closed generation never drops a wake meant for the next one (review of
+// #749, 746-C2-F1): when it takes the signal, it puts it back.
+func TestNoticeClosedDispatcherKeepsTheWake(t *testing.T) {
+	s, root := testStore(t)
+	d := &Daemon{store: s, root: root, notices: make(chan struct{}, 1)}
+	closed, cancel := context.WithCancel(context.Background())
+	cancel()
+	for i := 0; i < 64; i++ {
+		d.noticeSignal()
+		d.wg.Add(1)
+		d.noticeDispatch(1, closed)
+		if len(d.notices) != 1 {
+			t.Fatalf("run %d: a closed generation's dispatcher dropped the wake", i)
+		}
+		<-d.notices
+	}
+}
+
+// Remote off and on, then a card: the new generation's dispatcher sends its notice with no
+// other write.
+func TestNoticeAfterRemoteOffAndOn(t *testing.T) {
+	_, a, b := pairedLinkHosts(t)
+	author := join(t, a.d.store, "claude", "synthetic-notice-author", "")
+	receiver := joinAs(t, b.d.store, "codex", "synthetic-notice-receiver", linkRepo(t, "recv"), "")
+	ctx := context.Background()
+	if err := a.d.remoteDisable(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.d.remoteEnable(ctx, 0); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(100 * time.Millisecond)
+	if _, err := a.d.store.DecisionCreate(ctx, Key{"claude", author.ID}, "G-1", DecisionFields{Title: ptr("Generation"), Kind: ptr("decision"),
+		Recipients: &[]string{receiver.Name + "@beta"}}, "g1", a.d.store.clock()+600); err != nil {
+		t.Fatal(err)
+	}
+	waitNotices(t, a.d.store, "G-1", 1)
+}
