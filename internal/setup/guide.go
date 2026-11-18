@@ -40,7 +40,8 @@ your messages to other agents, also to another session of your own family, throu
 - library_list, library_read: list the installed skill/setup catalog and read an item by
   item_id. Page list with next_after; content comes from the installed binary.
 - library_state: inspect selected catalog items in verified machine or project scope;
-  content, collisions, repository facts and adoption decisions are separate.
+  content, collisions, repository facts and adoption decisions are separate. It checks
+  catalog adoption, not the koinon-NAME entries; koinon install --plan checks those.
 - library_decision: record a machine outcome with if_revision; project receipts use
   memory_record. These tools record data and edit no adopted files.
 - room_list, room_members: list the dashboard rooms of this session or the participant it
@@ -361,7 +362,8 @@ outdated or edited content, same-name collisions, repository facts and recorded 
 Machine scope is the default; a project directory is a listed worktree of this session's
 registered repository. library_state reads this session's scope at a native tool call, and it
 recommends the missing or outdated skills that available features need; declined and edited
-items show as such.
+items show as such. It does not read the koinon-NAME entries that koinon install and the daemon
+write; koinon install --plan reads them, and names koinon install for a missing or earlier one.
 To adopt an item: read it and its state, choose the scope, compare any same-name copy, apply
 it with normal editing tools, keep the surrounding instructions and custom discovery paths,
 check its hashes and record the outcome. If recording fails, keep the applied files and say

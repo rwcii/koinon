@@ -213,17 +213,22 @@ names the running binary, or the formula's opt path for a Homebrew binary, and r
    it as yourself; it asks `sudo` for each privileged step.
 4. An installed binary that is not this one (in user mode with Homebrew, not the link to the opt
    path): `koinon install`, and nothing more.
-5. No maintainer secret: `koinon maintainer secret set`. The daemon reports this in
+5. A `koinon-pickup` entry, a `koinon-NAME` skill entry or an OpenCode command file that is
+   missing, or that an earlier Koinon wrote: `koinon install`, and nothing more (#741). The plan
+   reads the same files that the install writes and writes none. A linked entry, another skill
+   at a shared name such as an adopted `koinon-guide`, and an edited command are kept and need
+   nothing. `library_state` does not check these entries: it checks catalog adoption.
+6. No maintainer secret: `koinon maintainer secret set`. The daemon reports this in
    `GET /v1/status`; the plan waits up to 20 seconds for it, since the daemon restarts after
    `brew upgrade`.
-6. Each agent family whose CLI is on `PATH` without the koinon server for the installed binary:
+7. Each agent family whose CLI is on `PATH` without the koinon server for the installed binary:
    `koinon setup FAMILY --binary <prefix>/bin/koinon`, which configures the installed binary as
    the install does.
 
 The port is not in the plan; a change is optional (Port, below). When a check cannot finish,
 for example when the daemon does not answer, a daemon of an earlier release does not report the
-secret, a binary cannot be read, an agent's CLI fails or its output does not end, or 30 seconds
-pass, the plan prints no step, exits with 1 and
+secret, a binary or a skill entry cannot be read (`skill_entry_unreadable`, naming the path),
+an agent's CLI fails or its output does not end, or 30 seconds pass, the plan prints no step, exits with 1 and
 writes the error's code to standard error.
 
 ### Port
@@ -970,7 +975,7 @@ session and receipt records add no table. The same release, v0.11.0, moves the s
 to schema 38 for messages between computers (#670), and a v0.10.x binary refuses a
 schema 38 store, so a v0.11.0 store cannot go back to v0.10.x. v0.12.0 moves the store to
 schema 39 for signed maintainer actions (#693), and a v0.11.x binary refuses a schema 39 store,
-so a v0.12.0 store cannot go back to v0.11.x. v0.13.0 keeps schema 39. Schema 29 originally added the secret's salted-key table;
+so a v0.12.0 store cannot go back to v0.11.x. v0.13.0 and v0.13.1 keep schema 39. Schema 29 originally added the secret's salted-key table;
 upgrading a pre-secret store starts with no secret set.
 
 The daemon applies supported Go schema migrations transactionally and refuses an unknown

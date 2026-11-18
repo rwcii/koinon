@@ -95,6 +95,13 @@ func Plan(ctx context.Context, o Options) ([]string, error) {
 	if !system.Present && !o.Services.Available(ctx) && !answersNow(ctx, o) {
 		return []string{install}, nil
 	}
+	// A missing or earlier skill entry or OpenCode command file is the install's to write
+	// (#741); the daemon also writes them at each start, so this finds a write that failed.
+	if repair, err := entriesNeedInstall(ctx, o); err != nil {
+		return nil, err
+	} else if repair {
+		return []string{install}, nil
+	}
 	var steps []string
 	set, err := secretSet(ctx, o)
 	if err != nil {
@@ -239,4 +246,54 @@ func secretSet(ctx context.Context, o Options) (bool, error) {
 		case <-time.After(200 * time.Millisecond):
 		}
 	}
+}
+
+// entriesNeedInstall reports whether koinon install would create or replace a koinon-pickup
+// entry, a skill entry or an OpenCode command file, reading the same files that the install
+// writes (pickupSkillPaths, skillRoots, OpenCode's commands when its directory exists) and
+// writing none (#741). A kept file (a link, another skill at a shared name, an
+// edited command) needs nothing; a file that cannot be read is an unfinished check.
+func entriesNeedInstall(ctx context.Context, o Options) (bool, error) {
+	// Every file is read before the answer, so a missing entry never hides an unreadable one,
+	// and an inspection that passes the plan's time is unfinished, even after a repair.
+	repair := false
+	check := func(result string, err error) error {
+		if err != nil {
+			return err
+		}
+		if ctx.Err() != nil {
+			return fmt.Errorf("plan_timeout: the checks did not finish in %s", o.PlanWait)
+		}
+		repair = repair || result == "created" || result == "replaced"
+		return nil
+	}
+	for _, skill := range pickupSkillPaths(o) {
+		if err := check(core.SkillFileState(skill.Path, pickupContent(skill.Family))); err != nil {
+			return false, err
+		}
+	}
+	skills, err := core.TeamSkills()
+	if err != nil {
+		return false, err
+	}
+	for _, root := range skillRoots(o) {
+		for _, skill := range skills {
+			if err := check(core.TeamSkillState(root.Path(skill.Name), skill)); err != nil {
+				return false, err
+			}
+		}
+	}
+	if info, err := os.Stat(o.Opencode); err != nil || !info.IsDir() {
+		return repair, check("", nil)
+	}
+	commands, err := core.OpenCodeCommands()
+	if err != nil {
+		return false, err
+	}
+	for _, command := range commands {
+		if err := check(core.OpenCodeCommandState(core.OpenCodeCommandPath(o.Opencode, command.Name), command)); err != nil {
+			return false, err
+		}
+	}
+	return repair, check("", nil)
 }

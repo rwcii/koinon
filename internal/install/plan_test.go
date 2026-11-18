@@ -15,8 +15,8 @@ import (
 	"github.com/rwcii/koinon/internal/setup"
 )
 
-// planEnv is an installed user-mode daemon with a maintainer secret, and agent families that
-// are not installed: its plan is empty until a test changes one of them.
+// planEnv is an installed user-mode daemon with a maintainer secret, current skill entries,
+// and agent families that are not installed: its plan is empty until a test changes one of them.
 func planEnv(t *testing.T, backend string) *env {
 	t.Helper()
 	e := newEnv(t, backend)
@@ -29,6 +29,10 @@ func planEnv(t *testing.T, backend string) *env {
 		t.Fatal(err)
 	}
 	if _, err := e.o.Services.WriteDaemon(Binary(e.o.Prefix), e.o.StateDir); err != nil {
+		t.Fatal(err)
+	}
+	// The install's skill entries are current (#741).
+	if err := installPickupSkills(e.o, &Report{}); err != nil {
 		t.Fatal(err)
 	}
 	return e
@@ -238,6 +242,13 @@ func TestPlanChangesNothing(t *testing.T) {
 		return files
 	}
 	e := planEnv(t, "systemd")
+	// Every root of the skill entries is read (#741).
+	for _, dir := range []string{e.o.Opencode, e.o.AgyRoot, e.o.GrokHome, e.o.DSHHome} {
+		os.MkdirAll(dir, 0o700)
+	}
+	if err := installPickupSkills(e.o, &Report{}); err != nil {
+		t.Fatal(err)
+	}
 	for _, name := range []string{"state.sqlite3", "state.sqlite3-wal", "state.sqlite3-shm"} {
 		os.WriteFile(filepath.Join(e.o.StateDir, name), []byte(name), 0600)
 	}
