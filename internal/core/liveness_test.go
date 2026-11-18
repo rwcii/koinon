@@ -256,3 +256,63 @@ func TestLivenessKeepsOneSessionPerHost(t *testing.T) {
 		t.Fatalf("left session: %s", got.State)
 	}
 }
+
+// TestLivenessRechecksTheHostInsideTheWrite: a later session that registers on the host
+// while the sweep reads it takes the host's evidence before the write (#751).
+func TestLivenessRechecksTheHostInsideTheWrite(t *testing.T) {
+	s, h, advance := successionStore(t)
+	h.set(310, 14)
+	old := arrive(t, s, arrival{family: "claude", id: "synthetic-read-old", repo: testRepo(t), pid: 310})
+	advance(10 * time.Minute)
+	read, once := s.processStart, false
+	s.processStart = func(pid int) (int64, error) {
+		if pid == 310 && !once {
+			once = true
+			advance(time.Millisecond)
+			arrive(t, s, arrival{family: "claude", id: "synthetic-read-new", repo: testRepo(t), pid: 310})
+		}
+		return read(pid)
+	}
+	if err := s.MaintainLiveness(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := sessionOf(t, s, "claude", old.ID); got.ExpiresAt != old.ExpiresAt {
+		t.Fatalf("the earlier session was extended from %d to %d", old.ExpiresAt, got.ExpiresAt)
+	}
+}
+
+// TestLivenessKeepsBothSessionsOfOneTime: two sessions on one host with the same
+// registration time are both extended, since neither is later; the next renewal of one
+// orders them (#751).
+func TestLivenessKeepsBothSessionsOfOneTime(t *testing.T) {
+	s, h, advance := successionStore(t)
+	h.set(311, 15)
+	z := arrive(t, s, arrival{family: "claude", id: "synthetic-z", repo: testRepo(t), pid: 311})
+	a := arrive(t, s, arrival{family: "claude", id: "synthetic-a", repo: testRepo(t), pid: 311})
+	sweep := func() {
+		t.Helper()
+		for range 3 {
+			advance(8 * time.Minute)
+			if err := s.MaintainLiveness(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	sweep()
+	for _, id := range []string{z.ID, a.ID} {
+		if got := sessionOf(t, s, "claude", id); got.State != "active" {
+			t.Fatalf("%s: %s", id, got.State)
+		}
+	}
+	current := sessionOf(t, s, "claude", z.ID)
+	if _, err := s.Mutate(context.Background(), Mutation{Family: "claude", ID: z.ID, IfRevision: current.Revision}, false); err != nil {
+		t.Fatal(err)
+	}
+	sweep()
+	if got := sessionOf(t, s, "claude", z.ID); got.State != "active" {
+		t.Fatalf("renewed session: %s", got.State)
+	}
+	if got := sessionOf(t, s, "claude", a.ID); got.State != "expired" {
+		t.Fatalf("earlier session: %s", got.State)
+	}
+}

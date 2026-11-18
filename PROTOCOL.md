@@ -445,7 +445,8 @@ or another start value) or cannot be read, a sub-agent, and a session without a 
 runs one session at a time: when another active session of the same family on the same host
 registered or renewed later, as when a Claude host changed its session ID, only that later
 session is extended, and the earlier one expires at its deadline unless it renews itself
-(#751). The status line's lookup after `/clear` accepts exactly one active session on the
+(#751). The write checks this again. Two sessions with the same time are both extended
+until the next registration or renewal of one orders them. The status line's lookup after `/clear` accepts exactly one active session on the
 host. The daemon never revives an expired session. A session record shows `liveness`: `host` or `none`, and
 `host_verified_at`, the last time that the daemon read the host as running (kept in memory, so
 it is empty until the first check after a daemon start). Concurrent

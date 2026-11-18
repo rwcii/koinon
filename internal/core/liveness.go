@@ -43,6 +43,13 @@ func (s *Store) annotate(r *Session) {
 	}
 }
 
+// notSuperseded holds for a session row s when no other active session of its family on its
+// host registered or renewed after it (#751). Its one parameter is the time now. Two rows with
+// the same time are both kept: the next registration or renewal of either one orders them.
+const notSuperseded = `NOT EXISTS (SELECT 1 FROM sessions n WHERE n.family=s.family AND n.host_pid=s.host_pid
+	AND n.host_start=s.host_start AND n.id<>s.id AND n.retired_at=0 AND n.expires_at>? AND n.subagent=0
+	AND n.renewed_at>s.renewed_at)`
+
 // MaintainLiveness keeps each active session whose host process still runs: a launched
 // session, not a sub-agent, with a host record whose process has the recorded start value.
 // A session with less than half of the lifetime setting, or less than two sweep intervals,
@@ -51,15 +58,12 @@ func (s *Store) annotate(r *Session) {
 // has expired is never revived. A host process runs one session at a time: when another
 // active session of the same family on the same host registered or renewed later, the host
 // is that session's evidence, and this one gets no extension (#751). Its own renewals still
-// keep it.
+// keep it; at the same time both are extended.
 func (s *Store) MaintainLiveness(ctx context.Context) error {
 	now := s.now().UnixMilli()
 	lifetime := s.Settings().LifetimeSeconds * 1000
 	rows, err := s.db.QueryContext(ctx, `SELECT family,id,wake_target,host_pid,host_start,expires_at,revision FROM sessions s
-		WHERE retired_at=0 AND expires_at>? AND subagent=0 AND host_pid>0 AND host_start>0
-		AND NOT EXISTS (SELECT 1 FROM sessions n WHERE n.family=s.family AND n.host_pid=s.host_pid AND n.host_start=s.host_start
-			AND n.retired_at=0 AND n.expires_at>? AND n.subagent=0
-			AND (n.renewed_at>s.renewed_at OR n.renewed_at=s.renewed_at AND n.id>s.id))`, now, now)
+		WHERE retired_at=0 AND expires_at>? AND subagent=0 AND host_pid>0 AND host_start>0 AND `+notSuperseded, now, now)
 	if err != nil {
 		return err
 	}
@@ -111,12 +115,13 @@ func (s *Store) MaintainLiveness(ctx context.Context) error {
 	defer tx.Rollback()
 	// The clock and the row are read again inside the write: a session that expired while
 	// its host was read, or that changed since (registered again, as a sub-agent too,
-	// renewed or retired; each changes its revision), is left as it is.
+	// renewed or retired; each changes its revision), is left as it is, and so is one whose
+	// host another session took meanwhile.
 	now = s.now().UnixMilli()
 	for _, c := range due {
-		if _, err := tx.ExecContext(ctx, `UPDATE sessions SET expires_at=? WHERE family=? AND id=? AND revision=?
-			AND retired_at=0 AND subagent=0 AND expires_at>? AND expires_at<? AND host_pid=? AND host_start=?`,
-			now+lifetime, c.key.Family, c.key.ID, c.revision, now, now+lifetime, c.pid, c.start); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE sessions AS s SET expires_at=? WHERE family=? AND id=? AND revision=?
+			AND retired_at=0 AND subagent=0 AND expires_at>? AND expires_at<? AND host_pid=? AND host_start=? AND `+notSuperseded,
+			now+lifetime, c.key.Family, c.key.ID, c.revision, now, now+lifetime, c.pid, c.start, now); err != nil {
 			return tx.fail(err)
 		}
 	}
