@@ -21,12 +21,16 @@ computers".
 ### BOARD-LINK-746: decision cards and verdicts over the link
 
 - **Decided by:** Robert Capps.
-- **Date:** pending; board card BOARD-LINK-746, revision 2.
+- **Date:** pending; board card BOARD-LINK-746, revision 3.
 - **Context:** the maintainer requires that an agent on a paired computer sees a card that
   names it and gets the card's verdicts. The options were: the card's computer sends a
   read-only copy of the card, its changes and its verdicts over the link; or the agent's
   computer reads the card from the card's computer on request, and only the verdict notices
-  cross.
+  cross. Feedback on revision 2, 2026-11-18: "send a read only card, notify the remote agent
+  and allow the agent to read its card remotely? also, the local card shows an error that it
+  can't resolve a remote name. the local card should be able to resolve the remote name
+  tagged. this seems to indicate that the remote system can't receive the tag alert, and
+  likely can't ack the card." Revision 3 answers yes, and puts the name resolution first.
 - **Decision:** pending. The card recommends the first option.
 - **Reason and scope:** recorded with the verdict.
 - **Review when:** recorded with the verdict.

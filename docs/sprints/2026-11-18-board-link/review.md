@@ -28,3 +28,11 @@ findings and three clarifications. Each one is accepted and fixed in the next pl
 | N1: refuse or store an unpaired computer's name | Stored unresolved with `link_computer_unknown`, as a local unknown name; paired but offline stays resolved and `queued` |
 | N2: copy retention is a new choice for the card | Added to BOARD-LINK-746 revision 2 |
 | N3: one schema version or several | One version, complete in chunk 01; later chunks change no schema (Schema) |
+
+codex-koinon, bounded recheck of 4d0fa1b..b785ec33c6214b0f4b2836d204d0b449d81a0c66: PASS. All
+five findings and N1 to N3 are addressed; no plan blocker remains. The pass is for the
+proposed plan; implementation starts only after the verdict on BOARD-LINK-746 and follows it.
+
+The maintainer's feedback on BOARD-LINK-746 revision 2 asked whether the plan sends a read-only
+card, notifies the agent and lets it read its card, and named the name resolution on the card.
+Revision 3 answers yes with the same scope; `decision.md` records the feedback.
