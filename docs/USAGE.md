@@ -40,8 +40,10 @@ decisions; MCP still registers and renews its calling session as usual. Adopt an
 `koinon install`, and the daemon at each start, write a skill entry for each catalog skill for
 you, next to the managed cycle's `koinon-pickup`: `koinon-spin-up`, `koinon-spin-down`,
 `koinon-recover-team`, `koinon-peer-tmux`, `koinon-handoff`, `koinon-check`, `koinon-ship`,
-`koinon-release`, `koinon-pair`, `koinon-peer-review`, `koinon-refusal-review`, `koinon-sprint`
-and `koinon-guide` ([INSTALL.md](INSTALL.md#install), step 7). Claude Code, Codex, and OpenCode,
+`koinon-release`, `koinon-pair`, `koinon-peer-review`, `koinon-refusal-review`, `koinon-sprint`,
+`koinon-preflight`, `koinon-provenance`, `koinon-record`, `koinon-refusal-audit`,
+`koinon-sprint-closeout`, `koinon-standards-audit`, `koinon-standards-review` and
+`koinon-guide` ([INSTALL.md](INSTALL.md#install), step 7). Claude Code, Codex, and OpenCode,
 agy and Grok when they are on the computer, get them; DeepSeek does not. Run them as
 `/koinon-spin-up` in Claude Code or `$koinon-spin-up` in Codex. Each one loads its catalog
 item, so the procedure is the installed release's, and the procedure reads this repository's

@@ -5,15 +5,18 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
-- The pickup and handoff skills pick the newest handoff in byte order (`LC_ALL=C sort`), so
-  two handoffs of the same second give the same file in every locale (#737).
+## 2026-11-18 — Skills on a computer with no Koinon, and seven more catalog skills
+
+This release carries its skills as `koinon-skills.tar.gz`, and `scripts/install-skills.sh`
+installs them on a computer with no Koinon (#736). The catalog adds seven skills from an
+adopting project (#735). The store stays at schema 39.
+
 - A computer with no Koinon can get the skills of one release (#732). Each release carries
   `koinon-skills.tar.gz` with its line in `SHA256SUMS`, and `sh scripts/install-skills.sh
   VERSION` checks it and writes each skill as `koinon-NAME` into the Claude Code and Codex
   skill folders, and OpenCode's, agy's and Grok's when they exist. A later `koinon install`
   replaces these copies with its own entries (docs/INSTALL.md, Skills on a computer with no
   Koinon).
-
 - Seven more skills in the catalog, for every installed agent family as `koinon-NAME` (#732):
   `preflight` (the project's review lenses before a pull request), `provenance` (AI usage as
   Git notes), `refusal-audit` (a whole-repository audit of refusal traps),
@@ -21,12 +24,29 @@ into a dated release section when promoted to `main`.
   or change a decision record), `sprint-closeout` (finish a sprint) and `standards-audit`
   (decisions that have no record). Each reads the project's values from
   `.koinon/skills/NAME.md`. LICENSE names Robert Capps and Stratovera, LLC.
-
 - A read of a private state file, such as `remote-dashboard.json` or `link.json`, while the
   daemon replaces that file no longer fails with "state file must be a regular file with one
   link" (#727). The read held the file that the replacement had just removed; it now opens the
   file again, at most 8 times. A write still refuses a replaced file, and every other check of
   a state file is unchanged.
+- The pickup and handoff skills pick the newest handoff in byte order (`LC_ALL=C sort`), so
+  two handoffs of the same second give the same file in every locale (#737).
+
+Upgrade from v0.12.0 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and rewrites the skill entries, which adds the seven new
+`koinon-NAME` entries. The store stays at schema 39, so v0.12.0 can still read it. The restart
+ends current local dashboard logins: log in again with the Koinon password, or run
+`koinon dashboard` for a one-time link. A remote sign-in keeps the rest of its fixed 48-hour
+window. Homebrew then shows the steps that `koinon install --plan` finds; run them, and run
+`koinon install --plan` again to check. A running `koinon mcp` server runs the new release
+without a session restart.
+
+Upgrade notes:
+
+- A host without a service manager, such as a container, runs the daemon in the background:
+  after `brew upgrade koinon`, run `koinon install` there to start it on the new binary.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
 
 ## 2026-11-17 — Signed maintainer actions across your computers, and a dashboard address you can change
 

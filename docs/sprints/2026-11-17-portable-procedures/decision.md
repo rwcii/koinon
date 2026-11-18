@@ -51,3 +51,15 @@ Decision 2).
 Koinon offers the seven skills; it adopts none of them for its own work now, and adds no fact
 file or tool command for them. The steps of a skill that need Koinon tools (messages, work
 claims, the board) need Koinon. The adopting project's own changes are its work.
+
+## The release number for portable procedures (#732)
+
+- **Decided by:** Robert Capps.
+- **Date:** 2026-11-18, terminal.
+- **Context:** the release from develop after v0.12.0 holds #735 (seven more catalog skills),
+  #736 (the skills archive and `scripts/install-skills.sh` for a computer with no Koinon), the
+  fixes #730 and #737, and CI-only changes; the store stays at schema 39. The agent proposed
+  v0.13.0 for the two new features.
+- **Decision:** v0.13.0: "release is go, 0.13.0".
+- **Reason and scope:** the answer names no further reason. This covers this release only; it
+  sets no rule for later version numbers.

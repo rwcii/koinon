@@ -51,7 +51,9 @@ The network listener has no agent API or MCP routes. It uses TLS 1.2 or later an
 certificate with the selected IP and configured FQDN in its SAN. The private
 `dashboard-tls.pem` contains its certificate and key, mode 0600 and owner-checked; starts reuse
 it, and a changed identity or expired certificate generates a replacement. A missing secret
-skips the bind with `dashboard_secret_required`. Status gives the secret/start steps; once the
+skips the bind with `dashboard_secret_required`, and a secret state that cannot be read with
+`dashboard_secret_unavailable`; a `dashboard-tls.pem` that cannot be used or replaced is
+`dashboard_certificate_invalid`. Status gives the secret/start steps; once the
 secret is set, `dashboard_restart_required` names `koinon install` as the next step. A failed
 bind or unavailable pinned IP leaves loopback available, with the address and error in the
 daemon log. The loopback status and login-link reply include nullable `dashboard_network`:
@@ -719,8 +721,8 @@ cycle changed, its Enable or pin ended, or the store is full ends the cycle as a
 lifetime, the event limit (`event_limit`) and the page credit end repeated requests. A `ready`
 stage whose pane could not be read or proven, and a `bootstrap_verified` or `reset_verified`
 stage, that times out names what the pane last showed after a dot: `ready_timeout.home_unknown`,
-`.rollout_unreadable`, `.tmux_unavailable` (tmux could not run, #418), `.pane_unproven` or
-`.pane_unreadable`, and for the later stages also the not-idle codes above, `.native_dialog`
+`.rollout_unreadable`, `.tmux_unavailable` (tmux could not run, #418), `.pane_unproven`,
+`.harness_unreadable` (DeepSeek's harness could not be read) or `.pane_unreadable`, and for the later stages also the not-idle codes above, `.native_dialog`
 and `.status_thread_differs`. After a daemon restart no inspection has run, so the timeout reads the pane
 once without sending a key; a pane in copy mode then gives `.pane_in_mode`. The ready report
 holds the wake lock, so a wake already being submitted ends before `ready` commits. The reason
@@ -2151,7 +2153,8 @@ selects skills for machine scope and all catalog items for project scope. Family
 native root and caller identity are native metadata, not tool arguments. Project selection
 must match the registered Git common directory and a listed worktree. Machine decision
 scope hashes the resolved native root; project decision scope hashes the common directory.
-Linked worktrees can therefore inspect different bytes while sharing decisions.
+Linked worktrees can therefore inspect different bytes while sharing decisions. A request
+that names an item in a scope the item does not support is refused with `unsupported_scope`.
 
 The response has version, family, catalog digest, scope, item states and explicit limitations.
 Each item has typed target IDs/hashes, aggregate and target `present`, `missing`, `outdated`

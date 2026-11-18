@@ -65,8 +65,10 @@ because brew can replace the linked file; upgrade it with
 ### Download and check
 
 Each release attaches four binaries, `koinon-linux-amd64`, `koinon-linux-arm64`,
-`koinon-darwin-amd64` and `koinon-darwin-arm64`, and a `SHA256SUMS` file. Check the binary
-before you run it:
+`koinon-darwin-amd64` and `koinon-darwin-arm64`, their Homebrew bottles
+(`koinon-VERSION.TAG.bottle.tar.gz`), from v0.13.0 `koinon-skills.tar.gz` (see
+[Skills on a computer with no Koinon](#skills-on-a-computer-with-no-koinon)), and a
+`SHA256SUMS` file that lists every one of them. Check the binary before you run it:
 
 ```sh
 sha256sum --check --ignore-missing SHA256SUMS      # Linux
@@ -894,7 +896,7 @@ See [the adoption procedure](USAGE.md#inspect-and-adopt-an-item) before applying
 
 ### Skills on a computer with no Koinon
 
-Each release after v0.12.0 carries `koinon-skills.tar.gz`, every catalog skill of that
+Each release from v0.13.0 carries `koinon-skills.tar.gz`, every catalog skill of that
 release, with its line in `SHA256SUMS` (PDR 008, Decision 2). On a computer with no Koinon,
 `scripts/install-skills.sh` of a checkout or of the release's source installs them for the
 person who runs it:
@@ -968,7 +970,7 @@ session and receipt records add no table. The same release, v0.11.0, moves the s
 to schema 38 for messages between computers (#670), and a v0.10.x binary refuses a
 schema 38 store, so a v0.11.0 store cannot go back to v0.10.x. v0.12.0 moves the store to
 schema 39 for signed maintainer actions (#693), and a v0.11.x binary refuses a schema 39 store,
-so a v0.12.0 store cannot go back to v0.11.x. Schema 29 originally added the secret's salted-key table;
+so a v0.12.0 store cannot go back to v0.11.x. v0.13.0 keeps schema 39. Schema 29 originally added the secret's salted-key table;
 upgrading a pre-secret store starts with no secret set.
 
 The daemon applies supported Go schema migrations transactionally and refuses an unknown

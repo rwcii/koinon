@@ -50,6 +50,9 @@ sh -n .githooks/pre-commit        # when shell files change
 sh -n .githooks/commit-msg        # when shell files change
 sh -n scripts/decision-citations.sh  # when shell files change
 sh -n scripts/rerun-unacquired.sh    # when shell files change
+sh -n scripts/install-skills.sh      # when shell files change
+bash -n scripts/homebrew-bottles.sh  # when shell files change
+bash -n scripts/homebrew-formula.sh  # when shell files change
 ```
 
 Runtime and installation changes also need the four `CGO_ENABLED=0` builds: linux/amd64,

@@ -25,7 +25,7 @@ under WDR 001.
 
 ## Baseline and proposed outcome
 
-| Area | Current baseline | Proposed v2 |
+| Area | Baseline before v0.11.0 | Proposed v2 |
 | --- | --- | --- |
 | Remote sign-in | Seven-day idle and absolute limits; session hashes in memory | Stay signed in for 48 hours from sign-in; durable session records |
 | Restart or routine upgrade | Listener restores; every login ends | Phones remain signed in within the original 48-hour window for the same host, origin and password |
@@ -41,8 +41,9 @@ Baseline sources: [remote guide](REMOTE-DASHBOARD.md),
 [cookie issuance](../internal/core/dashboard.go),
 [remote lifecycle](../internal/core/remote.go), and
 [browser refresh](../internal/core/web/static/app.js).
-The current cookie already has a seven-day Max-Age. The missing server persistence
-is a separate issue from browser cookie lifetime.
+Before v0.11.0 the cookie already had a seven-day Max-Age; the missing server persistence
+was a separate issue from browser cookie lifetime. A remote cookie now lasts for the
+session's remaining time.
 
 The [earlier verification notes](sprints/2026-11-11-remote-dashboard/verification.md)
 record reported phone QR and Wi-Fi-off success, an unexplained short sign-out,
