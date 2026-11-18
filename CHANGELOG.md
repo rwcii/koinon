@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A computer with no Koinon can get the skills of one release (#732). Each release carries
+  `koinon-skills.tar.gz` with its line in `SHA256SUMS`, and `sh scripts/install-skills.sh
+  VERSION` checks it and writes each skill as `koinon-NAME` into the Claude Code and Codex
+  skill folders, and OpenCode's, agy's and Grok's when they exist. A later `koinon install`
+  replaces these copies with its own entries (docs/INSTALL.md, Skills on a computer with no
+  Koinon).
+
 - Seven more skills in the catalog, for every installed agent family as `koinon-NAME` (#732):
   `preflight` (the project's review lenses before a pull request), `provenance` (AI usage as
   Git notes), `refusal-audit` (a whole-repository audit of refusal traps),

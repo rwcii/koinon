@@ -26,8 +26,8 @@ Decision 2).
   only, no notice in the skills); asked which of the two answers is right, he chose "Change
   Koinon's LICENSE": LICENSE names "Robert Capps and Stratovera, LLC" and covers every skill,
   and the skills carry no notice of their own.
-- The install script changes PDR 008 Decision 2 and waits for its own verdict on the board
-  (chunk 02).
+- The install script changes PDR 008 Decision 2; Robert Capps approved it on the decision
+  board on 2026-11-17 at 21:58 UTC (chunk 02; PDR 008 Decision 2 holds the decision).
 
 ## Acceptance
 
