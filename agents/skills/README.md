@@ -108,7 +108,9 @@ record adoption state.
 All skills are portable machine-wide and project-local candidates. Read the adopting project's
 policy and the schema at the end of each skill. Required facts live in that worktree's
 `.koinon/skills/NAME.md`; optional facts use declared defaults. Koinon's own fact files cite
-public policy/CI sources. A missing required fact is derived from the project's evidence and
+public policy/CI sources. Koinon offers `preflight`, `provenance`, `record`, `refusal-audit`,
+`sprint-closeout`, `standards-audit` and `standards-review` without adopting them for its own
+work (PDR 008, Decision 5), so it has no fact file for them. A missing required fact is derived from the project's evidence and
 recorded in the file. Skill adoption and native configuration changes are their own steps.
 
 Codex user discovery was verified in an isolated native home on 0.162.0. The catalog reports
