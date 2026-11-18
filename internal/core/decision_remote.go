@@ -252,6 +252,7 @@ func queueNotice(ctx context.Context, tx querier, now int64, pairs boardPairs, r
 
 // queueNotices stores one notice of event for each remote recipient of rows.
 func queueNotices(ctx context.Context, tx *writeTx, now int64, pairs boardPairs, rows []remoteRecipient, e noticeEvent) error {
+	tx.s.signalNotices(tx)
 	for _, r := range rows {
 		if r.Kind == "remote" {
 			if err := queueNotice(ctx, tx.Tx, now, pairs, r, e); err != nil {
@@ -270,6 +271,7 @@ func sameRemote(a, b remoteRecipient) bool {
 // editNotices stores the notices of an edit: changed for each remote recipient that stays,
 // named for each one that is new, and removed for each one that the edit drops.
 func editNotices(ctx context.Context, tx *writeTx, now int64, pairs boardPairs, before, after []remoteRecipient, e noticeEvent) error {
+	tx.s.signalNotices(tx)
 	for _, r := range after {
 		if r.Kind != "remote" {
 			continue
@@ -412,6 +414,7 @@ func deliverRemote(ctx context.Context, tx *writeTx, now int64, pairs boardPairs
 	if err := queueNotice(ctx, tx.Tx, now, pairs, r, e); err != nil {
 		return d, tx.fail(err)
 	}
+	tx.s.signalNotices(tx)
 	return d, nil
 }
 
@@ -421,8 +424,8 @@ func noticeStates(ctx context.Context, q querier, itemID int64, stored []remoteR
 		if r.Kind != "remote" || i >= len(shown) {
 			continue
 		}
-		err := q.QueryRowContext(ctx, `SELECT state FROM decision_notices WHERE item_id=? AND pair_id=? AND recipient=?
-			ORDER BY id DESC LIMIT 1`, itemID, r.PairID, r.RemoteName).Scan(&shown[i].Notice)
+		err := q.QueryRowContext(ctx, `SELECT state,reason FROM decision_notices WHERE item_id=? AND pair_id=? AND recipient=?
+			ORDER BY id DESC LIMIT 1`, itemID, r.PairID, r.RemoteName).Scan(&shown[i].Notice, &shown[i].NoticeReason)
 		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}

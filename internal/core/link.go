@@ -95,6 +95,8 @@ type linkRuntime struct {
 	// workers are the delivery workers of the open generation, by pair ID, each with its
 	// wake channel.
 	workers map[string]chan struct{}
+	// noticeWorkers are the decision notice workers of the open generation (#746 chunk 02).
+	noticeWorkers map[string]chan struct{}
 	// backoff is the first wait of a worker after a busy answer or a lost connection, and
 	// hook a fault point; tests set them.
 	backoff time.Duration
@@ -328,11 +330,13 @@ func (d *Daemon) openLinkLocked(held net.Listener) error {
 	stop := make(chan struct{})
 	d.link.stop = stop
 	d.link.workers = map[string]chan struct{}{}
-	d.wg.Add(3)
+	d.link.noticeWorkers = map[string]chan struct{}{}
+	d.wg.Add(4)
 	go d.acceptLink(listener, d.link.gen)
 	go d.monitorLink(stop, d.link.gen)
 	// A crash between an unpair's two writes is finished here, and the queue resumes.
 	go d.linkReconcile(d.link.gen)
+	go d.noticeDispatch(d.link.gen, d.link.life)
 	return nil
 }
 
@@ -361,7 +365,7 @@ func (d *Daemon) closeLinkLocked() {
 		d.link.end()
 	}
 	d.link.gen++
-	d.link.life, d.link.end, d.link.invites, d.link.workers = nil, nil, nil, nil
+	d.link.life, d.link.end, d.link.invites, d.link.workers, d.link.noticeWorkers = nil, nil, nil, nil, nil
 }
 
 // linkLifeOf returns the context of generation gen while it is the open link's, or
@@ -598,6 +602,8 @@ func (d *Daemon) linkOperation(pin string, f link.Frame, gen uint64) (link.Frame
 		return reply, false, err
 	case "deliver", "cancel":
 		return d.answerDeliver(pin, f, gen)
+	case "notice":
+		return d.answerNotice(pin, f, gen)
 	case "maintainer":
 		return d.answerMaintainer(pin, f, gen)
 	case "unpair":

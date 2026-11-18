@@ -116,7 +116,8 @@ application data, and records it as the last refused key. On the TLS stream each
 4-byte big-endian length and a JSON object (`op`, `body`, or `error` and `detail`), at most 128
 KiB (1 MiB for `maintainer` and its reply `maintainer-ok`), with unknown fields refused; a
 connection carries at most 64 frames. The operations are
-`directory` and `name-update` (below), `deliver` and `cancel` (Messages, below), `maintainer`
+`directory` and `name-update` (below), `deliver` and `cancel` (Messages, below), `notice`
+(Decision notices, below), `maintainer`
 (Signed maintainer actions, Other computers),
 `pair-hello` (`secret`, `name`, `dns`, `ips`, `port`; only an unpaired key with an open
 invitation's secret, which is used at once; the reply `hello-ok` has the pair `id` and `name`),
@@ -280,6 +281,30 @@ only; a restart keeps the queue, its order and its IDs. The worker
 connects again before a connection's frame limit. Finished outbox entries are deleted 30 days
 after their result; unfinished ones never age out. Inbox ack, message retention and purge do
 not touch the streams. A rename of a pair changes the shown sender of its received messages.
+
+Decision notices (#746 chunk 02). Each pair has a second ordered stream, `notice`, with its own
+worker and connection, so notices and direct messages never wait for each other. A notice
+(Schema 40, `decision_notices`) is sent as `notice` (`id` the pair, `seq`, `xid`, `digest`,
+`reference`, `recipient` the NAME, `address` as the card names it, `event`, `revision`, and for
+a `verdict` event `verdict_id` and `verdict`), answered with `notice-ok` (`id`, `seq`,
+`digest`, `result`, `reason`). The `digest` is SHA-256 over the length-prefixed sequence,
+revision, verdict ID, cross-node ID, reference, recipient, address, event and verdict. A notice
+holds no card text; a frame at every field bound is a few KiB. The sequence, the attempt
+before the write, `retry`, a lost answer, the high-water rules, unpair and the generation
+fence are those of messages. The receiver resolves NAME as for a message and stores one inbox
+row: `sender_family` `link` (reserved: no agent, maintainer or overwatch has it, and no frame
+or send can choose it), sender `decision-board@COMPUTER`, `origin` `link`, `system_kind`
+`decision_notice`, a body that names the card and the event, and the typed `decision_notice`
+(`reference`, `computer` the current name of the card's computer, `pair`, `event`, `revision`,
+`verdict_id`, `verdict`, and `get`, `REFERENCE@COMPUTER`); or `refused` with `peer_not_found`,
+`alias_unheld`, `recipient_inactive` or `link_recipient_local`. A rename keeps the sender and
+the typed computer current. `send` with `reply_to` set to a notice is refused with
+`link_reply_notice`, and nothing is queued. A computer at an earlier release answers
+`link_operation_unknown`: the pair's live notices show `unsupported` with that reason and keep
+their sequence and digest, and the worker tries again after its wait, so the notices arrive
+by themselves after that computer's upgrade. The origin's `decision_get` shows each remote
+recipient's newest notice state as `notice` and its reason as `notice_reason`, and each verdict
+delivery its own verdict notice's.
 
 | Route | Operation |
 | --- | --- |

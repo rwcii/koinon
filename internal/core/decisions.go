@@ -157,8 +157,9 @@ type DecisionRecipient struct {
 	Reason   string `json:"reason,omitempty"`
 	// Pair is the pair ID of a remote recipient's computer (#746), and Notice the state of
 	// its newest notice.
-	Pair   string `json:"pair,omitempty"`
-	Notice string `json:"notice,omitempty"`
+	Pair         string `json:"pair,omitempty"`
+	Notice       string `json:"notice,omitempty"`
+	NoticeReason string `json:"notice_reason,omitempty"`
 }
 
 // DecisionItem is the full record that decision_get returns.

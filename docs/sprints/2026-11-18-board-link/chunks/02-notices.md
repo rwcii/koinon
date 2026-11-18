@@ -12,9 +12,9 @@ release resumes by itself after its upgrade.
 
 ## Work
 
-1. Link: the probe operation and the notice operation. One notice worker per pair, with its
-   own connection and stream, under the #670 stream rules; the probe on each new connection;
-   `unsupported` and the re-probe.
+1. Link: the notice operation. One notice worker per pair, with its own connection and
+   stream, under the #670 stream rules; a refusal as an earlier release gives `unsupported`,
+   and the worker tries again after its backoff.
 2. Receiver: resolve NAME as `linkInsert` does; insert the typed notice with the stream's high
    water in one transaction, before the answer and the wake; answer `refused` with the reason
    for an unknown, unheld or inactive name.
@@ -24,7 +24,7 @@ release resumes by itself after its upgrade.
 ## Tests
 
 The Notices tests in the definition of done, with two daemons over the link test harness and
-the v0.13.1 codec for the probe.
+a receiver that answers as v0.13.1 does.
 
 ## Out of this chunk
 

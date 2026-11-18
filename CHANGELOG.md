@@ -5,6 +5,15 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- An agent on a paired computer gets a short notice in its inbox, with its ordinary wake, for
+  each decision card that names it as `NAME@COMPUTER`: when it is named, the card changes, it
+  is removed, the card is withdrawn, closed or restored, and each verdict (#746, chunk 02). The
+  notice comes from `decision-board@COMPUTER`, names the card to read with `decision_get
+  REFERENCE@COMPUTER`, and holds no card text; it cannot be answered. The card's computer shows
+  each notice as `received`, `refused` with the reason, or `unsupported` while the other
+  computer runs an earlier release; notices resume by themselves after its upgrade. Notices
+  have their own stream, so they never delay direct messages.
+
 - A decision card can name an agent on a paired computer as `NAME@COMPUTER` (#746, chunk 01).
   The card now resolves that recipient as `remote`, with its pair, instead of `unknown_name`,
   and keeps it through a rename of the computer. Each new card, change and verdict queues a
