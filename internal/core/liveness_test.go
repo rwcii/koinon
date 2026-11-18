@@ -176,3 +176,83 @@ func TestLivenessSkipsASessionThatChanged(t *testing.T) {
 		t.Fatalf("the sub-agent registration was changed by the sweep: %+v", got)
 	}
 }
+
+// TestLivenessKeepsOneSessionPerHost: a Claude host that changed its session ID has two
+// active rows (#751). The sweep keeps only the one that registered or renewed last; the
+// earlier one expires at its deadline, so the status line's host lookup after a clear finds
+// one session. A host that returns to an earlier ID moves the evidence back to it.
+func TestLivenessKeepsOneSessionPerHost(t *testing.T) {
+	s, h, advance := successionStore(t)
+	repo := testRepo(t)
+	h.set(300, 11)
+	h.set(301, 12)
+	old := arrive(t, s, arrival{family: "claude", id: "synthetic-old", repo: repo, pid: 300})
+	alone := arrive(t, s, arrival{family: "claude", id: "synthetic-alone", repo: repo, pid: 301})
+	advance(time.Minute)
+	arrive(t, s, arrival{family: "claude", id: "synthetic-new", repo: repo, pid: 300})
+	sweep := func() {
+		t.Helper()
+		if err := s.MaintainLiveness(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for range 3 {
+		advance(8 * time.Minute)
+		sweep()
+	}
+	for _, c := range []struct {
+		family, id, state string
+	}{
+		{"claude", old.ID, "expired"},
+		{"claude", "synthetic-new", "active"},
+		{"claude", alone.ID, "active"},
+	} {
+		if got := sessionOf(t, s, c.family, c.id); got.State != c.state {
+			t.Fatalf("%s: state %s, want %s", c.id, got.State, c.state)
+		}
+	}
+	keys, err := s.activeKeys(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var onHost int
+	for _, id := range []string{old.ID, "synthetic-new"} {
+		if keys[Key{"claude", id}] {
+			onHost++
+		}
+	}
+	if onHost != 1 {
+		t.Fatalf("%d active Claude sessions on one host", onHost)
+	}
+	// A status line after a clear reaches the remaining session through its host.
+	h.set(999, 50)
+	s.processParents = func() (map[int]int, error) { return map[int]int{999: 300}, nil }
+	reading := Observation{Caller: Key{"claude", "synthetic-after-clear"},
+		Context:        &ObservedValue{Source: "claude_statusline", At: s.now().UnixMilli(), LimitTokens: int64p(1000), UsedTokens: int64p(600), UsageAvailable: boolp(true)},
+		ClaudeReporter: &ObservationReporter{PID: 999, Start: 50}}
+	if err := s.Observe(context.Background(), reading); err != nil {
+		t.Fatalf("post-clear reading: %v", err)
+	}
+	if e := s.contextEvidence(Key{"claude", "synthetic-new"}); !e.Found || *e.UsedTokens != 600 {
+		t.Fatalf("post-clear reading not stored for the remaining session: %+v", e)
+	}
+
+	// The host returns to an earlier ID before it expired: its registration makes it the
+	// later one, and the other row now gets no extension.
+	h.set(302, 13)
+	first := arrive(t, s, arrival{family: "claude", id: "synthetic-first", repo: testRepo(t), pid: 302})
+	advance(time.Minute)
+	second := arrive(t, s, arrival{family: "claude", id: "synthetic-second", repo: testRepo(t), pid: 302})
+	advance(time.Minute)
+	arrive(t, s, arrival{family: "claude", id: first.ID, repo: first.Directory, pid: 302})
+	for range 3 {
+		advance(8 * time.Minute)
+		sweep()
+	}
+	if got := sessionOf(t, s, "claude", first.ID); got.State != "active" {
+		t.Fatalf("returned session: %s", got.State)
+	}
+	if got := sessionOf(t, s, "claude", second.ID); got.State != "expired" {
+		t.Fatalf("left session: %s", got.State)
+	}
+}

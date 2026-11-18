@@ -48,12 +48,18 @@ func (s *Store) annotate(r *Session) {
 // A session with less than half of the lifetime setting, or less than two sweep intervals,
 // left is extended by that lifetime, without a revision change, so its own renewals still apply. A session whose
 // host ended or cannot be read is not extended and expires at its deadline; a session that
-// has expired is never revived.
+// has expired is never revived. A host process runs one session at a time: when another
+// active session of the same family on the same host registered or renewed later, the host
+// is that session's evidence, and this one gets no extension (#751). Its own renewals still
+// keep it.
 func (s *Store) MaintainLiveness(ctx context.Context) error {
 	now := s.now().UnixMilli()
 	lifetime := s.Settings().LifetimeSeconds * 1000
-	rows, err := s.db.QueryContext(ctx, `SELECT family,id,wake_target,host_pid,host_start,expires_at,revision FROM sessions
-		WHERE retired_at=0 AND expires_at>? AND subagent=0 AND host_pid>0 AND host_start>0`, now)
+	rows, err := s.db.QueryContext(ctx, `SELECT family,id,wake_target,host_pid,host_start,expires_at,revision FROM sessions s
+		WHERE retired_at=0 AND expires_at>? AND subagent=0 AND host_pid>0 AND host_start>0
+		AND NOT EXISTS (SELECT 1 FROM sessions n WHERE n.family=s.family AND n.host_pid=s.host_pid AND n.host_start=s.host_start
+			AND n.retired_at=0 AND n.expires_at>? AND n.subagent=0
+			AND (n.renewed_at>s.renewed_at OR n.renewed_at=s.renewed_at AND n.id>s.id))`, now, now)
 	if err != nil {
 		return err
 	}

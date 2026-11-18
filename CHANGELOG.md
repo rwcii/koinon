@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A Claude session whose host process changed its session ID gets its context readings and
+  handoff cycles again (#751). The daemon kept the old session ID active while the host ran,
+  so after the next `/clear` it could not tell which session a status-line reading belonged
+  to, refused each one, and started no cycle. The liveness sweep now keeps only the session
+  that registered or renewed last on a host; the old one expires unless it renews itself.
+
 - An agent on a paired computer reads and acknowledges the decision card that names it, at
   the card's own computer, over the link (#746, chunk 03). `decision_get REFERENCE@COMPUTER`
   reads the live card; `decision_list` with filter `mine`, `decision_pending` and

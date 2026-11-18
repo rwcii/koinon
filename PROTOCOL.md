@@ -441,8 +441,12 @@ write and checks the clock and the row again inside it: a session that expired m
 whose revision changed (renewed, registered again, as a sub-agent too, or retired), is left as
 it is. A session whose host ended (no process,
 or another start value) or cannot be read, a sub-agent, and a session without a host record
-(DeepSeek, or one registered before host records) expire at their deadline. The daemon never
-revives an expired session. A session record shows `liveness`: `host` or `none`, and
+(DeepSeek, or one registered before host records) expire at their deadline. A host process
+runs one session at a time: when another active session of the same family on the same host
+registered or renewed later, as when a Claude host changed its session ID, only that later
+session is extended, and the earlier one expires at its deadline unless it renews itself
+(#751). The status line's lookup after `/clear` accepts exactly one active session on the
+host. The daemon never revives an expired session. A session record shows `liveness`: `host` or `none`, and
 `host_verified_at`, the last time that the daemon read the host as running (kept in memory, so
 it is empty until the first check after a daemon start). Concurrent
 registrations update one row, never create two records for the same key. Times are Unix
