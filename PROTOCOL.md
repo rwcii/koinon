@@ -1382,6 +1382,21 @@ pane matches `%` followed by 1–9 digits. The optional `executable` (#418) is t
 that the session's own terminal runs, with the same path rules as the socket. Invalid values
 return `invalid_request`.
 
+Schema 40 (#746 chunk 01) rebuilds `decision_recipients` (SQLite cannot widen a CHECK in
+place) so that `kind` adds `remote`, with `pair_id` and `remote_name`; adds `pair_id` and
+`remote_name` to `decision_deliveries`; adds `decision_notices` (one short notice per event and
+remote recipient: cross-node ID, pair, item, reference, recipient NAME, the address as named,
+event `named`, `changed`, `removed`, `withdrawn`, `closed`, `restored` or `verdict`, revision,
+verdict ID and verdict, sequence and digest once sent, state `queued`, `sending`, `uncertain`,
+`received`, `refused`, `unsupported` or `unpaired`, reason and times; no card text); rebuilds
+`link_streams` with `stream` `message` or `notice` in its key, copying each existing row as
+`message`; and adds `decision_notice` to `messages`. Every row is copied unchanged. The
+migration reads the paired computers first: on each card that is not archived, a recipient
+`NAME@COMPUTER` of a paired computer becomes `remote` with a `named` notice, and the current
+verdict's delivery to it, when `skipped` with `unknown_name`, becomes a queued remote delivery
+with a `verdict` notice. A missing link file is no pair; an unreadable one stops the open
+before the migration. A schema 39 binary refuses the upgraded store.
+
 Schema 39 (#693) adds `maintainer_authorizations` (each authorization of a maintainer client
 key: its ID, key ID, public key, user, client, the statement's created time, when and by whom it
 was added, and its removal time; rows are never deleted, and at most one per key is current),
@@ -2360,7 +2375,12 @@ of items. Reads move no inbox read or acknowledgement marker and no memory curso
   `null`) and `verdicts`, the number of verdicts in its history. A deep-archived reference
   is `deep_archived` with `details` `moved_at` and `restore`. An unknown reference is
   `not_found`. Recipients are resolved again on each read: `kind` `participant` (an address)
-  or `peer` (a peer name), or `resolved: false` with `reason` `unknown_name`.
+  or `peer` (a peer name), or `resolved: false` with `reason` `unknown_name`. A recipient
+  `NAME@COMPUTER` resolves when the item is created or edited, against the computers paired
+  then (#746): `kind` `remote` with `pair` (the pair ID) and `notice` (the state of its newest
+  notice); it keeps that pair through a rename of the computer and later edits. A name for a
+  computer that was not paired is `resolved: false` with `reason` `link_computer_unknown`, or
+  `link_state_invalid` while the link file could not be read.
 
 Each request field is checked on every write: valid UTF-8 within its byte limit; no control
 character in `title`, `where`, `reference`, `key` or a recipient; in `agent_text`, `context`
@@ -2406,7 +2426,11 @@ its peer name unless a recipient names it; and the audit record with target
 `decision REF revision N VERDICT verdict ID` (no card text); a failure of any part stores
 nothing. A delivery to a participant address is `queued` with one message in the
 participant inbox, read by its current holder also after a holder change; to an active
-peer it is `queued` with one message in that session's inbox. Otherwise it is `skipped`
+peer it is `queued` with one message in that session's inbox. A delivery to a remote
+recipient is `queued` with `kind` `remote`, its `pair` and no message here: it waits for the
+agent's acknowledgement at this computer, and its `notice` is the state of that verdict's own
+notice to it; when its computer is no longer paired it is `skipped` with `reason` `unpaired`.
+A local acknowledgement never acknowledges a remote delivery. Otherwise it is `skipped`
 with `reason` `unknown_name`, `maintainer` or `recipient_inactive`. The message comes from
 `maintainer` with `system_kind` `decision_verdict`, the typed `decision_verdict` ID and a
 body that holds the reference, the ID and, for a verdict other than an fyi acknowledgement or

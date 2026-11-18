@@ -3,7 +3,7 @@ pdr: "007"
 title: "Human Decision Board"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-28"
+updated: "2026-11-18"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -350,6 +350,13 @@ daemon (#589). Repository text names a decision by its reference, never by its v
 which exists only in this machine's store. How a project cites its decisions is that project's
 own rule; Koinon's own repository follows WDR 001, Decision 7 (#580).
 
+A recipient `NAME@COMPUTER` on a paired computer is a remote recipient (PDR 011, Decision 2,
+amendment BOARD-LINK-746). Its verdict delivery is recorded at the card's computer, with the
+pair ID, and waits there for the agent's acknowledgement. The agent hears of a new card, each
+change and each verdict through a short notice with no card text, and reads the card and
+acknowledges at the card's computer over the link. A name for a computer that is not paired
+is flagged with `link_computer_unknown`.
+
 **Provenance:** Requested in #206 (issue body, requirement 9 and the settled point on
 delivery); a request record. Stored, queryable
 records: Robert Capps, 2026-10-13: "are agents reading the HTML, or are the decision records a
@@ -418,3 +425,4 @@ blocks, which the maintainer copies into a terminal, hold printable ASCII only. 
 | 2026-11-05 | Decision 1: the spoken-alert decision (SPEAK-SCOPE-553), moved into this record (#623) |
 | 2026-11-07 | Decision 1: the card form at each write, and `form_notes` in the replies (#635, CARD-FORM-AT-WRITE-635) |
 | 2026-11-09 | Decision 1: the card labels Fix loop and On track (#638, CARD-LOOP-SCOPE) |
+| 2026-11-18 | Decision 4: remote recipients on a paired computer get notices and read and acknowledge at the card's computer (#746; PDR 011, Decision 2, amendment BOARD-LINK-746) |

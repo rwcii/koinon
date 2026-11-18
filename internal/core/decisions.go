@@ -155,6 +155,10 @@ type DecisionRecipient struct {
 	Kind     string `json:"kind,omitempty"`
 	Resolved bool   `json:"resolved"`
 	Reason   string `json:"reason,omitempty"`
+	// Pair is the pair ID of a remote recipient's computer (#746), and Notice the state of
+	// its newest notice.
+	Pair   string `json:"pair,omitempty"`
+	Notice string `json:"notice,omitempty"`
 }
 
 // DecisionItem is the full record that decision_get returns.
@@ -509,6 +513,8 @@ func (s *Store) DecisionCreate(ctx context.Context, caller Key, reference string
 		return DecisionCreated{}, workError("retry_deadline_expired", "the retry deadline has passed")
 	}
 	print := decisionFingerprint(reference, f, deadline)
+	pairs, release := s.boardFence(ctx)
+	defer release()
 	// Create keys keep the key space of schema 25, so a receipt stored before the upgrade
 	// still answers its retry. Close keys carry a NUL prefix, which no caller key can hold
 	// (checkLine refuses control characters), so a create and a close may use the same key.
@@ -560,7 +566,11 @@ func (s *Store) DecisionCreate(ctx context.Context, caller Key, reference string
 	if f.Recipients != nil {
 		names = *f.Recipients
 	}
-	recipients, err := decisionRecipients(ctx, tx.Tx, names)
+	rows, err := boardRecipients(ctx, tx.Tx, pairs, names, nil)
+	if err != nil {
+		return DecisionCreated{}, err
+	}
+	recipients, err := shownRecipients(ctx, tx.Tx, rows)
 	if err != nil {
 		return DecisionCreated{}, err
 	}
@@ -580,7 +590,10 @@ func (s *Store) DecisionCreate(ctx context.Context, caller Key, reference string
 	if err != nil {
 		return DecisionCreated{}, err
 	}
-	if err := storeRecipients(ctx, tx, id, recipients); err != nil {
+	if err := writeRecipients(ctx, tx, id, rows); err != nil {
+		return DecisionCreated{}, err
+	}
+	if err := queueNotices(ctx, tx, now, pairs, rows, noticeEvent{ItemID: id, Reference: reference, Event: "named", Revision: 1}); err != nil {
 		return DecisionCreated{}, err
 	}
 	if err := bumpChange(ctx, tx, changeDecisions); err != nil {
@@ -626,6 +639,8 @@ func (s *Store) DecisionEdit(ctx context.Context, caller Key, reference string, 
 	if err := f.validate(false); err != nil {
 		return DecisionItem{}, err
 	}
+	pairs, release := s.boardFence(ctx)
+	defer release()
 	tx, err := s.begin(ctx, ordinary)
 	if err != nil {
 		return DecisionItem{}, err
@@ -687,14 +702,21 @@ func (s *Store) DecisionEdit(ctx context.Context, caller Key, reference string, 
 	if err := bumpChange(ctx, tx, changeDecisions); err != nil {
 		return DecisionItem{}, tx.fail(err)
 	}
+	before, err := storedRecipients(ctx, tx.Tx, id)
+	if err != nil {
+		return DecisionItem{}, err
+	}
+	after := before
 	if f.Recipients != nil {
-		recipients, err := decisionRecipients(ctx, tx.Tx, *f.Recipients)
-		if err != nil {
+		if after, err = boardRecipients(ctx, tx.Tx, pairs, *f.Recipients, before); err != nil {
 			return DecisionItem{}, err
 		}
-		if err := storeRecipients(ctx, tx, id, recipients); err != nil {
+		if err := writeRecipients(ctx, tx, id, after); err != nil {
 			return DecisionItem{}, err
 		}
+	}
+	if err := editNotices(ctx, tx, now, pairs, before, after, noticeEvent{ItemID: id, Reference: reference, Revision: item.Revision}); err != nil {
+		return DecisionItem{}, err
 	}
 	if err := tx.Commit(); err != nil {
 		return DecisionItem{}, err
@@ -756,24 +778,14 @@ func decisionItem(ctx context.Context, q querier, reference string) (DecisionIte
 		return item, err
 	}
 	item.AuthorRepository = participantRepository(participant)
-	rows, err := q.QueryContext(ctx, `SELECT name FROM decision_recipients WHERE item_id=? ORDER BY ordinal`, id)
+	stored, err := storedRecipients(ctx, q, id)
 	if err != nil {
 		return item, err
 	}
-	var names []string
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			rows.Close()
-			return item, err
-		}
-		names = append(names, name)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
+	if item.Recipients, err = shownRecipients(ctx, q, stored); err != nil {
 		return item, err
 	}
-	if item.Recipients, err = decisionRecipients(ctx, q, names); err != nil {
+	if err := noticeStates(ctx, q, id, stored, item.Recipients); err != nil {
 		return item, err
 	}
 	// The verdict count is stored on the item, so a read does not count the history.

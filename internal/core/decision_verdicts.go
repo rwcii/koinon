@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -82,6 +83,10 @@ type DecisionDelivery struct {
 	Outcome        string `json:"outcome"`
 	Reason         string `json:"reason,omitempty"`
 	AcknowledgedAt int64  `json:"acknowledged_at,omitempty"`
+	// Pair is the pair ID of a remote recipient's computer, and Notice the state of this
+	// verdict's notice to it (#746).
+	Pair   string `json:"pair,omitempty"`
+	Notice string `json:"notice,omitempty"`
 }
 
 // DecisionVerdict is one verdict with the snapshot it was given on.
@@ -221,7 +226,12 @@ func currentVerdict(ctx context.Context, q querier, itemID int64, deliveries boo
 }
 
 func verdictDeliveries(ctx context.Context, q querier, id int64) ([]DecisionDelivery, error) {
-	rows, err := q.QueryContext(ctx, `SELECT name,kind,outcome,reason,acknowledged_at FROM decision_deliveries WHERE verdict_id=? ORDER BY ordinal`, id)
+	// A remote delivery's transport state is its own verdict notice's, by verdict, pair and
+	// recipient; never a later notice of another event.
+	rows, err := q.QueryContext(ctx, `SELECT d.name,d.kind,d.outcome,d.reason,d.acknowledged_at,d.pair_id,
+		COALESCE((SELECT n.state FROM decision_notices n WHERE n.verdict_id=d.verdict_id AND n.pair_id=d.pair_id
+			AND n.recipient=d.remote_name ORDER BY n.id DESC LIMIT 1),'')
+		FROM decision_deliveries d WHERE d.verdict_id=? ORDER BY d.ordinal`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -229,7 +239,7 @@ func verdictDeliveries(ctx context.Context, q querier, id int64) ([]DecisionDeli
 	out := []DecisionDelivery{}
 	for rows.Next() {
 		var d DecisionDelivery
-		if err := rows.Scan(&d.Name, &d.Kind, &d.Outcome, &d.Reason, &d.AcknowledgedAt); err != nil {
+		if err := rows.Scan(&d.Name, &d.Kind, &d.Outcome, &d.Reason, &d.AcknowledgedAt, &d.Pair, &d.Notice); err != nil {
 			return nil, err
 		}
 		out = append(out, d)
@@ -269,6 +279,8 @@ func (s *Store) DecisionVerdict(ctx context.Context, reference string, revision 
 	if result, found, err := operationLookup[DecisionVerdict](ctx, s.db, s.now().UnixMilli()); found || err != nil {
 		return result, err
 	}
+	pairs, release := s.boardFence(ctx)
+	defer release()
 	tx, err := s.begin(ctx, ordinary)
 	if err != nil {
 		return DecisionVerdict{}, err
@@ -342,9 +354,13 @@ func (s *Store) DecisionVerdict(ctx context.Context, reference string, revision 
 		result.Signer = &VerdictSigner{User: signerUser, Client: signerClient, KeyID: signerKey}
 	}
 	// Every verdict goes to the item's recipients and to its author (#537).
-	names, err := recipientNames(ctx, tx.Tx, id)
+	stored, err := storedRecipients(ctx, tx.Tx, id)
 	if err != nil {
 		return DecisionVerdict{}, err
+	}
+	names := make([]string, 0, len(stored))
+	for _, r := range stored {
+		names = append(names, r.Name)
 	}
 	if names, err = withAuthor(ctx, tx.Tx, now, id, item, names); err != nil {
 		return DecisionVerdict{}, err
@@ -354,6 +370,15 @@ func (s *Store) DecisionVerdict(ctx context.Context, reference string, revision 
 		entry = DecisionVerdictText(item.Where, result)
 	}
 	for i, name := range names {
+		if j := slices.IndexFunc(stored, func(r remoteRecipient) bool { return r.Name == name && r.Kind == "remote" }); j >= 0 {
+			d, err := deliverRemote(ctx, tx, now, pairs, verdictID, i, stored[j], noticeEvent{ItemID: id, Reference: reference,
+				Event: "verdict", Revision: revision, VerdictID: verdictID, Verdict: verdict})
+			if err != nil {
+				return DecisionVerdict{}, err
+			}
+			result.Deliveries = append(result.Deliveries, d)
+			continue
+		}
 		d, err := s.deliverVerdict(ctx, tx, now, verdictID, i, name, reference, verdict, entry)
 		if err != nil {
 			return DecisionVerdict{}, err
@@ -531,7 +556,7 @@ func (s *Store) DecisionPending(ctx context.Context, caller Key, after int64, li
 	seen := map[int64]bool{}
 	var ids []int64
 	for _, name := range names {
-		rows, err := tx.QueryContext(ctx, `SELECT DISTINCT verdict_id FROM decision_deliveries WHERE name=? AND outcome='queued' AND verdict_id>?
+		rows, err := tx.QueryContext(ctx, `SELECT DISTINCT verdict_id FROM decision_deliveries WHERE name=? AND kind<>'remote' AND outcome='queued' AND verdict_id>?
 			ORDER BY verdict_id LIMIT ?`, name, after, limit+1)
 		if err != nil {
 			return DecisionPendingPage{}, err
@@ -617,7 +642,7 @@ func (s *Store) DecisionAck(ctx context.Context, caller Key, verdicts []int64) (
 	for _, id := range verdicts {
 		changed := int64(0)
 		for _, name := range names {
-			result, err := tx.ExecContext(ctx, `UPDATE decision_deliveries SET outcome='acknowledged',acknowledged_at=? WHERE verdict_id=? AND name=? AND outcome='queued'`,
+			result, err := tx.ExecContext(ctx, `UPDATE decision_deliveries SET outcome='acknowledged',acknowledged_at=? WHERE verdict_id=? AND name=? AND kind<>'remote' AND outcome='queued'`,
 				now, id, name)
 			if err != nil {
 				return nil, tx.fail(err)
@@ -660,6 +685,8 @@ func (s *Store) DecisionClose(ctx context.Context, caller Key, reference string,
 	}
 	print := decisionFingerprint("close\x00"+reference, DecisionFields{Order: &ifRevision, Context: &note}, deadline)
 	key = "close\x00" + key
+	pairs, release := s.boardFence(ctx)
+	defer release()
 	read, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return DecisionItem{}, err
@@ -703,6 +730,9 @@ func (s *Store) DecisionClose(ctx context.Context, caller Key, reference string,
 	if _, err := tx.ExecContext(ctx, `UPDATE decision_items SET state='archived',archived_at=?,updated_at=?,closed_by=?,closed_at=?,outcome_note=? WHERE id=?`,
 		now, now, closer, now, note, id); err != nil {
 		return DecisionItem{}, tx.fail(err)
+	}
+	if err := itemNotices(ctx, tx, now, pairs, noticeEvent{ItemID: id, Reference: reference, Event: "closed", Revision: item.Revision}); err != nil {
+		return DecisionItem{}, err
 	}
 	if err := bumpChange(ctx, tx, changeDecisions); err != nil {
 		return DecisionItem{}, tx.fail(err)
@@ -780,6 +810,8 @@ func (s *Store) DecisionWithdraw(ctx context.Context, caller Key, reference stri
 	}
 	print := decisionFingerprint("withdraw\x00"+reference, DecisionFields{Order: &ifRevision, Context: &reason}, deadline)
 	key = "withdraw\x00" + key
+	pairs, release := s.boardFence(ctx)
+	defer release()
 	read, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return DecisionItem{}, err
@@ -832,6 +864,9 @@ func (s *Store) DecisionWithdraw(ctx context.Context, caller Key, reference stri
 	if _, err := tx.ExecContext(ctx, `INSERT INTO decision_withdrawals(item_id,revision,family,name,reason,at) VALUES (?,?,?,?,?,?)`,
 		id, item.Revision, caller.Family, peer, reason, now); err != nil {
 		return DecisionItem{}, tx.fail(err)
+	}
+	if err := itemNotices(ctx, tx, now, pairs, noticeEvent{ItemID: id, Reference: reference, Event: "withdrawn", Revision: item.Revision}); err != nil {
+		return DecisionItem{}, err
 	}
 	if err := bumpChange(ctx, tx, changeDecisions); err != nil {
 		return DecisionItem{}, tx.fail(err)
