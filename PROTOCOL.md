@@ -329,9 +329,12 @@ recipient is in neither. The answer is `board-ok`, at most 1 MiB: a card at ever
 with its verdict snapshot, 32 recipients and their deliveries, in the worst JSON escaping,
 fits. A computer at an earlier release answers `link_operation_unknown`, which the agent sees
 as `link_unsupported`. One budget of 8 seconds, inside the local request's own deadline,
-covers the dial, the TLS handshake and the exchange; a cancel of the local request ends it at
-once. A failure before the request frame is written is `link_computer_offline` (`details`:
-`computer`, `pair`, `reason`) and nothing was sent; a definite refusal of the card's computer
+covers the whole call: the caller's names, every lock wait, the dial, the TLS handshake and
+the exchange; a cancel of the local request ends it at once, and a call that gives up before
+its write never sends it later. After the connection is made, the pair is checked again, so an
+unpair during the dial is `link_computer_unknown`. A failure before the request frame is
+written is `link_computer_offline` (`details`: `computer`, `pair`, `reason`) and nothing was
+sent; a definite refusal of the card's computer
 keeps its code; any other failure after the write began is `link_uncertain`, and an
 acknowledgement may have been stored: a retry is safe and reports it in `already`.
 

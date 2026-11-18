@@ -18,6 +18,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/rwcii/koinon/internal/link"
@@ -396,11 +397,52 @@ func boardUncertain(p link.Pair) error {
 		Details: map[string]any{"computer": p.Effective, "pair": p.ID}}
 }
 
+// Board call states: the exchange is pending until it starts the request write, then writing;
+// a caller that gives up first marks it abandoned, and that exchange then sends nothing.
+const (
+	boardPending int32 = iota
+	boardWriting
+	boardAbandoned
+)
+
 // boardCall sends one board request for the caller to the computer named by computer or
-// pair, and decodes the answer into out. Before the request frame is written, a failure says
-// nothing was sent; a definite refusal from that computer says nothing ran there; any failure
-// after the write began is link_uncertain. Nothing is stored here.
+// pair, and decodes the answer into out. One budget covers the whole call: the caller's names,
+// the target, every lock wait, the dial, the TLS handshake and the exchange; a shorter
+// deadline or a cancel of the local request wins. Before the request frame is written, a
+// failure says nothing was sent; a definite refusal from that computer says nothing ran there;
+// any failure after the write began is link_uncertain. Nothing is stored here.
 func (d *Daemon) boardCall(ctx context.Context, caller Key, computer, pair string, r boardRequest, out any) (BoardOrigin, error) {
+	ctx, cancel := context.WithTimeout(ctx, boardCallBudget)
+	defer cancel()
+	type answer struct {
+		origin BoardOrigin
+		err    error
+	}
+	var state atomic.Int32
+	done := make(chan answer, 1)
+	go func() {
+		origin, err := d.boardExchange(ctx, &state, caller, computer, pair, r, out)
+		done <- answer{origin, err}
+	}()
+	select {
+	case a := <-done:
+		return a.origin, a.err
+	case <-ctx.Done():
+		if state.CompareAndSwap(boardPending, boardAbandoned) {
+			// The exchange may still wait for a lock; it will send nothing.
+			return BoardOrigin{Computer: computer, Pair: pair}, WorkRefusal{Code: "link_computer_offline",
+				Message: "the request ran out of time before it was sent; nothing was sent",
+				Details: map[string]any{"computer": computer, "pair": pair, "reason": "deadline"}}
+		}
+		// The write began: the connection's deadline ends the exchange at once.
+		a := <-done
+		return a.origin, a.err
+	}
+}
+
+// boardExchange is one board call's work. It starts the request write only when it moves state
+// from pending to writing, after the connection is tracked and the pair still stands.
+func (d *Daemon) boardExchange(ctx context.Context, state *atomic.Int32, caller Key, computer, pair string, r boardRequest, out any) (BoardOrigin, error) {
 	names, err := d.store.callerBoardNames(ctx, caller)
 	if err != nil {
 		return BoardOrigin{}, err
@@ -414,13 +456,21 @@ func (d *Daemon) boardCall(ctx context.Context, caller Key, computer, pair strin
 	}
 	origin := BoardOrigin{Computer: p.Effective, Pair: p.ID}
 	r.ID, r.Names = p.ID, names
-	ctx, cancel := context.WithTimeout(ctx, boardCallBudget)
-	defer cancel()
 	session, err := d.connectPair(ctx, gen, p)
 	if err != nil {
 		return origin, boardOffline(p, errorCode(err))
 	}
 	defer session.close()
+	// An unpair or a Remote off that finished during the dial: the connection is tracked now,
+	// so a later one closes it, and this check sees an earlier one.
+	switch err := d.pairStands(gen, p); {
+	case errors.Is(err, ErrLinkNoPair):
+		return origin, ErrBoardComputerUnknown
+	case errors.Is(err, ErrLinkRemoteOff):
+		return origin, boardOffline(p, "remote_off")
+	case err != nil:
+		return origin, err
+	}
 	deadline, _ := ctx.Deadline()
 	session.conn.SetDeadline(deadline)
 	// A cancel of the local request, or the budget, ends the exchange at once.
@@ -430,7 +480,7 @@ func (d *Daemon) boardCall(ctx context.Context, caller Key, computer, pair strin
 	if err != nil {
 		return origin, err
 	}
-	if ctx.Err() != nil {
+	if ctx.Err() != nil || !state.CompareAndSwap(boardPending, boardWriting) {
 		return origin, boardOffline(p, "deadline")
 	}
 	if err := link.WriteFrame(session.conn, f); err != nil {

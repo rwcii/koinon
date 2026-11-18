@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -477,4 +479,253 @@ func make32() []int64 {
 		out[i] = int64(i + 1)
 	}
 	return out
+}
+
+type boardDialGate struct{}
+
+// An unpair that finishes while the board call dials: the call sends nothing, and the card's
+// computer records no acknowledgement (review 746-C3-F1).
+func TestBoardRemoteUnpairDuringDial(t *testing.T) {
+	n, a, b := pairedLinkHosts(t)
+	author := join(t, a.d.store, "claude", "synthetic-board-author", "")
+	agent := joinAs(t, b.d.store, "codex", "synthetic-board-agent", linkRepo(t, "agent"), "")
+	boardCard(t, a, author, "U-1", DecisionFields{Title: ptr("Unpair"), Kind: ptr("decision"), Recipients: &[]string{agent.Name + "@beta"}})
+	v := mustVerdict(t, a.d.store, "U-1", 1, "approved")
+	for _, op := range []string{"ack", "get"} {
+		entered, release := make(chan struct{}), make(chan struct{})
+		b.d.link.mu.Lock()
+		b.d.link.dial = func(ctx context.Context, address string) (net.Conn, error) {
+			if ctx.Value(boardDialGate{}) == op {
+				close(entered)
+				select {
+				case <-release:
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+				return n.dial(ctx, address)
+			}
+			// The unpair's own notice to alpha fails, so alpha keeps the pair.
+			return nil, errors.New("synthetic dial refused")
+		}
+		b.d.link.mu.Unlock()
+		done := make(chan error, 1)
+		ctx := context.WithValue(context.Background(), boardDialGate{}, op)
+		go func() {
+			var err error
+			if op == "get" {
+				_, err = b.d.RemoteDecisionGet(ctx, agentKey(agent), "alpha", "", "U-1")
+			} else {
+				_, err = b.d.RemoteDecisionAck(ctx, agentKey(agent), "alpha", "", []int64{v.ID})
+			}
+			done <- err
+		}()
+		select {
+		case <-entered:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s: no dial", op)
+		}
+		if err := b.d.linkUnpair(context.Background(), "alpha"); err != nil {
+			t.Fatal(err)
+		}
+		close(release)
+		if err := <-done; errorCode(err) != "link_computer_unknown" {
+			t.Fatalf("%s after the unpair: %v", op, err)
+		}
+		if op == "ack" {
+			// Pair again for the get case.
+			b.d.link.mu.Lock()
+			b.d.link.dial = nil
+			b.d.link.mu.Unlock()
+			if err := a.d.linkUnpair(context.Background(), "beta"); err != nil {
+				t.Fatal(err)
+			}
+			pairHosts(t, b, a)
+		}
+	}
+	if c := count(t, a.d.store, `SELECT COUNT(*) FROM decision_deliveries WHERE kind='remote' AND outcome='acknowledged' AND verdict_id=?`, v.ID); c != 0 {
+		t.Fatalf("%d acknowledgements after the unpair", c)
+	}
+}
+
+// A local deadline ends the call while it waits for the link lock, and the call sends nothing
+// after it gave up (review 746-C3-F2).
+func TestBoardRemoteDeadlineWhileLockHeld(t *testing.T) {
+	_, a, b := pairedLinkHosts(t)
+	author := join(t, a.d.store, "claude", "synthetic-board-author", "")
+	agent := joinAs(t, b.d.store, "codex", "synthetic-board-agent", linkRepo(t, "agent"), "")
+	boardCard(t, a, author, "L-1", DecisionFields{Title: ptr("Lock"), Kind: ptr("decision"), Recipients: &[]string{agent.Name + "@beta"}})
+	v := mustVerdict(t, a.d.store, "L-1", 1, "approved")
+	sent := 0
+	a.d.link.mu.Lock()
+	a.d.link.hook = func(point string) error {
+		if point == "before-board" {
+			sent++
+		}
+		return nil
+	}
+	a.d.link.mu.Unlock()
+	b.d.link.mu.Lock()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	start := time.Now()
+	done := make(chan error, 1)
+	go func() {
+		_, err := b.d.RemoteDecisionAck(ctx, agentKey(agent), "alpha", "", []int64{v.ID})
+		done <- err
+	}()
+	var err error
+	returned := false
+	select {
+	case err = <-done:
+		returned = true
+	case <-time.After(250 * time.Millisecond):
+	}
+	elapsed := time.Since(start)
+	b.d.link.mu.Unlock()
+	if !returned {
+		<-done
+		t.Fatalf("the call waited for the lock past its deadline: %s", elapsed)
+	}
+	var work WorkRefusal
+	if !errors.As(err, &work) || work.Code != "link_computer_offline" || work.Details["reason"] != "deadline" || elapsed > time.Second {
+		t.Fatalf("deadline while the lock is held: %v after %s", err, elapsed)
+	}
+	// The abandoned exchange gets the lock now, and sends nothing.
+	time.Sleep(500 * time.Millisecond)
+	a.d.link.mu.Lock()
+	got := sent
+	a.d.link.mu.Unlock()
+	if got != 0 || count(t, a.d.store, `SELECT COUNT(*) FROM decision_deliveries WHERE kind='remote' AND outcome='acknowledged'`) != 0 {
+		t.Fatalf("an abandoned call sent %d requests", got)
+	}
+}
+
+// A cancel during an acknowledgement and a failed write are uncertain; the retry reports the
+// stored result once.
+func TestBoardRemoteAckCancelAndWriteFailure(t *testing.T) {
+	_, a, b := pairedLinkHosts(t)
+	author := join(t, a.d.store, "claude", "synthetic-board-author", "")
+	agent := joinAs(t, b.d.store, "codex", "synthetic-board-agent", linkRepo(t, "agent"), "")
+	boardCard(t, a, author, "C-1", DecisionFields{Title: ptr("Cancel"), Kind: ptr("decision"), Recipients: &[]string{agent.Name + "@beta"}})
+	v := mustVerdict(t, a.d.store, "C-1", 1, "approved")
+	release := make(chan struct{})
+	a.d.link.mu.Lock()
+	a.d.link.hook = func(point string) error {
+		if point == "after-board" {
+			<-release
+		}
+		return nil
+	}
+	a.d.link.mu.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(100*time.Millisecond, cancel)
+	if _, err := b.d.RemoteDecisionAck(ctx, agentKey(agent), "alpha", "", []int64{v.ID}); errorCode(err) != "link_uncertain" {
+		t.Fatalf("cancelled ack: %v", err)
+	}
+	close(release)
+	a.d.link.mu.Lock()
+	a.d.link.hook = nil
+	a.d.link.mu.Unlock()
+	// The ack committed before the cancel cut the answer; the retry says already.
+	if out, err := b.d.RemoteDecisionAck(context.Background(), agentKey(agent), "alpha", "", []int64{v.ID}); err != nil || len(out.Already) != 1 {
+		t.Fatalf("retry after a cancel: %+v %v", out, err)
+	}
+	// A failure right after the write is uncertain, too.
+	b.d.link.mu.Lock()
+	b.d.link.hook = func(point string) error {
+		if point == "after-board-write" {
+			return errLinkDrop
+		}
+		return nil
+	}
+	b.d.link.mu.Unlock()
+	if _, err := b.d.RemoteDecisionGet(context.Background(), agentKey(agent), "alpha", "", "C-1"); errorCode(err) != "link_uncertain" {
+		t.Fatalf("write failure: %v", err)
+	}
+}
+
+// A list and a pending walk over several pages: each page fits its local byte bound and the
+// board answer's frame, the cursor moves forward, and every item comes once.
+func TestBoardRemotePageWalk(t *testing.T) {
+	_, a, b := pairedLinkHosts(t)
+	author := join(t, a.d.store, "claude", "synthetic-board-author", "")
+	agent := joinAs(t, b.d.store, "codex", "synthetic-board-agent", linkRepo(t, "agent"), "")
+	const cards = 110
+	for i := 0; i < cards; i++ {
+		f := DecisionFields{Title: ptr(strings.Repeat("<", 256)), Kind: ptr("decision"), Recipients: &[]string{agent.Name + "@beta"}}
+		if i < 12 {
+			f.Context, f.Recommendation = ptr(strings.Repeat("<", 16<<10)), ptr(strings.Repeat("<", 8<<10))
+		}
+		reference := fmt.Sprintf("W-%03d", i)
+		boardCard(t, a, author, reference, f)
+		if i < 12 {
+			mustVerdict(t, a.d.store, reference, 1, "approved")
+		}
+	}
+	frame := func(v any) int {
+		f, err := link.NewFrame("board-ok", v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, _ := json.Marshal(f)
+		return len(data)
+	}
+	seen, pages := map[string]bool{}, 0
+	var after int64
+	for {
+		page, err := b.d.RemoteDecisionList(context.Background(), agentKey(agent), "alpha", "", after, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pages++
+		body, _ := json.Marshal(map[string]any{"ok": true, "result": page})
+		if len(body) > decisionPageBytes || frame(page.DecisionPage) > link.FrameLimit("board-ok") || len(page.Items) == 0 {
+			t.Fatalf("list page %d: %d bytes, %d items", pages, len(body), len(page.Items))
+		}
+		for _, item := range page.Items {
+			if seen[item.Reference] {
+				t.Fatalf("%s twice", item.Reference)
+			}
+			seen[item.Reference] = true
+		}
+		if !page.More {
+			break
+		}
+		if *page.NextAfter <= after {
+			t.Fatalf("list cursor did not move: %d", *page.NextAfter)
+		}
+		after = *page.NextAfter
+	}
+	if len(seen) != cards || pages < 2 {
+		t.Fatalf("list walk: %d cards in %d pages", len(seen), pages)
+	}
+	verdicts, pages := map[int64]bool{}, 0
+	after = 0
+	for {
+		page, err := b.d.RemoteDecisionPending(context.Background(), agentKey(agent), "alpha", "", after, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pages++
+		body, _ := json.Marshal(map[string]any{"ok": true, "result": page})
+		if len(body) > decisionPendingBytes || frame(page.DecisionPendingPage) > link.FrameLimit("board-ok") || len(page.Deliveries) == 0 {
+			t.Fatalf("pending page %d: %d bytes, %d deliveries", pages, len(body), len(page.Deliveries))
+		}
+		for _, d := range page.Deliveries {
+			if verdicts[d.VerdictID] {
+				t.Fatalf("verdict %d twice", d.VerdictID)
+			}
+			verdicts[d.VerdictID] = true
+		}
+		if !page.More {
+			break
+		}
+		if *page.NextAfter <= after {
+			t.Fatalf("pending cursor did not move: %d", *page.NextAfter)
+		}
+		after = *page.NextAfter
+	}
+	if len(verdicts) != 12 || pages < 2 {
+		t.Fatalf("pending walk: %d verdicts in %d pages", len(verdicts), pages)
+	}
 }
