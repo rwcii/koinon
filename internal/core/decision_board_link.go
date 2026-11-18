@@ -408,68 +408,88 @@ const (
 // boardCall sends one board request for the caller to the computer named by computer or
 // pair, and decodes the answer into out. One budget covers the whole call: the caller's names,
 // the target, every lock wait, the dial, the TLS handshake and the exchange; a shorter
-// deadline or a cancel of the local request wins. Before the request frame is written, a
-// failure says nothing was sent; a definite refusal from that computer says nothing ran there;
-// any failure after the write began is link_uncertain. Nothing is stored here.
+// deadline or a cancel of the local request wins, and the call returns at once, also while the
+// exchange still waits for a lock. Before the request frame is written, a failure says nothing
+// was sent; a definite refusal from that computer says nothing ran there; any failure after
+// the write began is link_uncertain. The exchange decodes nothing into out: only this call
+// does, from a completed answer, so a late exchange changes no returned result. Nothing is
+// stored here.
 func (d *Daemon) boardCall(ctx context.Context, caller Key, computer, pair string, r boardRequest, out any) (BoardOrigin, error) {
 	ctx, cancel := context.WithTimeout(ctx, boardCallBudget)
 	defer cancel()
 	type answer struct {
 		origin BoardOrigin
+		body   json.RawMessage
 		err    error
 	}
-	var state atomic.Int32
+	shared := &boardShared{}
 	done := make(chan answer, 1)
 	go func() {
-		origin, err := d.boardExchange(ctx, &state, caller, computer, pair, r, out)
-		done <- answer{origin, err}
+		origin, body, err := d.boardExchange(ctx, shared, caller, computer, pair, r)
+		done <- answer{origin, body, err}
 	}()
 	select {
 	case a := <-done:
-		return a.origin, a.err
+		if a.err != nil {
+			return a.origin, a.err
+		}
+		if (link.Frame{Op: "board-ok", Body: a.body}).Decode(out) != nil {
+			return a.origin, boardUncertain(shared.pair)
+		}
+		return a.origin, nil
 	case <-ctx.Done():
-		if state.CompareAndSwap(boardPending, boardAbandoned) {
+		if shared.state.CompareAndSwap(boardPending, boardAbandoned) {
 			// The exchange may still wait for a lock; it will send nothing.
 			return BoardOrigin{Computer: computer, Pair: pair}, WorkRefusal{Code: "link_computer_offline",
 				Message: "the request ran out of time before it was sent; nothing was sent",
 				Details: map[string]any{"computer": computer, "pair": pair, "reason": "deadline"}}
 		}
-		// The write began: the connection's deadline ends the exchange at once.
-		a := <-done
-		return a.origin, a.err
+		// The write began. The connection's deadline ends the exchange; its cleanup may wait
+		// for a lock, so this call does not wait for it.
+		return shared.origin, boardUncertain(shared.pair)
 	}
 }
 
+// boardShared is a board call's state between the call and its exchange. The exchange sets
+// pair and origin before it moves state from pending to writing; the call reads them only
+// after a failed move from pending, so the atomic orders them.
+type boardShared struct {
+	state  atomic.Int32
+	pair   link.Pair
+	origin BoardOrigin
+}
+
 // boardExchange is one board call's work. It starts the request write only when it moves state
-// from pending to writing, after the connection is tracked and the pair still stands.
-func (d *Daemon) boardExchange(ctx context.Context, state *atomic.Int32, caller Key, computer, pair string, r boardRequest, out any) (BoardOrigin, error) {
+// from pending to writing, after the connection is tracked and the pair still stands, and
+// returns the answer's body undecoded.
+func (d *Daemon) boardExchange(ctx context.Context, shared *boardShared, caller Key, computer, pair string, r boardRequest) (BoardOrigin, json.RawMessage, error) {
 	names, err := d.store.callerBoardNames(ctx, caller)
 	if err != nil {
-		return BoardOrigin{}, err
+		return BoardOrigin{}, nil, err
 	}
 	if len(names) == 0 {
-		return BoardOrigin{}, workError("not_found", "no decision item names you")
+		return BoardOrigin{}, nil, workError("not_found", "no decision item names you")
 	}
 	p, gen, err := d.boardTarget(computer, pair)
 	if err != nil {
-		return BoardOrigin{}, err
+		return BoardOrigin{}, nil, err
 	}
 	origin := BoardOrigin{Computer: p.Effective, Pair: p.ID}
 	r.ID, r.Names = p.ID, names
 	session, err := d.connectPair(ctx, gen, p)
 	if err != nil {
-		return origin, boardOffline(p, errorCode(err))
+		return origin, nil, boardOffline(p, errorCode(err))
 	}
 	defer session.close()
 	// An unpair or a Remote off that finished during the dial: the connection is tracked now,
 	// so a later one closes it, and this check sees an earlier one.
 	switch err := d.pairStands(gen, p); {
 	case errors.Is(err, ErrLinkNoPair):
-		return origin, ErrBoardComputerUnknown
+		return origin, nil, ErrBoardComputerUnknown
 	case errors.Is(err, ErrLinkRemoteOff):
-		return origin, boardOffline(p, "remote_off")
+		return origin, nil, boardOffline(p, "remote_off")
 	case err != nil:
-		return origin, err
+		return origin, nil, err
 	}
 	deadline, _ := ctx.Deadline()
 	session.conn.SetDeadline(deadline)
@@ -478,35 +498,36 @@ func (d *Daemon) boardExchange(ctx context.Context, state *atomic.Int32, caller 
 	defer stop()
 	f, err := link.NewFrame("board", r)
 	if err != nil {
-		return origin, err
+		return origin, nil, err
 	}
-	if ctx.Err() != nil || !state.CompareAndSwap(boardPending, boardWriting) {
-		return origin, boardOffline(p, "deadline")
+	shared.pair, shared.origin = p, origin
+	if ctx.Err() != nil || !shared.state.CompareAndSwap(boardPending, boardWriting) {
+		return origin, nil, boardOffline(p, "deadline")
 	}
 	if err := link.WriteFrame(session.conn, f); err != nil {
-		return origin, boardUncertain(p)
+		return origin, nil, boardUncertain(p)
 	}
 	if err := d.linkFault("after-board-write"); err != nil {
-		return origin, boardUncertain(p)
+		return origin, nil, boardUncertain(p)
 	}
 	reply, err := link.ReadFrame(session.conn)
 	if err != nil {
-		return origin, boardUncertain(p)
+		return origin, nil, boardUncertain(p)
 	}
 	if reply.Op == "error" {
 		switch reply.Error {
 		case "link_operation_unknown":
-			return origin, ErrBoardUnsupported
+			return origin, nil, ErrBoardUnsupported
 		case "link_refused":
 			// A failure without a known cause, also one after an acknowledgement's commit.
-			return origin, boardUncertain(p)
+			return origin, nil, boardUncertain(p)
 		}
-		return origin, WorkRefusal{Code: reply.Error, Message: reply.Detail, Details: map[string]any{"computer": p.Effective, "pair": p.ID}}
+		return origin, nil, WorkRefusal{Code: reply.Error, Message: reply.Detail, Details: map[string]any{"computer": p.Effective, "pair": p.ID}}
 	}
-	if reply.Op != "board-ok" || reply.Decode(out) != nil {
-		return origin, boardUncertain(p)
+	if reply.Op != "board-ok" {
+		return origin, nil, boardUncertain(p)
 	}
-	return origin, nil
+	return origin, reply.Body, nil
 }
 
 // RemoteDecisionGet reads the live card REFERENCE at the computer named by computer or pair.

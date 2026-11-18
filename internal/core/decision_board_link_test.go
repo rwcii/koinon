@@ -729,3 +729,60 @@ func TestBoardRemotePageWalk(t *testing.T) {
 		t.Fatalf("pending walk: %d verdicts in %d pages", len(verdicts), pages)
 	}
 }
+
+// A cancel after the write returns uncertain at once, also while the exchange's cleanup waits
+// for the link lock (review 746-C3-F2, writing phase).
+func TestBoardRemoteCancelAfterWriteDuringCleanup(t *testing.T) {
+	_, a, b := pairedLinkHosts(t)
+	author := join(t, a.d.store, "claude", "synthetic-board-author", "")
+	agent := joinAs(t, b.d.store, "codex", "synthetic-board-agent", linkRepo(t, "agent"), "")
+	boardCard(t, a, author, "K-1", DecisionFields{Title: ptr("Cleanup"), Kind: ptr("decision"), Recipients: &[]string{agent.Name + "@beta"}})
+	v := mustVerdict(t, a.d.store, "K-1", 1, "approved")
+	wrote, resume := make(chan struct{}), make(chan struct{})
+	b.d.link.mu.Lock()
+	b.d.link.hook = func(point string) error {
+		if point == "after-board-write" {
+			close(wrote)
+			<-resume
+		}
+		return nil
+	}
+	b.d.link.mu.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var out RemoteAck
+	done := make(chan error, 1)
+	go func() {
+		var err error
+		out, err = b.d.RemoteDecisionAck(ctx, agentKey(agent), "alpha", "", []int64{v.ID})
+		done <- err
+	}()
+	select {
+	case <-wrote:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no write")
+	}
+	b.d.link.mu.Lock()
+	close(resume)
+	cancel()
+	var err error
+	returned := false
+	select {
+	case err = <-done:
+		returned = true
+	case <-time.After(250 * time.Millisecond):
+	}
+	b.d.link.mu.Unlock()
+	if !returned {
+		<-done
+		t.Fatal("a cancel after the write waited for the exchange's cleanup")
+	}
+	if errorCode(err) != "link_uncertain" || len(out.Acknowledged)+len(out.Already) != 0 {
+		t.Fatalf("cancel after the write: %+v %v", out, err)
+	}
+	// The late exchange changes nothing that the call returned.
+	time.Sleep(300 * time.Millisecond)
+	if len(out.Acknowledged)+len(out.Already) != 0 {
+		t.Fatalf("a late exchange changed the result: %+v", out)
+	}
+}
