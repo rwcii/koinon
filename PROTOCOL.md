@@ -114,10 +114,10 @@ The listener takes TLS 1.3 only, with a client certificate required and session 
 refuses every other key in the handshake with the `bad_certificate` alert, before any
 application data, and records it as the last refused key. On the TLS stream each frame is a
 4-byte big-endian length and a JSON object (`op`, `body`, or `error` and `detail`), at most 128
-KiB (1 MiB for `maintainer` and its reply `maintainer-ok`), with unknown fields refused; a
-connection carries at most 64 frames. The operations are
+KiB (1 MiB for `maintainer` and its reply `maintainer-ok`, and for the reply `board-ok`), with
+unknown fields refused; a connection carries at most 64 frames. The operations are
 `directory` and `name-update` (below), `deliver` and `cancel` (Messages, below), `notice`
-(Decision notices, below), `maintainer`
+(Decision notices, below), `board` (Decision board over the link, below), `maintainer`
 (Signed maintainer actions, Other computers),
 `pair-hello` (`secret`, `name`, `dns`, `ips`, `port`; only an unpaired key with an open
 invitation's secret, which is used at once; the reply `hello-ok` has the pair `id` and `name`),
@@ -294,7 +294,8 @@ before the write, `retry`, a lost answer, the high-water rules, unpair and the g
 fence are those of messages. The receiver resolves NAME as for a message and stores one inbox
 row: `sender_family` `link` (reserved: no agent, maintainer or overwatch has it, and no frame
 or send can choose it), sender `decision-board@COMPUTER`, `origin` `link`, `system_kind`
-`decision_notice`, a body that names the card and the event, and the typed `decision_notice`
+`decision_notice`, a body that names the card, the event and the card's computer with its
+pair ID (and, for a verdict, the `decision_ack` call with that pair), and the typed `decision_notice`
 (`reference`, `computer` the current name of the card's computer, `pair`, `event`, `revision`,
 `verdict_id`, `verdict`, and `get`, `REFERENCE@COMPUTER`); or `refused` with `peer_not_found`,
 `alias_unheld`, `recipient_inactive` or `link_recipient_local`. A rename keeps the sender and
@@ -305,6 +306,37 @@ their sequence and digest, and the worker tries again after its wait, so the not
 by themselves after that computer's upgrade. The origin's `decision_get` shows each remote
 recipient's newest notice state as `notice` and its reason as `notice_reason`, and each verdict
 delivery its own verdict notice's.
+
+Decision board over the link (#746 chunk 03). The card lives only on its own computer; an
+agent on a paired computer reads and acknowledges it there, and nothing of the answer is
+stored on the agent's computer. The agent's computer sends `board` (`id` the pair, `op` `get`,
+`list`, `pending` or `ack`, `names`, and `reference` for `get`, `after` and `limit` for `list`
+and `pending`, `verdict_ids` for `ack`). `names` are the caller's peer name and the
+participant address it holds, which the agent's computer takes from the admitted caller: one
+or two, each at most the address bound and with no `@`. `verdict_ids` are 1 to 32 IDs of the
+card's computer, and `limit` is at most 100; any other request, also one with `edit` or
+`verdict` as its `op`, is `invalid_request`, and the request frame stays at 128 KiB. The card's
+computer answers only for its rows of this pair whose remote name is one of `names`, under the
+link lock from the pair check through the read or the acknowledgement's commit, so an unpair
+or a Remote off that comes first leaves no later answer or acknowledgement. `get` returns the
+card as the local `decision_get` does, only while it names one of `names` now; any other
+reference is `not_found`. `list` pages the cards that name one of `names` now, with the local
+page bounds. `pending` pages the queued verdict deliveries to `names`, each `entry` from the
+verdict's own snapshot, so a recipient that an edit removed keeps its earlier verdicts and no
+later card text. `ack` acknowledges those deliveries in one ordinary write and answers
+`acknowledged` and `already` (IDs of these names acknowledged earlier); an ID of another
+recipient is in neither. The answer is `board-ok`, at most 1 MiB: a card at every field bound,
+with its verdict snapshot, 32 recipients and their deliveries, in the worst JSON escaping,
+fits. A computer at an earlier release answers `link_operation_unknown`, which the agent sees
+as `link_unsupported`. One budget of 8 seconds, inside the local request's own deadline,
+covers the whole call: the caller's names, every lock wait, the dial, the TLS handshake and
+the exchange; a cancel of the local request ends it at once, and a call that gives up before
+its write never sends it later. After the connection is made, the pair is checked again, so an
+unpair during the dial is `link_computer_unknown`. A failure before the request frame is
+written is `link_computer_offline` (`details`: `computer`, `pair`, `reason`) and nothing was
+sent; a definite refusal of the card's computer
+keeps its code; any other failure after the write began is `link_uncertain`, and an
+acknowledgement may have been stored: a retry is safe and reports it in `already`.
 
 | Route | Operation |
 | --- | --- |
@@ -2394,6 +2426,13 @@ of items. Reads move no inbox read or acknowledgement marker and no memory curso
   item has one (#612)), `more` and
   `next_after`. An item does not appear twice in a walk; an item that matches during the
   whole walk appears once; an item whose match changes during the walk appears at most once.
+- `POST /v1/decisions/get`, `list` (with `filter` `mine` only), `pending` and `ack` also take
+  `computer` (a paired computer's current name) or `pair` (its pair ID, which wins), and `get`
+  takes `reference` as `REFERENCE@COMPUTER`: the call then runs at that computer over the link
+  (Decision board over the link) and its result adds `origin` (`computer`, `pair`). An unknown
+  computer or pair is `link_computer_unknown`; a reference with `@` and no reference or no
+  computer, or with a `computer` that names another computer, is `invalid_request`. Without
+  them, the routes answer as below.
 - `POST /v1/decisions/get` takes `caller` and `reference` and returns every field with
   `state`, `revision`, `author_family`, `author_name`, times, the last close (`closed_by`,
   `closed_at`, `outcome_note`), the current `verdict` with its snapshot and deliveries (or

@@ -309,8 +309,9 @@ func TestFrames(t *testing.T) {
 	}
 }
 
-// A maintainer frame and its reply take up to 1 MiB of encoded JSON, wrapper included; every
-// other operation keeps 128 KiB, also on the read (#693 chunk 2, C2-3).
+// A maintainer frame and its reply, and a board answer, take up to 1 MiB of encoded JSON,
+// wrapper included; every other operation, the board request too, keeps 128 KiB, also on the
+// read (#693 chunk 2, C2-3; #746 chunk 03).
 func TestFrameLimits(t *testing.T) {
 	sized := func(op string, n int, fill string) Frame {
 		wrapper := len(`{"op":"` + op + `","body":""}`)
@@ -320,7 +321,7 @@ func TestFrameLimits(t *testing.T) {
 		data, _ := json.Marshal(f)
 		return len(data)
 	}
-	for _, op := range []string{"maintainer", "maintainer-ok"} {
+	for _, op := range []string{"maintainer", "maintainer-ok", "board-ok"} {
 		exact := sized(op, MaxMaintainerFrameBytes, "a")
 		if n := encoded(exact); n != MaxMaintainerFrameBytes {
 			t.Fatalf("%s: fixture is %d bytes", op, n)
@@ -354,6 +355,9 @@ func TestFrameLimits(t *testing.T) {
 	}
 	if _, err := ReadFrame(bytes.NewReader(raw("ping", MaxFrameBytes+1))); !errors.Is(err, ErrFrameTooLarge) {
 		t.Fatalf("ping over its bound: %v", err)
+	}
+	if _, err := ReadFrame(bytes.NewReader(raw("board", MaxFrameBytes+1))); !errors.Is(err, ErrFrameTooLarge) {
+		t.Fatalf("board request over its bound: %v", err)
 	}
 	if _, err := ReadFrame(bytes.NewReader(raw("maintainer", MaxMaintainerFrameBytes+1))); err == nil {
 		t.Fatal("a frame over 1 MiB was read")

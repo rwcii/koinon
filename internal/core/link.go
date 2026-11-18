@@ -606,6 +606,8 @@ func (d *Daemon) linkOperation(pin string, f link.Frame, gen uint64) (link.Frame
 		return d.answerNotice(pin, f, gen)
 	case "maintainer":
 		return d.answerMaintainer(pin, f, gen)
+	case "board":
+		return d.answerBoard(pin, f, gen)
 	case "unpair":
 		var body linkPairID
 		if f.Decode(&body) != nil {

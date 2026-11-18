@@ -15,7 +15,8 @@ import (
 // decisionCommand is the command path of decision_create, decision_edit, decision_list and
 // decision_get (#206, chunk 01) and decision_history, decision_pending, decision_ack,
 // decision_close and decision_restore (chunk 02) and decision_withdraw (#504), and the board's
-// export (#589).
+// export (#589). List, get, pending and ack take --computer or --pair for a card on a paired
+// computer (#746 chunk 03).
 func decisionCommand(ctx context.Context, args []string, out io.Writer) error {
 	ops := map[string]bool{"create": true, "edit": true, "list": true, "get": true, "history": true, "pending": true,
 		"ack": true, "close": true, "withdraw": true, "restore": true, "export": true}
@@ -61,7 +62,7 @@ func decisionCommand(ctx context.Context, args []string, out io.Writer) error {
 		ints["after"] = flags.Int64("after", 0, "item ID from the previous page's next_after")
 		limit = flags.Int("limit", 0, "page size (default and maximum 100)")
 	case "get":
-		text("reference", "item reference")
+		text("reference", "item reference, or REFERENCE@COMPUTER for a card on a paired computer")
 	case "export":
 		text("path", "the new file that gets the export, outside a Git work tree (or give it as the argument)")
 	case "restore":
@@ -89,6 +90,12 @@ func decisionCommand(ctx context.Context, args []string, out io.Writer) error {
 		text("reason", "one-line reason: done, superseded by REF, answered in chat or no longer valid")
 		text("key", "idempotency key, fixed before the first attempt")
 		deadline = flags.Float64("deadline", 0, "retry deadline in Unix seconds, at most 24 hours ahead")
+	}
+	switch op {
+	case "list", "get", "pending", "ack":
+		// A card on a paired computer, read or acknowledged there over the link (#746 chunk 03).
+		text("computer", "the paired computer that holds the card, as its decision notice names it")
+		text("pair", "that computer's pair ID, as the notice names it; it wins over --computer")
 	}
 	if err := flags.Parse(rest); err != nil {
 		return usageError{"invalid_request", err.Error()}
