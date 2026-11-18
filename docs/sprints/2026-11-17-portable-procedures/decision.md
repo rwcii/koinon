@@ -63,3 +63,15 @@ claims, the board) need Koinon. The adopting project's own changes are its work.
 - **Decision:** v0.13.0: "release is go, 0.13.0".
 - **Reason and scope:** the answer names no further reason. This covers this release only; it
   sets no rule for later version numbers.
+
+## The release number for the skill entry check (#741)
+
+- **Decided by:** Robert Capps.
+- **Date:** 2026-11-18, terminal.
+- **Context:** after v0.13.0, the Unify orchestrator found that no read-only check confirms the
+  installed `koinon-NAME` skill entries (#741); the fix makes `koinon install --plan` check them
+  (#742). The store stays at schema 39.
+- **Decision:** v0.13.1: "when done, release 0.13.1 with the fix, then install it and have the
+  unify coordinator verify the fix".
+- **Reason and scope:** the answer names no further reason. This covers this release only; it
+  sets no rule for later version numbers.
