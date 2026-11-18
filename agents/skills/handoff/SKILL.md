@@ -98,7 +98,7 @@ block of step 2, which sets `dir`:
 
 ```sh
 note="$dir/progress.md"
-last=$(ls "$dir"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]*.md 2>/dev/null | sort | tail -1)
+last=$(ls "$dir"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]*.md 2>/dev/null | LC_ALL=C sort | tail -1)
 if [ -f "$note" ] && [ "$(wc -c < "$note")" -le 4096 ] && { [ -z "$last" ] || [ "$note" -nt "$last" ]; }; then
   echo "seed: note${last:+, then $last}"
 elif [ -n "$last" ]; then

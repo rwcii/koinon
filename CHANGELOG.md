@@ -5,6 +5,8 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The pickup and handoff skills pick the newest handoff in byte order (`LC_ALL=C sort`), so
+  two handoffs of the same second give the same file in every locale (#737).
 - A computer with no Koinon can get the skills of one release (#732). Each release carries
   `koinon-skills.tar.gz` with its line in `SHA256SUMS`, and `sh scripts/install-skills.sh
   VERSION` checks it and writes each skill as `koinon-NAME` into the Claude Code and Codex
