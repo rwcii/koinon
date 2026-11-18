@@ -82,7 +82,7 @@ func TestImportCommandWithoutPython(t *testing.T) {
 	}
 }
 
-// koinon install --plan prints one command per line and takes only --prefix and --state-dir
+// koinon install --plan prints one command per line and takes only --json, --prefix and --state-dir
 // (#551). The isolated home has no daemon, so the plan is the install.
 func TestInstallPlanCommand(t *testing.T) {
 	dir := t.TempDir()
@@ -105,5 +105,35 @@ func TestInstallPlanCommand(t *testing.T) {
 	}
 	if _, err := os.Stat(state); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("the plan made the state directory: %v", err)
+	}
+	// --json prints the same step with its reason (#745), and needs --plan.
+	out.Reset()
+	if err := run(context.Background(), []string{"install", "--plan", "--json", "--prefix", filepath.Join(dir, "prefix"), "--state-dir", state}, nil, &out); err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		OK      bool `json:"ok"`
+		Current bool `json:"current"`
+		Steps   []struct {
+			Command string `json:"command"`
+			Reasons []struct {
+				Code string `json:"code"`
+			} `json:"reasons"`
+		} `json:"steps"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("%v: %s", err, out.String())
+	}
+	want := setup.ShellWord(exe) + " install --prefix " + filepath.Join(dir, "prefix") + " --state-dir " + state
+	if !got.OK || got.Current || len(got.Steps) != 1 || got.Steps[0].Command != want || len(got.Steps[0].Reasons) != 1 || got.Steps[0].Reasons[0].Code != "not_installed" {
+		t.Fatalf("plan --json: %s", out.String())
+	}
+	if _, err := os.Stat(state); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the JSON plan made the state directory: %v", err)
+	}
+	err := run(context.Background(), []string{"install", "--json"}, nil, &bytes.Buffer{})
+	var usage usageError
+	if !errors.As(err, &usage) || usage.code != "invalid_request" {
+		t.Fatalf("--json without --plan: %v", err)
 	}
 }
