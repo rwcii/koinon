@@ -36,3 +36,14 @@ proposed plan; implementation starts only after the verdict on BOARD-LINK-746 an
 The maintainer's feedback on BOARD-LINK-746 revision 2 asked whether the plan sends a read-only
 card, notifies the agent and lets it read its card, and named the name resolution on the card.
 Revision 3 answers yes with the same scope; `decision.md` records the feedback.
+
+## Design change: the card lives in one place
+
+On 2026-11-18 the maintainer confirmed that the agent reads its card live from the card's own
+computer, and said: "the card lives in one place. spreading read only cards around to other
+nodes is a problem. they will QUICKLY fall out of sync." BOARD-LINK-746 revision 5 and this
+plan replace the stored copy with short notices that carry no card text, and remote read,
+list, pending and acknowledgement at the origin over the link. The copy parts of the earlier
+plan, and the plan review's findings F2 and F3 and N2 on copies, no longer apply. F1 (the
+probe), F4 (notices for changes) and F5 (capture before transport, upgrade reconciliation)
+carry into this plan. The changed plan needs a new review.
