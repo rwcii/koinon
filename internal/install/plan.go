@@ -97,7 +97,7 @@ func Plan(ctx context.Context, o Options) ([]string, error) {
 	}
 	// A missing or earlier skill entry or OpenCode command file is the install's to write
 	// (#741); the daemon also writes them at each start, so this finds a write that failed.
-	if repair, err := entriesNeedInstall(o); err != nil {
+	if repair, err := entriesNeedInstall(ctx, o); err != nil {
 		return nil, err
 	} else if repair {
 		return []string{install}, nil
@@ -253,12 +253,19 @@ func secretSet(ctx context.Context, o Options) (bool, error) {
 // writes (pickupSkillPaths, skillRoots, OpenCode's commands when its directory exists) and
 // writing none (#741). A kept file (a link, another skill at a shared name, an
 // edited command) needs nothing; a file that cannot be read is an unfinished check.
-func entriesNeedInstall(o Options) (bool, error) {
-	// Every file is read before the answer, so a missing entry never hides an unreadable one.
+func entriesNeedInstall(ctx context.Context, o Options) (bool, error) {
+	// Every file is read before the answer, so a missing entry never hides an unreadable one,
+	// and an inspection that passes the plan's time is unfinished, even after a repair.
 	repair := false
 	check := func(result string, err error) error {
+		if err != nil {
+			return err
+		}
+		if ctx.Err() != nil {
+			return fmt.Errorf("plan_timeout: the checks did not finish in %s", o.PlanWait)
+		}
 		repair = repair || result == "created" || result == "replaced"
-		return err
+		return nil
 	}
 	for _, skill := range pickupSkillPaths(o) {
 		if err := check(core.SkillFileState(skill.Path, pickupContent(skill.Family))); err != nil {
@@ -277,7 +284,7 @@ func entriesNeedInstall(o Options) (bool, error) {
 		}
 	}
 	if info, err := os.Stat(o.Opencode); err != nil || !info.IsDir() {
-		return repair, nil
+		return repair, check("", nil)
 	}
 	commands, err := core.OpenCodeCommands()
 	if err != nil {
@@ -288,5 +295,5 @@ func entriesNeedInstall(o Options) (bool, error) {
 			return false, err
 		}
 	}
-	return repair, nil
+	return repair, check("", nil)
 }

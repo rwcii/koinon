@@ -8,6 +8,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/rwcii/koinon/internal/core"
 )
@@ -159,5 +160,54 @@ func TestPlanSkillEntriesAbsentRoots(t *testing.T) {
 	os.RemoveAll(filepath.Join(e.o.Services.Home, ".agents"))
 	if steps, want := plan(t, e), []string{e.o.Source + " install"}; !reflect.DeepEqual(steps, want) {
 		t.Fatalf("missing Codex root: %q, want %q", steps, want)
+	}
+}
+
+// A missing entry found after the plan's time is an unfinished check, not an install step.
+func TestPlanSkillEntriesTimeout(t *testing.T) {
+	e := entriesEnv(t)
+	os.Remove(core.ClaudeSkillPath(e.o.ClaudeConfig, core.PickupSkillName))
+	e.o.PlanWait = time.Nanosecond
+	steps, err := Plan(context.Background(), e.o)
+	if err == nil || !strings.HasPrefix(err.Error(), "plan_timeout: ") || steps != nil {
+		t.Fatalf("%q %v", steps, err)
+	}
+}
+
+// An entry under a folder that cannot be read is skill_entry_unreadable, with its path; a
+// folder at an OpenCode command's path is not Koinon's, and is kept as the install keeps it.
+func TestPlanSkillEntryInspection(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a mode 000 folder")
+	}
+	e := entriesEnv(t)
+	dir := filepath.Dir(core.CodexSkillPath(e.o.Services.Home, "koinon-record"))
+	if err := os.Chmod(dir, 0); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(dir, 0o700)
+	steps, err := Plan(context.Background(), e.o)
+	if err == nil || !strings.HasPrefix(err.Error(), "skill_entry_unreadable: ") || !strings.Contains(err.Error(), dir) || steps != nil {
+		t.Fatalf("unreadable folder: %q %v", steps, err)
+	}
+	os.Chmod(dir, 0o700)
+	command := core.OpenCodeCommandPath(e.o.Opencode, "koinon-check")
+	if err := os.Remove(command); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(command, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if steps := plan(t, e); len(steps) != 0 {
+		t.Fatalf("folder at a command path: %q", steps)
+	}
+	var r Report
+	if err := installPickupSkills(e.o, &r); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range r.OpenCodeCommands {
+		if c.Path == command && c.Result != "kept" {
+			t.Fatalf("the install gave %q for the folder", c.Result)
+		}
 	}
 }

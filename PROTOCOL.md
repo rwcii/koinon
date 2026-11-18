@@ -818,9 +818,10 @@ directory or file, which neither writes through. `opencode_commands` lists OpenC
 `commands/koinon-NAME.md` files, with `koinon-resume` for `koinon-pickup`, in the same rows
 (#603); a command file without an intact
 Koinon marker is `kept`. `koinon install --plan` reads these files with the same rules and writes
-none: a file that the install would create or replace gives `koinon install`, a kept file gives
-nothing, and a file that is not a bounded regular file ends the plan with
-`skill_entry_unreadable` (#741). A write the daemon cannot make is logged
+none: a file that the install would create or replace gives `koinon install`, and a kept file
+gives nothing. A skill entry that is not a bounded regular file, or any entry path that cannot be
+inspected, ends the plan with `skill_entry_unreadable` (#741); an OpenCode command file that is
+not a small regular file is kept, as the install keeps it. A write the daemon cannot make is logged
 (`pickup_skill`, `write_failed`) and does not stop it. `koinon claude` adds no directory to a launch,
 and the cycle adds none to a running session.
 
