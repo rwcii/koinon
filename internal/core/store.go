@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rwcii/koinon/internal/link"
 	"github.com/rwcii/koinon/internal/platform"
 	"modernc.org/sqlite"
 )
@@ -134,6 +135,9 @@ type Store struct {
 	db *sql.DB
 	// logEvent writes a daemon log event, or is nil outside a daemon.
 	logEvent func(string, map[string]any)
+	// linkFence returns the paired computers for one decision board write and the release
+	// of its fence (#746); nil outside a daemon. See boardFence.
+	linkFence func(context.Context) (boardPairs, func())
 	// root is the state directory; the decision deep archive writes its log files there.
 	root      string
 	decisions decisionState
@@ -270,7 +274,19 @@ func openStoreFile(root, name string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	if err := migrate(db, version, schemaVersion); err != nil {
+	var links []migrationLink
+	if version > 0 && version < 40 {
+		// The reconciliation of schema 40 reads the paired computers. A missing link file is
+		// no pair; an unreadable one stops the open before the migration, so the one-time
+		// reconciliation is never skipped.
+		st, err := link.ReadState(root)
+		if err != nil {
+			db.Close()
+			return nil, err
+		}
+		links = append(links, migrationLink{pairs: pairRefs(st), now: time.Now().UnixMilli()})
+	}
+	if err := migrate(db, version, schemaVersion, links...); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -367,7 +383,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 39
+const schemaVersion = 40
 
 // workItemsV16Columns are the work item columns before schema 17, which its rebuild copies.
 const workItemsV16Columns = `store,work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,created_at,created_consumer,
@@ -407,9 +423,16 @@ const workEventsTable = `CREATE TABLE work_events (store TEXT NOT NULL, seq INTE
 		'finished','progress-overdue','lease-expired','reported','accepted','rejected')),
 	payload TEXT NOT NULL, actor TEXT NOT NULL DEFAULT '', PRIMARY KEY (store, seq))`
 
+// migrationLink is what the 39 to 40 step reads besides the database: the computers paired
+// when the store opens, and the time. A reference catalog migrates with none.
+type migrationLink struct {
+	pairs []linkPairRef
+	now   int64
+}
+
 // migrate brings the state schema from version to target in one transaction, so a crash
 // leaves either the old or the new schema. Each step starts from the version before it.
-func migrate(db *sql.DB, version, target int) error {
+func migrate(db *sql.DB, version, target int, links ...migrationLink) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -959,6 +982,19 @@ func migrate(db *sql.DB, version, target int) error {
 		// signer of a verdict (#693, LINK-693-SIGNED).
 		if _, err := tx.Exec(maintainerKeyTablesV39); err != nil {
 			return err
+		}
+	}
+	if version < 40 && target >= 40 {
+		// Version 40: remote recipients, verdict deliveries to them, their notices and the
+		// notice stream of each pair (#746 chunk 01); cards that already name a recipient on
+		// a paired computer are reconciled once.
+		if _, err := tx.Exec(boardLinkTablesV40); err != nil {
+			return err
+		}
+		for _, l := range links {
+			if err := reconcileBoardV40(tx, l.now, l.pairs); err != nil {
+				return err
+			}
 		}
 	}
 	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", target)); err != nil {

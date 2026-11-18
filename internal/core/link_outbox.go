@@ -258,10 +258,10 @@ func (s *Store) linkNextHead(ctx context.Context, pairID string) (linkHead, bool
 		h.Seq, h.Digest = seq.Int64, digest.String
 		return h, true, nil
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO link_streams(pair_id,direction) VALUES (?,'out')`, pairID); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO link_streams(pair_id,stream,direction) VALUES (?,'message','out')`, pairID); err != nil {
 		return linkHead{}, false, tx.fail(err)
 	}
-	if err := tx.QueryRowContext(ctx, `UPDATE link_streams SET next_seq=next_seq+1 WHERE pair_id=? AND direction='out'
+	if err := tx.QueryRowContext(ctx, `UPDATE link_streams SET next_seq=next_seq+1 WHERE pair_id=? AND stream='message' AND direction='out'
 		RETURNING next_seq-1`, pairID).Scan(&h.Seq); err != nil {
 		return linkHead{}, false, tx.fail(err)
 	}
@@ -435,6 +435,9 @@ func (s *Store) linkRetire(ctx context.Context, pairID string) error {
 	if _, err := tx.ExecContext(ctx, `DELETE FROM link_streams WHERE pair_id=?`, pairID); err != nil {
 		return tx.fail(err)
 	}
+	if err := retireNotices(ctx, tx, now, pairID); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -442,7 +445,7 @@ func (s *Store) linkRetire(ctx context.Context, pairID string) error {
 // reconciliation with the link state after a crash between an unpair's two writes.
 func (s *Store) linkPairIDs(ctx context.Context) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT pair_id FROM link_outbox WHERE `+linkLive+`
-		UNION SELECT pair_id FROM link_streams`)
+		UNION SELECT pair_id FROM link_streams UNION SELECT pair_id FROM decision_notices WHERE `+noticeLive)
 	if err != nil {
 		return nil, err
 	}
@@ -545,13 +548,13 @@ func (s *Store) linkReceive(ctx context.Context, in linkDelivery) (linkResult, e
 		return linkResult{}, err
 	}
 	defer tx.Rollback()
-	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO link_streams(pair_id,direction) VALUES (?,'in')`, in.Pair); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT OR IGNORE INTO link_streams(pair_id,stream,direction) VALUES (?,'message','in')`, in.Pair); err != nil {
 		return linkResult{}, tx.fail(err)
 	}
 	var high int64
 	var last, lastReason, lastDigest string
 	if err := tx.QueryRowContext(ctx, `SELECT high_water,last_result,last_reason,last_digest FROM link_streams
-		WHERE pair_id=? AND direction='in'`, in.Pair).Scan(&high, &last, &lastReason, &lastDigest); err != nil {
+		WHERE pair_id=? AND stream='message' AND direction='in'`, in.Pair).Scan(&high, &last, &lastReason, &lastDigest); err != nil {
 		return linkResult{}, err
 	}
 	switch {
@@ -576,7 +579,7 @@ func (s *Store) linkReceive(ctx context.Context, in linkDelivery) (linkResult, e
 		}
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE link_streams SET high_water=?,last_result=?,last_reason=?,last_digest=?
-		WHERE pair_id=? AND direction='in'`, in.Seq, result.Result, result.Reason, in.Digest, in.Pair); err != nil {
+		WHERE pair_id=? AND stream='message' AND direction='in'`, in.Seq, result.Result, result.Reason, in.Digest, in.Pair); err != nil {
 		return linkResult{}, tx.fail(err)
 	}
 	if err := tx.Commit(); errors.Is(err, ErrCapacity) || errors.Is(err, ErrStorageBlocked) {

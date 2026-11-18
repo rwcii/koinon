@@ -3,7 +3,7 @@ pdr: "011"
 title: "Linked Koinon Computers"
 status: accepted
 created: "2026-11-12"
-updated: "2026-11-15"
+updated: "2026-11-18"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -116,6 +116,30 @@ maintainer secret is in PDR 009; Remote is in PDR 010.
   maintainer" and item 5's maintainer inbox and decision board now hold only for unsigned
   traffic: signed maintainer actions cross, as Decision 6 says. Agent messages keep items 1 to
   4, and an agent message that names a maintainer or overwatch sender is still refused.
+- **Amendment (BOARD-LINK-746):** Robert Capps, 2026-11-18, approved, after feedback on
+  revision 2. The review condition "agents need ... decisions across computers" is met: "they
+  should be able to see the card they are tagged in, and they should be able to receive
+  alerts/updates when cards are decided." His feedback set the shape: "the card lives in one
+  place. spreading read only cards around to other nodes is a problem. they will QUICKLY fall
+  out of sync." For a card that names a recipient `NAME@COMPUTER` of a paired computer, item 3
+  and item 5 change:
+  1. The card's computer resolves that recipient, with the pair ID, and sends it a short
+     notice for a new card, each change and each verdict, with the receiver's ordinary wake.
+     A notice holds the card reference, the computer, the event and the revision, and no card
+     text.
+  2. The agent reads the live card and its verdicts, and acknowledges a verdict, at the card's
+     computer over the link. Its own computer stores no card.
+  3. The card and all its state stay on the card's computer. The link gives no edit, no
+     verdict and no maintainer or overwatch authority on it.
+  The rest of the board, and every other card, stays on each computer. Reason and scope: an
+  agent on another computer must see and acknowledge the cards that name it, and one place for
+  the card keeps it correct; while the card's computer is offline, the agent cannot read the
+  card. Alternatives considered: a read-only copy on the agent's computer (copies fall out of
+  sync); reading on request with notices only for verdicts (no notice for a new card or a
+  change). Review when: agents need to read cards while the card's computer is offline. The
+  plan is in [the sprint's decision record](../../sprints/2026-11-18-board-link/decision.md).
+  Chunk 01 (#746) captures the notices at the card's computer; chunk 02 sends them; chunk 03
+  carries the reads and acknowledgements.
 
 ## 4. Decision 3: Addresses (LINK-670-ADDR)
 
@@ -283,3 +307,4 @@ computer keeps its own stores and controls.
 | 2026-11-15 | Decision 6, LINK-693-SIGNED, approved by Robert Capps: signed maintainer actions across the link; Decision 2 amended (#693). |
 | 2026-11-15 | Decision 6: chunk 1 shipped, signed actions on a node's own pin (#693). |
 | 2026-11-15 | Decision 6: chunks 2 and 3 shipped (#700, #701); the live checks with Koinon Voice passed on Linux and macOS, after the fix of #703 (#693). |
+| 2026-11-18 | Decision 2 amended, BOARD-LINK-746, approved by Robert Capps: cards for agents on another computer, with notices and reads at the card's computer (#746). |

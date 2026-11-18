@@ -5,6 +5,15 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A decision card can name an agent on a paired computer as `NAME@COMPUTER` (#746, chunk 01).
+  The card now resolves that recipient as `remote`, with its pair, instead of `unknown_name`,
+  and keeps it through a rename of the computer. Each new card, change and verdict queues a
+  short notice for it, with no card text; a verdict delivery to it waits for its
+  acknowledgement. A later release sends the notices and lets the agent read and acknowledge
+  the card here. The store moves to schema 40, and the upgrade fixes open cards that already
+  name such an agent. A v0.13.x binary refuses a schema 40 store, so you cannot go back to
+  v0.13.x after the upgrade.
+
 ## 2026-11-18 — A plan that checks the skill entries
 
 This release makes `koinon install --plan` check the skill entries that `koinon install` and
