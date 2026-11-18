@@ -47,3 +47,11 @@ list, pending and acknowledgement at the origin over the link. The copy parts of
 plan, and the plan review's findings F2 and F3 and N2 on copies, no longer apply. F1 (the
 probe), F4 (notices for changes) and F5 (capture before transport, upgrade reconciliation)
 carry into this plan. The changed plan needs a new review.
+
+codex-koinon, 2026-11-18, boundaries for the one-place plan, before its review: names from
+the authenticated local caller only, checked at the origin against the authenticated pair;
+removal and holder change keep outstanding verdict deliveries; one named computer per call
+with a finite deadline and coded errors, never an empty list or a stored card; pair identity
+beside the computer name; an acknowledgement that succeeds only after the origin commits, with
+`link_uncertain` on a lost answer and an idempotent retry; notices with no card text. Each one
+is in the Remote read and acknowledgement section of the definition of done, with its tests.

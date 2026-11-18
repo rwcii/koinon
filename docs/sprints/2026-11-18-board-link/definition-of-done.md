@@ -47,8 +47,8 @@ real agent, a real board or another computer.
   worker shows that pair's waiting notices as `unsupported` (not final), sends none, and
   probes again on the next connection after the next backoff, so notices resume by
   themselves after an upgrade, with no edit and no new pairing.
-- A notice holds the origin's reference, the event, the verdict kind and verdict ID for a
-  verdict, and the revision. It holds no title, field or entry text, so its frame stays small.
+- A notice holds the origin's reference, the computer name and the pair ID, the event, the
+  verdict kind and verdict ID for a verdict, and the revision. It holds no title, field or entry text, so its frame stays small.
 - On the agent's computer, NAME resolves as a direct message from the link does: a peer name,
   or a participant address so that a holder change or a context cycle keeps it. The notice is
   one typed inbox message with its ordinary wake, committed before the answer. An unknown
@@ -62,31 +62,51 @@ real agent, a real board or another computer.
 ## Remote read and acknowledgement
 
 - New request operations, from the agent's computer to the origin, each on its own
-  connection and bounded in time: read one card, list the cards that name the agent, list its
-  waiting verdicts, and acknowledge verdicts. The agent's computer sends the agent's peer name
-  and the participant address it holds now; the origin answers only for remote recipient rows
-  of that pair with one of those names (acceptance 10).
-- Tools on the agent's computer: `decision_get` takes `REFERENCE@COMPUTER`;
-  `decision_list --filter mine` and `decision_pending` take an optional `computer`;
-  `decision_ack` takes an optional `computer` with the origin's verdict IDs. Without
-  `computer`, each tool works as today on the local board. Each remote answer has `origin`.
-  Paging uses the origin's cursors.
-- The answer frame is bounded at 1 MiB (`link.FrameLimit`), as the maintainer operation's is.
-  A card with every field at its limit and the worst JSON escaping fits; nothing is cut short.
-  A page of a list or pending answer is cut to fit, with its cursor.
-- An acknowledgement is recorded at the origin before the answer. A repeat changes nothing.
-  The agent's computer stores nothing and queues nothing for it.
-- Offline, unpaired, an earlier release or a timeout: a coded error (`link_computer_offline`,
-  `link_computer_unknown`, `link_unsupported`), and no change on either side.
-- Tests: read, list, pending and ack across two daemons; the same reference and verdict
-  number on both computers; a name that the card does not name gets nothing; a holder change
-  between the notice and the read; the origin offline; a computer at v0.13.1; a card at every
-  field limit; a repeated acknowledgement; a lost answer after the acknowledgement commits.
+  connection with one finite total deadline: read one card, list the cards that name the
+  agent, list its waiting verdicts, and acknowledge verdicts. They are typed agent operations,
+  separate from the signed maintainer operation.
+- Authorization: the agent's computer derives the names from the authenticated local caller
+  only: its peer name and the participant address that it holds now. No tool parameter names
+  a recipient. The origin checks those names against the remote recipient rows and verdict
+  deliveries of the authenticated pair (the TLS pin of that pair). It answers nothing else:
+  pairing alone exposes no other card, and one local agent cannot read or acknowledge as
+  another tagged name (acceptance 10).
+- Current tags authorize live card reads. A recipient removed by an edit no longer reads the
+  live card, but keeps its outstanding verdict deliveries: `decision_pending` still lists them
+  with their snapshots, and `decision_ack` still acknowledges them, as for a local recipient.
+  After a reopen, older unacknowledged verdicts stay pending. An acknowledgement changes only
+  that recipient's delivery.
+- Tools on the agent's computer, each for one named computer and never a fan-out over all
+  pairs: `decision_get` takes `REFERENCE@COMPUTER`; `decision_list --filter mine`,
+  `decision_pending` and `decision_ack` take an optional `computer` (CLI `--computer`).
+  Without it, each tool works as today on the local board, and local integer verdict IDs keep
+  their meaning. Each remote answer has `origin` with the computer name and the pair ID; each
+  remote tool also accepts `pair` in place of `computer`, and refuses it when that pair is no
+  longer paired, so a stale notice or a reused name never sends an acknowledgement to another
+  pairing. Remote verdict IDs and cursors are the origin's and are used only with that pair.
+- Bounds: the existing page and byte bounds of each tool. The answer frame is bounded at 1 MiB
+  (`link.FrameLimit`), as the maintainer operation's is. A card with every field at its limit
+  and the worst JSON escaping fits; nothing is cut short. A list or pending page is cut to
+  fit, with its cursor.
+- An acknowledgement succeeds only after the origin commits it and answers. A lost answer
+  after the request was sent gives `link_uncertain`; a retry is idempotent and answers the
+  stored result. Offline, unpaired, an earlier release or the deadline gives a coded error
+  (`link_computer_offline`, `link_computer_unknown`, `link_unsupported`, `link_timeout`),
+  never an empty list or a stored card, and no change on either side. The agent's computer
+  stores nothing and queues nothing for a read or an acknowledgement.
+- Tests: read, list, pending and ack across two daemons; a forged recipient name (one local
+  agent asks for another tagged name) gets nothing; the same reference and verdict number on
+  both computers; two recipients on one computer, one removed and one acknowledging; a holder
+  change between the notice and the read; unpair, re-pair under the same name, then an
+  acknowledgement with the old pair ID is refused; the origin offline; a hung origin until
+  the deadline, and a cancelled call; a computer at v0.13.1; a card at every field limit; a
+  repeated acknowledgement; a lost answer after the acknowledgement commits, then a retry;
+  no card row, card text or read answer is stored on the agent's computer after each call.
 
 ## Lifecycle at the origin
 
-- A recipient removed by an edit gets a last `removed` notice, and no later one. Its remote
-  reads of that card then get nothing.
+- A recipient removed by an edit gets a last `removed` notice, and no later one, as the
+  section above says for its reads and its outstanding verdicts.
 - An unpair retires the notice stream of that pair with the message stream, as #670 does.
   Waiting notices for that pair become `unpaired`.
 - `decision_get`, `decision_history` and the dashboard card show each remote recipient with
