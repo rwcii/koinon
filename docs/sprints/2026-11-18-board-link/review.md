@@ -66,3 +66,10 @@ P2 findings and two clarifications. Each one is accepted.
 | 746-LIVE-F3: friendly names alone cannot bind an acknowledgement to one pairing | Fixed in 1f25296: `origin` and notices carry the pair ID; tools accept `pair` and refuse a stale one; rename and unpair/re-pair tests |
 | N1: caller-derived names | Fixed in 1f25296, with the A-asks-for-B test |
 | N2: name the time budget | Fixed: 8 seconds in all, inside the 10-second write timeout of the local API; a shorter local deadline and a cancel win |
+
+codex-koinon, recheck of the replacement plan through 1f2529680392d9d79b3d35efee824771e440cadf:
+PASS. Its reading of the 746-LIVE-F2 fix, which 3c6c7a4 states: the "nothing was sent" errors
+apply only to definite failures before the request is written, and to reads. A lost
+acknowledgement answer after the request is written, also by the budget or a cancel, is
+`link_uncertain`, because the origin may have committed; it is never reported as a timeout
+with no change.
