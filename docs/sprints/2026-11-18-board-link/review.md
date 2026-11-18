@@ -55,3 +55,14 @@ with a finite deadline and coded errors, never an empty list or a stored card; p
 beside the computer name; an acknowledgement that succeeds only after the origin commits, with
 `link_uncertain` on a lost answer and an idempotent retry; notices with no card text. Each one
 is in the Remote read and acknowledgement section of the definition of done, with its tests.
+
+codex-koinon reviewed the replacement plan at 079b99c849a9bdcc131f8649be57b6c2e371a538: three
+P2 findings and two clarifications. Each one is accepted.
+
+| Finding | Disposition |
+| --- | --- |
+| 746-LIVE-F1: a removed recipient lost its outstanding verdict deliveries | Fixed in 1f25296: current tags authorize live card reads; captured deliveries authorize pending and ack, by pair and recipient; test with two recipients, one removed |
+| 746-LIVE-F2: "no change" on a timeout contradicts a commit before a lost answer | Fixed: before-write failures say nothing was sent; after-write failures give `link_uncertain`; idempotent retry; acceptance 6 corrected; tests for both |
+| 746-LIVE-F3: friendly names alone cannot bind an acknowledgement to one pairing | Fixed in 1f25296: `origin` and notices carry the pair ID; tools accept `pair` and refuse a stale one; rename and unpair/re-pair tests |
+| N1: caller-derived names | Fixed in 1f25296, with the A-asks-for-B test |
+| N2: name the time budget | Fixed: 8 seconds in all, inside the 10-second write timeout of the local API; a shorter local deadline and a cancel win |

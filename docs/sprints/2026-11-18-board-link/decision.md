@@ -81,8 +81,9 @@ chunk 01.
    computer. Each answer comes from the card's computer at that moment.
 5. The agent acknowledges a remote verdict with `decision_ack` and that computer. The card's
    computer records it, and shows that delivery as acknowledged.
-6. While the card's computer is offline or unpaired, these tools answer with a coded error and
-   change nothing; the notices stay in the inbox.
+6. While the card's computer is offline or unpaired, these tools answer with a coded error
+   that says nothing was sent; the notices stay in the inbox. When the request was sent and
+   no answer came, the tool says that the outcome is uncertain, and a retry is safe.
 7. A paired computer that runs an earlier release gives the card's computer a visible
    `unsupported` state; notices resume by themselves after that computer is updated. A remote
    read of a computer at an earlier release answers `unsupported`. Direct messages never wait.

@@ -88,19 +88,32 @@ real agent, a real board or another computer.
   (`link.FrameLimit`), as the maintainer operation's is. A card with every field at its limit
   and the worst JSON escaping fits; nothing is cut short. A list or pending page is cut to
   fit, with its cursor.
-- An acknowledgement succeeds only after the origin commits it and answers. A lost answer
-  after the request was sent gives `link_uncertain`; a retry is idempotent and answers the
-  stored result. Offline, unpaired, an earlier release or the deadline gives a coded error
-  (`link_computer_offline`, `link_computer_unknown`, `link_unsupported`, `link_timeout`),
-  never an empty list or a stored card, and no change on either side. The agent's computer
+- Time budget: each remote call has one total budget of 8 seconds for the dial, the TLS
+  handshake and the exchange, inside the local API server's 10-second write timeout. A shorter
+  deadline of the local request wins, and a cancelled local request stops the call.
+- Outcomes: a failure before the request frame is written (not paired, offline, the dial or
+  handshake failed, an earlier release that refuses the operation, the budget ran out before
+  the write) gives a coded error that says nothing was sent: `link_computer_unknown`,
+  `link_computer_offline` or `link_unsupported`. Nothing changed on either side. A failure
+  after the request frame was written (no answer, a lost answer, the budget ran out) gives
+  `link_uncertain` with the computer and the pair ID: an acknowledgement may have committed at
+  the origin. An acknowledgement succeeds only after the origin commits it and answers; a
+  retry with the same pair and verdict IDs is idempotent and answers the stored result. The
+  model is the split of `computer_offline` and `outcome_unknown` in signed forwarding, without
+  its maintainer authority. No outcome is an empty list or a stored card. The agent's computer
   stores nothing and queues nothing for a read or an acknowledgement.
 - Tests: read, list, pending and ack across two daemons; a forged recipient name (one local
   agent asks for another tagged name) gets nothing; the same reference and verdict number on
   both computers; two recipients on one computer, one removed and one acknowledging; a holder
-  change between the notice and the read; unpair, re-pair under the same name, then an
-  acknowledgement with the old pair ID is refused; the origin offline; a hung origin until
-  the deadline, and a cancelled call; a computer at v0.13.1; a card at every field limit; a
-  repeated acknowledgement; a lost answer after the acknowledgement commits, then a retry;
+  change between the notice and the read; a rename of the origin; unpair, then a different
+  computer paired under the same name with the same reference and verdict number, then an
+  acknowledgement with the old pair ID is refused and acknowledges nothing there; a removed
+  recipient reads no new card content and cannot acknowledge the other recipient's delivery;
+  caller A asks for B's tagged cards and gets nothing; the origin offline (nothing sent); a
+  hung origin until the budget runs out after the write (`link_uncertain`); a cancelled
+  local request; a computer at v0.13.1; a card at every field limit; a
+  repeated acknowledgement; a failure before the write, then a retry; a lost answer after the
+  acknowledgement commits, then a retry that answers the stored result;
   no card row, card text or read answer is stored on the agent's computer after each call.
 
 ## Lifecycle at the origin
