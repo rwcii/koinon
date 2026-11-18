@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- `library_state` with scope `project` accepts a Git submodule checkout when the session is
+  registered in that submodule; it refused every submodule checkout (#753). A refused
+  directory now returns a code that names the cause (`directory_unresolved`,
+  `directory_other_repository`, `directory_not_listed` or `project_context_unavailable`) with
+  a reason, instead of a bare `invalid_arguments`.
+
 - A Claude session whose host process changed its session ID gets its context readings and
   handoff cycles again (#751). The daemon kept the old session ID active while the host ran,
   so after the next `/clear` it could not tell which session a status-line reading belonged

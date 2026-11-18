@@ -85,9 +85,12 @@ func (c Client) inspectionContext(ctx context.Context, scope, directory string) 
 	}
 	limitations := []string{}
 	selected, err := core.LibraryCheckout(ctx, reply.Directory, directory, reply.Repository)
-	if err != nil || reply.Repository == "" {
+	if err == nil && reply.Repository == "" {
+		err = core.Refusal{Code: "project_context_unavailable", Message: "the session has no registered repository"}
+	}
+	if err != nil {
 		if scope == "project" || directory != "" {
-			return i, nil, core.ErrInvalid
+			return i, nil, err
 		}
 		limitations = append(limitations, "project_context_unavailable")
 	} else {

@@ -58,8 +58,11 @@ the stop and recovery steps, are in the Team operations section of
 Call `library_state` with optional `item_ids`, `scope` (`machine`, the default, or `project`)
 and `directory`. Without IDs, it selects skills in machine scope and all items in project
 scope. The directory defaults to the native session's registered directory; an explicit
-selection must resolve to a listed worktree of the same Git common directory. For the
-registered DeepSeek command session:
+selection must resolve to a listed worktree of the same Git common directory. A Git
+submodule is its own repository: start the session in the submodule to inspect it. A refused
+directory names its cause: `directory_unresolved` (not in a Git checkout),
+`directory_other_repository`, `directory_not_listed`, or `project_context_unavailable` (the
+session's registered checkout cannot be read). For the registered DeepSeek command session:
 
 ```sh
 koinon library state skill.pickup --scope project --as "deepseek:$DSH_SESSION_ID"
