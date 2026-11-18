@@ -138,6 +138,9 @@ type Store struct {
 	// linkFence returns the paired computers for one decision board write and the release
 	// of its fence (#746); nil outside a daemon. See boardFence.
 	linkFence func(context.Context) (boardPairs, func())
+	// noticeKick wakes the daemon's notice dispatcher after a commit that queued a notice; it
+	// never blocks and takes no lock. nil outside a daemon.
+	noticeKick func()
 	// root is the state directory; the decision deep archive writes its log files there.
 	root      string
 	decisions decisionState

@@ -85,8 +85,9 @@ type DecisionDelivery struct {
 	AcknowledgedAt int64  `json:"acknowledged_at,omitempty"`
 	// Pair is the pair ID of a remote recipient's computer, and Notice the state of this
 	// verdict's notice to it (#746).
-	Pair   string `json:"pair,omitempty"`
-	Notice string `json:"notice,omitempty"`
+	Pair         string `json:"pair,omitempty"`
+	Notice       string `json:"notice,omitempty"`
+	NoticeReason string `json:"notice_reason,omitempty"`
 }
 
 // DecisionVerdict is one verdict with the snapshot it was given on.
@@ -230,6 +231,8 @@ func verdictDeliveries(ctx context.Context, q querier, id int64) ([]DecisionDeli
 	// recipient; never a later notice of another event.
 	rows, err := q.QueryContext(ctx, `SELECT d.name,d.kind,d.outcome,d.reason,d.acknowledged_at,d.pair_id,
 		COALESCE((SELECT n.state FROM decision_notices n WHERE n.verdict_id=d.verdict_id AND n.pair_id=d.pair_id
+			AND n.recipient=d.remote_name ORDER BY n.id DESC LIMIT 1),''),
+		COALESCE((SELECT n.reason FROM decision_notices n WHERE n.verdict_id=d.verdict_id AND n.pair_id=d.pair_id
 			AND n.recipient=d.remote_name ORDER BY n.id DESC LIMIT 1),'')
 		FROM decision_deliveries d WHERE d.verdict_id=? ORDER BY d.ordinal`, id)
 	if err != nil {
@@ -239,7 +242,7 @@ func verdictDeliveries(ctx context.Context, q querier, id int64) ([]DecisionDeli
 	out := []DecisionDelivery{}
 	for rows.Next() {
 		var d DecisionDelivery
-		if err := rows.Scan(&d.Name, &d.Kind, &d.Outcome, &d.Reason, &d.AcknowledgedAt, &d.Pair, &d.Notice); err != nil {
+		if err := rows.Scan(&d.Name, &d.Kind, &d.Outcome, &d.Reason, &d.AcknowledgedAt, &d.Pair, &d.Notice, &d.NoticeReason); err != nil {
 			return nil, err
 		}
 		out = append(out, d)

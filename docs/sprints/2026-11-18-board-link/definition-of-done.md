@@ -42,11 +42,14 @@ real agent, a real board or another computer.
   connection, separate from the direct-message stream. It uses the durable outbox, ordering,
   retry, backoff and stored result of #670 chunk 03. A refusal, a stall or a closed connection
   on the notice stream never blocks a direct message, and the reverse.
-- Capability probe: before its first notice on each new connection, the worker sends a small
-  probe operation. A computer that does not know it answers `link_operation_unknown`; the
-  worker shows that pair's waiting notices as `unsupported` (not final), sends none, and
-  probes again on the next connection after the next backoff, so notices resume by
-  themselves after an upgrade, with no edit and no new pairing.
+- Capability detection: a notice frame is small (a few KiB at every field bound), so an
+  earlier release reads it whole and answers `link_operation_unknown`; the notice itself is
+  the probe, with no separate operation. The worker then shows that pair's live notices as
+  `unsupported` (not final; each keeps its sequence and digest), closes only its own
+  connection, and tries again on a new connection after its backoff, so notices resume by
+  themselves after an upgrade, with no edit and no new pairing. (Revised in chunk 02: the
+  separate probe was for full cards above an earlier release's 128 KiB read; notices carry
+  no card.)
 - A notice holds the origin's reference, the computer name and the pair ID, the event, the
   verdict kind and verdict ID for a verdict, and the revision. It holds no title, field or entry text, so its frame stays small.
 - On the agent's computer, NAME resolves as a direct message from the link does: a peer name,

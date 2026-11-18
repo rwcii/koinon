@@ -218,9 +218,10 @@ func (s *Store) linkReplyTarget(ctx context.Context, caller Key, id int64) (pair
 		return "", "", err
 	}
 	var pair, from sql.NullString
-	err = tx.QueryRowContext(ctx, `SELECT link_pair,link_sender FROM messages WHERE id=? AND
+	var kind string
+	err = tx.QueryRowContext(ctx, `SELECT link_pair,link_sender,system_kind FROM messages WHERE id=? AND
 		((recipient_family=? AND recipient_id=?) OR (?<>'' AND recipient_id=?))`,
-		id, caller.Family, caller.ID, held, participantKey(held)).Scan(&pair, &from)
+		id, caller.Family, caller.ID, held, participantKey(held)).Scan(&pair, &from, &kind)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", "", ErrLinkReplyTarget
 	}
@@ -229,6 +230,10 @@ func (s *Store) linkReplyTarget(ctx context.Context, caller Key, id int64) (pair
 	}
 	if !pair.Valid {
 		return "", "", ErrLinkReplyLocal
+	}
+	// A decision notice comes from the card's computer, not from an agent (#746).
+	if kind == noticeKind {
+		return "", "", ErrLinkReplyNotice
 	}
 	return pair.String, from.String, nil
 }
