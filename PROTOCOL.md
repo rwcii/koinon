@@ -817,7 +817,10 @@ uninstall, and `kept` for a file with other content at uninstall or a symbolical
 directory or file, which neither writes through. `opencode_commands` lists OpenCode's
 `commands/koinon-NAME.md` files, with `koinon-resume` for `koinon-pickup`, in the same rows
 (#603); a command file without an intact
-Koinon marker is `kept`. A write the daemon cannot make is logged
+Koinon marker is `kept`. `koinon install --plan` reads these files with the same rules and writes
+none: a file that the install would create or replace gives `koinon install`, a kept file gives
+nothing, and a file that is not a bounded regular file ends the plan with
+`skill_entry_unreadable` (#741). A write the daemon cannot make is logged
 (`pickup_skill`, `write_failed`) and does not stop it. `koinon claude` adds no directory to a launch,
 and the cycle adds none to a running session.
 
@@ -2155,6 +2158,8 @@ must match the registered Git common directory and a listed worktree. Machine de
 scope hashes the resolved native root; project decision scope hashes the common directory.
 Linked worktrees can therefore inspect different bytes while sharing decisions. A request
 that names an item in a scope the item does not support is refused with `unsupported_scope`.
+`library_state` checks catalog adoption at the catalog's destinations, not the `koinon-NAME`
+entries that `koinon install` and the daemon write; `koinon install --plan` checks those (#741).
 
 The response has version, family, catalog digest, scope, item states and explicit limitations.
 Each item has typed target IDs/hashes, aggregate and target `present`, `missing`, `outdated`

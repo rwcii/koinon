@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- `koinon install --plan` checks the skill entries (#741): a `koinon-pickup` entry, a
+  `koinon-NAME` skill entry or an OpenCode command file that is missing, or that an earlier
+  Koinon wrote, gives `koinon install`. The plan reads the files that the install writes and
+  writes none; a linked entry, an adopted skill at a shared name and an edited command are kept
+  and need nothing. `library_state` checks catalog adoption, not these entries; the guide now
+  says so.
+
 ## 2026-11-18 — Skills on a computer with no Koinon, and seven more catalog skills
 
 This release carries its skills as `koinon-skills.tar.gz`, and `scripts/install-skills.sh`
