@@ -434,31 +434,6 @@ func resolveRecipient(ctx context.Context, q querier, name string) (kind, reason
 	return "peer", "", nil
 }
 
-func decisionRecipients(ctx context.Context, q querier, names []string) ([]DecisionRecipient, error) {
-	out := make([]DecisionRecipient, 0, len(names))
-	for _, name := range names {
-		kind, reason, err := resolveRecipient(ctx, q, name)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, DecisionRecipient{Name: name, Kind: kind, Resolved: kind != "", Reason: reason})
-	}
-	return out, nil
-}
-
-func storeRecipients(ctx context.Context, tx *writeTx, id int64, recipients []DecisionRecipient) error {
-	if _, err := tx.ExecContext(ctx, `DELETE FROM decision_recipients WHERE item_id=?`, id); err != nil {
-		return tx.fail(err)
-	}
-	for i, r := range recipients {
-		if _, err := tx.ExecContext(ctx, `INSERT INTO decision_recipients(item_id,ordinal,name,kind,reason) VALUES (?,?,?,?,?)`,
-			id, i, r.Name, r.Kind, r.Reason); err != nil {
-			return tx.fail(err)
-		}
-	}
-	return nil
-}
-
 func decisionFingerprint(reference string, f DecisionFields, deadline float64) string {
 	data, _ := json.Marshal(struct {
 		Reference string         `json:"reference"`

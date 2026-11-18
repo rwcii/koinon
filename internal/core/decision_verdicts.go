@@ -395,23 +395,6 @@ func (s *Store) DecisionVerdict(ctx context.Context, reference string, revision 
 	return result, tx.Commit()
 }
 
-func recipientNames(ctx context.Context, q querier, itemID int64) ([]string, error) {
-	rows, err := q.QueryContext(ctx, `SELECT name FROM decision_recipients WHERE item_id=? ORDER BY ordinal`, itemID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var names []string
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			return nil, err
-		}
-		names = append(names, name)
-	}
-	return names, rows.Err()
-}
-
 // withAuthor adds the item's author to names unless a name there reaches the author now
 // (#537). An author whose participant has an address is reached at that address, so a
 // successor after a holder change or a context cycle reads the verdict: a name reaches it when
