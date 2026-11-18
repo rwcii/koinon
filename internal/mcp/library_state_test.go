@@ -103,6 +103,11 @@ func TestNativeMachineDecisionAndProjectChoiceStayIndependent(t *testing.T) {
 	if project["decision"] != nil || project["recommended"] != true {
 		t.Fatal("machine decline suppressed project choice", project)
 	}
+	// A refused project directory names its cause (#753).
+	refused, failed := h.tool("library_state", map[string]any{"scope": "project", "directory": t.TempDir()}, meta)
+	if !failed || refused["code"] != "directory_unresolved" || refused["error"] == "" || refused["error"] == nil {
+		t.Fatalf("refused directory: %v", refused)
+	}
 	// Apply a synthetic approved fixture with the agent's normal editing operation,
 	// verify content, then record its result. No Koinon command writes this file.
 	file := filepath.Join(h.env["CODEX_HOME"], "skills", "pair", "SKILL.md")

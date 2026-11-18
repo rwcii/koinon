@@ -2227,7 +2227,11 @@ using the daemon's trusted catalog and current decisions. It accepts optional `i
 (at most 32), `scope` (`machine`, default, or `project`) and `directory`. Without IDs it
 selects skills for machine scope and all catalog items for project scope. Family, effective
 native root and caller identity are native metadata, not tool arguments. Project selection
-must match the registered Git common directory and a listed worktree. Machine decision
+must match the registered Git common directory and a listed worktree; Git lists a
+submodule's main worktree by its Git directory, so that entry counts as the work tree that
+the submodule's own `core.worktree` names (#753). A refused selection has the code
+`directory_unresolved`, `directory_other_repository`, `directory_not_listed` or
+`project_context_unavailable`, with a reason and no path. Machine decision
 scope hashes the resolved native root; project decision scope hashes the common directory.
 Linked worktrees can therefore inspect different bytes while sharing decisions. A request
 that names an item in a scope the item does not support is refused with `unsupported_scope`.

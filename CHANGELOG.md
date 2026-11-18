@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- `library_state` with scope `project` accepts a Git submodule checkout when the session is
+  registered in that submodule; it refused every submodule checkout (#753). A refused
+  directory now returns a code that names the cause (`directory_unresolved`,
+  `directory_other_repository`, `directory_not_listed` or `project_context_unavailable`) with
+  a reason, instead of a bare `invalid_arguments`.
+
 - An agent on a paired computer reads and acknowledges the decision card that names it, at
   the card's own computer, over the link (#746, chunk 03). `decision_get REFERENCE@COMPUTER`
   reads the live card; `decision_list` with filter `mine`, `decision_pending` and

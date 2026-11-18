@@ -369,7 +369,8 @@ destination support. Machine-wide skills are the default; project-local adoption
 available. Use library_state (koinon library state on the command path) for present, missing,
 outdated or edited content, same-name collisions, repository facts and recorded decisions.
 Machine scope is the default; a project directory is a listed worktree of this session's
-registered repository. library_state reads this session's scope at a native tool call, and it
+registered repository. A Git submodule is its own repository: start the session in it. A
+refused directory returns a code that names the cause. library_state reads this session's scope at a native tool call, and it
 recommends the missing or outdated skills that available features need; declined and edited
 items show as such. It does not read the koinon-NAME entries that koinon install and the daemon
 write; koinon install --plan reads them, and names koinon install for a missing or earlier one.
