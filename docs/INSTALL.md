@@ -910,7 +910,9 @@ for Codex, and OpenCode's, agy's and Grok's configuration folders when they exis
 `koinon-guide` needs the binary and is not written. Each entry is reported as created,
 replaced, unchanged or kept. A symbolic link at the entry file, its folder, the `skills`
 folder or the configuration folder is kept; a linked folder above them, such as a linked home,
-is written through. (`koinon install` checks only the entry file and its folder.) The copies do
+is written through. (`koinon install` checks only the entry file and its folder.) A
+destination that is not a folder or a regular file, such as a folder named `SKILL.md`, stops
+the script before it writes any root. The copies do
 not update by themselves: run the script again for a new release, or install Koinon, whose
 `koinon install` replaces them with its own entries. The steps of a skill that use Koinon tools,
 such as messages, work claims and the decision board, need Koinon.

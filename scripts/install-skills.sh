@@ -11,7 +11,8 @@
 # Koinon binary and is not installed. A symbolic link at the entry file, the entry folder, the
 # skills folder or the configuration folder is kept and reported; a linked folder above the
 # configuration folder, such as a linked home, is written through. (koinon install checks only
-# the entry file and the entry folder.) A later koinon install replaces these copies with its
+# the entry file and the entry folder.) A destination that is not a folder or a regular file
+# stops the script before it writes any root. A later koinon install replaces these copies with its
 # own entries. KOINON_SKILLS_BASE replaces the release download URL.
 set -eu
 
@@ -95,7 +96,7 @@ while read -r name; do
 	sed "2s/^name: .*/name: $entry/" "$src" > "$work/out/$entry/SKILL.md"
 done < "$work/skills"
 
-# The roots: FAMILY CONFIGURATION-FOLDER REQUIRED.
+# The configuration folders of the roots.
 claude=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
 opencode=${XDG_CONFIG_HOME:-$HOME/.config}/opencode
 grok=${GROK_HOME:-$HOME/.grok}
@@ -107,8 +108,10 @@ linked() {
 	return 1
 }
 
+# install_root FAMILY CONFIGURATION-FOLDER REQUIRED MODE. MODE check refuses a destination
+# that is not a folder or a regular file before any root is written; MODE write writes.
 install_root() {
-	family=$1 config=$2 required=$3
+	family=$1 config=$2 required=$3 mode=$4
 	if [ "$required" = no ] && [ ! -d "$config" ]; then
 		return 0
 	fi
@@ -116,7 +119,20 @@ install_root() {
 		entry=$(basename "$dir")
 		target="$config/skills/$entry/SKILL.md"
 		if linked "$config" "$config/skills" "$config/skills/$entry" "$target"; then
-			echo "kept      $family $target"
+			[ "$mode" = write ] && echo "kept      $family $target"
+			continue
+		fi
+		if [ "$mode" = check ]; then
+			for p in "$config" "$config/skills" "$config/skills/$entry"; do
+				if [ -e "$p" ] && [ ! -d "$p" ]; then
+					echo "$family: $p is not a folder; no skill was written" >&2
+					exit 1
+				fi
+			done
+			if [ -e "$target" ] && [ ! -f "$target" ]; then
+				echo "$family: $target is not a regular file; no skill was written" >&2
+				exit 1
+			fi
 			continue
 		fi
 		if [ -f "$target" ] && cmp -s "$dir/SKILL.md" "$target"; then
@@ -134,8 +150,10 @@ install_root() {
 	done
 }
 
-install_root claude "$claude" yes
-install_root codex "$HOME/.agents" yes
-install_root opencode "$opencode" no
-install_root agy "$HOME/.gemini/config" no
-install_root grok "$grok" no
+for mode in check write; do
+	install_root claude "$claude" yes "$mode"
+	install_root codex "$HOME/.agents" yes "$mode"
+	install_root opencode "$opencode" no "$mode"
+	install_root agy "$HOME/.gemini/config" no "$mode"
+	install_root grok "$grok" no "$mode"
+done

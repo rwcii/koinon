@@ -365,3 +365,85 @@ func TestInstallSkillsReportsAWriteFailure(t *testing.T) {
 		t.Fatalf("a failed write was reported as done:\n%s", out)
 	}
 }
+
+// A destination that is not a folder or a regular file stops the script before it writes any
+// root, and the script does not report it as replaced.
+func TestInstallSkillsRefusesAnOddDestination(t *testing.T) {
+	needTools(t)
+	rel := release(t, skillsArchive(t, []skillsEntry{{name: "alpha/SKILL.md", body: skillBody("alpha")}}), "")
+	for _, c := range []struct {
+		name string
+		path string // relative to HOME
+		dir  bool   // a folder with a sentinel file, else a regular file
+	}{
+		{"folder at the entry file", ".agents/skills/koinon-alpha/SKILL.md", true},
+		{"file at the entry folder", ".agents/skills/koinon-alpha", false},
+		{"file at the skills folder", ".agents/skills", false},
+		{"file at the configuration folder", ".agents", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			home := t.TempDir()
+			path := filepath.Join(home, c.path)
+			sentinel := path
+			if c.dir {
+				sentinel = filepath.Join(path, "existing")
+			}
+			if err := os.MkdirAll(filepath.Dir(sentinel), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(sentinel, []byte("existing\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			out, ok := installSkills(t, rel, home)
+			if ok || strings.Contains(out, "replaced") || strings.Contains(out, "created") || !strings.Contains(out, path+" is not a") {
+				t.Fatalf("succeeded %v:\n%s", ok, out)
+			}
+			if got := files(t, home); strings.Join(got, " ") != strings.TrimPrefix(sentinel, home+string(filepath.Separator)) {
+				t.Fatalf("wrote %q", got)
+			}
+			if b, _ := os.ReadFile(sentinel); string(b) != "existing\n" {
+				t.Fatalf("the destination changed: %q", b)
+			}
+		})
+	}
+}
+
+// Each hash tool gives the same install: sha256sum where it exists, else shasum. PATH holds
+// only the tools that the script uses, with one of the two hash tools.
+func TestInstallSkillsHashTools(t *testing.T) {
+	needTools(t)
+	rel := release(t, skillsArchive(t, []skillsEntry{{name: "alpha/SKILL.md", body: skillBody("alpha")}}), "")
+	tools := []string{"sh", "curl", "awk", "sed", "tar", "gzip", "cut", "sort", "mkdir", "mktemp", "rm", "cp", "chmod", "mv", "cmp", "basename"}
+	for _, hash := range []string{"sha256sum", "shasum"} {
+		t.Run(hash, func(t *testing.T) {
+			bin := t.TempDir()
+			need := append(append([]string{}, tools...), hash)
+			if hash == "shasum" {
+				need = append(need, "perl") // shasum is a Perl program
+			}
+			for _, tool := range need {
+				path, err := exec.LookPath(tool)
+				if err != nil {
+					t.Skip(tool + " is not installed")
+				}
+				if err := os.Symlink(path, filepath.Join(bin, tool)); err != nil {
+					t.Fatal(err)
+				}
+			}
+			home := t.TempDir()
+			cmd := exec.Command(filepath.Join(bin, "sh"), filepath.Join(root(t), "scripts/install-skills.sh"), "v9.9.9")
+			cmd.Env = []string{"PATH=" + bin, "HOME=" + home, "KOINON_SKILLS_BASE=file://" + rel}
+			out, err := cmd.CombinedOutput()
+			if err != nil || !strings.Contains(string(out), "created   codex ") {
+				t.Fatalf("%v:\n%s", err, out)
+			}
+			// A wrong hash fails with this tool too.
+			bad := release(t, skillsArchive(t, []skillsEntry{{name: "alpha/SKILL.md", body: skillBody("alpha")}}), strings.Repeat("0", 64)+"  koinon-skills.tar.gz\n")
+			cmd = exec.Command(filepath.Join(bin, "sh"), filepath.Join(root(t), "scripts/install-skills.sh"), "v9.9.9")
+			cmd.Env = []string{"PATH=" + bin, "HOME=" + t.TempDir(), "KOINON_SKILLS_BASE=file://" + bad}
+			if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "does not match SHA256SUMS") {
+				t.Fatalf("a wrong hash passed with %s:\n%s", hash, out)
+			}
+		})
+	}
+}
