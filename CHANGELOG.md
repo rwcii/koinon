@@ -5,12 +5,32 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-11-18 — A plan that checks the skill entries
+
+This release makes `koinon install --plan` check the skill entries that `koinon install` and
+the daemon write (#741). The store stays at schema 39.
+
 - `koinon install --plan` checks the skill entries (#741): a `koinon-pickup` entry, a
   `koinon-NAME` skill entry or an OpenCode command file that is missing, or that an earlier
   Koinon wrote, gives `koinon install`. The plan reads the files that the install writes and
   writes none; a linked entry, an adopted skill at a shared name and an edited command are kept
   and need nothing. `library_state` checks catalog adoption, not these entries; the guide now
   says so.
+
+Upgrade from v0.13.0 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary. The store stays at schema 39, so v0.13.0 can still read it. The
+restart ends current local dashboard logins: log in again with the Koinon password, or run
+`koinon dashboard` for a one-time link. A remote sign-in keeps the rest of its fixed 48-hour
+window. Run `koinon install --plan` to check; it now also names `koinon install` for a missing
+or earlier skill entry. A running `koinon mcp` server runs the new release without a session
+restart.
+
+Upgrade notes:
+
+- A host without a service manager, such as a container, runs the daemon in the background:
+  after `brew upgrade koinon`, run `koinon install` there to start it on the new binary.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
 
 ## 2026-11-18 — Skills on a computer with no Koinon, and seven more catalog skills
 
