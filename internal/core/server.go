@@ -33,6 +33,10 @@ type Config struct {
 	SecretCost int
 	// Tailscale is injectable; nil uses the installed CLI only when remote access is configured.
 	Tailscale remote.Adapter
+	// linkHooks sets a test's link hooks, such as its dial and clock, before any goroutine of
+	// the daemon starts, so a restored Remote reads them without a race (#773). Production
+	// callers leave it nil.
+	linkHooks func(*linkRuntime)
 }
 
 type Daemon struct {
@@ -119,6 +123,9 @@ func Start(c Config) (*Daemon, error) {
 	d := &Daemon{release: c.Release, lock: lock, errors: make(chan error, 3), stop: make(chan struct{}), root: root, launch: runLauncher, catalog: catalog, workNoticeSignal: make(chan struct{}, 1), notices: make(chan struct{}, 1)}
 	d.logEvent = c.LogEvent
 	d.remote.manager = remote.Manager{Adapter: c.Tailscale}
+	if c.linkHooks != nil {
+		c.linkHooks(&d.link)
+	}
 	defer func() {
 		if err != nil {
 			d.Close()
