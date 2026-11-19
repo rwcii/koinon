@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -285,7 +286,7 @@ func TestBoardRemoteRecipientsOnTheDashboard(t *testing.T) {
 }
 
 // An earlier release answers unsupported; an offline computer answers offline before any
-// send; a hung computer, a cancel and a lost answer after the commit answer uncertain, and a
+// send; a lost answer after the commit, a hung computer and a cancel answer uncertain, and a
 // retry after the lost answer reports already.
 func TestBoardRemoteFailures(t *testing.T) {
 	_, a, b := pairedLinkHosts(t)
@@ -310,35 +311,9 @@ func TestBoardRemoteFailures(t *testing.T) {
 		t.Fatalf("earlier release: %v", err)
 	}
 
-	// A hung computer, within a shorter budget.
-	saved := boardCallBudget
-	boardCallBudget = 300 * time.Millisecond
-	t.Cleanup(func() { boardCallBudget = saved })
-	release := make(chan struct{})
-	hook(func(point string) error {
-		if point == "before-board" {
-			<-release
-		}
-		return nil
-	})
-	start := time.Now()
-	if _, err := b.d.RemoteDecisionAck(ctx, agentKey(agent), "alpha", "", []int64{v.ID}); errorCode(err) != "link_uncertain" || time.Since(start) > 5*time.Second {
-		t.Fatalf("hung computer: %v after %s", err, time.Since(start))
-	}
-	// A cancel of the local request ends the exchange at once.
-	cancelled, cancel := context.WithCancel(ctx)
-	time.AfterFunc(50*time.Millisecond, cancel)
-	boardCallBudget = 5 * time.Second
-	start = time.Now()
-	if _, err := b.d.RemoteDecisionGet(cancelled, agentKey(agent), "alpha", "", "F-1"); errorCode(err) != "link_uncertain" || time.Since(start) > 2*time.Second {
-		t.Fatalf("cancel: %v after %s", err, time.Since(start))
-	}
-	close(release)
-	if c := count(t, a.d.store, `SELECT COUNT(*) FROM decision_deliveries WHERE kind='remote' AND verdict_id=? AND outcome='queued'`, v.ID); c != 1 {
-		t.Fatalf("an ack ran after it was cut off before the store: %d queued", c)
-	}
-
-	// A lost answer after the acknowledgement's commit, then a retry.
+	// A lost answer after the acknowledgement's commit, then a retry. It runs while no other
+	// board request is in flight: a request that a later step leaves behind runs to its end
+	// on alpha and could take the one dropped answer (#765).
 	dropped := 0
 	hook(func(point string) error {
 		if point == "after-board" && dropped == 0 {
@@ -353,6 +328,41 @@ func TestBoardRemoteFailures(t *testing.T) {
 	if out, err := b.d.RemoteDecisionAck(ctx, agentKey(agent), "alpha", "", []int64{v.ID}); err != nil || len(out.Already) != 1 || out.Already[0] != v.ID {
 		t.Fatalf("retry after a lost answer: %+v %v", out, err)
 	}
+
+	// A hung computer, within a shorter budget, on a second card.
+	boardCard(t, a, author, "F-2", DecisionFields{Title: ptr("Hung faults"), Kind: ptr("decision"), Recipients: &[]string{agent.Name + "@beta"}})
+	hung := mustVerdict(t, a.d.store, "F-2", 1, "approved")
+	saved := boardCallBudget
+	boardCallBudget = 300 * time.Millisecond
+	t.Cleanup(func() { boardCallBudget = saved })
+	release := make(chan struct{})
+	var opened sync.Once
+	open := func() { opened.Do(func() { close(release) }) }
+	t.Cleanup(open) // an early failure never leaves a request held in the hook
+	hook(func(point string) error {
+		if point == "before-board" {
+			<-release
+		}
+		return nil
+	})
+	start := time.Now()
+	if _, err := b.d.RemoteDecisionAck(ctx, agentKey(agent), "alpha", "", []int64{hung.ID}); errorCode(err) != "link_uncertain" || time.Since(start) > 5*time.Second {
+		t.Fatalf("hung computer: %v after %s", err, time.Since(start))
+	}
+	// A cancel of the local request ends the exchange at once.
+	cancelled, cancel := context.WithCancel(ctx)
+	time.AfterFunc(50*time.Millisecond, cancel)
+	boardCallBudget = 5 * time.Second
+	start = time.Now()
+	if _, err := b.d.RemoteDecisionGet(cancelled, agentKey(agent), "alpha", "", "F-2"); errorCode(err) != "link_uncertain" || time.Since(start) > 2*time.Second {
+		t.Fatalf("cancel: %v after %s", err, time.Since(start))
+	}
+	// Nothing commits while the request is held before the board. After the release, the sent
+	// acknowledgement can still commit: its client was told uncertain.
+	if c := count(t, a.d.store, `SELECT COUNT(*) FROM decision_deliveries WHERE kind='remote' AND verdict_id=? AND outcome='queued'`, hung.ID); c != 1 {
+		t.Fatalf("an ack held before the board committed: %d queued", c)
+	}
+	open()
 	hook(nil)
 
 	// Alpha turns Remote off: offline, and nothing was sent.
