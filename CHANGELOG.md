@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- `koinon install --plan --json` prints the plan as one JSON object, with `current` and the
+  reason for each step: each skill entry or OpenCode command file that the install would
+  create or replace is named by kind, family and path (#745). The text form and its exit
+  status do not change.
+
 - `library_state` with scope `project` accepts a Git submodule checkout when the session is
   registered in that submodule; it refused every submodule checkout (#753). A refused
   directory now returns a code that names the cause (`directory_unresolved`,

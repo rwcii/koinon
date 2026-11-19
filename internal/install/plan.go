@@ -27,6 +27,52 @@ const Current = "The Koinon installation is current."
 // cannot finish is an error, so a plan is never partial: a missing step is never reported
 // as done.
 func Plan(ctx context.Context, o Options) ([]string, error) {
+	result, err := PlanSteps(ctx, o)
+	if err != nil {
+		return nil, err
+	}
+	commands := []string{}
+	for _, step := range result.Steps {
+		commands = append(commands, step.Command)
+	}
+	return commands, nil
+}
+
+// PlanResult is the plan with the reason for each step, the form of
+// `koinon install --plan --json` (#745). Current is true exactly when Steps is empty.
+type PlanResult struct {
+	Current bool       `json:"current"`
+	Steps   []PlanStep `json:"steps"`
+}
+
+// PlanStep is one command of the plan and why it is needed.
+type PlanStep struct {
+	Command string       `json:"command"`
+	Reasons []PlanReason `json:"reasons"`
+}
+
+// PlanReason is one cause of a step. Code is python_install, not_installed, binary_differs,
+// homebrew_link_differs, no_current_daemon, entry_needs_install (with Kind pickup_skill,
+// skill or opencode_command, Family, Path and Result created or replaced),
+// maintainer_secret_unset, agent_not_set_up or status_line_needed (with Family).
+type PlanReason struct {
+	Code   string `json:"code"`
+	Family string `json:"family,omitempty"`
+	Kind   string `json:"kind,omitempty"`
+	Path   string `json:"path,omitempty"`
+	Result string `json:"result,omitempty"`
+}
+
+// PlanSteps is Plan with the reason for each step.
+func PlanSteps(ctx context.Context, o Options) (PlanResult, error) {
+	steps, err := planSteps(ctx, o)
+	if err != nil {
+		return PlanResult{}, err
+	}
+	return PlanResult{Current: len(steps) == 0, Steps: steps}, nil
+}
+
+func planSteps(ctx context.Context, o Options) ([]PlanStep, error) {
 	if err := o.defaults(); err != nil {
 		return nil, err
 	}
@@ -54,7 +100,7 @@ func Plan(ctx context.Context, o Options) ([]string, error) {
 	if i, err := legacy.ReadInstall(o.PythonPrefix); err != nil {
 		return nil, err
 	} else if i != nil {
-		return []string{b + " upgrade --from-python" + prefix + state}, nil
+		return one(b+" upgrade --from-python"+prefix+state, PlanReason{Code: "python_install"}), nil
 	}
 	var system platform.SystemPlist
 	if o.Services.Backend == "launchd" {
@@ -70,45 +116,45 @@ func Plan(ctx context.Context, o Options) ([]string, error) {
 	install := b + " install" + prefix + state
 	switch {
 	case !agent && !system.Present:
-		return []string{install}, nil
+		return one(install, PlanReason{Code: "not_installed"}), nil
 	case system.Present:
 		if differ, err := differs(o.Source, binary); err != nil {
 			return nil, err
 		} else if differ {
-			return []string{b + " install --system" + prefix + state}, nil
+			return one(b+" install --system"+prefix+state, PlanReason{Code: "binary_differs"}), nil
 		}
 	case platform.HomebrewOpt(o.Source) != "":
 		if differ, err := notLinked(binary, platform.HomebrewOpt(o.Source)); err != nil {
 			return nil, err
 		} else if differ {
-			return []string{install}, nil
+			return one(install, PlanReason{Code: "homebrew_link_differs"}), nil
 		}
 	default:
 		if differ, err := differs(o.Source, binary); err != nil {
 			return nil, err
 		} else if differ {
-			return []string{install}, nil
+			return one(install, PlanReason{Code: "binary_differs"}), nil
 		}
 	}
 	// Without a service manager nothing starts the daemon after a restart or after brew
 	// upgrade; the install starts it again (#619).
 	if !system.Present && !o.Services.Available(ctx) && !answersNow(ctx, o) {
-		return []string{install}, nil
+		return one(install, PlanReason{Code: "no_current_daemon"}), nil
 	}
 	// A missing or earlier skill entry or OpenCode command file is the install's to write
 	// (#741); the daemon also writes them at each start, so this finds a write that failed.
-	if repair, err := entriesNeedInstall(ctx, o); err != nil {
+	if entries, err := entriesNeedInstall(ctx, o); err != nil {
 		return nil, err
-	} else if repair {
-		return []string{install}, nil
+	} else if len(entries) > 0 {
+		return []PlanStep{{Command: install, Reasons: entries}}, nil
 	}
-	var steps []string
+	steps := []PlanStep{}
 	set, err := secretSet(ctx, o)
 	if err != nil {
 		return nil, err
 	}
 	if !set {
-		steps = append(steps, b+" maintainer secret set"+state)
+		steps = append(steps, PlanStep{b + " maintainer secret set" + state, []PlanReason{{Code: "maintainer_secret_unset"}}})
 	}
 	for _, family := range setupFamilies {
 		in := o.Inspect(ctx, setup.Options{Family: family, Binary: binary, StateDir: o.StateDir, ClaudeConfig: o.ClaudeConfig,
@@ -125,10 +171,20 @@ func Plan(ctx context.Context, o Options) ([]string, error) {
 		case in.CLI != "" && !in.Configured, in.Configured && in.StatusLine == setup.StatusLineNeeded:
 			// Setup configures the running binary unless --binary names the installed one. A
 			// configured family whose status line is missing or out of date gets it there (#631).
-			steps = append(steps, b+" setup "+family+" --binary "+setup.ShellWord(binary)+state)
+			code := "agent_not_set_up"
+			if in.Configured {
+				code = "status_line_needed"
+			}
+			steps = append(steps, PlanStep{b + " setup " + family + " --binary " + setup.ShellWord(binary) + state,
+				[]PlanReason{{Code: code, Family: family}}})
 		}
 	}
 	return steps, nil
+}
+
+// one is a plan of one step with one reason.
+func one(command string, reason PlanReason) []PlanStep {
+	return []PlanStep{{Command: command, Reasons: []PlanReason{reason}}}
 }
 
 // planBinary is the command word for the binary that runs the plan: the formula's opt path
@@ -248,52 +304,60 @@ func secretSet(ctx context.Context, o Options) (bool, error) {
 	}
 }
 
-// entriesNeedInstall reports whether koinon install would create or replace a koinon-pickup
-// entry, a skill entry or an OpenCode command file, reading the same files that the install
-// writes (pickupSkillPaths, skillRoots, OpenCode's commands when its directory exists) and
-// writing none (#741). A kept file (a link, another skill at a shared name, an
-// edited command) needs nothing; a file that cannot be read is an unfinished check.
-func entriesNeedInstall(ctx context.Context, o Options) (bool, error) {
+// entriesNeedInstall returns each koinon-pickup entry, skill entry and OpenCode command file
+// that koinon install would create or replace, as entry_needs_install reasons, reading the
+// same files that the install writes (pickupSkillPaths, skillRoots, OpenCode's commands when
+// its directory exists) and writing none (#741, #745). A kept file (a link, another skill at
+// a shared name, an edited command) needs nothing; a file that cannot be read is an
+// unfinished check.
+func entriesNeedInstall(ctx context.Context, o Options) ([]PlanReason, error) {
 	// Every file is read before the answer, so a missing entry never hides an unreadable one,
 	// and an inspection that passes the plan's time is unfinished, even after a repair.
-	repair := false
-	check := func(result string, err error) error {
+	var entries []PlanReason
+	check := func(kind, family, path string, result string, err error) error {
 		if err != nil {
 			return err
 		}
 		if ctx.Err() != nil {
 			return fmt.Errorf("plan_timeout: the checks did not finish in %s", o.PlanWait)
 		}
-		repair = repair || result == "created" || result == "replaced"
+		if result == "created" || result == "replaced" {
+			entries = append(entries, PlanReason{Code: "entry_needs_install", Kind: kind, Family: family, Path: path, Result: result})
+		}
 		return nil
 	}
 	for _, skill := range pickupSkillPaths(o) {
-		if err := check(core.SkillFileState(skill.Path, pickupContent(skill.Family))); err != nil {
-			return false, err
+		result, err := core.SkillFileState(skill.Path, pickupContent(skill.Family))
+		if err := check("pickup_skill", skill.Family, skill.Path, result, err); err != nil {
+			return nil, err
 		}
 	}
 	skills, err := core.TeamSkills()
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	for _, root := range skillRoots(o) {
 		for _, skill := range skills {
-			if err := check(core.TeamSkillState(root.Path(skill.Name), skill)); err != nil {
-				return false, err
+			path := root.Path(skill.Name)
+			result, err := core.TeamSkillState(path, skill)
+			if err := check("skill", root.Family, path, result, err); err != nil {
+				return nil, err
 			}
 		}
 	}
 	if info, err := os.Stat(o.Opencode); err != nil || !info.IsDir() {
-		return repair, check("", nil)
+		return entries, check("", "", "", "", nil)
 	}
 	commands, err := core.OpenCodeCommands()
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 	for _, command := range commands {
-		if err := check(core.OpenCodeCommandState(core.OpenCodeCommandPath(o.Opencode, command.Name), command)); err != nil {
-			return false, err
+		path := core.OpenCodeCommandPath(o.Opencode, command.Name)
+		result, err := core.OpenCodeCommandState(path, command)
+		if err := check("opencode_command", "opencode", path, result, err); err != nil {
+			return nil, err
 		}
 	}
-	return repair, check("", nil)
+	return entries, check("", "", "", "", nil)
 }
