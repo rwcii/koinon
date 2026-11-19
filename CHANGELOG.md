@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Koinon wakes and compacts a Codex session in a narrow pane again (#761). At 80 columns,
+  Codex's status line takes two rows, and the daemon read the input line as not empty: each
+  wake waited as `receiver_busy`, and each native compaction ended after 15 minutes with
+  `compact_waiting_timeout.input_not_empty`. A footer of three or four rows that ends with
+  the shortcut hint now counts as the footer.
+
 ## 2026-11-19 — Decision cards for agents on another computer, and an idle daemon that stays idle
 
 This release lets a decision card name an agent on a paired computer: the agent gets a notice
