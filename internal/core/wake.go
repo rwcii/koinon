@@ -165,11 +165,13 @@ const (
 // held, a participant's inbox is listed only while a live session of its family holds its
 // address, and the second parameter is the time now too: without a holder its wake records
 // nothing, so it would be listed again on every pass and take one of the 16 places (#759).
+// GLOB matches the prefix with case, as isParticipantID does: LIKE would also take a native
+// session ID such as "Participant:…".
 func wakeKeysQuery(excluded, condition string, held bool) string {
 	holder := ""
 	if held {
 		holder = `
- AND (s.id NOT LIKE '` + participantPrefix + `%' OR EXISTS (SELECT 1 FROM names n JOIN sessions h ON h.family=n.family AND h.id=n.holder_id
+ AND (s.id NOT GLOB '` + participantPrefix + `*' OR EXISTS (SELECT 1 FROM names n JOIN sessions h ON h.family=n.family AND h.id=n.holder_id
  WHERE n.name=substr(s.id,` + strconv.Itoa(len(participantPrefix)+1) + `) AND n.kind='alias' AND n.family=s.family
  AND h.retired_at=0 AND h.expires_at>?))`
 	}

@@ -120,3 +120,27 @@ func TestWakeHolderlessParticipant(t *testing.T) {
 		t.Fatalf("below-limit holderless message changed: %+v, was %+v", row, untouched)
 	}
 }
+
+// A native session whose ID starts with the participant prefix in another case is a session
+// inbox: it is listed and woken as before (#759).
+func TestWakeMixedCaseNativeID(t *testing.T) {
+	s, _, sender, _, _, _ := wakeFixture(t, "codex")
+	ctx := context.Background()
+	calls := countingWake(s, accepted())
+	for _, id := range []string{"Participant:synthetic-native", "PARTICIPANT:synthetic-native"} {
+		native := join(t, s, "codex", id, "")
+		sent, err := s.Send(ctx, Key{sender.Family, sender.ID}, native.Name, "synthetic body")
+		if err != nil {
+			t.Fatal(err)
+		}
+		now, later := s.dueArgs()
+		keys, err := s.wakeKeys(ctx, false, true, dueWake, now, later)
+		if err != nil || !slices.Contains(keys, Key{"codex", id}) {
+			t.Fatalf("%s not listed: %v %v", id, keys, err)
+		}
+		step(t, s)
+		if row := messageRow(t, s, sent.ID); row.state != "notified" || *calls == 0 {
+			t.Fatalf("%s not woken: %+v", id, row)
+		}
+	}
+}
