@@ -226,7 +226,7 @@ func TestLivenessKeepsOneSessionPerHost(t *testing.T) {
 	}
 	// A status line after a clear reaches the remaining session through its host.
 	h.set(999, 50)
-	s.processParents = func() (map[int]int, error) { return map[int]int{999: 300}, nil }
+	s.processParent = parentIn(map[int]int{999: 300})
 	reading := Observation{Caller: Key{"claude", "synthetic-after-clear"},
 		Context:        &ObservedValue{Source: "claude_statusline", At: s.now().UnixMilli(), LimitTokens: int64p(1000), UsedTokens: int64p(600), UsageAvailable: boolp(true)},
 		ClaudeReporter: &ObservationReporter{PID: 999, Start: 50}}

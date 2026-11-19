@@ -88,6 +88,33 @@ func TestProcessGroups(t *testing.T) {
 	if groups, err = ProcessGroups(); err != nil || groups[cmd.Process.Pid].Group != cmd.Process.Pid {
 		t.Fatalf("child group %+v: %v", groups[cmd.Process.Pid], err)
 	}
+	// The same record holds the parent (#758).
+	if groups[cmd.Process.Pid].Parent != os.Getpid() || groups[os.Getpid()].Parent != os.Getppid() {
+		t.Fatalf("parents: child %+v, own %+v", groups[cmd.Process.Pid], groups[os.Getpid()])
+	}
+}
+
+// ProcessParent reads one process's parent; an ended process is gone (#758).
+func TestProcessParent(t *testing.T) {
+	if parent, err := ProcessParent(os.Getpid()); err != nil || parent != os.Getppid() {
+		t.Fatalf("this process: %d %v, want %d", parent, err, os.Getppid())
+	}
+	cmd := exec.Command("sleep", "30")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	pid := cmd.Process.Pid
+	if parent, err := ProcessParent(pid); err != nil || parent != os.Getpid() {
+		t.Fatalf("child: %d %v", parent, err)
+	}
+	cmd.Process.Kill()
+	cmd.Wait()
+	if _, err := ProcessParent(pid); !errors.Is(err, ErrProcessGone) {
+		t.Fatalf("ended child: %v", err)
+	}
+	if _, err := ProcessParent(0); !errors.Is(err, ErrProcessGone) {
+		t.Fatalf("pid 0: %v", err)
+	}
 }
 
 // A process's start time is on the wall clock: this test's process started before now, and

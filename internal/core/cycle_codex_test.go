@@ -234,7 +234,7 @@ func (c *codexTerminal) target(t *testing.T) CycleTarget {
 		Socket: "/tmp/synthetic-socket", Pane: "%4", Epoch: "thread-a", Holds: true, Pickup: pickupSkillEntry(),
 		tools: hostTools{tmux: c.tmux,
 			processStart:   func(pid int) (int64, error) { return c.start, nil },
-			processParents: func() (map[int]int, error) { return map[int]int{}, nil },
+			processParent:  parentIn(map[int]int{}),
 			processCommand: func(pid int) (string, []string, error) { return "/synthetic/codex", c.args, nil },
 			processEnvironment: func(pid int, name string) (string, error) {
 				if name == "HOME" {

@@ -59,6 +59,31 @@ func ProcessParents() (map[int]int, error) {
 	return parents, nil
 }
 
+// ProcessParent reports the parent of one process: field 4 of /proc/<pid>/stat. An ancestry
+// walk reads only its own steps, not the whole table (#758). ErrProcessGone means no such
+// process.
+func ProcessParent(pid int) (int, error) {
+	if pid <= 0 {
+		return 0, ErrProcessGone
+	}
+	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if errors.Is(err, os.ErrNotExist) {
+		return 0, ErrProcessGone
+	}
+	if err != nil {
+		return 0, err
+	}
+	end := strings.LastIndexByte(string(data), ')')
+	if end < 0 {
+		return 0, errors.New("process stat unreadable")
+	}
+	fields := strings.Fields(string(data[end+1:]))
+	if len(fields) < 2 {
+		return 0, errors.New("process stat unreadable")
+	}
+	return strconv.Atoi(fields[1])
+}
+
 // ProcessStart reports a process's start time as an opaque value that identifies the process
 // together with its ID: field 22 of /proc/<pid>/stat, in clock ticks since boot. Values are
 // comparable only with other values of this host; ErrProcessGone means no such process.
@@ -100,10 +125,10 @@ func ProcessEnvironment(pid int, name string) (string, error) {
 	return "", nil
 }
 
-// ProcessGroups reports the process group, controlling terminal and that terminal's
-// foreground process group of every process this user can see: fields 5, 7 and 8 of
-// /proc/<pid>/stat. A process without a terminal has Terminal 0. A process that exits during
-// the scan is left out.
+// ProcessGroups reports the parent, process group, controlling terminal and that terminal's
+// foreground process group of every process this user can see: fields 4, 5, 7 and 8 of
+// /proc/<pid>/stat, one read of each file. A process without a terminal has Terminal 0. A
+// process that exits during the scan is left out.
 func ProcessGroups() (map[int]ProcessGroup, error) {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
@@ -128,11 +153,12 @@ func ProcessGroups() (map[int]ProcessGroup, error) {
 		if len(fields) < 6 {
 			continue
 		}
+		parent, parentErr := strconv.Atoi(fields[1])
 		group, groupErr := strconv.Atoi(fields[2])
 		terminal, terminalErr := strconv.Atoi(fields[4])
 		foreground, foregroundErr := strconv.Atoi(fields[5])
-		if groupErr == nil && terminalErr == nil && foregroundErr == nil {
-			groups[pid] = ProcessGroup{Group: group, Terminal: terminal, Foreground: foreground}
+		if parentErr == nil && groupErr == nil && terminalErr == nil && foregroundErr == nil {
+			groups[pid] = ProcessGroup{Group: group, Terminal: terminal, Foreground: foreground, Parent: parent}
 		}
 	}
 	if len(groups) == 0 {

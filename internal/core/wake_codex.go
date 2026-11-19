@@ -177,17 +177,19 @@ func pause(ctx context.Context, d time.Duration) bool {
 // pane's shell that waits for it (T1). A child of the host in the foreground, the 7638dc8
 // case, is refused. It returns nil, provenPane's error, or errPaneUnproven.
 func codexForeground(ctx context.Context, h hostTools, pid, start int64, socket, pane string) error {
-	panePID, parents, err := provenPane(ctx, h, pid, start, socket, pane)
+	panePID, err := provenPane(ctx, h, pid, start, socket, pane)
 	if err != nil {
 		return err
 	}
 	if h.processGroups == nil {
 		return errPaneUnproven
 	}
+	// One table read gives the groups and the parents of the same records (#758).
 	groups, err := h.processGroups()
 	if err != nil {
 		return errPaneUnproven
 	}
+	parents := tableParents(groups)
 	host, shell := groups[int(pid)], groups[panePID]
 	if host.Terminal == 0 || host.Terminal != shell.Terminal || host.Foreground <= 0 || host.Group != host.Foreground {
 		return errPaneUnproven

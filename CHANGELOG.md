@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The daemon reads the process table less often (#758). A foreground proof of a Codex or agy
+  pane read the whole table two times, and each managed cycle that waits for an idle pane
+  runs one each second. It now reads the table one time. The Claude status-line fallback,
+  the agy witness and the pane proof read only the ancestors of the process, one at a time.
+  On a host with 1,640 processes, one table read takes about 50 ms.
+
 - An idle daemon no longer uses more than one CPU core (#756). Each second, the wake loop
   read every message that its recipient had already read, because a message keeps its
   delivery state after it is read. It now reads only the messages after each inbox's handled

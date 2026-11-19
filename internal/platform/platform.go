@@ -16,6 +16,8 @@ var ErrProcessGone = errors.New("no such process")
 // and that terminal's foreground process group: the group that receives the terminal's input.
 type ProcessGroup struct {
 	Group, Terminal, Foreground int
+	// Parent is the parent process, from the same record (#758).
+	Parent int
 }
 
 // DefaultStateDir is separate from every Python-era state file.
