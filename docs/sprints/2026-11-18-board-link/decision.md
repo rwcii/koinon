@@ -63,6 +63,24 @@ computers".
 PDR 011, Decision 2 and PDR 007, Decision 4 record this decision in the pull request of
 chunk 01.
 
+## A remote recipient whose computer runs an earlier release
+
+- **Decided by:** Robert Capps.
+- **Date:** 2026-11-19, terminal.
+- **Context:** an adopting project created a card for an agent on a paired computer that ran
+  an earlier release. That computer answered the notices as an unknown operation, so the
+  recipient row showed `unsupported`, and the agent could not read the card. The project
+  asked whether `decision_create` should refuse or flag such a recipient, so that the author
+  sees it before the maintainer decides. The options were to refuse at create, or to keep the
+  card, show the `unsupported` state and deliver the waiting notices after the upgrade
+  (Observable acceptance, item 7).
+- **Decision:** no refusal at create. The maintainer's words: "agree, no refusal at create."
+  The card's computer keeps the recipient, shows `unsupported` on its row, and sends the
+  waiting notices and verdicts after the other computer's upgrade.
+- **Reason and scope:** the card's computer can learn the other computer's release only
+  through a live call, and the row already shows the state before the decision. This covers
+  remote recipients of decision cards.
+
 ## The release number and hold for this sprint's release
 
 - **Decided by:** Robert Capps.
