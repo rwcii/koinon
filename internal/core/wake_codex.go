@@ -240,8 +240,11 @@ func (c codexScreen) composer() int {
 
 // footer is the index of the first footer row below the composer at line i: the last run of
 // non-blank rows on the screen, the status line and, while the composer is empty, the
-// shortcut hint. In every T1 capture a blank row separates it from the composer. Another
-// layout, such as a longer last run or none, gives -1, and the composer counts as not empty.
+// shortcut hint. In every T1 capture a blank row separates it from the composer. In a narrow
+// pane, such as 80 columns, the status line takes two rows (#761), so a run of 3 or 4 rows is
+// the footer when its last row is the shortcut hint, which shows only while the composer is
+// empty. Another layout, such as a longer last run or none, gives -1, and the composer counts
+// as not empty.
 func (c codexScreen) footer(i int) int {
 	end := len(c.plain) - 1
 	for end > i && strings.TrimSpace(c.plain[end]) == "" {
@@ -251,11 +254,20 @@ func (c codexScreen) footer(i int) int {
 	for start-1 > i && strings.TrimSpace(c.plain[start-1]) != "" {
 		start--
 	}
-	if end <= i || start-1 <= i || end-start+1 > 2 {
+	if end <= i || start-1 <= i {
+		return -1
+	}
+	switch rows := end - start + 1; {
+	case rows <= 2:
+	case rows <= 4 && strings.Contains(c.plain[end], codexShortcutHint):
+	default:
 		return -1
 	}
 	return start
 }
+
+// codexShortcutHint is the text of the footer's last row while the composer is empty.
+const codexShortcutHint = "? for shortcuts"
 
 // composerText is the composer's text: the rest of the mark's line unless it is only the dim
 // placeholder ("Ask Codex to do anything"), and every non-blank row down to the footer, also

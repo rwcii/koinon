@@ -25,13 +25,16 @@ import (
 // line it reads, the program draws it as a submitted prompt above an empty composer.
 const codexScreenProgram = `#!/bin/sh
 state=$1 received=$2
+# A narrow pane wraps the status line onto a second row (#761).
+tail= up=0
+[ "$state" = narrow ] && tail='  69%% left\n' up=1
 composer() {
 	if [ -n "$1" ]; then
-		printf '\033[1m›\033[0m %s\n\n  synthetic-model · /tmp/synthetic/repo · Context 0%% used\n' "$1"
-		printf '\033[3A\r\033[2C'
+		printf '\033[1m›\033[0m %s\n\n  synthetic-model · /tmp/synthetic/repo · Context 0%% used\n'"$tail" "$1"
+		printf '\033[%dA\r\033[2C' $((3 + up))
 	else
-		printf '\033[1m›\033[0m \033[2mAsk Codex to do anything\033[0m\n\n  synthetic-model · /tmp/synthetic/repo · Context 0%% used\n  \033[1m?\033[0m for shortcuts\n'
-		printf '\033[4A\r\033[2C'
+		printf '\033[1m›\033[0m \033[2mAsk Codex to do anything\033[0m\n\n  synthetic-model · /tmp/synthetic/repo · Context 0%% used\n'"$tail"'  \033[1m?\033[0m for shortcuts\n'
+		printf '\033[%dA\r\033[2C' $((4 + up))
 	fi
 }
 # Without echo the typed notice never shows in the composer. stty runs before the screen
