@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A managed cycle accepts a Handoff path fact whose first word is a Markdown code span, such
+  as `` `_handoff/<agent>/` in the main checkout`` (#763). It refused the ready report and
+  looked for a directory whose name started with a backtick. Any other backtick in the
+  first word is refused.
+
 - The daemon reads the process table less often (#758). A foreground proof of a Codex or agy
   pane read the whole table two times, and each managed cycle that waits for an idle pane
   runs one each second. It now reads the table one time. The Claude status-line fallback,

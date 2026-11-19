@@ -501,7 +501,8 @@ func TestContextCycleArtifactRefusalsNameTheCheck(t *testing.T) {
 
 // The Handoff path fact of .koinon/skills/handoff.md names the session's handoff directory;
 // a facts file without it, or no file, keeps the default _handoff/<agent>/, and an invalid
-// file or path is refused with the facts file named (#468).
+// file or path is refused with the facts file named (#468). The first word can be a code span
+// (#763).
 func TestContextCycleArtifactHandoffPathFact(t *testing.T) {
 	f := newCycleFixture(t)
 	f.observe(t, f.k, 900, "synthetic-epoch-1")
@@ -541,7 +542,18 @@ func TestContextCycleArtifactHandoffPathFact(t *testing.T) {
 	if _, err := f.s.verifyArtifact(context.Background(), f.cycle(t, v.ID), name); err != nil {
 		t.Fatalf("fact directory: %v", err)
 	}
-	for _, bad := range []string{"../outside/<agent>/", "/tmp/<agent>/", "_handoff/shared/", "_handoff/./<agent>/"} {
+	// A code span around the first word, as Markdown writes it, names the same directory (#763).
+	write("`.snapshots/<agent>/` in the main checkout. `<agent>` is the participant address.")
+	if _, err := f.s.verifyArtifact(context.Background(), f.cycle(t, v.ID), name); err != nil {
+		t.Fatalf("fact directory in a code span: %v", err)
+	}
+	write("`_handoff/<agent>/` in the main checkout. `<agent>` is the participant address.")
+	if _, err := f.s.verifyArtifact(context.Background(), f.cycle(t, v.ID), name); err != nil {
+		t.Fatalf("default directory in a code span: %v", err)
+	}
+	for _, bad := range []string{"../outside/<agent>/", "/tmp/<agent>/", "_handoff/shared/", "_handoff/./<agent>/",
+		"`../outside/<agent>/`", "`/tmp/<agent>/`", "`_handoff/./<agent>/`", "`_handoff/<agent>/", "_handoff/<agent>/`",
+		"_handoff/`<agent>`/", "``_handoff/<agent>/``", "``<agent>"} {
 		write(bad)
 		if err := ready(name); !artifactRefused(err, "directory cannot be read from .koinon/skills/handoff.md") {
 			t.Fatalf("%s: %v", bad, err)

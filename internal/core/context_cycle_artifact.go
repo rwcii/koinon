@@ -167,7 +167,8 @@ func cycleAgent(family, role string) string {
 // first word of the Handoff path fact in handoffFacts, parsed with the catalog's schema for
 // skill.handoff, whose default _handoff/<agent>/ applies when the file or the fact is absent.
 // <agent> is replaced by agent. The path must be relative and clean, stay in the checkout and
-// name <agent>, so each session has its own directory.
+// name <agent>, so each session has its own directory. The first word can be a Markdown code
+// span: one enclosing pair of backticks is removed, and any other backtick is refused (#763).
 func handoffDirectory(root library.ReadRoot, catalog library.Catalog, agent string) (string, error) {
 	var schema *library.Facts
 	for _, item := range catalog.Items {
@@ -202,9 +203,13 @@ func handoffDirectory(root library.ReadRoot, catalog library.Catalog, agent stri
 	if len(words) == 0 || !strings.Contains(words[0], "<agent>") {
 		return "", errors.New("Handoff path must start with a directory that names <agent>")
 	}
-	dir := strings.TrimSuffix(strings.ReplaceAll(words[0], "<agent>", agent), "/")
+	first := words[0]
+	if len(first) > 2 && strings.HasPrefix(first, "`") && strings.HasSuffix(first, "`") {
+		first = first[1 : len(first)-1]
+	}
+	dir := strings.TrimSuffix(strings.ReplaceAll(first, "<agent>", agent), "/")
 	if dir == "" || path.IsAbs(dir) || path.Clean(dir) != dir || dir == "." || dir == ".." || strings.HasPrefix(dir, "../") ||
-		strings.ContainsAny(dir, "\\<>") {
+		strings.ContainsAny(dir, "\\<>`") {
 		return "", fmt.Errorf("Handoff path %q is not a clean directory inside the main checkout", words[0])
 	}
 	return filepath.FromSlash(dir), nil
