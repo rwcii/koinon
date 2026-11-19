@@ -674,12 +674,12 @@ func TestLinkMessageQueueSurvivesRestart(t *testing.T) {
 	if err := a.d.Close(); err != nil {
 		t.Fatal(err)
 	}
-	d, err := Start(Config{StateDir: a.root, Listen: []string{"127.0.0.1:0"}, Tailscale: a.fake})
+	d, err := Start(Config{StateDir: a.root, Listen: []string{"127.0.0.1:0"}, Tailscale: a.fake,
+		linkHooks: func(l *linkRuntime) { l.dial, l.now, l.backoff = n.dial, n.now, 20*time.Millisecond }})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { d.Close() })
-	d.link.dial, d.link.now, d.link.backoff = n.dial, n.now, 20*time.Millisecond
 	n.mu.Lock()
 	n.hosts[a.ip+":47672"] = d
 	n.mu.Unlock()
