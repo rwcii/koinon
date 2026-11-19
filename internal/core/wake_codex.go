@@ -47,6 +47,14 @@ func (s *Store) wakeCodexPane(ctx context.Context, session Session, activity Ses
 	}
 	// A tmux that cannot run waits as tmux_unavailable, not as an unproven pane (#418).
 	h := s.hostTools(executable)
+	// A pane proven by its ancestry whose screen shows a running turn or a draft waits without
+	// the foreground proof, which reads the whole process table (#758). It sends no key; an
+	// error, or an idle screen, takes the full path below, which alone admits keys.
+	if _, err := provenPane(ctx, h, pid, start, socket, pane); err == nil {
+		if screen, err := h.tmux(ctx, socket, "capture-pane", "-p", "-e", "-J", "-t", pane); err == nil && !codexIdle(screen) {
+			return waiting("receiver_busy"), true
+		}
+	}
 	if err := codexForeground(ctx, h, pid, start, socket, pane); err != nil {
 		return waiting(tmuxReason(err, "codex_target_unavailable")), true
 	}

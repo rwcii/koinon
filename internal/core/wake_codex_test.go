@@ -302,8 +302,9 @@ func TestCodexWakeAttemptsThroughTheScheduler(t *testing.T) {
 		switch {
 		case args[0] == "capture-pane":
 			captures++
-			// The reads after Enter fail: the submission stays unconfirmed.
-			if captures >= 3 && captures <= 7 {
+			// The reads after Enter fail: the submission stays unconfirmed. The busy check, the
+			// read before typing and the readback come first (#758).
+			if captures >= 4 && captures <= 8 {
 				return "", errors.New("synthetic capture failure")
 			}
 		case args[0] == "send-keys" && len(args) > 3 && args[3] == "-l":

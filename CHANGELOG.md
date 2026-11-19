@@ -12,7 +12,8 @@ into a dated release section when promoted to `main`.
   On a host with 1,640 processes, one table read takes about 50 ms. A waiting Codex
   compaction whose pane shows a draft, a running turn or no input line now waits with no
   table read: it proves the pane by its ancestry and reads the screen. The full proof runs
-  only when the screen can be ready.
+  only when the screen can be ready. A wake of a Codex pane that shows a running turn or a
+  draft also waits with no table read.
 
 - An idle daemon no longer uses more than one CPU core (#756). Each second, the wake loop
   read every message that its recipient had already read, because a message keeps its
