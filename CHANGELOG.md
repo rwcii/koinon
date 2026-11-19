@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A message to a participant address that no live session holds no longer takes a wake place
+  on every pass (#759). The wake pass listed that inbox each second, found no holder, and
+  recorded nothing, so it took one of the 16 places from inboxes that it could wake. It now
+  lists a participant inbox only while a live session holds its address; the message waits
+  as before and gets its notice when a holder takes the address. A message at the notice
+  limit still fails without a holder.
+
 - Koinon wakes and compacts a Codex session in a narrow pane again (#761). At 80 columns,
   Codex's status line takes two rows, and the daemon read the input line as not empty: each
   wake waited as `receiver_busy`, and each native compaction ended after 15 minutes with
