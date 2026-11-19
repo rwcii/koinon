@@ -257,8 +257,8 @@ func (g *grokTerminal) target() CycleTarget {
 		Socket: "/tmp/synthetic-socket", Pane: "%6", Epoch: "grok-a", Holds: true, Pickup: pickupSkillEntry(), State: cycleReady,
 		Directory: g.dir, observedEpoch: "grok-a", stateRoot: g.state,
 		tools: hostTools{tmux: g.tmux,
-			processStart:   func(pid int) (int64, error) { return g.start, nil },
-			processParents: func() (map[int]int, error) { return g.parents, nil },
+			processStart:  func(pid int) (int64, error) { return g.start, nil },
+			processParent: parentIn(g.parents),
 			processCommand: func(pid int) (string, []string, error) {
 				if c, ok := g.commands[pid]; ok {
 					return c, g.args[pid], nil
@@ -266,7 +266,7 @@ func (g *grokTerminal) target() CycleTarget {
 				return "", nil, errors.New("no process")
 			},
 			processEnvironment: func(pid int, name string) (string, error) { return g.env[name], nil },
-			processGroups:      func() (map[int]platform.ProcessGroup, error) { return g.groups, nil }}}
+			processGroups:      func() (map[int]platform.ProcessGroup, error) { return withParents(g.groups, g.parents), nil }}}
 }
 
 func (g *grokTerminal) fence(context.Context) error {

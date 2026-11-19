@@ -630,15 +630,11 @@ func codexReady(t CycleTarget, screen codexScreen) bool { return codexNotReady(t
 
 // codexNotReady is the fixed code of what keeps a screen from codexReady, or "" (#417).
 func codexNotReady(t CycleTarget, screen codexScreen) string {
-	switch {
-	case codexDialog(screen).Digest != "":
+	if codexDialog(screen).Digest != "" {
 		return "native_dialog"
-	case screen.composer() < 0:
-		return "input_line_not_found"
-	case !screen.empty(screen.composer()):
-		return "input_not_empty"
-	case !codexIdle(strings.Join(screen.raw, "\n")):
-		return "turn_running"
+	}
+	if seen := codexScreenBusy(screen); seen != "" {
+		return seen
 	}
 	codex, _, err := codexHome(t)
 	if err != nil {
@@ -678,6 +674,41 @@ func codexNotReady(t CycleTarget, screen codexScreen) string {
 		return ""
 	}
 	return "turn_not_ended"
+}
+
+// codexScreenBusy is the fixed code of what the screen alone shows against input: no composer,
+// a composer that holds text, or a running turn; "" otherwise. It reads no dialog: a screen
+// with a dialog can show none of these.
+func codexScreenBusy(screen codexScreen) string {
+	switch {
+	case screen.composer() < 0:
+		return "input_line_not_found"
+	case !screen.empty(screen.composer()):
+		return "input_not_empty"
+	case !codexIdle(strings.Join(screen.raw, "\n")):
+		return "turn_running"
+	}
+	return ""
+}
+
+// CompactBusy is a read-only check before a waiting compaction's Inspect (#758). It returns
+// codexScreenBusy's code only when the pinned host's pane is proven by its ancestry
+// (provenPane), the pane is not in copy mode, and the screen shows no dialog. Any error, and
+// any other screen, gives "", and the full Inspect runs with its foreground proof. It reads no
+// whole process table and sends no key, so it can only keep the compaction waiting.
+func (codexCycle) CompactBusy(ctx context.Context, t CycleTarget) string {
+	if _, err := provenPane(ctx, t.tools, t.HostPID, t.HostStart, t.Socket, t.Pane); err != nil {
+		return ""
+	}
+	mode, err := t.tools.tmux(ctx, t.Socket, "display-message", "-p", "-t", t.Pane, "#{pane_in_mode}")
+	if err != nil || strings.TrimSpace(mode) != "0" {
+		return ""
+	}
+	screen, err := readCodex(ctx, t)
+	if err != nil || codexDialog(screen).Digest != "" {
+		return ""
+	}
+	return codexScreenBusy(screen)
 }
 
 // codexClearedReady reports a cleared screen that is ready for /status: no dialog, and the

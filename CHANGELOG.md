@@ -5,6 +5,94 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-11-19 — Decision cards for agents on another computer, and an idle daemon that stays idle
+
+This release lets a decision card name an agent on a paired computer: the agent gets a notice
+and reads and acknowledges the card at the card's computer (#746). An idle daemon no longer
+uses more than one CPU core (#756, #758). The store moves to schema 40.
+
+- A managed cycle accepts a Handoff path fact whose first word is a Markdown code span, such
+  as `` `_handoff/<agent>/` in the main checkout`` (#763). It refused the ready report and
+  looked for a directory whose name started with a backtick. Any other backtick in the
+  first word is refused.
+
+- The daemon reads the process table less often (#758). A foreground proof of a Codex or agy
+  pane read the whole table two times, and each managed cycle that waits for an idle pane
+  runs one each second. It now reads the table one time. The Claude status-line fallback,
+  the agy witness and the pane proof read only the ancestors of the process, one at a time.
+  On a host with 1,640 processes, one table read takes about 50 ms. A waiting Codex
+  compaction whose pane shows a draft, a running turn or no input line now waits with no
+  table read: it proves the pane by its ancestry and reads the screen. The full proof runs
+  only when the screen can be ready. A wake of a Codex pane that shows a running turn or a
+  draft also waits with no table read.
+
+- An idle daemon no longer uses more than one CPU core (#756). Each second, the wake loop
+  read every message that its recipient had already read, because a message keeps its
+  delivery state after it is read. It now reads only the messages after each inbox's handled
+  sequence. On a store with 27,234 handled messages, the query took 55 ms and now takes
+  0.2 ms.
+
+- `koinon install --plan --json` prints the plan as one JSON object, with `current` and the
+  reason for each step: each skill entry or OpenCode command file that the install would
+  create or replace is named by kind, family and path (#745). The text form and its exit
+  status do not change.
+
+- `library_state` with scope `project` accepts a Git submodule checkout when the session is
+  registered in that submodule; it refused every submodule checkout (#753). A refused
+  directory now returns a code that names the cause (`directory_unresolved`,
+  `directory_other_repository`, `directory_not_listed` or `project_context_unavailable`) with
+  a reason, instead of a bare `invalid_arguments`.
+
+- A Claude session whose host process changed its session ID gets its context readings and
+  handoff cycles again (#751). The daemon kept the old session ID active while the host ran,
+  so after the next `/clear` it could not tell which session a status-line reading belonged
+  to, refused each one, and started no cycle. The liveness sweep now keeps only the session
+  that registered or renewed last on a host; the old one expires unless it renews itself.
+
+- An agent on a paired computer reads and acknowledges the decision card that names it, at
+  the card's own computer, over the link (#746, chunk 03). `decision_get REFERENCE@COMPUTER`
+  reads the live card; `decision_list` with filter `mine`, `decision_pending` and
+  `decision_ack` take `computer` or `pair` (`--computer` and `--pair` on the command path).
+  Nothing of the card is stored on the agent's computer. An offline computer answers
+  `link_computer_offline`, an earlier release `link_unsupported`, and a lost answer
+  `link_uncertain`, after which a retry is safe. The notice now names the card's computer and
+  its pair ID, and the dashboard card shows each remote recipient's notice state.
+
+- An agent on a paired computer gets a short notice in its inbox, with its ordinary wake, for
+  each decision card that names it as `NAME@COMPUTER`: when it is named, the card changes, it
+  is removed, the card is withdrawn, closed or restored, and each verdict (#746, chunk 02). The
+  notice comes from `decision-board@COMPUTER`, names the card to read with `decision_get
+  REFERENCE@COMPUTER`, and holds no card text; it cannot be answered. The card's computer shows
+  each notice as `received`, `refused` with the reason, or `unsupported` while the other
+  computer runs an earlier release; notices resume by themselves after its upgrade. Notices
+  have their own stream, so they never delay direct messages.
+
+- A decision card can name an agent on a paired computer as `NAME@COMPUTER` (#746, chunk 01).
+  The card now resolves that recipient as `remote`, with its pair, instead of `unknown_name`,
+  and keeps it through a rename of the computer. Each new card, change and verdict queues a
+  short notice for it, with no card text; a verdict delivery to it waits for its
+  acknowledgement. The store moves to schema 40, and the upgrade fixes open cards that already
+  name such an agent. A v0.13.1 or earlier binary refuses a schema 40 store, so you cannot go
+  back to v0.13.1 or earlier after the upgrade.
+
+Upgrade from v0.13.1 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and moves the store to schema 40; a v0.13.1 or earlier binary
+refuses a schema 40 store, so you cannot go back after the upgrade. The restart ends current
+local dashboard logins: log in again with the Koinon password, or run `koinon dashboard` for a
+one-time link. A remote sign-in keeps the rest of its fixed 48-hour window. Run
+`koinon install --plan` to check. A running `koinon mcp` server runs the new release without a
+session restart.
+
+Upgrade notes:
+
+- Upgrade both computers of a pair. A computer at v0.13.1 or earlier answers the decision
+  notice and board operations as unknown: the card's computer shows those notices as
+  `unsupported`, and they resume by themselves after the other computer's upgrade.
+- A host without a service manager, such as a container, runs the daemon in the background:
+  after `brew upgrade koinon`, run `koinon install` there to start it on the new binary.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+
 ## 2026-11-18 — A plan that checks the skill entries
 
 This release makes `koinon install --plan` check the skill entries that `koinon install` and

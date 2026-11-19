@@ -128,20 +128,21 @@ func (s *Store) witness(ctx context.Context, family string, w AgyWitness) error 
 	if err != nil || len(cycles) == 0 {
 		return err
 	}
-	if s.processStart == nil || s.processParents == nil || s.processCommand == nil {
+	if s.processStart == nil || s.processParent == nil || s.processCommand == nil {
 		return agyWitnessRefusal()
 	}
 	if start, err := s.processStart(w.Reporter.PID); err != nil || start != w.Reporter.Start {
 		return agyWitnessRefusal()
 	}
-	parents, err := s.processParents()
+	// The walk reads one process at a time, only the reporter's ancestors (#758).
+	pid, err := parentOf(s.processParent, w.Reporter.PID)
 	if err != nil {
 		return agyWitnessRefusal()
 	}
 	now := s.now().UnixMilli()
 	var host *agyPinned
 	seen := map[int]bool{}
-	for pid, steps := parents[w.Reporter.PID], 0; pid > 1 && steps < 256 && host == nil; pid, steps = parents[pid], steps+1 {
+	for steps := 0; pid > 1 && steps < 256 && host == nil; steps++ {
 		if seen[pid] {
 			return agyWitnessRefusal()
 		}
@@ -169,6 +170,9 @@ func (s *Store) witness(ctx context.Context, family string, w AgyWitness) error 
 			// An unregistered nested agent CLI is islanded, not a reporter for a farther host.
 			executable, args, err := s.processCommand(pid)
 			if err != nil || platform.AgentCommand(executable, args) {
+				return agyWitnessRefusal()
+			}
+			if pid, err = parentOf(s.processParent, pid); err != nil {
 				return agyWitnessRefusal()
 			}
 		}

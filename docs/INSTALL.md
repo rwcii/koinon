@@ -3,7 +3,7 @@
 ## The Go runtime
 
 The Go runtime is one `koinon` binary and one daemon per user. It needs no Python. The checkout no longer carries the Python runtime. The pinned previous release
-remains a supported input to the import and upgrade commands below. Every command prints a JSON report, except `koinon install --plan`, which prints commands (Next steps, below); a refusal prints `ok: false` with a fixed `code`.
+remains a supported input to the import and upgrade commands below. Every command prints a JSON report, except `koinon install --plan`, which prints commands (Next steps, below; `--json` gives them with their reasons); a refusal prints `ok: false` with a fixed `code`.
 
 Install and uninstall keep completed-step details in their report when a later step fails;
 the report then has `ok: false`, and the command exits unsuccessfully.
@@ -200,7 +200,7 @@ refused with `python_install_present`. Use the upgrade instead.
 
 ### Next steps
 
-`koinon install --plan [--prefix DIR] [--state-dir DIR]` reads this machine's installation and
+`koinon install --plan [--json] [--prefix DIR] [--state-dir DIR]` reads this machine's installation and
 prints, one per line, only the commands that it still needs, or `The Koinon installation is
 current.` It changes nothing: it writes no file and no service, and asks nothing. Each command
 names the running binary, or the formula's opt path for a Homebrew binary, and repeats a given
@@ -230,6 +230,17 @@ for example when the daemon does not answer, a daemon of an earlier release does
 secret, a binary or a skill entry cannot be read (`skill_entry_unreadable`, naming the path),
 an agent's CLI fails or its output does not end, or 30 seconds pass, the plan prints no step, exits with 1 and
 writes the error's code to standard error.
+
+`koinon install --plan --json` does the same checks and prints one JSON object for scripts and
+agents (#745): `ok`, `current` (true exactly when `steps` is empty) and `steps`, each with its
+`command` and its `reasons`. Each reason has a `code`: `python_install`, `not_installed`,
+`binary_differs`, `homebrew_link_differs`, `no_current_daemon` (no service manager and no daemon
+of this release answers), `entry_needs_install` (one for each entry, with `kind`
+`pickup_skill`, `skill` or `opencode_command`, `family`, `path` and `result` `created` or
+`replaced`), `maintainer_secret_unset`, `agent_not_set_up` or `status_line_needed` (with
+`family`). As in the text form, an install or upgrade step comes alone, so the reasons are those
+of the checks that the plan reached. A check that cannot finish gives the same error, and no
+plan. The text form stays the one for people and the Homebrew caveats.
 
 ### Port
 
@@ -975,7 +986,10 @@ session and receipt records add no table. The same release, v0.11.0, moves the s
 to schema 38 for messages between computers (#670), and a v0.10.x binary refuses a
 schema 38 store, so a v0.11.0 store cannot go back to v0.10.x. v0.12.0 moves the store to
 schema 39 for signed maintainer actions (#693), and a v0.11.x binary refuses a schema 39 store,
-so a v0.12.0 store cannot go back to v0.11.x. v0.13.0 and v0.13.1 keep schema 39. Schema 29 originally added the secret's salted-key table;
+so a v0.12.0 store cannot go back to v0.11.x. v0.13.0 and v0.13.1 keep schema 39. v0.13.2
+moves the store to schema 40 for decision cards that name agents on another computer (#746),
+and a v0.13.1 or earlier binary refuses a schema 40 store, so a v0.13.2 store cannot go back to
+v0.13.1 or earlier. Schema 29 originally added the secret's salted-key table;
 upgrading a pre-secret store starts with no secret set.
 
 The daemon applies supported Go schema migrations transactionally and refuses an unknown

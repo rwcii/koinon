@@ -51,6 +51,23 @@ func ProcessParents() (map[int]int, error) {
 	return parents, nil
 }
 
+// ProcessParent reports the parent of one process: kern.proc.pid's e_ppid, read through sysctl
+// without cgo. An ancestry walk reads only its own steps, not the whole table (#758).
+// ErrProcessGone means no such process.
+func ProcessParent(pid int) (int, error) {
+	if pid <= 0 {
+		return 0, ErrProcessGone
+	}
+	info, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
+	if errors.Is(err, unix.EIO) || errors.Is(err, unix.ESRCH) || err == nil && int(info.Proc.P_pid) != pid {
+		return 0, ErrProcessGone
+	}
+	if err != nil {
+		return 0, err
+	}
+	return int(info.Eproc.Ppid), nil
+}
+
 // ProcessStart reports a process's start time as an opaque value that identifies the process
 // together with its ID: kern.proc.pid's p_starttime in microseconds since the epoch, read
 // through sysctl without cgo. Values are comparable only with other values of this host;
@@ -125,9 +142,9 @@ func procargsEnvironment(data []byte, name string) (string, error) {
 	return "", nil
 }
 
-// ProcessGroups reports the process group, controlling terminal and that terminal's
+// ProcessGroups reports the parent, process group, controlling terminal and that terminal's
 // foreground process group of every process, from one kern.proc.all sysctl read without cgo:
-// e_pgid, e_tdev and e_tpgid of each kinfo_proc. A process without a terminal (NODEV) has
+// e_ppid, e_pgid, e_tdev and e_tpgid of each kinfo_proc. A process without a terminal (NODEV) has
 // Terminal 0.
 func ProcessGroups() (map[int]ProcessGroup, error) {
 	procs, err := unix.SysctlKinfoProcSlice("kern.proc.all")
@@ -144,7 +161,7 @@ func ProcessGroups() (map[int]ProcessGroup, error) {
 		if terminal == -1 {
 			terminal = 0
 		}
-		groups[pid] = ProcessGroup{Group: int(p.Eproc.Pgid), Terminal: terminal, Foreground: int(p.Eproc.Tpgid)}
+		groups[pid] = ProcessGroup{Group: int(p.Eproc.Pgid), Terminal: terminal, Foreground: int(p.Eproc.Tpgid), Parent: int(p.Eproc.Ppid)}
 	}
 	if len(groups) == 0 {
 		return nil, errors.New("process table unreadable")

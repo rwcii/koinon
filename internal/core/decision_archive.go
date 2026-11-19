@@ -231,8 +231,9 @@ func (s *Store) archiveDecisions(ctx context.Context) error {
 	for _, c := range candidates {
 		s.decisions.afterAt, s.decisions.afterID = c.at, c.id
 		var queued int
-		if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM decision_verdicts v JOIN decision_deliveries d ON d.verdict_id=v.id
-			WHERE v.item_id=? AND d.outcome='queued'`, c.id).Scan(&queued); err != nil {
+		// A notice that may still be sent keeps the item too (#746).
+		if err := s.db.QueryRowContext(ctx, `SELECT (SELECT COUNT(*) FROM decision_verdicts v JOIN decision_deliveries d ON d.verdict_id=v.id
+			WHERE v.item_id=? AND d.outcome='queued')+(SELECT COUNT(*) FROM decision_notices WHERE item_id=? AND `+noticeLive+`)`, c.id, c.id).Scan(&queued); err != nil {
 			return err
 		}
 		if queued > 0 {
@@ -349,6 +350,9 @@ func (s *Store) deleteMoved(ctx context.Context, id int64, reference string, rev
 		`DELETE FROM decision_verdicts WHERE item_id=?`,
 		`DELETE FROM decision_recipients WHERE item_id=?`,
 		`DELETE FROM decision_withdrawals WHERE item_id=?`,
+		// Only finished notices remain here (the sweep waits for the others); they are
+		// transport records, not part of the card.
+		`DELETE FROM decision_notices WHERE item_id=?`,
 		`DELETE FROM decision_items WHERE id=?`,
 	} {
 		if _, err := tx.ExecContext(ctx, query, id); err != nil {
@@ -445,7 +449,9 @@ func (s *Store) DecisionRestore(ctx context.Context, caller Key, reference strin
 	if err := checkReference(reference); err != nil {
 		return DecisionItem{}, err
 	}
-	if item, reopened, err := s.reopenWithdrawn(ctx, caller, reference, ifRevision); err != nil || reopened {
+	pairs, release := s.boardFence(ctx)
+	defer release()
+	if item, reopened, err := s.reopenWithdrawn(ctx, caller, reference, ifRevision, pairs); err != nil || reopened {
 		return item, err
 	}
 	var name string
@@ -495,6 +501,9 @@ func (s *Store) DecisionRestore(ctx context.Context, caller Key, reference strin
 			}
 		}
 	}
+	if err := itemNotices(ctx, tx, now, pairs, noticeEvent{ItemID: record.ID, Reference: reference, Event: "restored", Revision: record.Revision}); err != nil {
+		return DecisionItem{}, err
+	}
 	if err := bumpChange(ctx, tx, changeDecisions); err != nil {
 		return DecisionItem{}, tx.fail(err)
 	}
@@ -507,7 +516,7 @@ func (s *Store) DecisionRestore(ctx context.Context, caller Key, reference strin
 // reopenWithdrawn reopens an archived item whose latest withdrawal is not reopened: it is
 // active again at the next revision, and the withdrawal records the reopen. reopened is
 // false for any other item, which the deep-archive restore then handles.
-func (s *Store) reopenWithdrawn(ctx context.Context, caller Key, reference string, ifRevision int64) (DecisionItem, bool, error) {
+func (s *Store) reopenWithdrawn(ctx context.Context, caller Key, reference string, ifRevision int64, pairs boardPairs) (DecisionItem, bool, error) {
 	tx, err := s.begin(ctx, ordinary)
 	if err != nil {
 		return DecisionItem{}, false, err
@@ -549,6 +558,9 @@ func (s *Store) reopenWithdrawn(ctx context.Context, caller Key, reference strin
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE decision_withdrawals SET reopened_at=?,reopened_by=? WHERE id=?`, now, peer, withdrawal); err != nil {
 		return DecisionItem{}, false, tx.fail(err)
+	}
+	if err := itemNotices(ctx, tx, now, pairs, noticeEvent{ItemID: id, Reference: reference, Event: "restored", Revision: item.Revision + 1}); err != nil {
+		return DecisionItem{}, false, err
 	}
 	if err := bumpChange(ctx, tx, changeDecisions); err != nil {
 		return DecisionItem{}, false, tx.fail(err)

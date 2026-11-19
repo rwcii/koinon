@@ -114,9 +114,10 @@ The listener takes TLS 1.3 only, with a client certificate required and session 
 refuses every other key in the handshake with the `bad_certificate` alert, before any
 application data, and records it as the last refused key. On the TLS stream each frame is a
 4-byte big-endian length and a JSON object (`op`, `body`, or `error` and `detail`), at most 128
-KiB (1 MiB for `maintainer` and its reply `maintainer-ok`), with unknown fields refused; a
-connection carries at most 64 frames. The operations are
-`directory` and `name-update` (below), `deliver` and `cancel` (Messages, below), `maintainer`
+KiB (1 MiB for `maintainer` and its reply `maintainer-ok`, and for the reply `board-ok`), with
+unknown fields refused; a connection carries at most 64 frames. The operations are
+`directory` and `name-update` (below), `deliver` and `cancel` (Messages, below), `notice`
+(Decision notices, below), `board` (Decision board over the link, below), `maintainer`
 (Signed maintainer actions, Other computers),
 `pair-hello` (`secret`, `name`, `dns`, `ips`, `port`; only an unpaired key with an open
 invitation's secret, which is used at once; the reply `hello-ok` has the pair `id` and `name`),
@@ -281,6 +282,62 @@ connects again before a connection's frame limit. Finished outbox entries are de
 after their result; unfinished ones never age out. Inbox ack, message retention and purge do
 not touch the streams. A rename of a pair changes the shown sender of its received messages.
 
+Decision notices (#746 chunk 02). Each pair has a second ordered stream, `notice`, with its own
+worker and connection, so notices and direct messages never wait for each other. A notice
+(Schema 40, `decision_notices`) is sent as `notice` (`id` the pair, `seq`, `xid`, `digest`,
+`reference`, `recipient` the NAME, `address` as the card names it, `event`, `revision`, and for
+a `verdict` event `verdict_id` and `verdict`), answered with `notice-ok` (`id`, `seq`,
+`digest`, `result`, `reason`). The `digest` is SHA-256 over the length-prefixed sequence,
+revision, verdict ID, cross-node ID, reference, recipient, address, event and verdict. A notice
+holds no card text; a frame at every field bound is a few KiB. The sequence, the attempt
+before the write, `retry`, a lost answer, the high-water rules, unpair and the generation
+fence are those of messages. The receiver resolves NAME as for a message and stores one inbox
+row: `sender_family` `link` (reserved: no agent, maintainer or overwatch has it, and no frame
+or send can choose it), sender `decision-board@COMPUTER`, `origin` `link`, `system_kind`
+`decision_notice`, a body that names the card, the event and the card's computer with its
+pair ID (and, for a verdict, the `decision_ack` call with that pair), and the typed `decision_notice`
+(`reference`, `computer` the current name of the card's computer, `pair`, `event`, `revision`,
+`verdict_id`, `verdict`, and `get`, `REFERENCE@COMPUTER`); or `refused` with `peer_not_found`,
+`alias_unheld`, `recipient_inactive` or `link_recipient_local`. A rename keeps the sender and
+the typed computer current. `send` with `reply_to` set to a notice is refused with
+`link_reply_notice`, and nothing is queued. A computer at an earlier release answers
+`link_operation_unknown`: the pair's live notices show `unsupported` with that reason and keep
+their sequence and digest, and the worker tries again after its wait, so the notices arrive
+by themselves after that computer's upgrade. The origin's `decision_get` shows each remote
+recipient's newest notice state as `notice` and its reason as `notice_reason`, and each verdict
+delivery its own verdict notice's.
+
+Decision board over the link (#746 chunk 03). The card lives only on its own computer; an
+agent on a paired computer reads and acknowledges it there, and nothing of the answer is
+stored on the agent's computer. The agent's computer sends `board` (`id` the pair, `op` `get`,
+`list`, `pending` or `ack`, `names`, and `reference` for `get`, `after` and `limit` for `list`
+and `pending`, `verdict_ids` for `ack`). `names` are the caller's peer name and the
+participant address it holds, which the agent's computer takes from the admitted caller: one
+or two, each at most the address bound and with no `@`. `verdict_ids` are 1 to 32 IDs of the
+card's computer, and `limit` is at most 100; any other request, also one with `edit` or
+`verdict` as its `op`, is `invalid_request`, and the request frame stays at 128 KiB. The card's
+computer answers only for its rows of this pair whose remote name is one of `names`, under the
+link lock from the pair check through the read or the acknowledgement's commit, so an unpair
+or a Remote off that comes first leaves no later answer or acknowledgement. `get` returns the
+card as the local `decision_get` does, only while it names one of `names` now; any other
+reference is `not_found`. `list` pages the cards that name one of `names` now, with the local
+page bounds. `pending` pages the queued verdict deliveries to `names`, each `entry` from the
+verdict's own snapshot, so a recipient that an edit removed keeps its earlier verdicts and no
+later card text. `ack` acknowledges those deliveries in one ordinary write and answers
+`acknowledged` and `already` (IDs of these names acknowledged earlier); an ID of another
+recipient is in neither. The answer is `board-ok`, at most 1 MiB: a card at every field bound,
+with its verdict snapshot, 32 recipients and their deliveries, in the worst JSON escaping,
+fits. A computer at an earlier release answers `link_operation_unknown`, which the agent sees
+as `link_unsupported`. One budget of 8 seconds, inside the local request's own deadline,
+covers the whole call: the caller's names, every lock wait, the dial, the TLS handshake and
+the exchange; a cancel of the local request ends it at once, and a call that gives up before
+its write never sends it later. After the connection is made, the pair is checked again, so an
+unpair during the dial is `link_computer_unknown`. A failure before the request frame is
+written is `link_computer_offline` (`details`: `computer`, `pair`, `reason`) and nothing was
+sent; a definite refusal of the card's computer
+keeps its code; any other failure after the write began is `link_uncertain`, and an
+acknowledgement may have been stored: a retry is safe and reports it in `already`.
+
 | Route | Operation |
 | --- | --- |
 | `GET /v1/status` | Daemon readiness, the release `version`, `pid`, listeners, schema, session counts, storage, content-free wake health and `maintainer_secret_set`. |
@@ -384,8 +441,13 @@ write and checks the clock and the row again inside it: a session that expired m
 whose revision changed (renewed, registered again, as a sub-agent too, or retired), is left as
 it is. A session whose host ended (no process,
 or another start value) or cannot be read, a sub-agent, and a session without a host record
-(DeepSeek, or one registered before host records) expire at their deadline. The daemon never
-revives an expired session. A session record shows `liveness`: `host` or `none`, and
+(DeepSeek, or one registered before host records) expire at their deadline. A host process
+runs one session at a time: when another active session of the same family on the same host
+registered or renewed later, as when a Claude host changed its session ID, only that later
+session is extended, and the earlier one expires at its deadline unless it renews itself
+(#751). The write checks this again. Two sessions with the same time are both extended
+until the next registration or renewal of one orders them. The status line's lookup after `/clear` accepts exactly one active session on the
+host. The daemon never revives an expired session. A session record shows `liveness`: `host` or `none`, and
 `host_verified_at`, the last time that the daemon read the host as running (kept in memory, so
 it is empty until the first check after a daemon start). Concurrent
 registrations update one row, never create two records for the same key. Times are Unix
@@ -1382,6 +1444,21 @@ pane matches `%` followed by 1–9 digits. The optional `executable` (#418) is t
 that the session's own terminal runs, with the same path rules as the socket. Invalid values
 return `invalid_request`.
 
+Schema 40 (#746 chunk 01) rebuilds `decision_recipients` (SQLite cannot widen a CHECK in
+place) so that `kind` adds `remote`, with `pair_id` and `remote_name`; adds `pair_id` and
+`remote_name` to `decision_deliveries`; adds `decision_notices` (one short notice per event and
+remote recipient: cross-node ID, pair, item, reference, recipient NAME, the address as named,
+event `named`, `changed`, `removed`, `withdrawn`, `closed`, `restored` or `verdict`, revision,
+verdict ID and verdict, sequence and digest once sent, state `queued`, `sending`, `uncertain`,
+`received`, `refused`, `unsupported` or `unpaired`, reason and times; no card text); rebuilds
+`link_streams` with `stream` `message` or `notice` in its key, copying each existing row as
+`message`; and adds `decision_notice` to `messages`. Every row is copied unchanged. The
+migration reads the paired computers first: on each card that is not archived, a recipient
+`NAME@COMPUTER` of a paired computer becomes `remote` with a `named` notice, and the current
+verdict's delivery to it, when `skipped` with `unknown_name`, becomes a queued remote delivery
+with a `verdict` notice. A missing link file is no pair; an unreadable one stops the open
+before the migration. A schema 39 binary refuses the upgraded store.
+
 Schema 39 (#693) adds `maintainer_authorizations` (each authorization of a maintainer client
 key: its ID, key ID, public key, user, client, the statement's created time, when and by whom it
 was added, and its removal time; rows are never deleted, and at most one per key is current),
@@ -2155,7 +2232,11 @@ using the daemon's trusted catalog and current decisions. It accepts optional `i
 (at most 32), `scope` (`machine`, default, or `project`) and `directory`. Without IDs it
 selects skills for machine scope and all catalog items for project scope. Family, effective
 native root and caller identity are native metadata, not tool arguments. Project selection
-must match the registered Git common directory and a listed worktree. Machine decision
+must match the registered Git common directory and a listed worktree; Git lists a
+submodule's main worktree by its Git directory, so that entry counts as the work tree that
+the submodule's own `core.worktree` names (#753). A refused selection has the code
+`directory_unresolved`, `directory_other_repository`, `directory_not_listed` or
+`project_context_unavailable`, with a reason and no path. Machine decision
 scope hashes the resolved native root; project decision scope hashes the common directory.
 Linked worktrees can therefore inspect different bytes while sharing decisions. A request
 that names an item in a scope the item does not support is refused with `unsupported_scope`.
@@ -2354,13 +2435,25 @@ of items. Reads move no inbox read or acknowledgement marker and no memory curso
   item has one (#612)), `more` and
   `next_after`. An item does not appear twice in a walk; an item that matches during the
   whole walk appears once; an item whose match changes during the walk appears at most once.
+- `POST /v1/decisions/get`, `list` (with `filter` `mine` only), `pending` and `ack` also take
+  `computer` (a paired computer's current name) or `pair` (its pair ID, which wins), and `get`
+  takes `reference` as `REFERENCE@COMPUTER`: the call then runs at that computer over the link
+  (Decision board over the link) and its result adds `origin` (`computer`, `pair`). An unknown
+  computer or pair is `link_computer_unknown`; a reference with `@` and no reference or no
+  computer, or with a `computer` that names another computer, is `invalid_request`. Without
+  them, the routes answer as below.
 - `POST /v1/decisions/get` takes `caller` and `reference` and returns every field with
   `state`, `revision`, `author_family`, `author_name`, times, the last close (`closed_by`,
   `closed_at`, `outcome_note`), the current `verdict` with its snapshot and deliveries (or
   `null`) and `verdicts`, the number of verdicts in its history. A deep-archived reference
   is `deep_archived` with `details` `moved_at` and `restore`. An unknown reference is
   `not_found`. Recipients are resolved again on each read: `kind` `participant` (an address)
-  or `peer` (a peer name), or `resolved: false` with `reason` `unknown_name`.
+  or `peer` (a peer name), or `resolved: false` with `reason` `unknown_name`. A recipient
+  `NAME@COMPUTER` resolves when the item is created or edited, against the computers paired
+  then (#746): `kind` `remote` with `pair` (the pair ID) and `notice` (the state of its newest
+  notice); it keeps that pair through a rename of the computer and later edits. A name for a
+  computer that was not paired is `resolved: false` with `reason` `link_computer_unknown`, or
+  `link_state_invalid` while the link file could not be read.
 
 Each request field is checked on every write: valid UTF-8 within its byte limit; no control
 character in `title`, `where`, `reference`, `key` or a recipient; in `agent_text`, `context`
@@ -2406,7 +2499,11 @@ its peer name unless a recipient names it; and the audit record with target
 `decision REF revision N VERDICT verdict ID` (no card text); a failure of any part stores
 nothing. A delivery to a participant address is `queued` with one message in the
 participant inbox, read by its current holder also after a holder change; to an active
-peer it is `queued` with one message in that session's inbox. Otherwise it is `skipped`
+peer it is `queued` with one message in that session's inbox. A delivery to a remote
+recipient is `queued` with `kind` `remote`, its `pair` and no message here: it waits for the
+agent's acknowledgement at this computer, and its `notice` is the state of that verdict's own
+notice to it; when its computer is no longer paired it is `skipped` with `reason` `unpaired`.
+A local acknowledgement never acknowledges a remote delivery. Otherwise it is `skipped`
 with `reason` `unknown_name`, `maintainer` or `recipient_inactive`. The message comes from
 `maintainer` with `system_kind` `decision_verdict`, the typed `decision_verdict` ID and a
 body that holds the reference, the ID and, for a verdict other than an fyi acknowledgement or

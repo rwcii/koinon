@@ -20,8 +20,36 @@ import (
 // Dashboard action tests (sprint chunk 09): a real daemon on ephemeral loopback ports,
 // temporary state, synthetic sessions and a patched launcher.
 
-// undoSchemaThirtyNine + undoSchemaThirtyEight + undoSchemaThirtySeven removes the ready-timeout retry of the Enable records (READY-TIMEOUT-ENABLE-487 in PDR 006, Decision 2).
-// undoSchemaThirtyNine + undoSchemaThirtyEight removes the queue to paired computers (#670 chunk 03).
+// undoSchemaForty + undoSchemaThirtyNine + undoSchemaThirtyEight + undoSchemaThirtySeven removes the ready-timeout retry of the Enable records (READY-TIMEOUT-ENABLE-487 in PDR 006, Decision 2).
+// undoSchemaForty + undoSchemaThirtyNine + undoSchemaThirtyEight removes the queue to paired computers (#670 chunk 03).
+// undoSchemaForty restores the decision recipient and link stream tables of schema 39 and
+// drops the notices and the remote columns (#746).
+const undoSchemaForty = `ALTER TABLE messages DROP COLUMN decision_notice;
+	ALTER TABLE link_streams RENAME TO link_streams_v40;
+	CREATE TABLE link_streams (
+		pair_id TEXT NOT NULL,
+		direction TEXT NOT NULL CHECK (direction IN ('out','in')),
+		next_seq INTEGER NOT NULL DEFAULT 1,
+		high_water INTEGER NOT NULL DEFAULT 0,
+		last_result TEXT NOT NULL DEFAULT '', last_reason TEXT NOT NULL DEFAULT '', last_digest TEXT NOT NULL DEFAULT '',
+		PRIMARY KEY (pair_id, direction)
+	);
+	INSERT INTO link_streams(pair_id,direction,next_seq,high_water,last_result,last_reason,last_digest)
+		SELECT pair_id,direction,next_seq,high_water,last_result,last_reason,last_digest FROM link_streams_v40 WHERE stream='message';
+	DROP TABLE link_streams_v40;
+	DROP TABLE decision_notices;
+	DROP INDEX decision_deliveries_remote; ALTER TABLE decision_deliveries DROP COLUMN remote_name;
+	ALTER TABLE decision_deliveries DROP COLUMN pair_id;
+	ALTER TABLE decision_recipients RENAME TO decision_recipients_v40;
+	DROP INDEX decision_recipients_name; DROP INDEX decision_recipients_remote;
+	CREATE TABLE decision_recipients (
+		item_id INTEGER NOT NULL, ordinal INTEGER NOT NULL, name TEXT NOT NULL,
+		kind TEXT NOT NULL CHECK (kind IN ('participant','peer','')), reason TEXT NOT NULL,
+		PRIMARY KEY (item_id, ordinal));
+	INSERT INTO decision_recipients(item_id,ordinal,name,kind,reason) SELECT item_id,ordinal,name,kind,reason FROM decision_recipients_v40;
+	DROP TABLE decision_recipients_v40;
+	CREATE INDEX decision_recipients_name ON decision_recipients(name, item_id); `
+
 const undoSchemaThirtyNine = `DROP INDEX signed_receipts_expiry; DROP TABLE signed_receipts;
 	DROP INDEX maintainer_authorizations_current; DROP TABLE maintainer_authorizations;
 	ALTER TABLE decision_verdicts DROP COLUMN signer_user; ALTER TABLE decision_verdicts DROP COLUMN signer_key;
@@ -630,7 +658,7 @@ func TestSchemaSixMigrationAndRollback(t *testing.T) {
 	}
 	// A schema 6 database that already holds the name maintainer cannot migrate: the
 	// whole step rolls back and the database stays at 6.
-	if _, err := fixtureExec(s, undoSchemaThirtyNine+undoSchemaThirtyEight+undoSchemaThirtySeven+undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+undoSchemaTwentyOne+undoSchemaTwenty+undoSchemaNineteen+undoSchemaEighteen+undoSchemaSeventeen+undoSchemaSixteen+undoSchemaFifteen+undoSchemaFourteen+undoSchemaThirteen+undoSchemaTwelve+undoSchemaEleven+undoSchemaTen+undoSchemaNine+undoSchemaEight+undoSchemaSeven+`INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','codex','x'); PRAGMA user_version=6`); err != nil {
+	if _, err := fixtureExec(s, undoSchemaForty+undoSchemaThirtyNine+undoSchemaThirtyEight+undoSchemaThirtySeven+undoSchemaThirtySix+undoSchemaThirtyFour+undoSchemaThirtyThree+undoSchemaThirtyTwo+undoSchemaThirtyOne+undoSchemaThirty+undoSchemaTwentyNine+undoSchemaTwentyEight+undoSchemaTwentySeven+undoSchemaTwentySix+undoSchemaTwentyFive+undoSchemaTwentyFour+undoSchemaTwentyThree+undoSchemaTwentyTwo+undoSchemaTwentyOne+undoSchemaTwenty+undoSchemaNineteen+undoSchemaEighteen+undoSchemaSeventeen+undoSchemaSixteen+undoSchemaFifteen+undoSchemaFourteen+undoSchemaThirteen+undoSchemaTwelve+undoSchemaEleven+undoSchemaTen+undoSchemaNine+undoSchemaEight+undoSchemaSeven+`INSERT INTO names(name,kind,family,session_id) VALUES ('maintainer','peer','codex','x'); PRAGMA user_version=6`); err != nil {
 		t.Fatal(err)
 	}
 	s.db.Close()

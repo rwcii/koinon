@@ -148,7 +148,8 @@ approval (PDR 005, Decision 3). A verdict reaches each
 named recipient as an inbox message and a wake that name its verdict ID: read it with
 decision_get, handle it, then decision_ack. decision_pending lists unacknowledged verdicts,
 also after the message aged out; a superseded one means the item was reopened. Editing a
-decided item reopens it for a new verdict.
+decided item reopens it for a new verdict. A card on another computer that names you sends a
+notice; read and acknowledge it there (Other Koinon computers).
 Record each decision that you handle, except an fyi acknowledgement, in the repository that the
 item was created in, in the pull request that does the work: in the ADR, PDR, WDR or sprint
 document that holds the rule (#623). Koinon writes no record file. Write the decision
@@ -351,6 +352,14 @@ link_id; Koinon delivers it in order and delivery link_id reads queued, received
 that computer's inbox), refused with its reason, cancelled or may_have_been_delivered. An
 unknown COMPUTER is link_computer_unknown. A message from another computer has origin link
 and sender NAME@COMPUTER: answer it with send and reply_to set to its id.
+A decision card on another computer that names you as NAME@COMPUTER sends you a short
+notice from decision-board@COMPUTER, with no card text; it cannot be answered. Read the live
+card there with decision_get REFERENCE@COMPUTER (or reference and pair), list the cards there
+that name you with decision_list, filter mine and computer or pair, and your waiting verdicts
+with decision_pending and computer or pair. Acknowledge a handled verdict with decision_ack,
+the verdict ID from that computer and its pair. Nothing is stored here. link_computer_offline
+means nothing was sent; link_uncertain means the answer was lost: a retry is safe, and
+already lists an acknowledgement that was stored.
 
 ## Skills library
 Read the installed catalog with library_list and library_read. The command path is
@@ -360,7 +369,8 @@ destination support. Machine-wide skills are the default; project-local adoption
 available. Use library_state (koinon library state on the command path) for present, missing,
 outdated or edited content, same-name collisions, repository facts and recorded decisions.
 Machine scope is the default; a project directory is a listed worktree of this session's
-registered repository. library_state reads this session's scope at a native tool call, and it
+registered repository. A Git submodule is its own repository: start the session in it. A
+refused directory returns a code that names the cause. library_state reads this session's scope at a native tool call, and it
 recommends the missing or outdated skills that available features need; declined and edited
 items show as such. It does not read the koinon-NAME entries that koinon install and the daemon
 write; koinon install --plan reads them, and names koinon install for a missing or earlier one.

@@ -2,10 +2,20 @@ package core
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 )
+
+// wantCheckoutRefusal checks that err is a local refusal with code (#753).
+func wantCheckoutRefusal(t *testing.T, err error, code string) {
+	t.Helper()
+	var refused Refusal
+	if !errors.As(err, &refused) || refused.Code != code || refused.Message == "" {
+		t.Fatalf("got %v, want refusal %s", err, code)
+	}
+}
 
 func TestLibraryCheckoutOnlyRegisteredListedWorktrees(t *testing.T) {
 	first, linked := checkoutFixture(t)
@@ -21,14 +31,13 @@ func TestLibraryCheckoutOnlyRegisteredListedWorktrees(t *testing.T) {
 		}
 	}
 	foreign := testRepo(t)
-	for _, selected := range []string{foreign, t.TempDir(), filepath.Join(first.Directory, ".git")} {
-		if _, err := LibraryCheckout(ctx, first.Directory, selected, first.Repository); err == nil {
-			t.Fatalf("accepted foreign/plain/metadata %q", selected)
-		}
+	for selected, code := range map[string]string{foreign: "directory_other_repository", t.TempDir(): "directory_unresolved",
+		filepath.Join(first.Directory, ".git"): "directory_unresolved"} {
+		_, err := LibraryCheckout(ctx, first.Directory, selected, first.Repository)
+		wantCheckoutRefusal(t, err, code)
 	}
-	if _, err := LibraryCheckout(ctx, first.Directory, "", filepath.Join(foreign, ".git")); err == nil {
-		t.Fatal("accepted a changed registered repository")
-	}
+	_, err := LibraryCheckout(ctx, first.Directory, "", filepath.Join(foreign, ".git"))
+	wantCheckoutRefusal(t, err, "project_context_unavailable")
 	// Copying a linked .git pointer resolves the same common directory but must not
 	// admit a directory that Git does not list as a worktree.
 	unlisted := t.TempDir()
@@ -42,7 +51,48 @@ func TestLibraryCheckoutOnlyRegisteredListedWorktrees(t *testing.T) {
 	if raw, err := CheckoutResource(ctx, unlisted); err != nil || raw.Repository != first.Repository {
 		t.Fatalf("fixture does not reach listed-worktree check: %+v %v", raw, err)
 	}
-	if _, err := LibraryCheckout(ctx, first.Directory, unlisted, first.Repository); err == nil {
-		t.Fatal("accepted an unlisted copied Git pointer")
+	_, err = LibraryCheckout(ctx, first.Directory, unlisted, first.Repository)
+	wantCheckoutRefusal(t, err, "directory_not_listed")
+}
+
+// TestLibraryCheckoutSubmodule: Git lists a submodule's main worktree by its Git directory
+// (#753). A session registered in the submodule selects it and its linked worktree; from the
+// parent, the submodule is another repository.
+func TestLibraryCheckoutSubmodule(t *testing.T) {
+	ctx := context.Background()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
 	}
+	child, parent := filepath.Join(root, "child"), filepath.Join(root, "parent")
+	for _, dir := range []string{child, parent} {
+		if err := os.Mkdir(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+		checkoutGit(t, dir, "init", "-q")
+		checkoutGit(t, dir, "commit", "-q", "--allow-empty", "-m", "synthetic fixture")
+	}
+	checkoutGit(t, parent, "-c", "protocol.file.allow=always", "submodule", "add", "-q", child, "sub")
+	sub := filepath.Join(parent, "sub")
+	linked := filepath.Join(root, "sub-linked")
+	checkoutGit(t, sub, "worktree", "add", "-q", "--detach", linked)
+	base, err := CheckoutResource(ctx, sub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, selected := range []string{"", sub, linked, filepath.Join(sub, ".")} {
+		got, err := LibraryCheckout(ctx, sub, selected, base.Repository)
+		if err != nil || got.Repository != base.Repository {
+			t.Fatalf("submodule %q: %+v %v", selected, got, err)
+		}
+	}
+	if got, err := LibraryCheckout(ctx, linked, sub, base.Repository); err != nil || got.Directory != sub {
+		t.Fatalf("from the linked worktree: %+v %v", got, err)
+	}
+	top, err := CheckoutResource(ctx, parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = LibraryCheckout(ctx, parent, sub, top.Repository)
+	wantCheckoutRefusal(t, err, "directory_other_repository")
 }

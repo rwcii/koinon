@@ -236,8 +236,8 @@ func (a *agyTerminal) target() CycleTarget {
 		Socket: "/tmp/synthetic-socket", Pane: "%6", Epoch: "conv-a", Holds: true, Pickup: pickupSkillEntry(), State: cycleReady,
 		Directory: a.dir, observedEpoch: "conv-a", stateRoot: a.state,
 		tools: hostTools{tmux: a.tmux,
-			processStart:   func(pid int) (int64, error) { return a.start, nil },
-			processParents: func() (map[int]int, error) { return a.parents, nil },
+			processStart:  func(pid int) (int64, error) { return a.start, nil },
+			processParent: parentIn(a.parents),
 			processCommand: func(pid int) (string, []string, error) {
 				if c, ok := a.commands[pid]; ok {
 					return c, nil, nil
@@ -250,7 +250,7 @@ func (a *agyTerminal) target() CycleTarget {
 				}
 				return "", nil
 			},
-			processGroups: func() (map[int]platform.ProcessGroup, error) { return a.groups, nil }}}
+			processGroups: func() (map[int]platform.ProcessGroup, error) { return withParents(a.groups, a.parents), nil }}}
 }
 
 func (a *agyTerminal) fence(context.Context) error {

@@ -525,6 +525,13 @@ type CompactAdapter interface {
 	Compact(ctx context.Context, t CycleTarget, fence CycleFence) (submitted, received bool, err error)
 }
 
+// CompactBusyAdapter is a compaction adapter with a cheap read-only check that a waiting
+// compaction's pane is still busy (#758). CompactBusy returns a fixed code, which keeps the
+// compaction waiting without Inspect, or "", and then Inspect runs. It sends no key.
+type CompactBusyAdapter interface {
+	CompactBusy(ctx context.Context, t CycleTarget) string
+}
+
 // SessionAdapter is a cycle adapter whose reset creates a new native session by its host's API
 // and shows it in the pinned pane, instead of clearing the pane (OpenCode, #513). Its Clear is
 // not used.

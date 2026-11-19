@@ -58,6 +58,9 @@ type Message struct {
 	// Origin is link for a message from a paired computer: SenderName is NAME@COMPUTER,
 	// and send with reply_to set to its ID answers it on that pair (#670 chunk 03).
 	Origin string `json:"origin,omitempty"`
+	// DecisionNotice types a notice of a decision card on a paired computer (#746): system
+	// kind decision_notice from decision-board@COMPUTER. It holds no card text.
+	DecisionNotice *DecisionNotice `json:"decision_notice,omitempty"`
 }
 
 type Inbox struct {
@@ -512,7 +515,7 @@ func readMessages(ctx context.Context, tx *sql.Tx, inbox Key, after, limit int64
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT id,seq,sender_family,sender_name,body,created_at,delivery_state,delivery_reason,maintainer_ack,
 		ack_session,ack_via,room_id,room_revision,room_event,room_seq,room_origin,system_kind,cycle_id,cycle_enable_revision,
-		CASE WHEN link_pair IS NULL THEN '' ELSE 'link' END FROM messages
+		CASE WHEN link_pair IS NULL THEN '' ELSE 'link' END,decision_notice,COALESCE(link_pair,'') FROM messages
 		WHERE recipient_family=? AND recipient_id=? AND seq>? ORDER BY seq LIMIT ?`,
 		inbox.Family, inbox.ID, after, limit+1)
 	if err != nil {
@@ -524,17 +527,21 @@ func readMessages(ctx context.Context, tx *sql.Tx, inbox Key, after, limit int64
 		var m Message
 		var maintainer bool
 		var room RoomEvent
+		var notice, pair string
 		if err := rows.Scan(&m.ID, &m.Seq, &m.SenderFamily, &m.SenderName, &m.Body, &m.CreatedAt, &m.DeliveryState, &m.DeliveryReason, &maintainer,
 			&m.AcknowledgedSession, &m.AcknowledgedVia, &room.RoomID, &room.Revision, &room.Event, &room.Seq, &room.Origin,
-			&m.SystemKind, &m.CycleID, &m.CycleEnableRevision, &m.Origin); err != nil {
+			&m.SystemKind, &m.CycleID, &m.CycleEnableRevision, &m.Origin, &notice, &pair); err != nil {
 			return 0, 0, false, err
+		}
+		if m.SystemKind == noticeKind {
+			m.DecisionNotice = projectNotice(notice, pair, m.SenderName)
 		}
 		if room.RoomID != "" {
 			m.Room = &room
 		}
 		// The bound counts bodies with room and system metadata, at most 128 bytes more
 		// per message.
-		extra := len(room.RoomID) + len(room.Event) + len(m.SystemKind) + len(m.CycleID)
+		extra := len(room.RoomID) + len(room.Event) + len(m.SystemKind) + len(m.CycleID) + len(notice) + len(pair)
 		if count == limit || (count > 0 && size+len(m.Body)+extra > 1<<20) {
 			more = true
 			break

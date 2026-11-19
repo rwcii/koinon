@@ -76,6 +76,9 @@ type Daemon struct {
 	wakePass         func(context.Context) error // the real pass, injectable in loop tests
 	// sweepMu keeps the maintenance sweep and koinon maintenance sweep from overlapping.
 	sweepMu sync.Mutex
+
+	// notices wakes the decision notice dispatcher (#746 chunk 02); a send never blocks.
+	notices chan struct{}
 }
 
 func validAddress(address string) bool {
@@ -113,7 +116,7 @@ func Start(c Config) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
-	d := &Daemon{release: c.Release, lock: lock, errors: make(chan error, 3), stop: make(chan struct{}), root: root, launch: runLauncher, catalog: catalog, workNoticeSignal: make(chan struct{}, 1)}
+	d := &Daemon{release: c.Release, lock: lock, errors: make(chan error, 3), stop: make(chan struct{}), root: root, launch: runLauncher, catalog: catalog, workNoticeSignal: make(chan struct{}, 1), notices: make(chan struct{}, 1)}
 	d.logEvent = c.LogEvent
 	d.remote.manager = remote.Manager{Adapter: c.Tailscale}
 	defer func() {
@@ -132,6 +135,8 @@ func Start(c Config) (*Daemon, error) {
 	d.started = d.store.now()
 	d.store.library.catalog = catalog
 	d.store.logEvent = c.LogEvent
+	d.store.linkFence = d.boardFence
+	d.store.noticeKick = d.noticeSignal
 	d.store.secretCost = c.SecretCost
 	// No tool call before this start is known, so the succession guard counts the start as one.
 	d.store.calls.since = d.started.UnixMilli()
