@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-11-19 — Decision cards for agents on another computer, and an idle daemon that stays idle
+
+This release lets a decision card name an agent on a paired computer: the agent gets a notice
+and reads and acknowledges the card at the card's computer (#746). An idle daemon no longer
+uses more than one CPU core (#756, #758). The store moves to schema 40.
+
 - A managed cycle accepts a Handoff path fact whose first word is a Markdown code span, such
   as `` `_handoff/<agent>/` in the main checkout`` (#763). It refused the ready report and
   looked for a directory whose name started with a backtick. Any other backtick in the
@@ -65,10 +71,27 @@ into a dated release section when promoted to `main`.
   The card now resolves that recipient as `remote`, with its pair, instead of `unknown_name`,
   and keeps it through a rename of the computer. Each new card, change and verdict queues a
   short notice for it, with no card text; a verdict delivery to it waits for its
-  acknowledgement. A later release sends the notices and lets the agent read and acknowledge
-  the card here. The store moves to schema 40, and the upgrade fixes open cards that already
-  name such an agent. A v0.13.x binary refuses a schema 40 store, so you cannot go back to
-  v0.13.x after the upgrade.
+  acknowledgement. The store moves to schema 40, and the upgrade fixes open cards that already
+  name such an agent. A v0.13.1 or earlier binary refuses a schema 40 store, so you cannot go
+  back to v0.13.1 or earlier after the upgrade.
+
+Upgrade from v0.13.1 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and moves the store to schema 40; a v0.13.1 or earlier binary
+refuses a schema 40 store, so you cannot go back after the upgrade. The restart ends current
+local dashboard logins: log in again with the Koinon password, or run `koinon dashboard` for a
+one-time link. A remote sign-in keeps the rest of its fixed 48-hour window. Run
+`koinon install --plan` to check. A running `koinon mcp` server runs the new release without a
+session restart.
+
+Upgrade notes:
+
+- Upgrade both computers of a pair. A computer at v0.13.1 or earlier answers the decision
+  notice and board operations as unknown: the card's computer shows those notices as
+  `unsupported`, and they resume by themselves after the other computer's upgrade.
+- A host without a service manager, such as a container, runs the daemon in the background:
+  after `brew upgrade koinon`, run `koinon install` there to start it on the new binary.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
 
 ## 2026-11-18 — A plan that checks the skill entries
 

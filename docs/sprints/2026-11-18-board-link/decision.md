@@ -63,6 +63,23 @@ computers".
 PDR 011, Decision 2 and PDR 007, Decision 4 record this decision in the pull request of
 chunk 01.
 
+## The release number and hold for this sprint's release
+
+- **Decided by:** Robert Capps.
+- **Date:** 2026-11-19, decision board, approved at revision 2 after feedback on revision 1.
+- **Context:** revision 1 proposed releasing develop, with this sprint's chunks 01 to 03 and
+  the fixes for #745, #751 and #753, as v0.14.0. The release moves the store to schema 40, and
+  a v0.13.1 binary refuses a schema 40 store. At the same time, an idle daemon used 1.3 to 1.5
+  CPU cores (#756).
+- **Decision:** v0.13.2, held until the performance issue is fixed. Feedback on revision 1:
+  "0.13.2, but hold the release until we're done troubleshooting a performance issue."
+  Revision 2, approved: fix #756, install the development build on one computer and check the
+  idle CPU and read rate, then release v0.13.2, then upgrade two computers and close the
+  sprint's issues. The upgrade of the other computers is a separate decision.
+- **Reason and scope:** the answer names no further reason. This covers this release only; it
+  sets no rule for later version numbers. The idle check also needed #758 (#760, #762 and
+  #764): on 2026-11-19 the idle daemon used a 7% mean of one core over 60 s.
+
 ## Observable acceptance
 
 1. A card that names `NAME@COMPUTER` for a paired computer shows that recipient as resolved,
