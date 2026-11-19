@@ -164,9 +164,12 @@ type Store struct {
 	retention retentionState
 	// calls holds each session's last tool call; processStart reads a host process's start
 	// time (chunk 04).
-	calls          toolCalls
-	processStart   func(int) (int64, error)
+	calls        toolCalls
+	processStart func(int) (int64, error)
+	// processParents reads the whole process table; processParent reads one process's
+	// parent, for an ancestry walk that reads only its own steps (#758).
 	processParents func() (map[int]int, error)
+	processParent  func(int) (int, error)
 	processCommand func(int) (string, []string, error)
 	// processEnvironment reads one variable of a host process (a Claude host's config root).
 	processEnvironment func(pid int, name string) (string, error)
@@ -318,7 +321,7 @@ func openStoreFile(root, name string) (*Store, error) {
 		return nil, err
 	}
 	s := &Store{db: db, root: root, now: time.Now, storage: storage{path: path, maxPages: defaultMaxPages}, processStart: platform.ProcessStart,
-		processParents: platform.ProcessParents, processCommand: platform.ProcessCommand,
+		processParents: platform.ProcessParents, processParent: platform.ProcessParent, processCommand: platform.ProcessCommand,
 		processEnvironment: platform.ProcessEnvironment, tmux: runTmux,
 		processGroups: platform.ProcessGroups,
 		codexPane:     runtime.GOOS == "linux" || runtime.GOOS == "darwin", processStartTime: platform.ProcessStartTime}

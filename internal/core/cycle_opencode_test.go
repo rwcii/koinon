@@ -308,7 +308,7 @@ func (f *fakeOpenCode) target(state string) CycleTarget {
 		Directory: f.dir, openCode: &LaunchTarget{Address: strings.TrimPrefix(f.server.URL, "http://"), Password: f.password},
 		tools: hostTools{tmux: f.tmux,
 			processStart:   func(int) (int64, error) { return f.start, nil },
-			processParents: func() (map[int]int, error) { return map[int]int{}, nil },
+			processParent:  parentIn(map[int]int{}),
 			processCommand: func(int) (string, []string, error) { return "/synthetic/opencode", nil, nil },
 			processEnvironment: func(_ int, name string) (string, error) {
 				if name == "HOME" {

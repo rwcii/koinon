@@ -120,7 +120,7 @@ func (s *Store) hostTools(executable string) hostTools {
 	tmux := s.tmux
 	return hostTools{tmux: func(ctx context.Context, socket string, args ...string) (string, error) {
 		return tmux(ctx, executable, socket, args...)
-	}, processStart: s.processStart, processParents: s.processParents,
+	}, processStart: s.processStart, processParent: s.processParent,
 		processCommand: s.processCommand, processEnvironment: s.processEnvironment, processGroups: s.processGroups}
 }
 
@@ -128,10 +128,32 @@ func (s *Store) hostTools(executable string) hostTools {
 type hostTools struct {
 	tmux               func(ctx context.Context, socket string, args ...string) (string, error)
 	processStart       func(int) (int64, error)
-	processParents     func() (map[int]int, error)
+	processParent      func(int) (int, error)
 	processCommand     func(int) (string, []string, error)
 	processEnvironment func(pid int, name string) (string, error)
 	processGroups      func() (map[int]platform.ProcessGroup, error)
+}
+
+// parentOf reads one process's parent with read. A process that is gone has parent 0, as a
+// process that a table does not hold: the walk ends there. Another error is returned.
+func parentOf(read func(int) (int, error), pid int) (int, error) {
+	if read == nil {
+		return 0, errors.New("process parent unreadable")
+	}
+	parent, err := read(pid)
+	if errors.Is(err, platform.ErrProcessGone) {
+		return 0, nil
+	}
+	return parent, err
+}
+
+// tableParents is the parent of each process in a table that ProcessGroups read.
+func tableParents(groups map[int]platform.ProcessGroup) map[int]int {
+	parents := make(map[int]int, len(groups))
+	for pid, g := range groups {
+		parents[pid] = g.Parent
+	}
+	return parents
 }
 
 // provePane proves that pane still holds the session's host: the host process has its
@@ -139,35 +161,31 @@ type hostTools struct {
 // other agent process between them, the rule of terminal naming (#156). It returns nil for a
 // proven pane, an errTmuxUnavailable error when tmux could not run, else errPaneUnproven.
 func provePane(ctx context.Context, h hostTools, pid, start int64, socket, pane string) error {
-	_, _, err := provenPane(ctx, h, pid, start, socket, pane)
+	_, err := provenPane(ctx, h, pid, start, socket, pane)
 	return err
 }
 
-// provenPane is provePane that also returns the pane's process and the process table it
-// proved the host's ancestry with.
-func provenPane(ctx context.Context, h hostTools, pid, start int64, socket, pane string) (int, map[int]int, error) {
+// provenPane is provePane that also returns the pane's process. It walks the host's ancestry
+// one process at a time, so it reads only the processes between the host and the pane (#758).
+func provenPane(ctx context.Context, h hostTools, pid, start int64, socket, pane string) (int, error) {
 	if pid <= 1 || start == 0 || !(&TmuxPane{Socket: socket, Pane: pane}).valid() || socket == "" {
-		return 0, nil, errPaneUnproven
+		return 0, errPaneUnproven
 	}
 	if current, err := h.processStart(int(pid)); err != nil || current != start {
-		return 0, nil, errPaneUnproven
+		return 0, errPaneUnproven
 	}
 	// A space separates the fields: tmux before 3.4 prints a tab in a format as "_".
 	out, err := h.tmux(ctx, socket, "display-message", "-p", "-t", pane, "#{pane_id} #{pane_pid}")
 	if errors.Is(err, errTmuxUnavailable) {
-		return 0, nil, err
+		return 0, err
 	}
 	fields := strings.Fields(out)
 	if err != nil || len(fields) != 2 || fields[0] != pane {
-		return 0, nil, errPaneUnproven
+		return 0, errPaneUnproven
 	}
 	panePID, err := strconv.Atoi(fields[1])
 	if err != nil || panePID <= 1 {
-		return 0, nil, errPaneUnproven
-	}
-	parents, err := h.processParents()
-	if err != nil {
-		return 0, nil, errPaneUnproven
+		return 0, errPaneUnproven
 	}
 	agent := func(pid int) bool {
 		executable, args, err := h.processCommand(pid)
@@ -175,18 +193,18 @@ func provenPane(ctx context.Context, h hostTools, pid, start int64, socket, pane
 	}
 	for current, steps := int(pid), 0; current != panePID; steps++ {
 		if current != int(pid) && agent(current) {
-			return 0, nil, errPaneUnproven
+			return 0, errPaneUnproven
 		}
-		parent, found := parents[current]
-		if !found || parent <= 1 || steps >= maxGrokAncestors {
-			return 0, nil, errPaneUnproven
+		parent, err := parentOf(h.processParent, current)
+		if err != nil || parent <= 1 || steps >= maxGrokAncestors {
+			return 0, errPaneUnproven
 		}
 		current = parent
 	}
 	if panePID != int(pid) && agent(panePID) {
-		return 0, nil, errPaneUnproven
+		return 0, errPaneUnproven
 	}
-	return panePID, parents, nil
+	return panePID, nil
 }
 
 // grokComposer reads Grok's input box: the last line that starts with the box border and the
