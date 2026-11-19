@@ -161,10 +161,22 @@ const (
 )
 
 // wakeKeysQuery lists up to 16 active inboxes, other than the excluded families, that have an
-// unhandled message that matches the condition. Its first parameter is the time now.
-func wakeKeysQuery(excluded, condition string) string {
+// unhandled message that matches the condition. Its first parameter is the time now. With
+// held, a participant's inbox is listed only while a live session of its family holds its
+// address, and the second parameter is the time now too: without a holder its wake records
+// nothing, so it would be listed again on every pass and take one of the 16 places (#759).
+// GLOB matches the prefix with case, as isParticipantID does: LIKE would also take a native
+// session ID such as "Participant:…".
+func wakeKeysQuery(excluded, condition string, held bool) string {
+	holder := ""
+	if held {
+		holder = `
+ AND (s.id NOT GLOB '` + participantPrefix + `*' OR EXISTS (SELECT 1 FROM names n JOIN sessions h ON h.family=n.family AND h.id=n.holder_id
+ WHERE n.name=substr(s.id,` + strconv.Itoa(len(participantPrefix)+1) + `) AND n.kind='alias' AND n.family=s.family
+ AND h.retired_at=0 AND h.expires_at>?))`
+	}
 	return `SELECT s.family,s.id FROM sessions s
- WHERE s.retired_at=0 AND s.expires_at>? AND s.family NOT IN ` + excluded + `
+ WHERE s.retired_at=0 AND s.expires_at>? AND s.family NOT IN ` + excluded + holder + `
  AND EXISTS (SELECT 1 FROM messages m WHERE m.recipient_family=s.family AND m.recipient_id=s.id
  AND ` + unhandled + ` AND ` + condition + `)
  ORDER BY s.family,s.id LIMIT 16`
@@ -465,12 +477,18 @@ func (s *Store) recordTurnFailure(ctx context.Context, k Key, code string, at, n
 // set, Antigravity's, with unhandled messages that match the condition. It starts from the
 // sessions and reads only each inbox's messages after its handled sequence, so a pass with no
 // work reads no handled message: a message keeps its delivery state after it is read (#756).
-func (s *Store) wakeKeys(ctx context.Context, agy bool, condition string, args ...any) ([]Key, error) {
+// wakeKeys lists the inboxes of wakeKeysQuery. The submission pass lists only held
+// participant inboxes; the pass that fails messages at the notice limit lists them all.
+func (s *Store) wakeKeys(ctx context.Context, agy, held bool, condition string, args ...any) ([]Key, error) {
 	excluded := `('agy','maintainer')`
 	if agy {
 		excluded = `('maintainer')`
 	}
-	rows, err := s.db.QueryContext(ctx, wakeKeysQuery(excluded, condition), append([]any{s.now().UnixMilli()}, args...)...)
+	now := []any{s.now().UnixMilli()}
+	if held {
+		now = append(now, now[0])
+	}
+	rows, err := s.db.QueryContext(ctx, wakeKeysQuery(excluded, condition, held), append(now, args...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -494,7 +512,7 @@ func (s *Store) wakeStep(ctx context.Context) error {
 	// Antigravity's too, and whether or not a participant has an active holder. They leave
 	// this set, so they never hold the 16 places.
 	now, later := s.dueArgs()
-	exhausted, err := s.wakeKeys(ctx, true, dueWake+` AND m.wake_notices>=?`, now, later, wakeNoticeLimit)
+	exhausted, err := s.wakeKeys(ctx, true, false, dueWake+` AND m.wake_notices>=?`, now, later, wakeNoticeLimit)
 	if err != nil {
 		return wakePassError{"list_exhausted", err}
 	}
@@ -506,7 +524,7 @@ func (s *Store) wakeStep(ctx context.Context) error {
 			return wakePassError{"fail_unhandled", err}
 		}
 	}
-	keys, err := s.wakeKeys(ctx, false, dueWake, now, later)
+	keys, err := s.wakeKeys(ctx, false, true, dueWake, now, later)
 	if err != nil {
 		return wakePassError{"list_due", err}
 	}

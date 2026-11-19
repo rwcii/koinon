@@ -55,7 +55,7 @@ func TestWakeIdlePassReadsNoHandledMessage(t *testing.T) {
 		after = read.Messages[len(read.Messages)-1].Seq
 	}
 	now, later := s.dueArgs()
-	keys, err := s.wakeKeys(ctx, false, dueWake, now, later)
+	keys, err := s.wakeKeys(ctx, false, true, dueWake, now, later)
 	if err != nil || len(keys) != 0 {
 		t.Fatalf("handled inbox listed: %v %v", keys, err)
 	}
@@ -72,14 +72,15 @@ func TestWakeIdlePassReadsNoHandledMessage(t *testing.T) {
 	sort.Slice(want, func(i, j int) bool {
 		return want[i].Family < want[j].Family || want[i].Family == want[j].Family && want[i].ID < want[j].ID
 	})
-	keys, err = s.wakeKeys(ctx, false, dueWake, now, later)
+	keys, err = s.wakeKeys(ctx, false, true, dueWake, now, later)
 	if err != nil || !reflect.DeepEqual(keys, want[:16]) {
 		t.Fatalf("keys %v %v, want %v", keys, err, want[:16])
 	}
 
 	// No wake query scans the messages table.
 	for name, q := range map[string]string{
-		"keys":        wakeKeysQuery(`('maintainer')`, dueWake+` AND m.wake_notices>=?`),
+		"keys":        wakeKeysQuery(`('maintainer')`, dueWake+` AND m.wake_notices>=?`, false),
+		"keys_held":   wakeKeysQuery(`('agy','maintainer')`, dueWake, true),
 		"batch":       wakeBatchQuery,
 		"fail":        failUnhandledQuery,
 		"turn":        turnFailureQuery,
