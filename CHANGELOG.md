@@ -9,7 +9,10 @@ into a dated release section when promoted to `main`.
   pane read the whole table two times, and each managed cycle that waits for an idle pane
   runs one each second. It now reads the table one time. The Claude status-line fallback,
   the agy witness and the pane proof read only the ancestors of the process, one at a time.
-  On a host with 1,640 processes, one table read takes about 50 ms.
+  On a host with 1,640 processes, one table read takes about 50 ms. A waiting Codex
+  compaction whose pane shows a draft, a running turn or no input line now waits with no
+  table read: it proves the pane by its ancestry and reads the screen. The full proof runs
+  only when the screen can be ready.
 
 - An idle daemon no longer uses more than one CPU core (#756). Each second, the wake loop
   read every message that its recipient had already read, because a message keeps its
