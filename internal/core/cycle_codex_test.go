@@ -101,6 +101,7 @@ type codexTerminal struct {
 	home       string
 	pid, start int64
 	args       []string
+	narrow     bool // the status line takes two rows
 }
 
 func newCodexTerminal(t *testing.T) *codexTerminal {
@@ -165,6 +166,9 @@ func (c *codexTerminal) screen() string {
 		b.WriteString(c.input)
 	}
 	b.WriteString("\n\n  synthetic-model · /tmp/synthetic/repo\n")
+	if c.narrow {
+		b.WriteString("  69% left\n") // a narrow pane wraps the status line (#761)
+	}
 	if c.input == "" {
 		b.WriteString("  ? for shortcuts\n")
 	}
