@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- An idle daemon no longer uses more than one CPU core (#756). Each second, the wake loop
+  read every message that its recipient had already read, because a message keeps its
+  delivery state after it is read. It now reads only the messages after each inbox's handled
+  sequence. On a store with 27,234 handled messages, the query took 55 ms and now takes
+  0.2 ms.
+
 - `koinon install --plan --json` prints the plan as one JSON object, with `current` and the
   reason for each step: each skill entry or OpenCode command file that the install would
   create or replace is named by kind, family and path (#745). The text form and its exit
