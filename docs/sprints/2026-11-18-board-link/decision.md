@@ -113,6 +113,28 @@ chunk 01.
 - **Reason and scope:** the answer names no further reason. This covers the v0.13.2 upgrade of
   the paired computers; it sets no rule for later releases.
 
+## The v0.13.3 patch release
+
+- **Decided by:** Robert Capps.
+- **Date:** 2026-11-20, decision board.
+- **Context:** after v0.13.2, develop had two daemon fixes and one test fix. #771 (#761) wakes
+  and compacts a Codex session in an 80-column pane again; that bug was the remaining daemon
+  CPU cost of the performance work above. #775 (#759) keeps a participant address with no live
+  holder out of the wake places. #774 (#773) changes a test only. There is no schema change.
+  The options were a patch release now, or to wait for more work, while the other open issues
+  wait for outside conditions.
+- **Decision:** the answer was "approved", with no other words, on the recommendation to
+  release develop as v0.13.3, after the #746 closeout records merge, then upgrade all five
+  computers with the documented path and check `koinon version` on each.
+- **Reason and scope:** two fixes with no new feature and no schema change make a patch
+  version, and agents with narrow Codex panes and old participant addresses need them now.
+  This covers this release only; it sets no rule for later version numbers.
+- **Added during the release checks:** the macOS upgrade check on develop found #777: an
+  install over a running user agent could fail to start the daemon. The full Go suite found
+  #778: an import test failed from 2026-11-20, because its fixture's memory consumers passed
+  the 30-day limit. Both are fixed in the release (#779), with no feature and no schema change,
+  so the release stays a patch version.
+
 ## Observable acceptance
 
 1. A card that names `NAME@COMPUTER` for a paired computer shows that recipient as resolved,
