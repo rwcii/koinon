@@ -331,20 +331,27 @@ func notLoaded(out []byte) bool {
 }
 
 func (s Services) waitAbsent(ctx context.Context, target, step string) error {
+	return s.pollAbsent(ctx, s.sudo, target, func(out []byte, err error) error { return stepError(step, out, err) })
+}
+
+// pollAbsent waits until launchctl print, run by run, says that target is not loaded, for at
+// most StopWait (30 seconds when zero). A failed print, or a target that is still loaded at
+// the limit, is returned through fail.
+func (s Services) pollAbsent(ctx context.Context, run func(context.Context, ...string) ([]byte, error), target string, fail func([]byte, error) error) error {
 	wait := s.StopWait
 	if wait == 0 {
 		wait = 30 * time.Second
 	}
 	deadline := time.Now().Add(wait)
 	for {
-		out, err := s.sudo(ctx, "launchctl", "print", target)
+		out, err := run(ctx, "launchctl", "print", target)
 		switch {
 		case err != nil && launchdAbsent(out, err):
 			return nil
 		case err != nil:
-			return stepError(step, out, err)
+			return fail(out, err)
 		case time.Now().After(deadline):
-			return stepError(step, []byte(target+" is still loaded"), nil)
+			return fail([]byte(target+" is still loaded"), nil)
 		}
 		select {
 		case <-ctx.Done():

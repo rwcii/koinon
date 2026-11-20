@@ -292,8 +292,19 @@ func (s Services) StartDaemon(ctx context.Context) error {
 	if s.Backend == "launchd" {
 		// The agent is loaded again, so a changed file takes effect; an absent one makes
 		// bootout fail harmlessly. A system-mode install disabled it; a plain install after
-		// its uninstall enables it again.
-		s.Run(ctx, "launchctl", "bootout", s.domain()+"/"+DaemonLabel)
+		// its uninstall enables it again. bootout can return while launchd still has the
+		// stopping agent, and a bootstrap then fails with "5: Input/output error" (#777), so
+		// the bootstrap waits until the agent is absent.
+		s.Run(ctx, "launchctl", "bootout", s.agentTarget())
+		if err := s.pollAbsent(ctx, s.Run, s.agentTarget(), func(out []byte, err error) error {
+			detail := strings.TrimSpace(string(out))
+			if detail == "" {
+				detail = err.Error()
+			}
+			return fmt.Errorf("launchctl bootout did not remove the agent: %s", detail)
+		}); err != nil {
+			return err
+		}
 		if out, err := s.Run(ctx, "launchctl", "enable", s.domain()+"/"+DaemonLabel); err != nil {
 			return fmt.Errorf("launchctl enable failed: %s", strings.TrimSpace(string(out)))
 		}
