@@ -93,10 +93,25 @@ chunk 01.
   "0.13.2, but hold the release until we're done troubleshooting a performance issue."
   Revision 2, approved: fix #756, install the development build on one computer and check the
   idle CPU and read rate, then release v0.13.2, then upgrade two computers and close the
-  sprint's issues. The upgrade of the other computers is a separate decision.
+  sprint's issues. The upgrade of the other computers is a separate decision; the next
+  section records it.
 - **Reason and scope:** the answer names no further reason. This covers this release only; it
   sets no rule for later version numbers. The idle check also needed #758 (#760, #762 and
   #764): on 2026-11-19 the idle daemon used a 7% mean of one core over 60 s.
+
+## The upgrade of the other computers to v0.13.2
+
+- **Decided by:** Robert Capps.
+- **Date:** 2026-11-19, terminal, after the v0.13.2 release.
+- **Context:** the approved release plan upgraded blackhole and nebula, and left mac-studio,
+  neutron and build-server at their earlier releases as a separate decision. Until their
+  upgrade, those three computers show `unsupported` for remote decision notices.
+- **Decision:** upgrade every computer. The maintainer's words: "please update all the systems
+  to the latest version." All five computers were upgraded to v0.13.2 with the documented
+  upgrade path on 2026-11-19, and the notices that waited as `unsupported` went out after the
+  upgrade.
+- **Reason and scope:** the answer names no further reason. This covers the v0.13.2 upgrade of
+  the paired computers; it sets no rule for later releases.
 
 ## Observable acceptance
 

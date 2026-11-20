@@ -43,8 +43,10 @@ recipient's state. The guide and USAGE describe it. The live check is recorded.
   text, and that the two old cards on nebula now resolve. Record the steps and results in
   `verification.md` in the chunk 03 pull request.
 - Reason and scope: the sprint needs a live check on two real paired computers before #746
-  closes. Both computers move to schema 40 and cannot go back to v0.13.x; mac-studio, neutron
-  and build-server stay at their releases and show `unsupported` until their upgrade.
+  closes. Both computers move to schema 40 and cannot go back to v0.13.1 or earlier (the
+  release became v0.13.2, which reads schema 40); mac-studio, neutron and build-server stay at
+  their releases and show `unsupported` until their upgrade, which the decision record's
+  upgrade section covers.
 
 ## Tests
 
