@@ -343,3 +343,41 @@ func TestStartDaemonWaitsForBootout(t *testing.T) {
 		})
 	}
 }
+
+// TestStartDaemonBootoutWaitFailures checks that a failed read of the agent and a cancelled
+// context stop the start before its bootstrap (#777).
+func TestStartDaemonBootoutWaitFailures(t *testing.T) {
+	agent := "gui/501/" + DaemonLabel
+	ipc := func(argv []string) ([]byte, error) {
+		if argv[1] == "print" && argv[2] == agent {
+			return []byte("IPC error"), errors.New("exit status 5")
+		}
+		return nil, nil
+	}
+	s, calls := fakeServices(t, "launchd", ipc)
+	s.WriteDaemon("/opt/koinon", "/state")
+	err := s.StartDaemon(context.Background())
+	if err == nil || err.Error() != "launchctl bootout did not remove the agent: IPC error" {
+		t.Fatalf("failed read: %v", err)
+	}
+	if strings.Contains(strings.Join(*calls, "\n"), "launchctl bootstrap") {
+		t.Fatalf("bootstrap after a failed read:\n%s", strings.Join(*calls, "\n"))
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	loaded := func(argv []string) ([]byte, error) {
+		if argv[1] == "print" && argv[2] == agent {
+			cancel()
+		}
+		return nil, nil
+	}
+	c, calls := fakeServices(t, "launchd", loaded)
+	c.StopWait = time.Minute
+	c.WriteDaemon("/opt/koinon", "/state")
+	if err := c.StartDaemon(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled context: %v", err)
+	}
+	if strings.Contains(strings.Join(*calls, "\n"), "launchctl bootstrap") {
+		t.Fatalf("bootstrap after a cancelled context:\n%s", strings.Join(*calls, "\n"))
+	}
+}
