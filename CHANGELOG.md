@@ -5,11 +5,18 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
-## 2026-11-20 — Wakes for narrow Codex panes, and no wake place for an address with no holder
+## 2026-11-20 — Wakes for narrow Codex panes, and a macOS upgrade that starts the daemon
 
-This release wakes and compacts Codex sessions in 80-column panes again (#761), and a message to
-an address that no live session holds no longer takes a wake place (#759). The store stays at
-schema 40.
+This release wakes and compacts Codex sessions in 80-column panes again (#761), a macOS install
+or upgrade over a running daemon no longer fails at random (#777), and a message to an address
+that no live session holds no longer takes a wake place (#759). The store stays at schema 40.
+
+- A macOS install or upgrade over a running user agent no longer fails at random with
+  `launchctl bootstrap failed: Bootstrap failed: 5: Input/output error` (#777). The install
+  stopped the old agent with `launchctl bootout` and loaded the new one at once, while launchd
+  could still have the stopping agent; the daemon then stayed stopped. The install now waits
+  until launchd has removed the old agent, for at most 30 seconds, and says so when it is still
+  loaded.
 
 - A message to a participant address that no live session holds no longer takes a wake place
   on every pass (#759). The wake pass listed that inbox each second, found no holder, and

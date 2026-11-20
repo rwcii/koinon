@@ -128,6 +128,11 @@ chunk 01.
 - **Reason and scope:** two fixes with no new feature and no schema change make a patch
   version, and agents with narrow Codex panes and old participant addresses need them now.
   This covers this release only; it sets no rule for later version numbers.
+- **Added during the release checks:** the macOS upgrade check on develop found #777: an
+  install over a running user agent could fail to start the daemon. The full Go suite found
+  #778: an import test failed from 2026-11-20, because its fixture's memory consumers passed
+  the 30-day limit. Both are fixed in the release (#779), with no feature and no schema change,
+  so the release stays a patch version.
 
 ## Observable acceptance
 
