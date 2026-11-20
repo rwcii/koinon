@@ -279,3 +279,105 @@ func TestUserRuntimeEnv(t *testing.T) {
 		t.Fatal("an open directory counted as private")
 	}
 }
+
+// TestStartDaemonWaitsForBootout checks that the bootstrap waits until launchd has removed the
+// stopping agent: bootout can return while the agent is still loaded, and a bootstrap then
+// fails with "5: Input/output error" (#777).
+func TestStartDaemonWaitsForBootout(t *testing.T) {
+	agent := "gui/501/" + DaemonLabel
+	for _, tc := range []struct {
+		name    string
+		loaded  int // reads of the agent that still show it loaded after the bootout
+		wantErr bool
+	}{{"removed at once", 0, false}, {"removed after three reads", 3, false}, {"never removed", -1, true}} {
+		t.Run(tc.name, func(t *testing.T) {
+			loaded, bootedOut := true, false
+			left := tc.loaded
+			s, calls := fakeServices(t, "launchd", func(argv []string) ([]byte, error) {
+				switch {
+				case argv[1] == "print" && argv[2] == "gui/501":
+					return nil, nil
+				case argv[1] == "bootout":
+					bootedOut = true
+				case argv[1] == "print" && argv[2] == agent:
+					if bootedOut && loaded && left == 0 {
+						loaded = false
+					}
+					if loaded {
+						if bootedOut && left > 0 {
+							left--
+						}
+						return nil, nil
+					}
+					return []byte("Could not find service"), errors.New("exit status 113")
+				case argv[1] == "bootstrap":
+					if loaded {
+						return []byte("Bootstrap failed: 5: Input/output error"), errors.New("exit status 5")
+					}
+				}
+				return nil, nil
+			})
+			s.StopWait = 5 * time.Second
+			if tc.wantErr {
+				s.StopWait = time.Millisecond
+			}
+			s.WriteDaemon("/opt/koinon", "/state")
+			err := s.StartDaemon(context.Background())
+			joined := strings.Join(*calls, "\n")
+			if tc.wantErr {
+				if err == nil || !strings.Contains(err.Error(), "launchctl bootout did not remove the agent: "+agent+" is still loaded") {
+					t.Fatalf("error %v", err)
+				}
+				if strings.Contains(joined, "launchctl bootstrap") {
+					t.Fatalf("bootstrap ran while the agent was loaded:\n%s", joined)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("%v\n%s", err, joined)
+			}
+			prints := strings.Count(joined[strings.Index(joined, "launchctl bootout"):], "launchctl print "+agent)
+			if prints != tc.loaded+1 {
+				t.Fatalf("%d reads of the agent after the bootout, want %d:\n%s", prints, tc.loaded+1, joined)
+			}
+		})
+	}
+}
+
+// TestStartDaemonBootoutWaitFailures checks that a failed read of the agent and a cancelled
+// context stop the start before its bootstrap (#777).
+func TestStartDaemonBootoutWaitFailures(t *testing.T) {
+	agent := "gui/501/" + DaemonLabel
+	ipc := func(argv []string) ([]byte, error) {
+		if argv[1] == "print" && argv[2] == agent {
+			return []byte("IPC error"), errors.New("exit status 5")
+		}
+		return nil, nil
+	}
+	s, calls := fakeServices(t, "launchd", ipc)
+	s.WriteDaemon("/opt/koinon", "/state")
+	err := s.StartDaemon(context.Background())
+	if err == nil || err.Error() != "launchctl bootout did not remove the agent: IPC error" {
+		t.Fatalf("failed read: %v", err)
+	}
+	if strings.Contains(strings.Join(*calls, "\n"), "launchctl bootstrap") {
+		t.Fatalf("bootstrap after a failed read:\n%s", strings.Join(*calls, "\n"))
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	loaded := func(argv []string) ([]byte, error) {
+		if argv[1] == "print" && argv[2] == agent {
+			cancel()
+		}
+		return nil, nil
+	}
+	c, calls := fakeServices(t, "launchd", loaded)
+	c.StopWait = time.Minute
+	c.WriteDaemon("/opt/koinon", "/state")
+	if err := c.StartDaemon(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled context: %v", err)
+	}
+	if strings.Contains(strings.Join(*calls, "\n"), "launchctl bootstrap") {
+		t.Fatalf("bootstrap after a cancelled context:\n%s", strings.Join(*calls, "\n"))
+	}
+}

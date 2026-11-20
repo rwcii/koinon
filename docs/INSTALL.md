@@ -989,8 +989,8 @@ schema 39 for signed maintainer actions (#693), and a v0.11.x binary refuses a s
 so a v0.12.0 store cannot go back to v0.11.x. v0.13.0 and v0.13.1 keep schema 39. v0.13.2
 moves the store to schema 40 for decision cards that name agents on another computer (#746),
 and a v0.13.1 or earlier binary refuses a schema 40 store, so a v0.13.2 store cannot go back to
-v0.13.1 or earlier. Schema 29 originally added the secret's salted-key table;
-upgrading a pre-secret store starts with no secret set.
+v0.13.1 or earlier. v0.13.3 keeps schema 40. Schema 29 originally added the secret's salted-key
+table; upgrading a pre-secret store starts with no secret set.
 
 The daemon applies supported Go schema migrations transactionally and refuses an unknown
 future schema. `koinon status` reports health, storage, delivery and retention counts. The

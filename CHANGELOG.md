@@ -5,6 +5,46 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-11-20 — Wakes for narrow Codex panes, and a macOS upgrade that starts the daemon
+
+This release wakes and compacts Codex sessions in 80-column panes again (#761), a macOS install
+or upgrade over a running daemon no longer fails at random (#777), and a message to an address
+that no live session holds no longer takes a wake place (#759). The store stays at schema 40.
+
+- A macOS install or upgrade over a running user agent no longer fails at random with
+  `launchctl bootstrap failed: Bootstrap failed: 5: Input/output error` (#777). The install
+  stopped the old agent with `launchctl bootout` and loaded the new one at once, while launchd
+  could still have the stopping agent; the daemon then stayed stopped. The install now waits
+  until launchd has removed the old agent, for at most 30 seconds, and says so when it is still
+  loaded.
+
+- A message to a participant address that no live session holds no longer takes a wake place
+  on every pass (#759). The wake pass listed that inbox each second, found no holder, and
+  recorded nothing, so it took one of the 16 places from inboxes that it could wake. It now
+  lists a participant inbox only while a live session holds its address; the message waits
+  as before and gets its notice when a holder takes the address. A message at the notice
+  limit still fails without a holder.
+
+- Koinon wakes and compacts a Codex session in a narrow pane again (#761). At 80 columns,
+  Codex's status line takes two rows, and the daemon read the input line as not empty: each
+  wake waited as `receiver_busy`, and each native compaction ended after 15 minutes with
+  `compact_waiting_timeout.input_not_empty`. A footer of three or four rows that ends with
+  the shortcut hint now counts as the footer.
+
+Upgrade from v0.13.2 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary. The store stays at schema 40, so v0.13.2 can still read it. The
+restart ends current local dashboard logins: log in again with the Koinon password, or run
+`koinon dashboard` for a one-time link. A remote sign-in keeps the rest of its fixed 48-hour
+window. Run `koinon install --plan` to check. A running `koinon mcp` server runs the new release
+without a session restart.
+
+Upgrade notes:
+
+- A host without a service manager, such as a container, runs the daemon in the background:
+  after `brew upgrade koinon`, run `koinon install` there to start it on the new binary.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+
 ## 2026-11-19 — Decision cards for agents on another computer, and an idle daemon that stays idle
 
 This release lets a decision card name an agent on a paired computer: the agent gets a notice

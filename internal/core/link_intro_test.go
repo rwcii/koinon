@@ -173,12 +173,13 @@ func TestLinkIntroductionWaitsForAnOfflineComputer(t *testing.T) {
 	if err := b.d.Close(); err != nil {
 		t.Fatal(err)
 	}
-	restarted, err := Start(Config{StateDir: b.root, Listen: []string{"127.0.0.1:0"}, Tailscale: b.fake})
+	// The hooks are set before the restored Remote's goroutines read them (#773).
+	restarted, err := Start(Config{StateDir: b.root, Listen: []string{"127.0.0.1:0"}, Tailscale: b.fake,
+		linkHooks: func(l *linkRuntime) { l.dial, l.now = n.dial, n.now }})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { restarted.Close() })
-	restarted.link.dial, restarted.link.now = n.dial, n.now
 	n.mu.Lock()
 	n.hosts[b.ip+":47672"] = restarted
 	n.mu.Unlock()
