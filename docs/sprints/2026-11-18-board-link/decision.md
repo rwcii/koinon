@@ -123,8 +123,9 @@ chunk 01.
   holder out of the wake places. #774 (#773) changes a test only. There is no schema change.
   The options were a patch release now, or to wait for more work, while the other open issues
   wait for outside conditions.
-- **Decision:** release develop as v0.13.3, after the #746 closeout records merge, then upgrade
-  all five computers with the documented path and check `koinon version` on each.
+- **Decision:** the answer was "approved", with no other words, on the recommendation to
+  release develop as v0.13.3, after the #746 closeout records merge, then upgrade all five
+  computers with the documented path and check `koinon version` on each.
 - **Reason and scope:** two fixes with no new feature and no schema change make a patch
   version, and agents with narrow Codex panes and old participant addresses need them now.
   This covers this release only; it sets no rule for later version numbers.
