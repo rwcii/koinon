@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A macOS install or upgrade over a running user agent no longer fails at random with
+  `launchctl bootstrap failed: Bootstrap failed: 5: Input/output error` (#777). The install
+  stopped the old agent with `launchctl bootout` and loaded the new one at once, while launchd
+  could still have the stopping agent; the daemon then stayed stopped. The install now waits
+  until launchd has removed the old agent, for at most 30 seconds, and says so when it is still
+  loaded.
+
 - A message to a participant address that no live session holds no longer takes a wake place
   on every pass (#759). The wake pass listed that inbox each second, found no holder, and
   recorded nothing, so it took one of the 16 places from inboxes that it could wake. It now
