@@ -877,6 +877,12 @@ func (d *Daemon) SignedSession(ctx context.Context, data []byte) (string, string
 func (d *Daemon) signedSession(ctx context.Context, data []byte) (string, string, error) {
 	e, key, err := d.checkEnvelope(ctx, data)
 	if err != nil {
+		// A session signed for a paired computer's pin is the node's own operation for another
+		// pin, as on the action route (signedForward); only an unknown pin is a target refusal.
+		var refusal WorkRefusal
+		if errors.As(err, &refusal) && refusal.Details["reason"] == "target" && d.pairedPin(e.Target) {
+			return "", "", Refusal{"invalid_request", "session is an operation of the node: sign it for the node's own pin"}
+		}
 		return "", "", err
 	}
 	if e.Op != "session" {

@@ -208,8 +208,34 @@ func TestSignedMCPVersion2(t *testing.T) {
 			t.Fatalf("%s: %+v %v: %s", name, v, err, text)
 		}
 	}
-	call("inbox", f.envelope2("inbox", map[string]any{}), "")
-	call("send", f.envelope2("send", map[string]any{"to": f.name, "body": "a synthetic \"v2\" send \x01 é"}), "")
+	// Each operation of a version 2 envelope that this fixture can run, on the node's own pin.
+	sent := f.envelope2("send", map[string]any{"to": f.name, "body": "a synthetic \"v2\" send \x01 é"})
+	call("send", sent, "")
+	e, _ := signed.Parse(sent)
+	var created int64
+	json.Unmarshal(bytes.Split(bytes.SplitN(sent, []byte(`"created":`), 2)[1], []byte(","))[0], &created)
+	for _, op := range []struct {
+		op   string
+		args map[string]any
+		code string
+	}{
+		{"board_list", map[string]any{}, ""},
+		{"decision_get", map[string]any{"reference": "MCP-404"}, "not_found"},
+		{"decision_history", map[string]any{"reference": "MCP-404"}, "not_found"},
+		{"inbox", map[string]any{}, ""},
+		{"room_list", map[string]any{}, ""},
+		{"room_read", map[string]any{"room": "synthetic-no-room"}, "invalid_request"},
+		{"peers", map[string]any{}, ""},
+		{"peer_status", map[string]any{"peer": f.name}, ""},
+		{"computers", map[string]any{}, ""},
+		{"changes", map[string]any{}, ""},
+		{"outcome", map[string]any{"request": e.Request, "created": created}, ""},
+		{"ack", map[string]any{"through": int64(0)}, ""},
+		{"room_post", map[string]any{"room": "synthetic-no-room", "body": "x"}, "invalid_request"},
+		{"send", map[string]any{"to": "synthetic-nobody", "body": "x"}, "peer_not_found"},
+	} {
+		call(op.op, f.envelope2(op.op, op.args), op.code)
+	}
 	bad := bytes.Replace(f.envelope2("inbox", map[string]any{"limit": int64(5)}), []byte(`"limit":5`), []byte(`"limit":6`), 1)
 	call("bad signature", bad, "signature_refused")
 	// A version 1 envelope in the same session keeps its unsigned answer.

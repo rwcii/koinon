@@ -140,6 +140,9 @@ func TestAnswerRefusals(t *testing.T) {
 	nodeOther, _ := SignAnswer(SignerNode, node, request, 409, []byte(`{"ok":false,"code":"stale_revision"}`))
 	nodeVersion, _ := SignAnswer(SignerNode, node, request, 409, []byte(`{"ok":false,"code":"signature_refused","details":{"reason":"version"}}`))
 	asTarget, _ := SignAnswer(SignerTarget, node, request, 200, []byte(ok))
+	nullOK, _ := SignAnswer(SignerTarget, target, request, 409, []byte(`{"ok":null,"code":"not_found"}`))
+	stringOK, _ := SignAnswer(SignerTarget, target, request, 409, []byte(`{"ok":"false","code":"not_found"}`))
+	missingOK, _ := SignAnswer(SignerTarget, target, request, 409, []byte(`{"code":"not_found"}`))
 	mutate := func(f func(*Answer)) []byte { a := good; f(&a); return encode(a) }
 	raw := func(f func(map[string]any)) []byte {
 		var m map[string]any
@@ -159,6 +162,9 @@ func TestAnswerRefusals(t *testing.T) {
 		"node other code":          encode(nodeOther),
 		"node version claim":       encode(nodeVersion),
 		"target with node key":     encode(asTarget),
+		"ok null":                  encode(nullOK),
+		"ok a string":              encode(stringOK),
+		"ok missing":               encode(missingOK),
 		"missing field":            raw(func(m map[string]any) { delete(m, "signer") }),
 		"extra field":              raw(func(m map[string]any) { m["extra"] = "x" }),
 		"duplicate field":          []byte(strings.Replace(string(encode(good)), `{"v":`, `{"v":"koinon-answer-2","v":`, 1)),

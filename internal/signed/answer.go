@@ -229,8 +229,13 @@ func innerAnswer(data []byte) (bool, string, error) {
 		}
 		seen[key] = raw
 	}
+	// ok is a JSON boolean: the decoder would take null as false.
 	var ok bool
-	if json.Unmarshal(seen["ok"], &ok) != nil {
+	switch string(seen["ok"]) {
+	case "true":
+		ok = true
+	case "false":
+	default:
 		return false, "", errors.New("the answer text has no boolean ok")
 	}
 	var code string

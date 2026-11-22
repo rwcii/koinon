@@ -101,6 +101,14 @@ func outcomeUnknown(target, request string) error {
 var definiteLinkRefusals = map[string]bool{"link_operation_unknown": true, ErrLinkNoPair.Code: true, ErrLinkRemoteOff.Code: true,
 	"invalid_request": true, "link_frame_too_large": true}
 
+// pairedPin reports whether pin is the pin of a computer that this computer pairs with.
+func (d *Daemon) pairedPin(pin string) bool {
+	d.link.mu.Lock()
+	defer d.link.mu.Unlock()
+	s, err := link.ReadState(d.root)
+	return err == nil && slices.ContainsFunc(s.Pairs, func(p link.Pair) bool { return p.Pin == pin && p.State == link.Paired })
+}
+
 // signedForward sends an envelope for a paired computer's pin on the link and returns its answer.
 func (d *Daemon) signedForward(ctx context.Context, e signed.Envelope, data []byte) (any, error) {
 	d.link.mu.Lock()
@@ -298,6 +306,14 @@ func (d *Daemon) answerMaintainer(pin string, f link.Frame, gen uint64) (link.Fr
 	ctx, cancel := context.WithTimeout(life, maxChangeWait*time.Second+forwardExchange)
 	defer cancel()
 	ctx = context.WithValue(ctx, forwardedKey{}, id.Pin)
+	// A test makes this computer answer a version 2 envelope as a computer of an earlier release
+	// does, with its unsigned version refusal (contract.md, section 4).
+	if e, err := signed.Parse(data); err == nil && e.V == signed.Version2 && d.linkFault("maintainer-earlier-release") != nil {
+		w := &answerWriter{header: http.Header{}}
+		maintainerRead(w, nil, signedRefusal("version", "the version is not "+signed.Version))
+		reply, err := link.NewFrame("maintainer-ok", maintainerReply{Status: w.status, Answer: trimNewline(w.body)})
+		return reply, false, err
+	}
 	op := ""
 	if e, err := signed.Parse(data); err == nil {
 		op = e.Op

@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -57,19 +58,49 @@ func verifiedAs(t *testing.T, name string, x signed.Expect, status int, body []b
 	if err != nil {
 		t.Fatalf("%s: %v: %d %s", name, err, status, body)
 	}
-	if v.Status != status || v.Signer != signer || v.Code != code || v.OK != (code == "") {
+	if status >= 0 && v.Status != status || v.Signer != signer || v.Code != code || v.OK != (code == "") {
 		t.Fatalf("%s: %+v, transport %d, want %s %q", name, v, status, signer, code)
 	}
 	return v
 }
 
+// transport sends one envelope to a node and gives the status and body that the client gets; a
+// status below 0 means that the transport gives the client no status of its own.
+type transport struct {
+	name string
+	send func(data []byte) (int, []byte)
+}
+
+// nodeTransports are the ways a client reaches node: the node's own handler, its Serve route,
+// and the daemon client that the signed MCP tool uses on its loopback route.
+func nodeTransports(t *testing.T, node *linkHost) []transport {
+	t.Helper()
+	token := remoteSession(t, node.d, newSignedClient(t, node.d, 72))
+	bearer := linkBearer(t, node)
+	session, _ := newSignedSessionToken(t, node.d, bearer, newSignedClient(t, node.d, 73))
+	return []transport{
+		{"handler", func(data []byte) (int, []byte) { return replyOf(t, node.d, data) }},
+		{"Serve route", func(data []byte) (int, []byte) {
+			return mustRemote(t, node.d, "POST", "/v1/maintainer/signed", bearerOf(token), data)
+		}},
+		{"MCP daemon client", func(data []byte) (int, []byte) {
+			raw, err := CallEnvelope(context.Background(), node.d.Addresses()[0], bearer, "/v1/maintainer/signed", data, session, SignedCallTimeout)
+			if err != nil {
+				t.Fatalf("daemon client: %v", err)
+			}
+			return -1, raw
+		}},
+	}
+}
+
 // Each operation of a version 2 envelope, on the node's own pin and through the node for a
-// paired pin, answers an object that the target signed and the client verifies; the inner
-// answer is the version 1 answer.
+// paired pin, on each transport, answers an object that the target signed and the client
+// verifies; the inner answer is the version 1 answer.
 func TestSignedAnswersEachOperation(t *testing.T) {
 	_, a, b := pairedLinkHosts(t)
 	ctx := context.Background()
 	nodePin := linkPinOf(t, a.d)
+	transports := nodeTransports(t, a)
 	setup := func(h *linkHost, suffix string) (Session, string) {
 		s := h.d.store
 		agent := join(t, s, "codex", "synthetic-answer-"+suffix, "")
@@ -84,7 +115,9 @@ func TestSignedAnswersEachOperation(t *testing.T) {
 		if _, err := s.Send(ctx, key, "maintainer", "a synthetic report"); err != nil {
 			t.Fatal(err)
 		}
-		mustCreate(t, s, key, "AN-"+strings.ToUpper(suffix), DecisionFields{Title: ptr("Synthetic answer"), Kind: ptr("decision"), Recipients: &[]string{agent.Name}})
+		for i := range transports {
+			mustCreate(t, s, key, fmt.Sprintf("AN-%s-%d", strings.ToUpper(suffix), i), DecisionFields{Title: ptr("Synthetic answer"), Kind: ptr("decision"), Recipients: &[]string{agent.Name}})
+		}
 		return agent, room
 	}
 	ownAgent, ownRoom := setup(a, "a")
@@ -92,71 +125,74 @@ func TestSignedAnswersEachOperation(t *testing.T) {
 	own := newSignedClient(t, a.d, 60)
 	pairedLocal := newSignedClient(t, b.d, 61)
 	paired := viaNode(pairedLocal, a.d)
-	for _, run := range []struct {
-		name  string
-		c     *signedClient
-		agent Session
-		room  string
-		ref   string
-		local *signedClient
-	}{{"own pin", own, ownAgent, ownRoom, "AN-A", own}, {"paired pin", paired, pairedAgent, pairedRoom, "AN-B", pairedLocal}} {
-		now := time.Now().Unix()
-		sent := run.c.envelope("send", map[string]any{"to": run.agent.Name, "body": "a synthetic v2 send"}, run.c.request(), now,
-			map[string]any{"v": signed.Version2})
-		status, body := replyOf(t, a.d, sent)
-		verifiedAs(t, run.name+" send", expectFor(t, sent, nodePin), status, body, signed.SignerTarget, "")
-		sentRequest, _ := signed.Parse(sent)
-		ops := []struct {
-			op   string
-			args map[string]any
-			code string
-		}{
-			{"board_list", nil, ""},
-			{"decision_get", map[string]any{"reference": run.ref}, ""},
-			{"decision_get", map[string]any{"reference": "AN-404"}, "not_found"},
-			{"decision_history", map[string]any{"reference": run.ref}, ""},
-			{"inbox", nil, ""},
-			{"room_list", nil, ""},
-			{"room_read", map[string]any{"room": run.room}, ""},
-			{"peers", nil, ""},
-			{"peer_status", map[string]any{"peer": run.agent.Name}, ""},
-			{"changes", nil, ""},
-			{"outcome", map[string]any{"request": sentRequest.Request, "created": now}, ""},
-			{"ack", map[string]any{"through": int64(1)}, ""},
-			{"room_post", map[string]any{"room": run.room, "body": "a synthetic v2 post"}, ""},
-			{"send", map[string]any{"to": "synthetic-nobody", "body": "x"}, "peer_not_found"},
-		}
-		if run.c == own {
-			ops = append(ops, struct {
+	for i, tr := range transports {
+		for _, run := range []struct {
+			name  string
+			c     *signedClient
+			agent Session
+			room  string
+			ref   string
+			local *signedClient
+		}{{"own pin", own, ownAgent, ownRoom, fmt.Sprintf("AN-A-%d", i), own}, {"paired pin", paired, pairedAgent, pairedRoom, fmt.Sprintf("AN-B-%d", i), pairedLocal}} {
+			name := tr.name + ", " + run.name
+			now := time.Now().Unix()
+			sent := run.c.envelope("send", map[string]any{"to": run.agent.Name, "body": "a synthetic v2 send"}, run.c.request(), now,
+				map[string]any{"v": signed.Version2})
+			status, body := tr.send(sent)
+			verifiedAs(t, name+" send", expectFor(t, sent, nodePin), status, body, signed.SignerTarget, "")
+			sentRequest, _ := signed.Parse(sent)
+			ops := []struct {
 				op   string
 				args map[string]any
 				code string
-			}{"computers", nil, ""})
-		}
-		for _, op := range ops {
-			data := run.c.v2(op.op, op.args)
-			status, body := replyOf(t, a.d, data)
-			v := verifiedAs(t, run.name+" "+op.op, expectFor(t, data, nodePin), status, body, signed.SignerTarget, op.code)
-			if op.code == "" && !bytes.Contains(v.Text, []byte(`"result":`)) {
-				t.Fatalf("%s %s: no result: %s", run.name, op.op, v.Text)
+			}{
+				{"board_list", nil, ""},
+				{"decision_get", map[string]any{"reference": run.ref}, ""},
+				{"decision_get", map[string]any{"reference": "AN-404"}, "not_found"},
+				{"decision_history", map[string]any{"reference": run.ref}, ""},
+				{"inbox", nil, ""},
+				{"room_list", nil, ""},
+				{"room_read", map[string]any{"room": run.room}, ""},
+				{"peers", nil, ""},
+				{"peer_status", map[string]any{"peer": run.agent.Name}, ""},
+				{"changes", nil, ""},
+				{"outcome", map[string]any{"request": sentRequest.Request, "created": now}, ""},
+				{"ack", map[string]any{"through": int64(1)}, ""},
+				{"room_post", map[string]any{"room": run.room, "body": "a synthetic v2 post"}, ""},
+				{"send", map[string]any{"to": "synthetic-nobody", "body": "x"}, "peer_not_found"},
 			}
-		}
-		snapshot, revision := snapshotOf(t, run.local, run.ref)
-		data := run.c.v2("decision_verdict", map[string]any{"reference": run.ref, "revision": revision, "snapshot": snapshot, "verdict": "approved"})
-		status, body = replyOf(t, a.d, data)
-		verifiedAs(t, run.name+" decision_verdict", expectFor(t, data, nodePin), status, body, signed.SignerTarget, "")
-		// A refusal of the envelope itself is signed: a changed argument fails its signature.
-		bad := bytes.Replace(run.c.v2("inbox", map[string]any{"limit": int64(5)}), []byte(`"limit":5`), []byte(`"limit":6`), 1)
-		status, body = replyOf(t, a.d, bad)
-		v := verifiedAs(t, run.name+" bad signature", expectFor(t, bad, nodePin), status, body, signed.SignerTarget, "signature_refused")
-		if !bytes.Contains(v.Text, []byte(`"reason":"signature"`)) {
-			t.Fatalf("%s bad signature: %s", run.name, v.Text)
+			if run.c == own {
+				ops = append(ops, struct {
+					op   string
+					args map[string]any
+					code string
+				}{"computers", nil, ""})
+			}
+			for _, op := range ops {
+				data := run.c.v2(op.op, op.args)
+				status, body := tr.send(data)
+				v := verifiedAs(t, name+" "+op.op, expectFor(t, data, nodePin), status, body, signed.SignerTarget, op.code)
+				if op.code == "" && !bytes.Contains(v.Text, []byte(`"result":`)) {
+					t.Fatalf("%s %s: no result: %s", name, op.op, v.Text)
+				}
+			}
+			snapshot, revision := snapshotOf(t, run.local, run.ref)
+			data := run.c.v2("decision_verdict", map[string]any{"reference": run.ref, "revision": revision, "snapshot": snapshot, "verdict": "approved"})
+			status, body = tr.send(data)
+			verifiedAs(t, name+" decision_verdict", expectFor(t, data, nodePin), status, body, signed.SignerTarget, "")
+			// A refusal of the envelope itself is signed: a changed argument fails its signature.
+			bad := bytes.Replace(run.c.v2("inbox", map[string]any{"limit": int64(5)}), []byte(`"limit":5`), []byte(`"limit":6`), 1)
+			status, body = tr.send(bad)
+			v := verifiedAs(t, name+" bad signature", expectFor(t, bad, nodePin), status, body, signed.SignerTarget, "signature_refused")
+			if !bytes.Contains(v.Text, []byte(`"reason":"signature"`)) {
+				t.Fatalf("%s bad signature: %s", name, v.Text)
+			}
 		}
 	}
 	// The inner answer is the version 1 answer of the same read.
-	v1 := paired.envelope("decision_get", map[string]any{"reference": "AN-B"}, paired.request(), time.Now().Unix(), nil)
+	v1 := paired.envelope("decision_get", map[string]any{"reference": "AN-B-0"}, paired.request(), time.Now().Unix(), nil)
 	_, v1Body := replyOf(t, a.d, v1)
-	data := paired.v2("decision_get", map[string]any{"reference": "AN-B"})
+	data := paired.v2("decision_get", map[string]any{"reference": "AN-B-0"})
 	_, body := replyOf(t, a.d, data)
 	v := verifiedAs(t, "v2 decision_get", expectFor(t, data, nodePin), 200, body, signed.SignerTarget, "")
 	if string(v.Text) != string(v1Body) {
@@ -478,5 +514,79 @@ func TestSignedAnswersSizes(t *testing.T) {
 	limit := signedAnswerLimit(context.WithValue(ctx, forwardedKey{}, "pin"))
 	if size := signedAnswerSize(signed.Version2, post); size > limit/4 {
 		t.Fatalf("largest room post answer: %d bytes, limit %d", size, limit)
+	}
+}
+
+// A session signed for a paired computer's pin is the node's invalid_request on the session
+// routes, signed by the node on the Serve route for version 2; an unknown pin is the node's
+// target refusal.
+func TestSignedAnswersSessionForPairedPin(t *testing.T) {
+	_, a, b := pairedLinkHosts(t)
+	nodePin := linkPinOf(t, a.d)
+	f := viaNode(newSignedClient(t, b.d, 74), a.d)
+	unknown := viaNode(f, a.d)
+	unknown.pin = strings.Repeat("ab", 32)
+	session := map[string]any{"client": "voice"}
+	data := f.v2("session", session)
+	status, body := mustRemote(t, a.d, "POST", "/v1/maintainer/signed/session", jsonType, data)
+	verifiedAs(t, "Serve v2 paired", expectFor(t, data, nodePin), status, body, signed.SignerNode, "invalid_request")
+	data = unknown.v2("session", session)
+	status, body = mustRemote(t, a.d, "POST", "/v1/maintainer/signed/session", jsonType, data)
+	v := verifiedAs(t, "Serve v2 unknown", expectFor(t, data, nodePin), status, body, signed.SignerNode, "signature_refused")
+	if !bytes.Contains(v.Text, []byte(`"reason":"target"`)) {
+		t.Fatalf("Serve v2 unknown: %s", v.Text)
+	}
+	status, body = mustRemote(t, a.d, "POST", "/v1/maintainer/signed/session", jsonType, f.envelope("session", session, f.request(), time.Now().Unix(), nil))
+	wantAnswer(t, "Serve v1 paired", status, string(bytes.TrimSpace(body)), 400, "invalid_request")
+	bearer := linkBearer(t, a)
+	status, reply := postEnvelope(t, a.d, bearer, "/v1/maintainer/signed/session", "", f.v2("session", session))
+	if status != 400 || reply["code"] != "invalid_request" {
+		t.Fatalf("loopback v2 paired: %d %v", status, reply)
+	}
+}
+
+// A target of an earlier release refuses a version 2 envelope with its unsigned version
+// refusal; a node of this release passes it on unchanged on each transport, and the client
+// does not verify it.
+func TestSignedAnswersEarlierTarget(t *testing.T) {
+	_, a, b := pairedLinkHosts(t)
+	f := viaNode(newSignedClient(t, b.d, 75), a.d)
+	b.d.link.mu.Lock()
+	b.d.link.hook = func(point string) error {
+		if point == "maintainer-earlier-release" {
+			return errors.New("synthetic earlier release")
+		}
+		return nil
+	}
+	b.d.link.mu.Unlock()
+	nodePin := linkPinOf(t, a.d)
+	token := remoteSession(t, a.d, newSignedClient(t, a.d, 76))
+	for name, send := range map[string]func([]byte) (int, []byte){
+		"handler": func(data []byte) (int, []byte) { return replyOf(t, a.d, data) },
+		"Serve route": func(data []byte) (int, []byte) {
+			return mustRemote(t, a.d, "POST", "/v1/maintainer/signed", bearerOf(token), data)
+		},
+	} {
+		data := f.v2("inbox", nil)
+		status, body := send(data)
+		m := wantAnswer(t, name, status, string(bytes.TrimSpace(body)), 409, "signature_refused")
+		if m["details"].(map[string]any)["reason"] != "version" {
+			t.Fatalf("%s: %s", name, body)
+		}
+		if _, err := signed.VerifyAnswer(body, expectFor(t, data, nodePin)); !errors.Is(err, signed.ErrNotVerified) {
+			t.Fatalf("%s: verified: %v", name, err)
+		}
+	}
+	// The daemon client of the signed MCP tool gives it as the refusal that it is.
+	bearer := linkBearer(t, a)
+	session, _ := newSignedSessionToken(t, a.d, bearer, newSignedClient(t, a.d, 77))
+	_, err := CallEnvelope(context.Background(), a.d.Addresses()[0], bearer, "/v1/maintainer/signed", f.v2("inbox", nil), session, SignedCallTimeout)
+	var refused RefusedError
+	if !errors.As(err, &refused) || refused.Code != "signature_refused" {
+		t.Fatalf("daemon client: %v", err)
+	}
+	// A version 1 envelope still runs on that target.
+	if status, body := replyOf(t, a.d, f.envelope("inbox", nil, f.request(), time.Now().Unix(), nil)); status != 200 {
+		t.Fatalf("v1 on the earlier target: %d %s", status, body)
 	}
 }

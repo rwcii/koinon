@@ -18,7 +18,9 @@ into a dated release section when promoted to `main`.
   computer's link key, as one `koinon-answer-2` object, on the Serve route, the `signed` MCP
   tool and the link; a node that passes an action on signs only its own claims, such as
   `computer_offline`, with its own key. A node can no longer change another computer's answer
-  unseen. Version 1 envelopes work as before, with unsigned answers.
+  unseen. Version 1 envelopes work as before, with unsigned answers. A signed session for a
+  paired computer's pin is now `invalid_request` on the session route too, as on the action
+  route, in place of `signature_refused` with reason `target`.
 
 ## 2026-11-20 — Wakes for narrow Codex panes, and a macOS upgrade that starts the daemon
 
