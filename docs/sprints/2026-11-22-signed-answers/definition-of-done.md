@@ -47,7 +47,10 @@ reaches a real agent, a real board or another computer.
 - The node signs its own claims for a v2 envelope (`contract.md` section 4) and returns a
   target's signed answer with its field values unchanged, on the MCP `signed` tool, the Serve
   route and the link (`contract.md` section 3.6). The node's link check takes the v1 form for a
-  v1 envelope and the signed object for a v2 envelope.
+  v1 envelope and the signed object for a v2 envelope; for a v2 envelope it also passes an
+  earlier target's unsigned `signature_refused`, reason `version`, unchanged and unsigned, and
+  the client shows it as not verified. A test runs that answer from a target of the earlier
+  form through a node of this release.
 - A Go verifier in `internal/signed` checks an answer for an envelope, a target pin and a node
   pin, as a client does (`contract.md` section 3.4).
 - Tests: each operation of v1 Decision 2 over v2 on a node's own pin and on a paired pin,

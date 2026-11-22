@@ -26,3 +26,4 @@ claude-koinon-voice and codex-koinon-voice: no findings on revision 2.
 | --- | --- |
 | P2: chunk 01 would put the maintainer's list on the agent route, which encodes `RoomPostResult` | Chunk 01 Work 2 and Tests: the agent route keeps counts only and a test checks that its JSON has no `recipients` |
 | P3: the node's `validReply` rejects a v2 object, and Go can re-encode the outer JSON | Contract 3.6: field values unchanged, outer bytes can differ, the client checks the RFC 8785 bytes; chunk 02 Work 3 and the definition of done: a link check by version and an escaping round trip |
+| Recheck of 1298801: the v2 link check would drop an earlier target's unsigned version refusal | Chunk 02 Work 3 and the definition of done: that refusal passes through unchanged and unsigned, with a test |
