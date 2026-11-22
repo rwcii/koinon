@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -23,10 +24,11 @@ func TestRoomPostRecipients(t *testing.T) {
 	lapsed := join(t, s, "agy", "synthetic-lapsed", "")
 	unproven := join(t, s, "claude", "synthetic-unproven", "")
 	retired := join(t, s, "codex", "synthetic-retired", "")
+	deleted := join(t, s, "agy", "synthetic-deleted", "")
 	unheld := joinAs(t, s, "codex", "synthetic-holder", repo, "")
 	conflicting := joinAs(t, s, "claude", "synthetic-conflict", repo, "")
 	room := mustRoom(t, s, "synthetic recipients")
-	members := []Session{active, ended, lapsed, unproven, retired, unheld, conflicting}
+	members := []Session{active, ended, lapsed, unproven, retired, deleted, unheld, conflicting}
 	for _, m := range members {
 		mustAdd(t, s, room, m.Name)
 	}
@@ -44,6 +46,8 @@ func TestRoomPostRecipients(t *testing.T) {
 		{`UPDATE sessions SET expires_at=1,host_pid=?,host_start=? WHERE id='synthetic-lapsed'`, []any{os.Getpid(), start}},
 		{`UPDATE sessions SET expires_at=1,host_pid=0,host_start=0 WHERE id='synthetic-unproven'`, nil},
 		{`UPDATE sessions SET retired_at=1 WHERE id='synthetic-retired'`, nil},
+		// Retention deleted an expired session that is still on the roster.
+		{`DELETE FROM sessions WHERE id='synthetic-deleted'`, nil},
 		{`UPDATE names SET holder_id='' WHERE kind='alias' AND name='codex-koinon'`, nil},
 		{`UPDATE names SET conflict='["x","y"]',holder_id='' WHERE kind='alias' AND name='claude-koinon'`, nil},
 	} {
@@ -57,6 +61,7 @@ func TestRoomPostRecipients(t *testing.T) {
 		{lapsed.Name, "not_sent", "lapsed"},
 		{unproven.Name, "not_sent", "no_liveness_evidence"},
 		{retired.Name, "not_sent", "retired"},
+		{deleted.Name, "not_sent", "no_liveness_evidence"},
 		{"codex-koinon", "not_sent", "unheld"},
 		{"claude-koinon", "not_sent", "conflicting"},
 	}
@@ -65,7 +70,7 @@ func TestRoomPostRecipients(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fmt.Sprint(first.Recipients) != fmt.Sprint(want) || first.Queued != 1 || first.Skipped != 6 {
+	if fmt.Sprint(first.Recipients) != fmt.Sprint(want) || first.Queued != 1 || first.Skipped != 7 {
 		t.Fatalf("recipients: %+v", first)
 	}
 	// The same key answers the stored list after the roster and the states change.
@@ -127,6 +132,25 @@ func TestSignedRecipientResults(t *testing.T) {
 	c := newSignedClient(t, d, 9)
 	now := time.Now().Unix()
 
+	// Each recipient refusal answers its repeat exactly as it first answered.
+	repo := namedRepo(t, "signedunheld")
+	joinAs(t, s, "codex", "synthetic-signed-holder", repo, "")
+	if _, err := fixtureExec(s, `UPDATE names SET holder_id='' WHERE kind='alias' AND name='codex-signedunheld'`); err != nil {
+		t.Fatal(err)
+	}
+	answer := func(result any, err error) string {
+		w := httptest.NewRecorder()
+		maintainerRead(w, result, err)
+		return fmt.Sprintf("%d %s", w.Code, w.Body.String())
+	}
+	for to, code := range map[string]string{"synthetic-nobody": "peer_not_found", "codex-signedunheld": "alias_unheld", gone.Name: "recipient_inactive"} {
+		envelope := c.envelope("send", map[string]any{"to": to, "body": "a synthetic instruction"}, c.request(), now, nil)
+		result, err := d.SignedAction(ctx, envelope)
+		first := answer(result, err)
+		if errorCode(err) != code || first != answer(d.SignedAction(ctx, envelope)) {
+			t.Fatalf("%s: %s, repeat %s", code, first, answer(d.SignedAction(ctx, envelope)))
+		}
+	}
 	sendRequest := c.request()
 	send := c.envelope("send", map[string]any{"to": gone.Name, "body": "a synthetic instruction"}, sendRequest, now, nil)
 	if _, err := d.SignedAction(ctx, send); errorCode(err) != "recipient_inactive" {
@@ -137,8 +161,8 @@ func TestSignedRecipientResults(t *testing.T) {
 		fmt.Sprint(refused["details"]) != "map[reason:retired]" {
 		t.Fatalf("send outcome: %v", refused)
 	}
-	var repeat WorkRefusal
-	if _, err := d.SignedAction(ctx, send); !errors.As(err, &repeat) || fmt.Sprint(repeat.Details) != "map[reason:retired]" {
+	var repeat InactiveRecipient
+	if _, err := d.SignedAction(ctx, send); !errors.As(err, &repeat) || repeat.Reason != "retired" {
 		t.Fatalf("send repeat: %v", err)
 	}
 

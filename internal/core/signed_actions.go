@@ -690,6 +690,16 @@ type refusedResult struct {
 func (r storedReceipt) refusal() error {
 	var refused refusedResult
 	json.Unmarshal(r.result, &refused)
+	// A send's recipient refusals answer again with their own status and form (#695).
+	switch r.code {
+	case "peer_not_found":
+		return ErrPeerNotFound
+	case "alias_unheld":
+		return ErrAliasUnheld
+	case "recipient_inactive":
+		reason, _ := refused.Details["reason"].(string)
+		return InactiveRecipient{reason}
+	}
 	return WorkRefusal{Code: r.code, Message: refused.Error, Details: refused.Details}
 }
 

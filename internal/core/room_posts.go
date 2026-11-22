@@ -333,11 +333,11 @@ next:
 			err := tx.QueryRowContext(ctx, `UPDATE sessions SET last_seq=last_seq+1 WHERE family=? AND id=?
 				AND retired_at=0 AND expires_at>? RETURNING last_seq`, m.key.Family, m.key.ID, now).Scan(&inboxSeq)
 			if errors.Is(err, sql.ErrNoRows) {
-				// The liveness reason, as a refused send gives it; retention deletes only
-				// retired sessions, so a missing row was retired.
+				// The liveness reason, as a refused send gives it. Retention deletes retired and
+				// long-expired sessions, so a missing row proves nothing more.
 				reason, err = s.inactiveReason(ctx, tx.Tx, m.key.Family, m.key.ID)
 				if errors.Is(err, ErrRecipientInactive) {
-					reason, err = "retired", nil
+					reason, err = "no_liveness_evidence", nil
 				}
 				if err != nil {
 					return err

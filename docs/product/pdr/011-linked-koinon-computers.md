@@ -309,8 +309,10 @@ maintainer secret is in PDR 009; Remote is in PDR 010.
      a room post, each member of the roster at the post. The receipt keeps it, so `outcome`
      gives the same list. Nothing that was not sent is delivered later; `room_read` still shows
      a member the posts that it missed.
-  3. A computer that is off gives `computer_offline` at once, as the node's claim; a lost
-     answer leaves the outcome unknown, and the client never sends the write again.
+  3. A computer that is off gives `computer_offline` at once, as the node's claim. A lost
+     answer leaves the outcome unknown: the client reads the outcome of that request, or sends
+     the same envelope again within its window, which answers from its receipt; it never signs
+     a new write to recover from a lost answer.
   4. The target signs every answer with its link key, over the request envelope's digest, its
      pin and the full answer, in a new envelope version; the client checks the key against
      the pin that it enrolled. The node signs its own claims.
@@ -319,7 +321,9 @@ maintainer secret is in PDR 009; Remote is in PDR 010.
   answer. Agent messages to another computer keep their queue (Decision 4).
 - **Alternatives considered:** a queue at the node for at most 24 hours (revision 2; declined:
   chat and rooms are real time); a queue in the client; #696 first and #695 later; counts
-  only, as before; signing only the writes and `outcome`.
+  only, as before; signing only the writes and `outcome`; `room_read` showing a member only the
+  posts that reached it (revision 3; not taken: the room's history stays readable, apart from
+  delivery and wakes).
 - **Shipped:** chunk 01, the recipient results of item 2: the maintainer's room post answer
   lists each member with its reason, and a refused signed send keeps its reason in the
   receipt. Agents' room post answers keep their counts only. Items 3 and 4 are chunk 02.

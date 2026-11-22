@@ -138,8 +138,8 @@ an envelope that does not parse as v2. Mixed releases:
 | earlier | any | the node's `signature_refused`, reason `version`, unsigned |
 
 The client shows an unsigned version refusal as "the node says: that computer refuses version 2
-(not verified)". It never sends the write again and never sends it as v1. For a write, it can
-read a signed `outcome` when the target answers one; else the outcome stays unknown.
+(not verified)". It never signs a new write in its place and never sends it as v1. For a write,
+it can read a signed `outcome` when the target answers one; else the outcome stays unknown.
 
 ## 5. Test vectors (chunk 02)
 
