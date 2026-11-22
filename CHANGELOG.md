@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A new catalog skill, `coordinate`, gives the coordinator of a running team its loop (#784): one
+  watch over the members' panes for permission prompts, kept in private state with no second
+  watch, an answer to each prompt after a check against the member's approved work, with a
+  short Koinon message to the member, and a team check at an interval. `peer-tmux` lists the
+  observed Codex dialogs; `spin-down` and `recover-team` have the stop and restart of a family
+  whose login is gone and that has no handoff. `koinon install` writes `koinon-coordinate`.
+
 - The maintainer's room post answer now lists each member of the room: `sent`, or `not_sent`
   with the reason (`retired`, `ended`, `lapsed`, `no_liveness_evidence`, `unheld` or
   `conflicting`), on the dashboard's MCP route and on signed actions (#695). A room's

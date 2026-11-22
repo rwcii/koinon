@@ -68,7 +68,7 @@ func TestTeamSkills(t *testing.T) {
 			t.Fatalf("no entry koinon-%s in %q", name, names)
 		}
 	}
-	if len(want) != 20 || strings.Join(names, " ") != strings.Join(want, " ") {
+	if len(want) != 21 || strings.Join(names, " ") != strings.Join(want, " ") {
 		t.Fatalf("entries %q, want %q", names, want)
 	}
 	for _, name := range []string{"koinon-guide", "koinon-check", "koinon-spin-up", "koinon-handoff", "koinon-sprint"} {

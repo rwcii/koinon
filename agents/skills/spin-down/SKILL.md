@@ -20,6 +20,11 @@ its actual outcome, and continue the independent steps; check an uncertain resul
 repeat an action. Update the private manifest and your own handoff with the completed stages and
 the remaining work.
 
+When a family's login is gone and its members cannot write a handoff, stop that family without
+one: save each member's pane capture, its native thread or session ID, its launch command, sandbox,
+role and directory in the private manifest, and mark each member "no handoff". The saved panes
+are evidence, not a handoff. Quit each member at an empty, idle prompt (`peer-tmux`).
+
 ## Repository facts
 
 The project's facts for this skill are local data in the file named below, in the current

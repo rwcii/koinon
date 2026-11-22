@@ -21,6 +21,11 @@ operation, verify the actual registration, participant holder, pickup and readin
 existing leases and checkpoints. Reconcile an uncertain result before a retry, and record the
 completed stages in the private manifest.
 
+To restart a family that `spin-down` stopped with "no handoff": after its login works again,
+resume each member's same native thread with its saved sandbox, role and directory. Then
+reconcile its open jobs, work claims and pull requests with the live state, and check its
+participant address and its pickup report, as for a member with a handoff.
+
 ## Repository facts
 
 The project's facts for this skill are local data in the file named below, in the current

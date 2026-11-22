@@ -61,7 +61,7 @@ func TestOpenCodeCommands(t *testing.T) {
 			t.Fatalf("no command koinon-%s in %q", name, names)
 		}
 	}
-	if len(names) != 21 || slices.Contains(names, PickupSkillName) || strings.Join(names, " ") != strings.Join(want, " ") || strings.Count(strings.Join(names, " "), "koinon-guide") != 1 {
+	if len(names) != 22 || slices.Contains(names, PickupSkillName) || strings.Join(names, " ") != strings.Join(want, " ") || strings.Count(strings.Join(names, " "), "koinon-guide") != 1 {
 		t.Fatalf("commands %q, want %q", names, want)
 	}
 }
