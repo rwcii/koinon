@@ -17,8 +17,10 @@ check with a Koinon Voice build is recorded.
    bytes, signing with an Ed25519 link key, and a verifier.
 2. Target: sign each answer to a v2 envelope (`internal/core/signed_actions.go`,
    `maintainerRead`), with the link identity (`internal/link/identity.go`).
-3. Node: return a target's signed answer unchanged (`internal/core/signed_forward.go`,
-   `validReply`), and sign its own claims for v2.
+3. Node: return a target's signed answer with its signed field values unchanged
+   (`internal/core/signed_forward.go`): `validReply` checks the v1 form for a v1 envelope and
+   the signed object of `../contract.md` section 3.1 for a v2 envelope. Sign the node's own
+   claims for v2.
 4. Size: the 1 MiB answer limit counts the signed object.
 5. Vectors: a Go test that produces and checks `contract.md` section 5; the values go into
    `contract.md`.

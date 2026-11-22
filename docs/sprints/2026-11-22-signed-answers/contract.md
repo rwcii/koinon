@@ -98,7 +98,9 @@ answers of section 4:
    confirms that a write did not run. The client never sends a v1 envelope again in place of a
    v2 one.
 6. Transports carry the whole signed object, for a success and a refusal alike, and the node
-   returns a target's signed object unchanged. The Serve route answers it as the body, with
+   returns a target's signed object with its field values unchanged, `answer` text included.
+   The outer JSON bytes can differ (spacing, escapes): the client checks the RFC 8785 bytes of
+   the field values, not the bytes that it received. The Serve route answers it as the body, with
    `status` as the HTTP status. The `signed` MCP tool answers it as the text of its one content
    item. The link carries it in `maintainer-ok`. The client ignores the transport's own status
    and error flags for a signed object: only the verified `status` and `answer` count.

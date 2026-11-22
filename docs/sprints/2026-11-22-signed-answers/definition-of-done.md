@@ -45,14 +45,18 @@ reaches a real agent, a real board or another computer.
   `koinon mcp --maintainer --signed` bootstrap and the unsigned answers of section 4 stay
   unsigned.
 - The node signs its own claims for a v2 envelope (`contract.md` section 4) and returns a
-  target's signed answer byte for byte, on the MCP `signed` tool, the Serve route and the link.
+  target's signed answer with its field values unchanged, on the MCP `signed` tool, the Serve
+  route and the link (`contract.md` section 3.6). The node's link check takes the v1 form for a
+  v1 envelope and the signed object for a v2 envelope.
 - A Go verifier in `internal/signed` checks an answer for an envelope, a target pin and a node
   pin, as a client does (`contract.md` section 3.4).
 - Tests: each operation of v1 Decision 2 over v2 on a node's own pin and on a paired pin,
   verified, on the MCP `signed` tool and the Serve route; each node claim of `contract.md`
   section 4 verified as the node's; a node that changes the answer, the status, the signer,
   the pin or the request, or puts a target answer under a node signature, fails the check; a
-  node-signed success fails; the mixed-release cases of section 4 answer unsigned
+  node-signed success fails; a target answer whose `answer` text has quotes, backslashes,
+  control characters and non-ASCII text goes through the link and the node and still verifies
+  on each transport; the mixed-release cases of section 4 answer unsigned
   `signature_refused`, reason `version`; a read near the 1 MiB link limit, with escaped
   content, fits or is refused `too_large`, signed; the largest room post result (32 members,
   longest labels) fits.

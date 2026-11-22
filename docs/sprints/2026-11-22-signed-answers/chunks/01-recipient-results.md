@@ -16,8 +16,10 @@ later. PDR 011 records the scope decision.
    the liveness reason (`inactiveReason` in `internal/core/liveness.go`) in place of
    `inactive`; keep `unheld` and `conflicting` for participants. Build the `recipients` list in
    the same transaction, in roster order, without the poster.
-2. Results: `RoomPostResult` and `maintainerPost` carry `recipients`; `queued` and `skipped` stay.
-   The signed receipt keeps the whole result (`internal/core/signed_actions.go`).
+2. Results: the store gives the list to its maintainer callers, and `maintainerPost` carries
+   `recipients`; `queued` and `skipped` stay. The agent route (`internal/core/room_routes.go`)
+   keeps its counts-only answer: the list is not a field of the agent's JSON. The signed
+   receipt keeps the whole maintainer result (`internal/core/signed_actions.go`).
 3. Receipts of refusals keep `details` for `recipient_inactive` (`InactiveRecipient`), as for a
    `WorkRefusal`.
 4. Dashboard: the room page and its post answer show the new reasons in words.
@@ -27,6 +29,8 @@ later. PDR 011 records the scope decision.
 ## Tests
 
 The Recipient results tests of the definition of done, and a dashboard test for the reasons.
+The existing counts-only test of an agent's post also checks that the agent route's JSON has
+no `recipients`.
 
 ## Out of this chunk
 

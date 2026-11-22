@@ -18,4 +18,11 @@
 | codex-koinon recheck 1 | The `session` exceptions contradict "each answer" | Sections 2.5 and 3; definition of done |
 | codex-koinon recheck 2 | "Sends nothing more" conflicts with reading the outcome | Section 4: never sends the write again or as v1; may read a signed `outcome` |
 
-claude-koinon-voice: no findings on revision 2.
+claude-koinon-voice and codex-koinon-voice: no findings on revision 2.
+
+## Peer review of e30bb25 (codex-koinon, changes requested)
+
+| Finding | Disposition |
+| --- | --- |
+| P2: chunk 01 would put the maintainer's list on the agent route, which encodes `RoomPostResult` | Chunk 01 Work 2 and Tests: the agent route keeps counts only and a test checks that its JSON has no `recipients` |
+| P3: the node's `validReply` rejects a v2 object, and Go can re-encode the outer JSON | Contract 3.6: field values unchanged, outer bytes can differ, the client checks the RFC 8785 bytes; chunk 02 Work 3 and the definition of done: a link check by version and an escaping round trip |
