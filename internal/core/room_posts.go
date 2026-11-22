@@ -35,14 +35,39 @@ var (
 	ErrRoomPostLate   = Refusal{"retry_deadline_expired", "the retry deadline has passed; read the room to reconcile"}
 )
 
-// RoomPostResult is a poster's receipt: its post's sequence and how many members it
-// reached or skipped, never who they are.
+// RoomPostResult is a poster's receipt: its post's sequence, how many members it reached or
+// skipped and, for the maintainer only, each member's result (#695). The agent route answers
+// the counts only (memberPost), never who the members are. A receipt stored before #695 has no
+// Recipients (nil); a post of this release has a list, empty when the room had no other
+// member.
 type RoomPostResult struct {
+	RoomID     string          `json:"room_id"`
+	Seq        int64           `json:"seq"`
+	Queued     int             `json:"queued"`
+	Skipped    int             `json:"skipped"`
+	Duplicate  bool            `json:"duplicate,omitempty"`
+	Recipients []RoomRecipient `json:"recipients"`
+}
+
+// RoomRecipient is one member's result for a post: sent (a copy is in its inbox) or not_sent
+// with the reason (docs/sprints/2026-11-22-signed-answers/contract.md, section 1.1).
+type RoomRecipient struct {
+	Name   string `json:"name"`
+	State  string `json:"state"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// memberPost is the agent route's answer to a post: counts only.
+type memberPost struct {
 	RoomID    string `json:"room_id"`
 	Seq       int64  `json:"seq"`
 	Queued    int    `json:"queued"`
 	Skipped   int    `json:"skipped"`
 	Duplicate bool   `json:"duplicate,omitempty"`
+}
+
+func (r RoomPostResult) member() memberPost {
+	return memberPost{r.RoomID, r.Seq, r.Queued, r.Skipped, r.Duplicate}
 }
 
 // RoomPost is one post as room_read and the dashboard transcript show it.
@@ -232,7 +257,7 @@ func (s *Store) roomPost(ctx context.Context, caller Key, maintainer bool, roomI
 	if err != nil {
 		return RoomPostResult{}, err
 	}
-	receipt := RoomPostResult{RoomID: roomID, Seq: seq}
+	receipt := RoomPostResult{RoomID: roomID, Seq: seq, Recipients: []RoomRecipient{}}
 	if err := s.fanOut(ctx, tx, roomID, postID, seq, caller, sender, origin, body, senders, &receipt); err != nil {
 		return RoomPostResult{}, err
 	}
@@ -308,7 +333,15 @@ next:
 			err := tx.QueryRowContext(ctx, `UPDATE sessions SET last_seq=last_seq+1 WHERE family=? AND id=?
 				AND retired_at=0 AND expires_at>? RETURNING last_seq`, m.key.Family, m.key.ID, now).Scan(&inboxSeq)
 			if errors.Is(err, sql.ErrNoRows) {
-				reason = roomStateInactive
+				// The liveness reason, as a refused send gives it; retention deletes only
+				// retired sessions, so a missing row was retired.
+				reason, err = s.inactiveReason(ctx, tx.Tx, m.key.Family, m.key.ID)
+				if errors.Is(err, ErrRecipientInactive) {
+					reason, err = "retired", nil
+				}
+				if err != nil {
+					return err
+				}
 			} else if err != nil {
 				return err
 			} else {
@@ -329,8 +362,10 @@ next:
 		if reason != "" {
 			outcome = "skipped"
 			receipt.Skipped++
+			receipt.Recipients = append(receipt.Recipients, RoomRecipient{Name: m.label, State: "not_sent", Reason: reason})
 		} else {
 			receipt.Queued++
+			receipt.Recipients = append(receipt.Recipients, RoomRecipient{Name: m.label, State: "sent"})
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO room_deliveries(post_id,ordinal,family,member_id,label,outcome,reason,message_id)
 			VALUES (?,?,?,?,?,?,?,?)`, postID, m.ordinal, m.key.Family, m.key.ID, m.label, outcome, reason, messageID); err != nil {
@@ -460,6 +495,19 @@ type RoomDelivery struct {
 	DeliveryState  string
 	Acknowledged   bool
 	AcknowledgedBy string
+}
+
+// roomReasonWords are the Rooms page's words for a skip reason; an unknown or earlier reason
+// (inactive) shows as stored.
+var roomReasonWords = map[string]string{"ended": "session ended", "lapsed": "registration lapsed",
+	"no_liveness_evidence": "no liveness evidence", "unheld": "address not held", "conflicting": "holder in conflict"}
+
+// ReasonText is the skip reason in words, for the Rooms page.
+func (d RoomDelivery) ReasonText() string {
+	if words, ok := roomReasonWords[d.Reason]; ok {
+		return words
+	}
+	return d.Reason
 }
 
 // roomDeliveries reads the recipient rows of a room's posts from first to last sequence, at

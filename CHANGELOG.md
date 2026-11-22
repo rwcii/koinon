@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The maintainer's room post answer now lists each member of the room: `sent`, or `not_sent`
+  with the reason (`retired`, `ended`, `lapsed`, `no_liveness_evidence`, `unheld` or
+  `conflicting`), on the dashboard's MCP route and on signed actions (#695). A room's
+  delivery rows give the same liveness reason in place of `inactive`, and the Rooms page shows
+  it in words. Rooms stay real time: a member that was not sent a post never gets it later. An agent's
+  room post answer keeps its counts only. A signed `send` refused for its recipient keeps the
+  code and reason in its receipt, so the repeat and `outcome` give them.
+
 ## 2026-11-20 — Wakes for narrow Codex panes, and a macOS upgrade that starts the daemon
 
 This release wakes and compacts Codex sessions in 80-column panes again (#761), a macOS install

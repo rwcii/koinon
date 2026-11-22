@@ -76,7 +76,7 @@ func (d *Daemon) roomRoutes(mux *http.ServeMux) {
 			return
 		}
 		d.store.ToolCall(request.Caller)
-		respond(w, 200, map[string]any{"ok": true, "result": result})
+		respond(w, 200, map[string]any{"ok": true, "result": result.member()})
 	})
 	mux.HandleFunc("POST /v1/rooms/read", func(w http.ResponseWriter, r *http.Request) {
 		var request struct {

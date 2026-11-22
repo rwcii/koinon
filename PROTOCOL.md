@@ -2357,7 +2357,9 @@ else its peer name), a typed `origin` and its body (1–65,536 bytes of UTF-8). 
 `member`, and no request field or body text sets it. One ordinary write stores the post,
 snapshots the current members, and for each member except the poster's own memberships
 stores either an inbox copy with a delivery row (`queued`) or a delivery row `skipped` with
-the reason `inactive`, `unheld` or `conflicting`. A participant's copy goes to the
+its reason: for a member session the liveness reason that a refused send gives (`retired`,
+`ended`, `lapsed` or `no_liveness_evidence`), for a participant `unheld` or `conflicting`.
+Nothing that was skipped is delivered later (#695). A participant's copy goes to the
 participant's inbox. The write also stores the poster's retry record and, for a dashboard post, the audit record. It commits completely or not at all;
 wakes follow through the existing queue and are content-free. A copy is an ordinary inbox
 message from the poster with the full body and `room: {room_id, event: "post", seq, origin}`.
@@ -2833,7 +2835,10 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     `recipient_inactive`).
   - `room-list` (each room's `room_id`, `name`, `revision`, `created_at` and `members`);
     `room-read` (`room_id`, `after`, `limit`) of any room; `room-post` (`room_id`, `body`,
-    `key`, `deadline`), whose receipt has `room_id`, `seq`, `queued` and `skipped`;
+    `key`, `deadline`), whose receipt has `room_id`, `seq`, `queued`, `skipped` and
+    `recipients`: for each member of the roster at the post except the poster, in roster
+    order, its `name` and `state` `sent` (a copy is in its inbox), or `not_sent` with its
+    `reason` (#695). A receipt stored before this list existed has no `recipients`;
     `room-create` (`name`, `key`); `room-add` (`room_id`, `peer`); `room-remove` (`room_id`,
     `ordinal`): the dashboard's room actions with their refusals (`room_not_found`,
     `peer_not_found`, `room_member_not_found`, `idempotency_conflict` and the room limits).
@@ -2965,7 +2970,9 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     (`room`, `after`, `limit`), `peers`, `peer_status` (`peer`); the writes `decision_verdict`
     (`reference`, `revision`, `snapshot`, `verdict`, `note`), `ack` (`through`), `send` (`to`,
     `body`, `reply_to`) and `room_post` (`room`, `body`); and `outcome`, `computers` and
-    `changes`. An unknown argument or one of the wrong type is `invalid_request`.
+    `changes`. `room_post` answers the `room-post` receipt with its `recipients`; a refused
+    `send` (`peer_not_found`, `alias_unheld`, `recipient_inactive` with `details.reason`) keeps
+    its code and details in its receipt, so the repeat and `outcome` give them (#695). An unknown argument or one of the wrong type is `invalid_request`.
     `snapshot` is the hex SHA-256 of the RFC 8785 bytes of `{"reference", "revision", "kind",
     "title", "where", "context", "recommendation", "agent_text", "commands"}` as `decision_get`
     shows them (`commands` the shown commands, `[]` when none); another snapshot is
