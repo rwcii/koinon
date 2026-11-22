@@ -27,8 +27,10 @@ import (
 // synthetic.
 // signedFixture is a daemon with one agent session and one enrolled client key.
 type signedFixture struct {
-	root, address, bearer, name, keyID string
-	envelope                           func(op string, args map[string]any) []byte
+	root, address, bearer, name, keyID, pin string
+	envelope                                func(op string, args map[string]any) []byte
+	// envelope2 signs a version 2 envelope (#696).
+	envelope2 func(op string, args map[string]any) []byte
 }
 
 func newSignedFixture(t *testing.T) signedFixture {
@@ -87,9 +89,9 @@ func newSignedFixture(t *testing.T) signedFixture {
 	json.Unmarshal(keys, &keyList)
 	e.Auth = keyList.Result.Keys[0].Auth
 	n := 0
-	envelope := func(op string, args map[string]any) []byte {
+	sign := func(v, op string, args map[string]any) []byte {
 		n++
-		data, err := signed.Sign(map[string]any{"v": signed.Version, "key": keyID, "auth": e.Auth, "target": id.Pin, "op": op, "args": args,
+		data, err := signed.Sign(map[string]any{"v": v, "key": keyID, "auth": e.Auth, "target": id.Pin, "op": op, "args": args,
 			"request": fmt.Sprintf("mcp-request-%06d", n), "created": time.Now().Unix()}, private)
 		if err != nil {
 			t.Fatal(err)
@@ -98,12 +100,15 @@ func newSignedFixture(t *testing.T) signedFixture {
 	}
 
 	var mu sync.Mutex
-	locked := func(op string, args map[string]any) []byte {
-		mu.Lock()
-		defer mu.Unlock()
-		return envelope(op, args)
+	locked := func(v string) func(op string, args map[string]any) []byte {
+		return func(op string, args map[string]any) []byte {
+			mu.Lock()
+			defer mu.Unlock()
+			return sign(v, op, args)
+		}
 	}
-	return signedFixture{root: root, address: address, bearer: bearer, name: name, keyID: keyID, envelope: locked}
+	return signedFixture{root: root, address: address, bearer: bearer, name: name, keyID: keyID, pin: id.Pin,
+		envelope: locked(signed.Version), envelope2: locked(signed.Version2)}
 }
 
 func TestSignedMaintainerMCP(t *testing.T) {
@@ -175,6 +180,41 @@ func TestSignedMaintainerMCP(t *testing.T) {
 	var refused core.RefusedError
 	if err := p.end(); !errors.As(err, &refused) || refused.Code != mcp.ErrTokenExpired.Code {
 		t.Fatalf("end: %v", err)
+	}
+}
+
+// A version 2 session starts the local signed MCP unsigned, as its bootstrap; each answer of
+// the signed tool to a version 2 envelope is the target's signed object, a refusal too, and not
+// an error of the tool (#696; contract.md, sections 2.5 and 3.6).
+func TestSignedMCPVersion2(t *testing.T) {
+	f := newSignedFixture(t)
+	p := startMaintainerMCP(t, []string{"--maintainer", "--signed", "--state-dir", f.root, "--address", f.address},
+		string(f.envelope2("session", map[string]any{"client": "koinon-voice"}))+"\n")
+	p.request("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "koinon-voice"}})
+	call := func(name string, data []byte, code string) {
+		t.Helper()
+		e, err := signed.Parse(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		result := p.request("tools/call", map[string]any{"name": "signed", "arguments": map[string]any{"envelope": json.RawMessage(data)}})
+		content, _ := result["content"].([]any)
+		if len(content) != 1 || result["isError"] == true {
+			t.Fatalf("%s: %v", name, result)
+		}
+		text := content[0].(map[string]any)["text"].(string)
+		v, err := signed.VerifyAnswer([]byte(text), signed.Expect{Request: e.Digest(), Target: f.pin, Node: f.pin})
+		if err != nil || v.Signer != signed.SignerTarget || v.Code != code {
+			t.Fatalf("%s: %+v %v: %s", name, v, err, text)
+		}
+	}
+	call("inbox", f.envelope2("inbox", map[string]any{}), "")
+	call("send", f.envelope2("send", map[string]any{"to": f.name, "body": "a synthetic \"v2\" send \x01 é"}), "")
+	bad := bytes.Replace(f.envelope2("inbox", map[string]any{"limit": int64(5)}), []byte(`"limit":5`), []byte(`"limit":6`), 1)
+	call("bad signature", bad, "signature_refused")
+	// A version 1 envelope in the same session keeps its unsigned answer.
+	if inbox, isError := p.tool("signed", map[string]any{"envelope": json.RawMessage(f.envelope("inbox", map[string]any{}))}); isError || inbox["ok"] != true {
+		t.Fatalf("v1 inbox: %v", inbox)
 	}
 }
 
