@@ -157,3 +157,22 @@ func TestShortestLifetimeKeepsALiveHost(t *testing.T) {
 		t.Fatalf("lost with the shortest lifetime: %+v", got)
 	}
 }
+
+// #673 review L8: Last change moves on a context mode or threshold change, and not on a
+// remote row in the same table.
+func TestSettingsUpdatedAtIncludesContextPolicy(t *testing.T) {
+	s, _ := testStore(t)
+	ctx := context.Background()
+	if _, err := s.db.Exec(`INSERT INTO settings(name,value,updated_at) VALUES('remote.v2.attention:phone','{}',?)`, s.now().UnixMilli()+5000); err != nil {
+		t.Fatal(err)
+	}
+	if at, err := s.settingsUpdatedAt(ctx); err != nil || at != 0 {
+		t.Fatalf("remote row counted as a settings change: %d %v", at, err)
+	}
+	if err := s.SetContextPolicy(roomCtx("context-settings"), "claude", ContextHandoffCycle, 60); err != nil {
+		t.Fatal(err)
+	}
+	if at, err := s.settingsUpdatedAt(ctx); err != nil || at == 0 || at > s.now().UnixMilli() {
+		t.Fatalf("context change not counted: %d %v", at, err)
+	}
+}

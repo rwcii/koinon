@@ -56,6 +56,9 @@ func setAuditTarget(ctx context.Context, target string) {
 // with the origin of the request's context.
 func withAudit(ctx context.Context, action, target string) (context.Context, *pendingAudit) {
 	p := &pendingAudit{action: action, target: target, origin: originOf(ctx)}
+	if a := signedOf(ctx); a != nil {
+		p.origin = a.signerText()
+	}
 	return context.WithValue(ctx, auditContextKey{}, p), p
 }
 
@@ -112,6 +115,30 @@ func (s *Store) auditRefusal(ctx context.Context, p *pendingAudit, reason string
 	if tx.Commit() == nil {
 		p.written = true
 	}
+}
+
+// auditPendingAccepted writes the pending record of ctx as accepted, with its origin, for an
+// action whose change is outside the store, such as the link's files (#670).
+func (s *Store) auditPendingAccepted(ctx context.Context) error {
+	p, _ := ctx.Value(auditContextKey{}).(*pendingAudit)
+	if p == nil || p.written {
+		return nil
+	}
+	ctx = noAudit(ctx)
+	tx, err := s.begin(ctx, ordinary)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(ctx, `INSERT INTO audit(at,action,target,result) VALUES (?,?,?,'accepted')`,
+		s.now().UnixMilli(), p.action, p.recordTarget()); err != nil {
+		return tx.fail(err)
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	p.written = true
+	return nil
 }
 
 // auditAccepted records an accepted action that changes no stored data, such as a login

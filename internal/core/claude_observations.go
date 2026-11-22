@@ -30,12 +30,13 @@ func (s *Store) claudeObservationCaller(ctx context.Context, caller Key, reporte
 	if err != nil || start != reporter.Start {
 		return Key{}, observationHostRefusal()
 	}
-	parents, err := s.processParents()
+	// The walk reads one process at a time, only the reporter's ancestors (#758).
+	pid, err := parentOf(s.processParent, reporter.PID)
 	if err != nil {
 		return Key{}, observationHostRefusal()
 	}
 	seen := map[int]bool{}
-	for pid, steps := parents[reporter.PID], 0; pid > 1 && steps < 256; pid, steps = parents[pid], steps+1 {
+	for steps := 0; pid > 1 && steps < 256; steps++ {
 		if seen[pid] {
 			return Key{}, observationHostRefusal()
 		}
@@ -87,6 +88,9 @@ func (s *Store) claudeObservationCaller(ctx context.Context, caller Key, reporte
 		// An unregistered nested CLI is islanded, not a source for the outer host.
 		exe, args, err := s.processCommand(pid)
 		if err != nil || observationAgentProcess(exe, args) {
+			return Key{}, observationHostRefusal()
+		}
+		if pid, err = parentOf(s.processParent, pid); err != nil {
 			return Key{}, observationHostRefusal()
 		}
 	}

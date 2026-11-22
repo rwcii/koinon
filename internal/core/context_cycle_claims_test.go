@@ -225,6 +225,7 @@ func TestContextCycleClaimsCommitWithAdmission(t *testing.T) {
 	}
 	t.Cleanup(func() { reopened.db.Close() })
 	reopened.now = f.s.now
+	reopened.processStart = f.s.processStart
 	f.s = reopened
 	if got := f.expires(t, f.participant); got != float64(v.CycleDeadline)/1000+cycleClaimGrace {
 		t.Fatalf("after reopen: %v", got)

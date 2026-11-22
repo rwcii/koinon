@@ -88,6 +88,19 @@ func planCommand(ctx context.Context, o install.Options, out io.Writer) error {
 	return err
 }
 
+// planJSONCommand prints the plan with the reason for each step as one JSON object (#745).
+// A failed check prints no plan and returns the same coded error as the text form.
+func planJSONCommand(ctx context.Context, o install.Options, out io.Writer) error {
+	result, err := install.PlanSteps(ctx, o)
+	if err != nil {
+		return coded(err)
+	}
+	return printJSON(out, struct {
+		OK bool `json:"ok"`
+		install.PlanResult
+	}{true, result})
+}
+
 // repositories parses --repository KEY=PATH values.
 func repositories(values []string) (map[string]string, error) {
 	result := map[string]string{}
@@ -112,7 +125,7 @@ func lifecycleCommand(ctx context.Context, args []string, in io.Reader, out io.W
 	case "install", "uninstall", "upgrade":
 		flags.Var(&agents, "agent", "agent family to set up or remove; repeatable")
 	}
-	var noStart, system, plan, fromPython, verify, status *bool
+	var noStart, system, plan, planJSON, fromPython, verify, status *bool
 	var from, pythonPrefix, python *string
 	var port *int
 	var dashboardAddress *string
@@ -123,6 +136,7 @@ func lifecycleCommand(ctx context.Context, args []string, in io.Reader, out io.W
 		noStart = flags.Bool("no-start", false, "write the service without starting it")
 		system = flags.Bool("system", false, "macOS: run the daemon as a LaunchDaemon that survives logout; asks sudo")
 		plan = flags.Bool("plan", false, "print the commands that this installation still needs; change nothing")
+		planJSON = flags.Bool("json", false, "with --plan: print the plan and the reason for each step as JSON")
 	case "import":
 		from = flags.String("from", "", "Python-era state root")
 		verify = flags.Bool("verify", false, "compare the sources with the Go state; change nothing")
@@ -143,17 +157,23 @@ func lifecycleCommand(ctx context.Context, args []string, in io.Reader, out io.W
 		given, other := false, false
 		flags.Visit(func(f *flag.Flag) {
 			given = given || f.Name == "port"
-			other = other || (f.Name != "plan" && f.Name != "prefix" && f.Name != "state-dir")
+			other = other || (f.Name != "plan" && f.Name != "json" && f.Name != "prefix" && f.Name != "state-dir")
 		})
+		if *planJSON && !*plan {
+			return usageError{"invalid_request", "--json needs --plan"}
+		}
 		if *plan {
 			if other {
-				return usageError{"invalid_request", "--plan takes only --prefix and --state-dir"}
+				return usageError{"invalid_request", "--plan takes only --json, --prefix and --state-dir"}
 			}
 			o := install.Options{Prefix: *prefix, StateDir: *state, Version: version}
 			flags.Visit(func(f *flag.Flag) {
 				o.PlanPrefix = o.PlanPrefix || f.Name == "prefix"
 				o.PlanState = o.PlanState || f.Name == "state-dir"
 			})
+			if *planJSON {
+				return planJSONCommand(ctx, o, out)
+			}
 			return planCommand(ctx, o, out)
 		}
 		if given && !core.ValidPort(*port) {
@@ -171,6 +191,7 @@ func lifecycleCommand(ctx context.Context, args []string, in io.Reader, out io.W
 		// first install asks where the dashboard opens (#624). One reader serves them all.
 		if t := openTerminal(ctx, in, os.Stderr); t != nil {
 			o.Ask, o.Line, o.NewSecret, o.Tell = ask(t.in, os.Stderr), t.line, t.newSecret, os.Stderr
+			o.RemoteEnable = installRemoteEnable(t)
 		}
 		r, err := install.Install(ctx, o)
 		printJSON(out, r)

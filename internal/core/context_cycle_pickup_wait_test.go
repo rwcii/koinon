@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -18,6 +19,8 @@ import (
 
 // pickupDialog shows the n-th synthetic approval dialog in the fake pane.
 func pickupDialog(f *fakeAdapter, n int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.pane = PaneState{Prompt: "native_dialog"}
 	f.dialog = CycleDialog{Lines: []string{fmt.Sprintf("synthetic approval %d", n)}, Options: []string{"1", "2"},
 		Digest: fmt.Sprintf("%064d", n)}
@@ -25,7 +28,40 @@ func pickupDialog(f *fakeAdapter, n int) {
 
 // pickupDialogGone shows the pane without a dialog, as after the native session's own answer.
 func pickupDialogGone(f *fakeAdapter) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.pane, f.dialog = PaneState{Idle: true}, CycleDialog{}
+}
+
+// #679: a test daemon's cycle loop reads the fake pane and dialog on its own goroutine while
+// the test shows and removes dialogs; under -race the reads and writes do not race.
+func TestFakeAdapterPaneSharedWithTheCycleLoop(t *testing.T) {
+	f := &fakeAdapter{pane: PaneState{Idle: true}}
+	ctx := context.Background()
+	// Each read runs alone on its goroutine, so no other read's lock orders it.
+	readers := []func(){
+		func() { f.Inspect(ctx, CycleTarget{}, nil) },
+		func() { f.Dialog(ctx, CycleTarget{}) },
+		func() {
+			// No shown dialog has this digest, so Choose reads it and stops before its fence.
+			if _, err := f.Choose(ctx, CycleTarget{}, strings.Repeat("f", 64), "1", nil); !errors.Is(err, ErrCycleDialogChanged) {
+				t.Errorf("choose: %v", err)
+			}
+		},
+	}
+	var wg sync.WaitGroup
+	for _, read := range readers {
+		wg.Go(func() {
+			for range 500 {
+				read()
+			}
+		})
+	}
+	for n := range 500 {
+		pickupDialog(f, n)
+		pickupDialogGone(f)
+	}
+	wg.Wait()
 }
 
 // pickupPromptWait runs the fixture's cycle to the pickup's first dialog.
@@ -165,7 +201,8 @@ func TestContextCyclePickupDialogsOnDashboard(t *testing.T) {
 	repo := namedRepo(t, "cycle-pickup-dialog")
 	os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("_handoff/\n"), 0o644)
 	a := join(t, s, "claude", "synthetic-pickup-a", repo)
-	fixtureExec(s, `UPDATE sessions SET host_pid=4242,host_start=77,tmux_socket='/tmp/synthetic-socket',tmux_pane='%3' WHERE family='claude' AND id=?`, a.ID)
+	pid, start := liveHost(t)
+	fixtureExec(s, `UPDATE sessions SET host_pid=?,host_start=?,tmux_socket='/tmp/synthetic-socket',tmux_pane='%3' WHERE family='claude' AND id=?`, pid, start, a.ID)
 	a, _ = scanSession(s.db.QueryRow(sessionQuery+` WHERE s.family=? AND s.id=?`, "claude", a.ID), s.now().UnixMilli())
 	if _, err := s.SetContextEnable(roomCtx("context-enable"), a.Name, a.Revision, 0, true); err != nil {
 		t.Fatal(err)

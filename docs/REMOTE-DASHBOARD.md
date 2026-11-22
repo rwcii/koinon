@@ -1,0 +1,517 @@
+# Private remote dashboard
+
+Use the existing dashboard from a phone away from home through Tailscale Serve. The
+phone and host join the same private Tailscale network. Sign in with a one-time
+QR created from your signed-in dashboard, or enter your Koinon password (the
+existing maintainer secret) when opening the ordinary URL. The host must stay awake, online, and running
+Koinon and Tailscale. This feature does not wake a sleeping host.
+
+The optional LAN HTTPS dashboard configured by `koinon install
+--dashboard-address HOST:PORT` remains separate. Neither dashboard listener
+serves the agent API. See [ADR 002](architecture/adr/002-private-remote-dashboard-transport.md)
+and [PDR 010](product/pdr/010-private-remote-dashboard-access.md).
+
+## Set up from the dashboard
+
+On the Koinon computer you want to reach, select **Go remote** from the dashboard
+header, or open **Settings → Remote access**. Setup shows the next action for the
+current state; technical status is in details. The **Go remote** header control
+is hidden when you are already using the remote dashboard. This follows the
+actual remote connection, rather than the screen width.
+
+1. Follow the displayed setup action. Install Tailscale on the computer and phone
+   if needed, and sign in with the same account on both. If no Koinon password is
+   set, run `koinon maintainer secret set` on the computer. This is the existing
+   maintainer secret, not a second credential.
+2. If Tailscale approval is needed, open its account page, complete the step, then
+   return and use the displayed check action. The section offers official HTTPS
+   instructions when
+   the installed Tailscale version cannot provide an approval link.
+3. Select **Enable remote access** when ready. Account approval, refresh, and
+   reconnect never enable access automatically. This uses the same persistent
+   listener and owned mapping as `koinon remote enable`. On Linux, when Tailscale
+   refuses this account, setup shows **Allow Koinon to configure Tailscale** with
+   one command, such as `sudo tailscale set --operator=alice`. Koinon does not run
+   it: run it once in a terminal on this computer, then select **I’ve run it —
+   enable remote access**.
+4. Connect Tailscale on the phone. On the signed-in computer, select **Show
+   sign-in QR**, then scan it on the phone within two minutes. It authorizes one
+   sign-in to this remote dashboard. Treat the displayed QR as a temporary
+   credential; it is not the bookmark for later visits.
+5. Keep the separate dashboard link for later. Opening that copied or bookmarked
+   URL while signed out asks for the Koinon password. Complete the cellular check
+   below separately; host readiness alone cannot verify the phone's network.
+
+### Staying signed in
+
+A remote browser session ends exactly 48 hours after sign-in. Activity and reconnects
+never extend it. Its hashed credential survives routine daemon restarts, reboot and
+upgrades in the private SQLite store. Browser-cookie loss, logout, revocation,
+remote disable, origin change or password change can end access earlier. Local browser and maintainer
+API-token sessions retain their 24-hour idle limit and seven-day maximum.
+
+The QR's two-minute lifetime applies only to starting a sign-in. Once redeemed,
+the remote session has the longer lifetime above.
+
+### Sign-in QR and saved URL
+
+A sign-in QR works once and expires after two minutes. Only the dashboard on the
+computer that runs Koinon creates one; the remote view has no **Show sign-in QR**, so
+a remote session cannot renew itself past its fixed 48 hours. If a code expires, has
+already been used, or the browser loses the response, create another QR from the
+signed-in computer or use the password form. A failed redemption is not retried
+automatically. Without JavaScript, use the ordinary password form.
+
+The ticket is in the QR link's URL fragment, not its query. The landing page
+removes that fragment from its address before submitting one redemption request.
+Visiting or previewing the landing page alone does not consume it. Koinon keeps
+only a hash of an outstanding ticket in daemon memory, bound to the configured
+remote origin. Disable, secret change, and daemon restart invalidate pending
+tickets. The ticket is not saved to disk, logs, or the stable dashboard URL.
+
+The command-line QR remains different: it contains only the ordinary dashboard
+URL and needs the password when signed out. **Show sign-in QR** in the browser
+is the explicit action that creates a temporary sign-in credential.
+
+**Turn off remote access** opens a confirmation section before the button that
+stops the listener and removes its owned mapping. If you do this from the remote
+page, the connection can close before the browser receives confirmation. Use the
+local dashboard or `koinon remote status` to check the result before trying again.
+The local dashboard stays available.
+
+The setup check can ask Tailscale's control plane for feature instructions; it
+neither approves the account step nor changes a Serve mapping. Normal status
+refreshes do not repeat that account query. Setup instructions and enable
+eligibility stay at the last explicit check, labeled separately from refreshed
+host status. Use the displayed check action after the account step. If a read fails, the section labels
+displayed status as potentially stale. The page retains an open confirmation
+section or form while its action is running.
+
+These controls require Koinon v0.10.2 or later, and v0.11.0 or later for Dashboard access,
+Computers and Signed-in remote devices; `koinon install --plan` shows the
+steps an upgrade still needs. The command-line workflow remains available.
+
+## Set up from the command line
+
+1. Install Tailscale on the host and phone using the [platform instructions](https://tailscale.com/download).
+   Connect both to the intended private network. Restrict the network's access
+   policy to the intended maintainer devices, especially in a network with other people.
+   The policy must allow TCP 443, or the HTTPS port chosen with `--https-port`, to this
+   computer's Tailscale addresses, IPv4 and IPv6, or the phone's connection times out.
+   For example, for port 443 in the policy's `acls`:
+
+   ```json
+   {"action": "accept", "src": ["autogroup:member"], "proto": "tcp", "dst": ["100.64.0.1:443", "[fd7a:115c:a1e0::1]:443"]}
+   ```
+
+   `autogroup:member` is every member of the tailnet; put a user, group or devices
+   there for narrower access. When Serve is ready, `koinon remote status` and the
+   dashboard's connection details show this entry with the computer's own addresses.
+   Koinon cannot read the policy, so it cannot tell whether the entry is there.
+2. Set a maintainer secret on the host, if one is not already set:
+
+   ```sh
+   koinon maintainer secret set
+   ```
+
+   The command reads it without putting it in arguments. `koinon maintainer secret
+   generate` is the existing alternative; keep its one-time output private.
+3. Enable [HTTPS certificates](https://tailscale.com/docs/how-to/set-up-https-certificates)
+   in the Tailscale admin console if needed. Serve needs that account permission
+   and the host's `.ts.net` name. Then run:
+
+   ```sh
+   koinon remote enable
+   ```
+
+   On Linux, only root or the Tailscale operator can change Serve, and Koinon runs
+   as your account. When Tailscale refuses this account and `koinon remote enable`
+   runs at a terminal, it asks once whether to grant your account control of this
+   computer's Tailscale settings, which is more than Serve, by running
+   `sudo tailscale set --operator=NAME` (PDR 010, Decision 6). Answer `y` to run it:
+   sudo asks for your password, which Koinon never reads, and enable then continues.
+   The default answer is no. With no, with `--json`, in a script or after a failed
+   sudo, enable and status report `tailscale_operator_required`; run the command that
+   it names once, then run `koinon remote enable` again. The command names the
+   account that runs Koinon, for example:
+
+   ```sh
+   sudo tailscale set --operator=alice
+   ```
+
+   Type the name; do not use `$USER`, which is `root` in a root shell and then makes
+   root the operator again. `tailscale debug prefs` shows the result as `OperatorUser`.
+
+   Follow any other reported account or operating-system step, then repeat enable.
+   Repeating the command preserves a working setup.
+
+   Serve uses HTTPS port 443 unless you choose another (#665):
+
+   ```sh
+   koinon remote enable --https-port 10443
+   ```
+
+   Choose another port when something else on this computer takes 443, such as a
+   container that publishes `443:443` on all addresses: tailscaled and that program
+   cannot share the port, and whichever starts second fails. Pick a port that no other
+   program on this computer uses, including the network dashboard (8443 by default).
+   Koinon saves the port; a later `koinon remote enable` without the option, and the
+   dashboard's Enable, keep it. The URL, the QR code, the sign-in links, the login
+   checks and the policy entry in `koinon remote status` all name the port. Choosing a
+   new port takes the disable steps for the old one first: remote logins end, and Koinon
+   removes its old Serve mapping before it adds the new one. `--https-port 443` returns
+   to the default. On macOS the CLI bundled at
+   `/Applications/Tailscale.app/Contents/MacOS/Tailscale` is also found when
+   `tailscale` is absent from `PATH`.
+4. Open the printed URL on the phone, or scan its QR code, and enter the maintainer
+   secret. Remote login reuses the existing global maintainer-secret backoff, so
+   failed guesses on any login surface share that wait. The QR contains only the
+   HTTPS dashboard URL. Bookmark it or add it to
+   the home screen.
+5. Turn phone Wi-Fi off. Read agents, send a message, and submit a decision verdict.
+   Verify receipt and the recorded verdict on the host. Host readiness is distinct
+   from this cellular check; Koinon reports phone access as unverified.
+
+```sh
+koinon remote status
+koinon remote status --json
+koinon remote disable
+```
+
+Each command accepts `--state-dir DIR` and `--address 127.0.0.1:PORT` for a selected
+local daemon. `--json` prints machine-readable status without a QR. Status reports
+the configured URL, local listener, observed Tailscale state, and next setup step.
+When remote access is disabled, the retained link is labeled as a saved URL; it
+does not indicate an active listener.
+A missing or old daemon needs installation of this version before these commands
+can work; inspect `koinon install --plan` before changing a shared service.
+
+## This computer and the tailnet only
+
+On a computer in a tailnet, the dashboard can stay off the local network: it opens on this
+computer and, through Tailscale Serve, on your tailnet, with HTTPS and no self-signed
+certificate (#665). There are three ways to choose this:
+
+- The first `koinon install` at a terminal asks where the dashboard opens; answer 2,
+  "On this computer and your tailnet" ([installation](INSTALL.md#network-dashboard)).
+- In the dashboard, the remote access panel's **Dashboard access** section names where the
+  dashboard opens now. **Use this computer and the tailnet only** enables remote access with
+  the saved port, removes the network address and closes it at once. If the page itself was
+  open on the network address, its connection ends, and the answer links the tailnet URL. If
+  remote access cannot be enabled, nothing else changes.
+- With one command: `koinon remote configure --choice tailnet`, or `koinon remote configure` at
+  a terminal and answer 2 ([installation](INSTALL.md#change-where-the-dashboard-opens)). It
+  removes the network address and restarts the daemon before it enables remote access.
+
+## Connect your computers
+
+Remote access also connects your own computers, each with its own Koinon, so that their agent
+sessions can exchange messages (#670, LINK-670-PAIR in ADR 002, Decision 4).
+
+1. Turn remote access on on both computers.
+2. On each, choose its name once: Settings, **Computers**, **Name this computer**, or
+   `koinon link name`. The field holds the short host name; the long name or another name is
+   possible. Use lower-case letters, digits, hyphens and dots. Agents on your other computers
+   address this computer's agents as `AGENT@NAME`.
+3. On one computer, **Copy invitation** (or `koinon link invite`). The invitation is one line
+   that starts with `koinon-link-1:`, with a QR code. It works once, for 10 minutes. Keep it
+   private.
+4. On the other computer, **Paste invitation** and **Connect** (or `koinon link join` and paste
+   it). The paired computer shows as connected on both.
+
+**More than two computers.** One join adds a computer to the whole group (#683,
+LINK-GROUP-JOIN). Make each invitation on a computer that is already paired, and join it on the
+new computer. After the join, the inviting computer introduces the new computer to each of its
+other paired computers: the join's answer gives the new computer their names, Tailscale
+addresses, link ports and key fingerprints, and the inviting computer then gives each of them
+the new computer's, on their pinned links. Each two computers then have their own pair, with no
+further invitation or secret. Four computers need three joins: for example, `beta` invites
+`alpha`, `beta` invites `gamma`, and `gamma` (or any other computer of the group) invites
+`delta`.
+
+`koinon link join` names the computers of the introduction. `koinon link status` and Settings,
+Computers show "introduced by NAME" on each pair that an introduction made, and the number of
+introductions that still wait. A computer that is off, or has remote access off, gets its
+introduction when it answers again, also after a restart of the inviting computer. If the join's
+answer is lost, the new computer asks for the introductions again every 30 seconds while it can
+reach the inviting computer; `koinon link join` and **Connect** say when the introductions did
+not arrive yet. An introduction that a computer took or refused once is never added again, so
+an unpair stays.
+
+Update every computer before you pair them. A computer of an earlier version refuses an
+introduction; the new computer then shows that computer as rejected (`link_key_refused`) until
+you unpair it there and pair the two directly. An introduction joins two groups only in one
+direction: the new computer's earlier pairs are not introduced to the inviting group.
+
+`koinon link unpair PAIR` removes one pair; the introduced pairs stay. `koinon link leave`, or
+**Unpair from every computer** in Settings, Computers, removes every pair of this computer at
+once and tells each other computer when it answers.
+
+The invitation holds the inviting computer's tailnet name, Tailscale addresses, link port,
+key fingerprint and name, and a random secret. The joining daemon checks the other key
+against the fingerprint before it sends the secret. Each daemon has its own Ed25519 key in
+`link-key.pem` in its state directory; the pairs and the waiting introductions are in
+`link.json`. Both files are private (mode 0600).
+
+Remote enable adds a raw TCP Serve mapping from the link port to a
+loopback TLS listener (`tailscale serve --bg --tcp=PORT tcp://127.0.0.1:N`); remote disable
+removes it, closes link connections and cancels open invitations, and keeps the pairs. An
+invitation from before a disable or a restart never works again. The link
+uses TLS 1.3 with each daemon's own key; a connection whose key is not paired is refused in
+the handshake, except the pairing step of an open invitation. A daemon reaches a paired
+computer at its saved Tailscale addresses, and refreshes them from `tailscale status` when they
+fail; it never looks up a name through the system's resolver.
+
+Koinon works with Tailscale in either network mode (#688). When `tailscale status` reports that
+Tailscale uses no TUN interface (userspace networking, as in many containers), the host has no
+route to tailnet addresses, so the daemon makes each link connection through tailscaled with
+`tailscale nc`. It reads the mode at most once a minute. `koinon link status` then shows
+"Connections out: through tailscale nc". You change nothing in Tailscale for this.
+
+The link port is 47672 unless you choose another with `koinon link name --port PORT` or in
+Settings, Computers, **Change this computer's name or link port**. A paired computer learns
+a new port only when you unpair and pair again.
+
+The tailnet policy must allow TCP on the link port between your computers, as for the
+dashboard's HTTPS port. `koinon remote status` shows an example entry only for the HTTPS
+port; for the link port, an entry has this form, with each computer's own Tailscale addresses:
+
+```json
+{"action":"accept","src":["autogroup:member"],"proto":"tcp","dst":["100.64.0.2:47672","[fd7a:115c:a1e0::2]:47672"]}
+```
+
+**Status.** `koinon link status` and the Computers section show this computer's name and
+fingerprint, the link listener and its Serve mapping, the open invitations, each paired
+computer as connected (an authenticated connection in the last few minutes), offline or
+pending, and the last key that the listener refused. `koinon remote status` adds the link's
+port, listener and Serve state.
+
+**Sessions on the other computer.** Each computer asks each connected paired computer for its
+agent sessions every 30 seconds and keeps the last answer: for each session its participant
+address or peer name, family, role, repository name, observed activity and its time. No
+session ID, folder path, host or process data crosses. The dashboard's Sessions page shows
+them in a group per computer, `On NAME`, with the time the list was read; a list older than
+about 90 seconds, of a computer that is not connected now, or from while the link is closed, is
+marked not current. A computer lists at
+most 256 sessions and says when it left some out. When the other computer changes its name,
+the new name arrives at once or with the next list; your own name for it stays.
+
+**Messages to the other computer.** An agent sends to `NAME@COMPUTER`; the message waits in a
+queue on the sending computer until the other computer stores it in an inbox or refuses it,
+in send order for each computer, with no expiry. It waits through an offline computer, a
+remote off and a restart. The section **Messages to NAME** shows how many messages wait, the
+oldest 20 waiting ones (the next one to send first) and the newest 20 finished ones, with
+their sender, recipient, size and state: queued here, received
+there, refused there with the reason, cancelled, or may have been delivered (an answer was
+lost). **Cancel** stops a queued message. A message that may have arrived is resolved with the
+other computer first, and the result decides: one that arrived stays received there; the later
+messages to that computer wait until then. `koinon link queue` and `koinon link
+cancel-message LINK_ID` do the same with the maintainer secret. The queue holds 1,000
+messages and 16 MiB for each computer (10,000 and 64 MiB in all); a full queue refuses new sends and drops nothing.
+Finished messages are listed for 30 days. Unpair cancels the messages that were not sent yet;
+a new pairing never sends the old ones. You send as the maintainer only on this computer.
+
+**Unpair, cancel, rename.** Unpair removes the pair on this computer at once, closes its
+connections and tells the other computer, which removes it too. When the other computer does
+not answer, or remote access is off here, it shows the pair as rejected at its next
+connection. A pairing
+that stopped halfway leaves a pending pair on one side; Cancel removes it. Rename sets this
+computer's name for a paired computer; an empty name returns to its advertised name. A new
+key on the other computer needs unpair and a new invitation.
+
+## URL, restarts, and configuration ownership
+
+Serve provides `https://MACHINE.TAILNET.ts.net/dashboard/` on HTTPS port 443, or
+`https://MACHINE.TAILNET.ts.net:PORT/dashboard/` on the port chosen with
+`koinon remote enable --https-port PORT`.
+This adapter takes the native `Self.DNSName` reported by Tailscale and validates
+its `.ts.net` name, following the official [MagicDNS naming](https://tailscale.com/docs/features/magicdns#fully-qualified-domain-names-vs-machine-names)
+and [HTTPS certificate](https://tailscale.com/docs/how-to/set-up-https-certificates)
+contracts. That scope describes this external Serve adapter; it does not decide
+whether a future transport can support custom domains.
+The URL stays stable while the host's Tailscale machine identity and hostname stay
+the same. After a rename or identity change, disable the old configuration, enable
+again, and use the URL from status. If Serve retains the old-name mapping, use
+[name-change recovery](#name-change-recovery) first. That process ends old remote sessions.
+
+The private state directory holds the owner-checked, mode-0600
+`remote-dashboard.json`. It records the selected loopback backend port, origin,
+enabled state, and ownership intent. The daemon restores the same listener after
+restart, and retries Serve restoration while its dependency starts. On orderly
+shutdown, the daemon removes its exact owned mapping before releasing the backend
+port; the enabled ownership record stays, so the next start recreates the same
+URL and port. If that cleanup fails, shutdown reports the error and retains the
+record. A saved port conflict is reported instead of silently selecting another
+port; restoration removes the owned forwarding so it does not knowingly point to
+the occupying service. Upgrade retains this state. Remote logins keep their original
+48-hour deadline across daemon restart, upgrade and reboot; sign in again only
+when that window ends or credentials are revoked.
+
+An abrupt process kill, or unavailable Tailscale during shutdown cleanup, can
+leave the mapping pointing at a released loopback port until reconciliation.
+This feature follows ADR 001's same-user local trust boundary; it does not defend
+against another malicious process running as the same user. Keep that practical
+limit separate from the tested browser and agent-API isolation.
+
+Reconciliation runs on a 30-second cadence, and status also inspects the mapping.
+An observed Tailscale identity change or Serve/Funnel conflict closes the remote
+surface and ends its logins. Resolve the reported conflict before enabling again.
+
+Enable checks existing Serve configuration before recording a new mapping. It
+refuses a conflicting root, foreground configuration, TCP service, or Funnel
+configuration on the required port. An existing matching mapping without Koinon's
+ownership record is not adopted. Other mounts and ports stay in Tailscale's
+configuration; Koinon never runs `tailscale serve reset`.
+
+Disable first stops only the remote listener and ends its sessions, then records the
+disabled state. If that record cannot be written, the listener stays stopped and
+Koinon retries the record instead of starting the listener again. It removes only the exact root mapping recorded as Koinon's own,
+using explicit `--set-path=/`; a changed mapping is reported and preserved. If
+cleanup fails, the ownership record remains so a repeat or restart can finish it.
+Disable keeps local and LAN dashboard access, and does not log the host out of
+Tailscale. Uninstall cleans up the owned mapping after stopping the daemon and
+retains the journal on a cleanup failure. If Tailscale is missing during uninstall,
+the disabled ownership journal and Koinon binary stay. Install Tailscale again,
+then repeat the same `koinon uninstall` command to finish; no journal editing is
+needed.
+
+## Name-change recovery
+
+Tailscale's targeted Serve CLI addresses the current machine name. If a saved
+old-name root still exists, Koinon stops its listener and retains ownership rather
+than risk removing a different current-name mapping. The error names the saved
+origin and gives the old machine label. No Serve reset or journal edit is needed.
+
+On the original tailnet, temporarily restore that machine name, wait until
+`tailscale status --json` reports the saved DNS name, and finish cleanup:
+
+```sh
+tailscale set --hostname=OLD_MACHINE_NAME
+koinon remote disable
+tailscale set --hostname=DESIRED_MACHINE_NAME
+koinon remote enable
+```
+
+On macOS without a `tailscale` command in PATH, use
+`/Applications/Tailscale.app/Contents/MacOS/Tailscale` for those two commands.
+[Machine-name changes](https://tailscale.com/docs/concepts/machine-names) can also
+use the Tailscale admin console. If the old name or tailnet cannot be restored,
+the network owner must resolve that account/name step before Koinon can verify
+old-mapping removal. Keep the disabled ownership record for that cleanup. Actual
+old-key retention and this rename path still need the live platform check.
+
+## Phone behavior
+
+The remote header omits **Go remote** because this connection is already remote.
+The password form labels the existing maintainer secret **Koinon password**.
+The browser sign-in QR is an alternative to typing it, not a new password.
+
+All existing views and actions use the same daemon state and action handlers:
+agents and session controls, messages and delivery, rooms, decisions and history,
+launch, work, memory, audit, settings, and health. Registration alone does not
+mean an agent is busy; unknown observations stay unknown.
+
+The page shows its host, connection state, and last successful refresh. Visible
+pages read every five seconds and refresh on foregrounding or reconnecting. Data
+is labeled stale after 15 seconds without a successful displayed-data refresh.
+An open form or unsent field holds content replacement, preserving the current
+screen and draft. A successful connectivity read while content is held does not
+make the displayed data current. Drafts live in page memory by default; a browser
+reload or discarded tab can lose them unless optional browser draft saving is
+enabled (see Remote control v2 below). Private pages are not cached for offline use.
+
+A submitted form disables repeated submission while it runs. If its response is
+lost, the page says **Result unknown; check the latest state before trying
+again.** Read the latest message, decision, room, or session before deciding to
+retry. Reconnect and login never replay a write. Existing revision checks and
+operation keys keep their existing meaning; this feature does not promise
+exactly-once delivery for every action. An expired login offers a safe relative
+return screen after sign-in, without submitting the prior action.
+
+## Diagnostics
+
+| Observation | Next step |
+| --- | --- |
+| Tailscale is missing | Install it on the host and phone; connect both to the same private network. |
+| Host is stopped, signed out, or offline | Open Tailscale and connect or complete its account prompt. Repeat enable. |
+| No usable `.ts.net` name | Check MagicDNS and the host's name in the Tailscale admin console. |
+| HTTPS is unavailable | Enable HTTPS certificates in the admin console using the linked instructions. |
+| Serve permission is denied | Complete the account permission. On Linux, `tailscale_operator_required` names the command `sudo tailscale set --operator=NAME` with the account that runs Koinon; `koinon remote enable` at a terminal offers to run it, or run it yourself, then repeat enable. The dashboard setup shows the same step. |
+| Required root or port is already used | Inspect `tailscale serve status --json`; resolve the reported conflict explicitly. Koinon preserves it. |
+| Saved loopback port is occupied | Free the saved port and repeat enable, or disable successfully then enable to choose an available backend port. The daemon's local API remains available. |
+| Network policy denies the phone (the page times out) | The tailnet access policy must allow TCP 443, or the chosen HTTPS port, to this computer's IPv4 and IPv6 Tailscale addresses from the phone. `koinon remote status` shows an example entry with this computer's addresses. Also check the phone's network and account. Host status cannot prove phone permission. |
+| Sign-in QR expired, was already used, or its result is unknown | Create a new sign-in QR on the signed-in computer, or use the Koinon password at the ordinary dashboard URL. |
+| Join answers `link_unreachable` | The other computer did not answer on its link port. Check that it is on, connected to the tailnet and has remote access on, and that the tailnet policy allows TCP on its link port (Connect your computers). On a computer whose Tailscale runs in userspace networking mode, update Koinon to v0.11.2 or later: `koinon link status` then shows "Connections out: through tailscale nc". |
+| Join answers `link_key_mismatch` or `link_invitation_refused` | Make a new invitation on the other computer and paste it again. |
+| A link step answers `link_remote_required` | Turn remote access on with `koinon remote enable` on this computer. |
+| After a join, an introduced computer shows as `rejected` (`link_key_refused`) | That computer did not store its introduction: it runs a version before v0.11.1, or it refused it. Update it, then on this computer `koinon link unpair NAME`, and pair the two directly with an invitation. |
+| Join says that the introductions did not arrive yet | This computer asks again every 30 seconds while the inviting computer answers; `koinon link status` shows the introduced pairs when they arrive. An answer `link_introductions_full` clears as the inviting computer's waiting introductions reach their computers. |
+| Host is configured but phone fails | Check host wake state, both Tailscale connections, network policy, and the URL from status. Complete the cellular test separately. |
+
+The [verification record](sprints/2026-11-11-remote-dashboard/verification.md) separates automated,
+source, real proxy, platform, and physical-device evidence.
+
+
+## Remote control v2
+
+The remote landing page is **Attention**: pending maintainer decisions and their
+oldest age, unread maintainer direct messages and canonical room posts, cached
+agent problems, a handoff cycle that waits on text in a session's input box, and recent
+action receipts. Unknown activity is labeled. Counts
+and source links come from one SQLite snapshot; the receipts are this origin's
+unexpired ones. **Mark displayed snapshot read on this browser** advances only this
+browser session's cursors; it never acknowledges an agent inbox
+or resolves a decision. Follow the links for the full dashboard.
+
+**Settings → Signed-in remote devices** lists signed-in remote browser sessions, their
+labels, creation, expiry and last observed request. Rename or forget one browser, or
+**Forget all remote devices**, which also cancels open sign-in QR codes. These are
+browser sessions, not hardware identities or proof of a person being online.
+**Signed in until** shows the server deadline. First upgrade to v2 requires fresh
+sign-in; old seven-day cookies cannot start a durable session. Local browser and
+maintainer token policy stays unchanged. A full remote pool (32 sessions) requires
+forgetting an existing browser in **Settings → Signed-in remote devices** on the host or
+another signed-in device; new sign-in never silently evicts the everyday phone. The
+sign-in page shows this, and a QR code scanned at the limit stays valid until it
+expires, so scan it again after forgetting a device.
+
+While visible, failed reads back off through 1, 2, 5, 10 and 30 seconds with
+jitter; foreground and network-return checks are immediate. Hidden pages stop
+polling. A network timeout means **Cannot reach host**, with the last applied
+refresh time, not sign-out. Only explicit authentication rejection shows sign-in.
+Opening **Sign in again** in another tab keeps the existing form and unsent text;
+after sign-in, return and refresh. Fresh CSRF tokens are loaded without submitting
+forms. A refused old form token requires explicit submission after refresh.
+
+**Save drafts on this browser** is off initially. Opting in saves only unsent
+message and decision-feedback text, scoped to host, session, screen and target,
+for seven days. **Recover draft** is explicit, including after a new sign-in.
+Disable the option or clear drafts to remove saved text. Successful receipt-backed
+submission, logout and observed revocation clear the relevant drafts. A revoked
+offline browser retains its private local text until it reconnects. Browser storage
+failures leave forms usable and display a recovery warning. This storage is private
+text on that browser; it contains no passwords, cookies or QR tickets.
+
+Remote message sends, room posts and decision verdicts carry a client operation
+ID. Their receipt and mutation commit in one database transaction. A lost response
+can be checked through the authenticated receipt lookup, including after a new
+sign-in. Accepted means recorded by the host; delivery and acknowledgement are
+separate. Reusing an ID with changed content conflicts. An authoritative missing
+receipt offers an explicit same-ID retry during its seven-day window; reconnect
+never resubmits. Attention lists pending operations and links to inspect targets.
+After seven days, inspect the target and dismiss recovery before starting another
+action. At 10,000 unexpired receipts, new receipt-backed actions report capacity
+until old receipts expire; retained receipts remain available for lookup. Launch, terminal input, stop/restart and remote disable retain unknown-result
+behavior because their external side effects are outside these transactions.
+
+Private remote status reports observed session count, storage health, last
+reconciliation and last authentication-ending reason. The session count, last
+reason, **Phone connected at** and a revocation that could not be saved are
+observations of the current daemon run and reset at restart. A failed revocation is
+retried at each status read while the daemon runs; after a restart, forget that
+device again. Without a maintainer secret, remote status reports no sessions, not a
+storage fault. Invalid stored session rows are counted and deny only their own
+cookie; **Forget all remote devices** deletes them. **Phone connected at** is a
+server observation of an authenticated browser request; it does not prove cellular
+use. Cellular and installed-home-screen verification require actual device tests.
+No authenticated pages are cached and no background write queue is installed.

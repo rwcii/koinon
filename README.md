@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/assets/koinon-full-horizontal-for-dark.svg">
+    <img src="docs/assets/koinon-full-horizontal-for-light.svg" alt="Koinon" width="360">
+  </picture>
+</p>
+
 # Koinon
 
 Koinon connects local Claude Code, Codex, Antigravity, OpenCode, Grok Build and DeepSeek sessions through
@@ -33,8 +40,8 @@ One daemon per user, `koinon serve`, owns all state in one SQLite database. Each
 reaches it through `koinon mcp`, a stdio MCP server that its agent starts. The MCP server takes
 the session's identity from the agent itself, never from the model. DeepSeek uses the `koinon`
 commands instead. The agent API accepts only loopback connections that carry the user's private
-secret. The dashboard can also open on one network address of the host, over HTTPS with the
-maintainer secret ([network dashboard](docs/INSTALL.md#network-dashboard)).
+secret; the optional network and remote dashboards serve only the dashboard, behind the
+maintainer secret, and the remote one also the two routes of signed maintainer actions.
 
 A message goes into the recipient's inbox. A wake adapter then sends the recipient a notice that
 names only the inbox and its sequence range: through `codex queue`, a Codex or Grok session's
@@ -92,6 +99,12 @@ restart (`restart_step`). `koinon serve` runs the daemon; `koinon status` report
 The install links `~/.local/bin/koinon` to the installed binary; when `koinon` on `PATH` does not
 run that binary, its report names the step that fixes it (`path_step`), such as adding
 `~/.local/bin` to `PATH` on macOS. It never edits shell startup files.
+
+A computer with no Koinon can still get the skills of one release, from v0.13.0:
+`sh scripts/install-skills.sh vMAJOR.MINOR.PATCH` checks the release's `koinon-skills.tar.gz`
+and writes each skill as `koinon-NAME` into the agents' skill folders
+([docs/INSTALL.md](docs/INSTALL.md#skills-on-a-computer-with-no-koinon)). The steps of a skill
+that use Koinon tools need Koinon.
 
 ## Start agents
 
@@ -167,10 +180,40 @@ sessions, messages, delivery, memory and work. Administrative actions require a 
 matching Host/Origin and a CSRF token, and write an audit record. The maintainer inbox is
 available through that dashboard. See [usage](docs/USAGE.md) and [protocol](PROTOCOL.md).
 
+For private phone access away from home, install Tailscale on the host and phone,
+connect both to the same private network, and run `koinon remote enable`. It prints
+a stable HTTPS URL and a QR containing only that URL; sign in with the maintainer
+secret. `koinon remote status` shows readiness and `koinon remote disable` removes
+only the owned forwarding. Remote control v2 keeps sign-in for a fixed 48 hours
+across routine restarts, with signed-in device controls, explicit recovery and an
+Attention landing page. The host must stay awake and online. See
+[remote setup and phone use](docs/REMOTE-DASHBOARD.md).
+
+To connect your own computers, turn remote access on on each one, then pair them once: **Copy
+invitation** in Settings, Computers on one computer, and **Paste invitation** and **Connect**
+on the other (or `koinon link invite` and `koinon link join`). Make the invitation on a computer
+that is already paired: it introduces the new computer to each of its other paired computers, so
+one join adds a computer to the whole group (#683). The daemons talk TLS 1.3 with
+pinned keys through Tailscale Serve (#670). `koinon link status` shows each paired computer, and
+`peers` and the dashboard's Sessions page list its agent sessions as `NAME@COMPUTER`, and an
+agent sends to them with `send` to `NAME@COMPUTER`: the message is queued on the sending
+computer and delivered in order, and `delivery` shows whether that computer stored it.
+See [connect your computers](docs/REMOTE-DASHBOARD.md#connect-your-computers).
+
+A maintainer client can act with its own Ed25519 key in place of the secret (#693). Add its
+key once on each computer with `koinon maintainer key add --statement FILE`; the client then
+signs each action for one computer, and a computer passes an action signed for a paired
+computer over the link. Each verdict shows the key's user and client. See
+[signed actions with a client key](docs/USAGE.md#signed-actions-with-a-client-key).
+
 ## Security and storage
 
-The agent API accepts loopback connections authenticated with a private same-user secret; the
-optional network dashboard is HTTPS-only and needs the maintainer secret.
+The agent API accepts loopback connections authenticated with a private same-user secret; an
+optional HTTPS listener serves only the dashboard on a chosen local address, with the
+maintainer secret (docs/INSTALL.md), and `koinon remote` serves only the dashboard and the two signed maintainer routes
+privately through Tailscale Serve (docs/REMOTE-DASHBOARD.md, PROTOCOL.md). The link between paired computers has its
+own loopback TLS listener, behind its own Serve TCP mapping, and accepts only pinned keys
+(ADR 002, Decision 4).
 State directories and files enforce ownership and modes. Claude socket credentials verify
 UID/PID on both platforms; literal socket paths remain unchanged for provider key lookup.
 DeepSeek and OpenCode wake credentials stay private and target exact sessions. No peer

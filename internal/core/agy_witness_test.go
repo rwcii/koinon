@@ -32,7 +32,7 @@ func witnessFixture(t *testing.T, family, state string) (*cycleFixture, string, 
 		}
 		return 0, errors.New("no process")
 	}
-	f.s.processParents = func() (map[int]int, error) { return map[int]int{9001: 9000, 9000: 4242, 4242: 1}, nil }
+	f.s.processParent = parentIn(map[int]int{9001: 9000, 9000: 4242, 4242: 1})
 	f.s.processCommand = func(pid int) (string, []string, error) {
 		if pid == 4242 {
 			return "/synthetic/" + family, nil, nil
@@ -176,7 +176,7 @@ func TestAgyWitnessOwnership(t *testing.T) {
 	// reporter -> shell -> unregistered agy -> pinned host
 	f, id, starts := agyWitnessFixture(t, cycleClearReceived)
 	starts[8000] = 400
-	f.s.processParents = func() (map[int]int, error) { return map[int]int{9001: 9000, 9000: 8000, 8000: 4242, 4242: 1}, nil }
+	f.s.processParent = parentIn(map[int]int{9001: 9000, 9000: 8000, 8000: 4242, 4242: 1})
 	f.s.processCommand = func(pid int) (string, []string, error) {
 		if pid == 8000 || pid == 4242 {
 			return "/synthetic/agy", nil, nil
@@ -271,7 +271,7 @@ func TestGrokWitness(t *testing.T) {
 	// reporter -> shell -> unregistered Grok -> pinned host
 	f, id, starts := witnessFixture(t, "grok", cycleClearReceived)
 	starts[8000] = 400
-	f.s.processParents = func() (map[int]int, error) { return map[int]int{9001: 9000, 9000: 8000, 8000: 4242, 4242: 1}, nil }
+	f.s.processParent = parentIn(map[int]int{9001: 9000, 9000: 8000, 8000: 4242, 4242: 1})
 	f.s.processCommand = func(pid int) (string, []string, error) {
 		if pid == 8000 || pid == 4242 {
 			return "/usr/local/bin/grok", nil, nil

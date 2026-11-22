@@ -128,6 +128,60 @@ func (s *Store) wakeRecipient(ctx context.Context, key Key) (session, target Ses
 // longest wait comes from a clock that moved back, and is due as well.
 const dueWake = `m.delivery_state IN ('waiting','uncertain','notified') AND (m.wake_next_at<=? OR m.wake_next_at>?)`
 
+// The wake queries read an inbox's messages after its handled sequence only, through the
+// (recipient_family, recipient_id, seq) index: a message keeps its delivery state after it
+// is read, so a query that selects by delivery state reads every handled message (#756).
+const (
+	// wakeBatchQuery reads the first run of due unhandled messages of one inbox.
+	wakeBatchQuery = `WITH pending AS (SELECT m.seq,m.wake_attempts,m.wake_notices,(` + dueWake + `) AS due
+ FROM messages m JOIN sessions s ON s.family=m.recipient_family AND s.id=m.recipient_id
+ WHERE m.recipient_family=? AND m.recipient_id=? AND ` + unhandled + `),
+ start AS (SELECT MIN(seq) AS first FROM pending WHERE due),
+ gap AS (SELECT MIN(p.seq) AS seq FROM pending p,start WHERE NOT p.due AND p.seq>start.first)
+ SELECT MIN(p.seq),MAX(p.seq),COALESCE(MAX(p.wake_attempts),0),COALESCE(MAX(p.wake_notices),0)
+ FROM pending p,start,gap WHERE p.due AND (gap.seq IS NULL OR p.seq<gap.seq)`
+	// failUnhandledQuery fails the due unhandled messages of one inbox at the notice limit.
+	failUnhandledQuery = `UPDATE messages AS m SET delivery_state='failed',delivery_updated_at=?,wake_next_at=0,
+ delivery_reason=CASE WHEN m.delivery_reason='' THEN 'not_read' ELSE m.delivery_reason END
+ FROM sessions s WHERE s.family=m.recipient_family AND s.id=m.recipient_id AND m.recipient_family=? AND m.recipient_id=?
+ AND ` + unhandled + ` AND ` + dueWake + ` AND m.wake_notices>=? RETURNING id,delivery_reason`
+	// turnFailureQuery applies one failed turn to an inbox's noticed messages.
+	turnFailureQuery = `UPDATE messages AS m SET delivery_reason=?,delivery_updated_at=?,
+ wake_next_at=CASE WHEN m.wake_notices>=? THEN ? ELSE m.wake_next_at END
+ FROM sessions s WHERE s.family=m.recipient_family AND s.id=m.recipient_id AND m.recipient_family=? AND m.recipient_id=?
+ AND ` + unhandled + ` AND m.delivery_state IN ('notified','uncertain') AND m.wake_notices>0 AND m.delivery_reason=''
+ AND m.wake_reason<>'attempt_in_progress' AND m.delivery_updated_at<?`
+	// wakeHealthStatesQuery counts the unhandled messages of the sessions that are not retired.
+	wakeHealthStatesQuery = `SELECT COALESCE(SUM(m.delivery_state='waiting'),0),COALESCE(SUM(m.delivery_state='uncertain'),0),
+ COALESCE(SUM(m.delivery_state='notified'),0),COALESCE(SUM(m.delivery_state='failed'),0)
+ FROM messages m JOIN sessions s ON s.family=m.recipient_family AND s.id=m.recipient_id WHERE ` + unhandled + `
+ AND s.retired_at=0 AND s.family!='maintainer'`
+	// wakeHealthReasonsQuery counts those messages by wake reason.
+	wakeHealthReasonsQuery = `SELECT wake_reason,COUNT(*) FROM messages m JOIN sessions s ON s.family=m.recipient_family AND s.id=m.recipient_id WHERE ` + unhandled + ` AND s.retired_at=0 AND wake_reason<>'' GROUP BY wake_reason ORDER BY wake_reason`
+)
+
+// wakeKeysQuery lists up to 16 active inboxes, other than the excluded families, that have an
+// unhandled message that matches the condition. Its first parameter is the time now. With
+// held, a participant's inbox is listed only while a live session of its family holds its
+// address, and the second parameter is the time now too: without a holder its wake records
+// nothing, so it would be listed again on every pass and take one of the 16 places (#759).
+// GLOB matches the prefix with case, as isParticipantID does: LIKE would also take a native
+// session ID such as "Participant:…".
+func wakeKeysQuery(excluded, condition string, held bool) string {
+	holder := ""
+	if held {
+		holder = `
+ AND (s.id NOT GLOB '` + participantPrefix + `*' OR EXISTS (SELECT 1 FROM names n JOIN sessions h ON h.family=n.family AND h.id=n.holder_id
+ WHERE n.name=substr(s.id,` + strconv.Itoa(len(participantPrefix)+1) + `) AND n.kind='alias' AND n.family=s.family
+ AND h.retired_at=0 AND h.expires_at>?))`
+	}
+	return `SELECT s.family,s.id FROM sessions s
+ WHERE s.retired_at=0 AND s.expires_at>? AND s.family NOT IN ` + excluded + holder + `
+ AND EXISTS (SELECT 1 FROM messages m WHERE m.recipient_family=s.family AND m.recipient_id=s.id
+ AND ` + unhandled + ` AND ` + condition + `)
+ ORDER BY s.family,s.id LIMIT 16`
+}
+
 func (s *Store) dueArgs() (int64, int64) {
 	now := s.now().UnixMilli()
 	return now, now + max(wakeBackoffMax, wakeReadWaitMax).Milliseconds()
@@ -144,13 +198,7 @@ func (s *Store) pendingWake(ctx context.Context, key Key) (*wakeBatch, error) {
 	// The batch is the first run of due messages: it stops before an unhandled message whose
 	// wait has not ended, so a notice's range names only due messages. A later run is the
 	// next batch.
-	err = s.db.QueryRowContext(ctx, `WITH pending AS (SELECT m.seq,m.wake_attempts,m.wake_notices,(`+dueWake+`) AS due
- FROM messages m JOIN sessions s ON s.family=m.recipient_family AND s.id=m.recipient_id
- WHERE m.recipient_family=? AND m.recipient_id=? AND `+unhandled+`),
- start AS (SELECT MIN(seq) AS first FROM pending WHERE due),
- gap AS (SELECT MIN(p.seq) AS seq FROM pending p,start WHERE NOT p.due AND p.seq>start.first)
- SELECT MIN(p.seq),MAX(p.seq),COALESCE(MAX(p.wake_attempts),0),COALESCE(MAX(p.wake_notices),0)
- FROM pending p,start,gap WHERE p.due AND (gap.seq IS NULL OR p.seq<gap.seq)`, now, later, key.Family, key.ID).
+	err = s.db.QueryRowContext(ctx, wakeBatchQuery, now, later, key.Family, key.ID).
 		Scan(&first, &last, &attempts, &notices)
 	if err != nil {
 		return nil, err
@@ -287,10 +335,7 @@ func (s *Store) failUnhandled(ctx context.Context, key Key) error {
 	}
 	defer tx.Rollback()
 	now, later := s.dueArgs()
-	rows, err := tx.QueryContext(ctx, `UPDATE messages AS m SET delivery_state='failed',delivery_updated_at=?,wake_next_at=0,
- delivery_reason=CASE WHEN m.delivery_reason='' THEN 'not_read' ELSE m.delivery_reason END
- FROM sessions s WHERE s.family=m.recipient_family AND s.id=m.recipient_id AND m.recipient_family=? AND m.recipient_id=?
- AND `+unhandled+` AND `+dueWake+` AND m.wake_notices>=? RETURNING id,delivery_reason`,
+	rows, err := tx.QueryContext(ctx, failUnhandledQuery,
 		now, key.Family, key.ID, now, later, wakeNoticeLimit)
 	if err != nil {
 		return tx.fail(err)
@@ -421,11 +466,7 @@ func (s *Store) recordTurnFailure(ctx context.Context, k Key, code string, at, n
 		return err
 	}
 	defer tx.Rollback()
-	if _, err = tx.ExecContext(ctx, `UPDATE messages AS m SET delivery_reason=?,delivery_updated_at=?,
- wake_next_at=CASE WHEN m.wake_notices>=? THEN ? ELSE m.wake_next_at END
- FROM sessions s WHERE s.family=m.recipient_family AND s.id=m.recipient_id AND m.recipient_family=? AND m.recipient_id=?
- AND `+unhandled+` AND m.delivery_state IN ('notified','uncertain') AND m.wake_notices>0 AND m.delivery_reason=''
- AND m.wake_reason<>'attempt_in_progress' AND m.delivery_updated_at<?`,
+	if _, err = tx.ExecContext(ctx, turnFailureQuery,
 		"turn_failed:"+code, now, wakeNoticeLimit, now, k.Family, k.ID, at); err != nil {
 		return tx.fail(err)
 	}
@@ -433,16 +474,21 @@ func (s *Store) recordTurnFailure(ctx context.Context, k Key, code string, at, n
 }
 
 // wakeKeys lists up to 16 active inboxes, other than the maintainer's and, unless agy is
-// set, Antigravity's, with unhandled messages that match the condition.
-func (s *Store) wakeKeys(ctx context.Context, agy bool, condition string, args ...any) ([]Key, error) {
+// set, Antigravity's, with unhandled messages that match the condition. It starts from the
+// sessions and reads only each inbox's messages after its handled sequence, so a pass with no
+// work reads no handled message: a message keeps its delivery state after it is read (#756).
+// wakeKeys lists the inboxes of wakeKeysQuery. The submission pass lists only held
+// participant inboxes; the pass that fails messages at the notice limit lists them all.
+func (s *Store) wakeKeys(ctx context.Context, agy, held bool, condition string, args ...any) ([]Key, error) {
 	excluded := `('agy','maintainer')`
 	if agy {
 		excluded = `('maintainer')`
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT DISTINCT m.recipient_family,m.recipient_id FROM messages m
- JOIN sessions s ON s.family=m.recipient_family AND s.id=m.recipient_id
- WHERE `+condition+` AND `+unhandled+` AND s.retired_at=0 AND s.expires_at>?
- AND s.family NOT IN `+excluded+` ORDER BY m.recipient_family,m.recipient_id LIMIT 16`, append(args, s.now().UnixMilli())...)
+	now := []any{s.now().UnixMilli()}
+	if held {
+		now = append(now, now[0])
+	}
+	rows, err := s.db.QueryContext(ctx, wakeKeysQuery(excluded, condition, held), append(now, args...)...)
 	if err != nil {
 		return nil, err
 	}
@@ -466,7 +512,7 @@ func (s *Store) wakeStep(ctx context.Context) error {
 	// Antigravity's too, and whether or not a participant has an active holder. They leave
 	// this set, so they never hold the 16 places.
 	now, later := s.dueArgs()
-	exhausted, err := s.wakeKeys(ctx, true, dueWake+` AND m.wake_notices>=?`, now, later, wakeNoticeLimit)
+	exhausted, err := s.wakeKeys(ctx, true, false, dueWake+` AND m.wake_notices>=?`, now, later, wakeNoticeLimit)
 	if err != nil {
 		return wakePassError{"list_exhausted", err}
 	}
@@ -478,7 +524,7 @@ func (s *Store) wakeStep(ctx context.Context) error {
 			return wakePassError{"fail_unhandled", err}
 		}
 	}
-	keys, err := s.wakeKeys(ctx, false, dueWake, now, later)
+	keys, err := s.wakeKeys(ctx, false, true, dueWake, now, later)
 	if err != nil {
 		return wakePassError{"list_due", err}
 	}
@@ -527,14 +573,11 @@ func (d *Daemon) maintainWake() {
 // It counts the messages to sessions that are not retired, which the wake loop retries (#486).
 func (s *Store) WakeHealth(ctx context.Context) (map[string]any, error) {
 	var waiting, uncertain, notified, failed int64
-	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(m.delivery_state='waiting'),0),COALESCE(SUM(m.delivery_state='uncertain'),0),
- COALESCE(SUM(m.delivery_state='notified'),0),COALESCE(SUM(m.delivery_state='failed'),0)
- FROM messages m JOIN sessions s ON s.family=m.recipient_family AND s.id=m.recipient_id WHERE `+unhandled+`
- AND s.retired_at=0 AND s.family!='maintainer'`).Scan(&waiting, &uncertain, &notified, &failed)
+	err := s.db.QueryRowContext(ctx, wakeHealthStatesQuery).Scan(&waiting, &uncertain, &notified, &failed)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT wake_reason,COUNT(*) FROM messages m JOIN sessions s ON s.family=m.recipient_family AND s.id=m.recipient_id WHERE `+unhandled+` AND s.retired_at=0 AND wake_reason<>'' GROUP BY wake_reason ORDER BY wake_reason`)
+	rows, err := s.db.QueryContext(ctx, wakeHealthReasonsQuery)
 	if err != nil {
 		return nil, err
 	}

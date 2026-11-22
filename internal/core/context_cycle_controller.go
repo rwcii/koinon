@@ -542,6 +542,14 @@ func (s *Store) stepCompaction(ctx context.Context, c cycleRow, t CycleTarget, a
 		_, err := s.endCycle(ctx, c.ID, c.Revision, cycleCancelled, "adapter_unavailable")
 		return err
 	}
+	// A pane that its own screen shows busy waits without the full foreground proof, which reads
+	// the whole process table, each second (#758). Only Inspect can admit the input.
+	if busy, ok := adapter.(CompactBusyAdapter); ok {
+		if seen := busy.CompactBusy(ctx, t); seen != "" {
+			s.paneSeen.set(c.ID, seen)
+			return nil
+		}
+	}
 	pane, err := adapter.Inspect(ctx, t, s.cycleFence(c))
 	switch {
 	case err != nil:

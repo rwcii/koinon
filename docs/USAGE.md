@@ -40,10 +40,11 @@ decisions; MCP still registers and renews its calling session as usual. Adopt an
 `koinon install`, and the daemon at each start, write a skill entry for each catalog skill for
 you, next to the managed cycle's `koinon-pickup`: `koinon-spin-up`, `koinon-spin-down`,
 `koinon-recover-team`, `koinon-peer-tmux`, `koinon-handoff`, `koinon-check`, `koinon-ship`,
-`koinon-release`, `koinon-pair`, `koinon-peer-review`, `koinon-refusal-review`, `koinon-sprint`
-and `koinon-guide` ([INSTALL.md](INSTALL.md#install), step 7). Claude Code and Codex get them, and
-OpenCode, agy and Grok get them when their configuration directory or home exists; DeepSeek
-does not. Run them as
+`koinon-release`, `koinon-pair`, `koinon-peer-review`, `koinon-refusal-review`, `koinon-sprint`,
+`koinon-preflight`, `koinon-provenance`, `koinon-record`, `koinon-refusal-audit`,
+`koinon-sprint-closeout`, `koinon-standards-audit`, `koinon-standards-review` and
+`koinon-guide` ([INSTALL.md](INSTALL.md#install), step 7). Claude Code, Codex, and OpenCode,
+agy and Grok when they are on the computer, get them; DeepSeek does not. Run them as
 `/koinon-spin-up` in Claude Code or `$koinon-spin-up` in Codex. Each one loads its catalog
 item, so the procedure is the installed release's, and the procedure reads this repository's
 facts from `.koinon/skills/NAME.md`; give a project its own start checks, stop checks or
@@ -57,8 +58,11 @@ the stop and recovery steps, are in the Team operations section of
 Call `library_state` with optional `item_ids`, `scope` (`machine`, the default, or `project`)
 and `directory`. Without IDs, it selects skills in machine scope and all items in project
 scope. The directory defaults to the native session's registered directory; an explicit
-selection must resolve to a listed worktree of the same Git common directory. For the
-registered DeepSeek command session:
+selection must resolve to a listed worktree of the same Git common directory. A Git
+submodule is its own repository: start the session in the submodule to inspect it. A refused
+directory names its cause: `directory_unresolved` (not in a Git checkout),
+`directory_other_repository`, `directory_not_listed`, or `project_context_unavailable` (the
+session's registered checkout cannot be read). For the registered DeepSeek command session:
 
 ```sh
 koinon library state skill.pickup --scope project --as "deepseek:$DSH_SESSION_ID"
@@ -288,12 +292,13 @@ holds the rule, in the pull request that does the work, in this form:
 
 A declined decision goes into the record's Alternatives Considered. Koinon writes no record
 file. The agent writes the decision succinctly, corrects the spelling and typing errors in your
-words, and names the decision by its card reference, never by verdict ID, which exists only in
-this machine's store. How a project cites its decisions is that project's own rule. A decision
+words, and writes the decision itself into the record, which is its source: neither the card
+reference nor the verdict ID is cited as the source, because both exist only in this machine's
+store. How a project cites its decisions is that project's own rule. A decision
 is recorded only in the repository that its item was created in. Recorded text is public, so
 agents write every card as public text.
 
-`koinon decision export PATH` writes every item, with its verdicts, snapshots and notes, live
+`koinon decision export --as FAMILY:ID PATH` writes every item, with its verdicts, snapshots and notes, live
 and deep-archived, as JSON lines to a new private file outside a Git work tree. A person or CI
 can read the file without the daemon; the board on this machine stays the source.
 
@@ -475,15 +480,27 @@ lifetime (default 900 seconds), the renewal interval of `koinon mcp` (default 30
 most half the lifetime) and the succession guard (default 30 seconds, at least 30). A change
 applies at once, without a restart, and the audit log records it.
 
-The Settings page also sets each family's context handoff mode and threshold: Claude
-`handoff_cycle`, Codex `native_compaction` and the others `observe`, at 75 percent by default.
+Each section of the Settings page, such as Remote access or Computers, starts closed (#719).
+This browser keeps the sections that you leave open: they open again after an action reloads
+the page and when you come back to Settings. A link to a section, such as
+`/dashboard/settings#remote-access`, opens that section and keeps the others as they are. The
+open sections are kept in this browser's local storage for the dashboard address, so another
+browser or a private window starts with every section closed.
+
+The Settings page also sets each family's context handoff mode and threshold, in that family's
+row of the Context handoff table: its Mode drop-down and Threshold field show the current
+values, and its Save changes that family only (#720). The defaults are Claude
+`handoff_cycle`, Codex `native_compaction` and the others `observe`, at 75 percent; only Codex
+offers `native_compaction`.
 These are defaults only: a session runs no handoff cycle or compaction until it is enabled on
 the Sessions page, and changing a family enables nothing. The Sessions page shows
 each session's mode, threshold, Enable, whether its family has a verified cycle, and why it is
 or is not at its threshold, with the age of its context reading. Enabling is refused
 (`context_cycle_unavailable`) and its button is inactive while the cycle cannot run for that
 session; the page names the reason (for example a session that is not in its launched tmux pane,
-or a missing `koinon-pickup` skill, with the `koinon install` step that installs it). Disabling always works. A stored mode or threshold that is not valid
+or a missing `koinon-pickup` skill, with the `koinon install` step that installs it). A session
+whose host process has ended stays `active` until its lease ends; its reason is `host_ended`, and
+the session to enable is the one that replaced it. Disabling always works. A stored mode or threshold that is not valid
 keeps the family default, and the Settings page names the error.
 
 The Settings page also turns on the spoken alert (#553, SPEAK-SCOPE-553 in PDR 007, Decision 1). While it
@@ -564,9 +581,8 @@ which starts a new Grok session in the same pane, and then `/koinon-pickup`; the
 takes the address at its first tool call. macOS waits for native evidence. After the clear the cycle enters
 `/koinon-pickup` (Claude Code, agy) or `$koinon-pickup` (Codex): Koinon's own pickup skill,
 which the daemon at each start and `koinon install` write for you under `~/.claude/skills`
-(or `$CLAUDE_CONFIG_DIR/skills`) and `~/.agents/skills`, under OpenCode's configuration
-directory (`~/.config/opencode/skills`), `~/.gemini/config/skills` and the Grok home
-(`~/.grok/skills` or `$GROK_HOME/skills`) when each exists, and
+(or `$CLAUDE_CONFIG_DIR/skills`), `~/.agents/skills`, `~/.gemini/config/skills`, OpenCode's
+configuration directory and the Grok home when they exist, and
 DeepSeek's command-path entry under an existing `$DSH_HOME/skills` (default `~/.dsh/skills`),
 never into a repository. A workspace `.agent/skills/koinon-pickup` or `.agents/skills/koinon-pickup` would
 replace agy's entry, so the Sessions page names it as `pickup_entry_shadowed` unless it is the
@@ -583,6 +599,8 @@ become idle within two minutes of its ready report, `overwatch` sends the reques
 new revision, and the session pauses, writes its handoff and reports ready again; the cycle's
 30-minute lifetime and its event limit bound the repeats. The Sessions page shows
 each session's current or newest cycle: its stage, the stage deadline and each recorded step.
+While the newest repeat found text in the session's input box, the Sessions row and the
+Attention page say so: clear the input box so that the cycle can clear the context.
 Disabling, retiring or purging the session, a family mode change, or a holder
 choice for its address ends the cycle; a cycle that fails or cannot be proven ends the
 session's Enable.
@@ -698,7 +716,9 @@ under `127.0.0.1`.
 ### Open the dashboard on the network
 
 At a terminal, the first `koinon install` asks whether the dashboard opens only on this
-computer (the default) or also on a network address, lists this host's addresses, and offers
+computer (the default), on this computer and your tailnet through Tailscale Serve (#665;
+no network address, see [the remote dashboard](REMOTE-DASHBOARD.md)), or also on a network
+address. For a network address it lists this host's addresses; it offers
 to set or generate the maintainer secret when none is set
 ([installation](INSTALL.md#network-dashboard)). Without those questions, on the daemon's host,
 set a maintainer secret, then run
@@ -710,7 +730,9 @@ sign in with the maintainer secret. One-time links continue to work on loopback 
 
 The choice persists across restarts and upgrades. A later install resolves a saved FQDN again;
 daemon starts bind the selected IP. `koinon install --dashboard-address none` removes the
-network choice. The agent API and agent MCP transport stay on their existing local paths.
+network choice. `koinon remote configure` shows where the dashboard opens and changes the
+answer in one step; at a terminal it asks the install question again
+([installation](INSTALL.md#change-where-the-dashboard-opens)). The agent API and agent MCP transport stay on their existing local paths.
 If the secret is missing or the selected IP is unavailable, loopback remains available and
 install/status name the reason and the next step. After setting a missing secret, run
 `koinon install` to start the network listener. Clearing the secret refuses network requests
@@ -734,10 +756,120 @@ daemon keeps only a salted PBKDF2 key of it. Setting, generating or clearing the
 every dashboard login. Open `http://127.0.0.1:PORT/dashboard/login`, also through a tunnel,
 and enter the secret. After five wrong secrets in a row the daemon waits before it checks the
 next one, from 1 second up to 60 seconds; a correct secret ends the wait. `koinon dashboard`
-still gives a one-time link, also during the wait and before a secret is set. A login still
-ends when the daemon restarts. Any process of your OS user can set a new secret, so the
+still gives a one-time link, also during the wait and before a secret is set. A local login
+still ends when the daemon restarts; a remote login keeps its 48 hours (below). Any process of your OS user can set a new secret, so the
 secret keeps agents that use Koinon's tools from acting as you; it is no protection against
 a same-user program that sets out to get around it.
+
+### Open the dashboard from your phone
+
+`koinon remote` gives private access to the dashboard from a phone or another computer on
+your Tailscale network, through Tailscale Serve (ADR 002, PDR 010). The agent API stays on
+loopback.
+
+```sh
+koinon remote enable     # start the dashboard-only listener and the Serve mapping; prints the URL and a URL-only QR
+koinon remote enable --https-port 10443  # the same on another Serve HTTPS port, saved for later enables (443 by default)
+koinon remote status     # configuration, listener, Serve and Tailscale state; add --json for the report
+koinon remote disable    # stop the listener, end remote logins, remove only Koinon's own mapping
+koinon remote configure  # show where the dashboard opens; change it with --choice local|tailnet|network, or at a terminal
+```
+
+Remote access needs a maintainer secret. On the phone, sign in at the URL with the secret,
+or scan the one-time sign-in QR that the dashboard on this computer shows under Settings,
+Remote access; a code works once, for two minutes. A remote login lasts a fixed 48 hours
+from sign-in and survives routine daemon restarts within that original window. The
+Settings page offers the same setup steps. See docs/REMOTE-DASHBOARD.md for the setup,
+restarts, a changed Tailscale name and diagnostics.
+
+Remote browser control v2 opens **Attention** by default. Sign-in lasts a fixed
+48 hours across routine daemon restarts and upgrades. Settings lists signed-in
+remote browsers and lets you rename or forget them. Optional **Save drafts on this
+browser** is off initially and stores private text locally for seven days.
+Messages, room posts and verdicts have host receipts for explicit recovery after
+an interrupted response; reconnect never submits automatically. See
+[the remote dashboard guide](REMOTE-DASHBOARD.md#remote-control-v2) for recovery,
+privacy and device verification limits.
+
+### Connect your computers
+
+Pair this computer with Koinon on your other computers (#670). Both need remote access on
+(`koinon remote enable`). The changes need the maintainer secret: give `--secret-file PATH`,
+or type it when the command asks.
+
+```sh
+koinon link name             # choose this computer's name once; Enter takes the short host name
+koinon link name devbox --port 47672   # the same without a question; the port is the link's Serve TCP port
+koinon link invite           # on one computer: prints a one-time invitation and its QR, valid 10 minutes
+koinon link join             # on the other: paste the invitation, or give it as the first line of standard input
+koinon link status           # this computer's name and fingerprint, and each paired computer; --json for the report
+koinon link rename PAIR NAME # this computer's name for a paired computer; without NAME, its advertised name
+koinon link unpair PAIR      # remove the pair here at once, and on the other computer when it answers
+koinon link leave            # remove every pair of this computer, as unpair does for each
+koinon link cancel PAIR      # remove a pending pair; cancel invitations removes the open invitations
+koinon link queue [COMPUTER] # the messages to each paired computer and their states, without bodies
+koinon link cancel-message LINK_ID  # stop a queued message; one that may have arrived is resolved with the other computer first
+```
+
+PAIR is the paired computer's name or ID from `koinon link status`. The dashboard's Settings
+page has the same steps under **Computers**.
+
+For more than two computers, make each invitation on a computer that is already paired. After
+the join, that computer introduces the new computer to each of its other paired computers, so
+each two computers are paired with no further step (#683, LINK-GROUP-JOIN). `link join` names
+them, and `link status` shows "introduced by NAME" on each such pair. Update every computer
+before you pair them. See [more than two computers](REMOTE-DASHBOARD.md#connect-your-computers).
+
+Once paired, each computer reads the other's list of agent sessions every 30 seconds. `peers`
+and the dashboard's Sessions page show them as `NAME@COMPUTER`, for example
+`codex-koinon@devbox`, with the time the list was read; `peer_status codex-koinon@devbox`
+reads one. A bare name always means a session on this computer.
+
+An agent sends to a session on another computer with `send` to `NAME@COMPUTER`. The message
+is queued on this computer at once, and the reply has its `link_id`; Koinon delivers the
+queue to each computer in send order while Remote is on, and keeps it through an offline
+computer, a Remote off and a restart, with no expiry. `delivery` with the `link_id` reads its
+state: `queued` (here), `received` (stored in the other computer's inbox; reading and
+acknowledging stay there), `refused` with the reason (for example `peer_not_found`),
+`cancelled`, or `may_have_been_delivered` when an answer was lost; that one is resolved with
+the other computer before the next message goes. A message from another computer shows its
+sender as `NAME@COMPUTER` with `origin` `link`; answer it with `send` and `reply_to` set to
+its `id`, which goes back to the same computer even after a rename:
+
+```sh
+koinon send --as codex:SESSION_ID codex-koinon@devbox 'Please review PR 12.'
+koinon delivery --as codex:SESSION_ID LINK_ID
+koinon send --as codex:SESSION_ID --reply-to MESSAGE_ID '' 'Done.'
+```
+
+The queue holds at most 1,000 messages and 16 MiB for each computer (10,000 and 64 MiB in
+all); a send over a limit is refused `link_queue_full` and nothing queued is dropped.
+Finished entries are kept 30 days. See
+[connect your computers](REMOTE-DASHBOARD.md#connect-your-computers).
+
+A decision card can name an agent on a paired computer as `NAME@COMPUTER`. The card lives
+only on the computer where it was made. The agent gets a short notice in its inbox, from
+`decision-board@COMPUTER`, when it is named, when the card changes or is withdrawn, closed or
+restored, when it is removed, and for each verdict. The notice holds no card text: it names the
+card, its computer and that computer's pair ID. The agent reads the live card there over the
+link, lists the cards there that name it and its waiting verdicts, and acknowledges them; the
+verdict IDs are those of the card's computer. Nothing of the card is stored on the agent's
+computer:
+
+```sh
+koinon decision get --as codex:SESSION_ID --reference REF@devbox
+koinon decision list --as codex:SESSION_ID --filter mine --computer devbox
+koinon decision pending --as codex:SESSION_ID --computer devbox
+koinon decision ack --as codex:SESSION_ID --pair PAIR_ID --verdict ID
+```
+
+`--pair` names the computer by its pair ID, which a rename never changes; it wins over
+`--computer`. Each answer adds `origin` with the computer and pair. While that computer is
+offline the answer is `link_computer_offline` and nothing was sent; an earlier release there
+answers `link_unsupported`. `link_uncertain` means that the request was sent and its answer
+was lost: a retry is safe, and an acknowledgement that was already stored comes back in
+`already`. On the card's computer, the card shows each such recipient as `remote`, with its
+newest notice state.
 
 ### Act as the maintainer from another program
 
@@ -786,6 +918,40 @@ writes `maintainer_token_expired` to standard error and exits with status 1, als
 call comes. `resources/unsubscribe` ends a subscription; after the last one the process polls no
 more.
 
+#### Signed actions with a client key
+
+A maintainer client can instead keep its own Ed25519 key and sign each action (#693, PDR 011
+Decision 6). The client writes an enrollment statement for a computer; on that computer, add
+the key with the computer's own login:
+
+```sh
+koinon maintainer key add --statement voice-enroll.json   # within 10 minutes of the statement
+koinon maintainer key list          # the current keys: key ID, user (client), when and how added
+koinon maintainer key list --all    # also the removed ones
+koinon maintainer key remove SHA256:...   # the computer refuses the key's actions from now on
+```
+
+A statement adds a key once on a computer, also after a removal; to add a key again, the client
+signs a new statement. The client then runs `koinon mcp --maintainer --signed`: the first line
+of its standard input is a signed session envelope in place of the secret, and the server has
+one tool, `signed`, which takes an envelope that the client signed and answers the computer's
+answer unchanged. Each action names its computer and a request ID. A read, and a write that has
+not run yet, must arrive within 5 minutes of its signing. A write runs once: for 7 days, while its
+key's authorization stands, the same envelope or `outcome` gives its first answer again; reads
+keep no receipt. The user and client of the key
+show on each verdict (`by USER (CLIENT)`), in the history, on the dashboard and in the audit
+log. A signed session ends when its key is removed, not when the secret changes. A computer
+runs an action signed for itself, and passes one signed for a paired computer over the link
+unchanged, with that computer's answer; the key must be added on the computer that runs the
+action, and both computers need v0.12.0 or later. When the computer cannot reach the other one,
+the answer is `computer_offline` and nothing ran; when the answer is lost after the action was
+sent, it is `outcome_unknown`: ask `outcome` of that computer, or send the same envelope again.
+A client with no Koinon on its computer reaches a computer at its Remote address
+(`koinon remote enable`, on the maintainer's tailnet) on the same two signed routes, with the
+session's token as `Authorization: Bearer TOKEN`; that address serves no other API, and the
+key must be added on each computer that runs the actions. PROTOCOL.md has the envelope and the
+operations.
+
 Administrative actions require CSRF protection and are
 audited. Health reports unknown observations explicitly.
 
@@ -820,6 +986,17 @@ so the selection stays. The counts above the list (all, active, expired, retired
 sessions of one status when chosen (`status=active`, `expired` or `retired` in the address);
 **all** shows every session again. The chosen count is marked, the counts stay totals, and the
 search, the sort and the next pages keep the status.
+A second row of counts shows the sessions of one agent family (`family=codex` in the address),
+by an exact match of the family name: a session whose name, alias or directory only contains the
+word is not shown, and an unknown family shows none (#718). **all families** shows every family
+again. These counts are totals of the whole list too, and the search, the status, the sort,
+the next pages and the return after an action keep the family; choosing a family starts at the
+first page. With a family chosen, **Select all sessions on this page** selects that family's
+sessions. **Change the selected sessions** then also offers **Enable managed context** and
+**Disable managed context**: each selected session's Enable turns on or off as its own Enable
+button turns it, so each session runs its family's mode at its family's threshold, or at its
+own threshold when it has one. A session whose Enable changed since the page was loaded, or
+whose cycle is unavailable, is refused with its own audit record, and the others change.
 
 Each changed session gets the dashboard action's audit record (`purge`, `unpurge`, `retire`,
 `clear`) with the origin `by cli`; a session that changed since the selection is refused with

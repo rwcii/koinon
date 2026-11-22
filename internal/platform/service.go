@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -72,9 +73,40 @@ func NewServices() (Services, error) {
 	return s, nil
 }
 
-// RunCommand runs argv and returns its combined output.
+// RunCommand runs argv and returns its combined output. A user-manager command
+// (systemctl or journalctl) that runs without XDG_RUNTIME_DIR, as under Homebrew, gets this
+// user's runtime directory, so it reaches the running user manager (#643).
 func RunCommand(ctx context.Context, argv ...string) ([]byte, error) {
-	return exec.CommandContext(ctx, argv[0], argv[1:]...).CombinedOutput()
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	if argv[0] == "systemctl" || argv[0] == "journalctl" {
+		cmd.Env = userRuntimeEnv(os.Environ(), os.Geteuid(), privateDir)
+	}
+	return cmd.CombinedOutput()
+}
+
+// userRuntimeEnv returns env with XDG_RUNTIME_DIR=/run/user/UID added when env has none and
+// that directory is this user's own; otherwise env unchanged, or nil for the inherited one.
+func userRuntimeEnv(env []string, uid int, own func(string, int) bool) []string {
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "XDG_RUNTIME_DIR=") && kv != "XDG_RUNTIME_DIR=" {
+			return nil
+		}
+	}
+	dir := "/run/user/" + strconv.Itoa(uid)
+	if !own(dir, uid) {
+		return nil
+	}
+	return append(append([]string(nil), env...), "XDG_RUNTIME_DIR="+dir)
+}
+
+// privateDir reports whether path is a directory that uid owns and only it can enter.
+func privateDir(path string, uid int) bool {
+	st, err := os.Lstat(path)
+	if err != nil || !st.IsDir() || st.Mode().Perm()&0077 != 0 {
+		return false
+	}
+	stat, ok := st.Sys().(*syscall.Stat_t)
+	return ok && int(stat.Uid) == uid
 }
 
 func (s Services) domain() string { return "gui/" + strconv.Itoa(s.UID) }
@@ -260,8 +292,19 @@ func (s Services) StartDaemon(ctx context.Context) error {
 	if s.Backend == "launchd" {
 		// The agent is loaded again, so a changed file takes effect; an absent one makes
 		// bootout fail harmlessly. A system-mode install disabled it; a plain install after
-		// its uninstall enables it again.
-		s.Run(ctx, "launchctl", "bootout", s.domain()+"/"+DaemonLabel)
+		// its uninstall enables it again. bootout can return while launchd still has the
+		// stopping agent, and a bootstrap then fails with "5: Input/output error" (#777), so
+		// the bootstrap waits until the agent is absent.
+		s.Run(ctx, "launchctl", "bootout", s.agentTarget())
+		if err := s.pollAbsent(ctx, s.Run, s.agentTarget(), func(out []byte, err error) error {
+			detail := strings.TrimSpace(string(out))
+			if detail == "" {
+				detail = err.Error()
+			}
+			return fmt.Errorf("launchctl bootout did not remove the agent: %s", detail)
+		}); err != nil {
+			return err
+		}
 		if out, err := s.Run(ctx, "launchctl", "enable", s.domain()+"/"+DaemonLabel); err != nil {
 			return fmt.Errorf("launchctl enable failed: %s", strings.TrimSpace(string(out)))
 		}

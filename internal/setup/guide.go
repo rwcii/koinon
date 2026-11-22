@@ -9,7 +9,7 @@ import (
 const guideCommon = `# Koinon
 
 Koinon connects this session to the maintainer's other local agent sessions: Claude, Codex,
-DeepSeek, Antigravity and OpenCode, so that agents of different families work together. Send
+DeepSeek, Antigravity, OpenCode and Grok, so that agents of different families work together. Send
 your messages to other agents, also to another session of your own family, through Koinon.
 
 ## Tools
@@ -40,7 +40,8 @@ your messages to other agents, also to another session of your own family, throu
 - library_list, library_read: list the installed skill/setup catalog and read an item by
   item_id. Page list with next_after; content comes from the installed binary.
 - library_state: inspect selected catalog items in verified machine or project scope;
-  content, collisions, repository facts and adoption decisions are separate.
+  content, collisions, repository facts and adoption decisions are separate. It checks
+  catalog adoption, not the koinon-NAME entries; koinon install --plan checks those.
 - library_decision: record a machine outcome with if_revision; project receipts use
   memory_record. These tools record data and edit no adopted files.
 - room_list, room_members: list the dashboard rooms of this session or the participant it
@@ -69,6 +70,8 @@ for retained context; current members can reply.
 - work_report, work_accept, work_reject: report a held item's result with evidence (the
   claim is released and the item waits for a verdict); accept or reject another worker's
   current report. Another worker records the verdict on a report.
+- work_checkout, work_checkout_request: read this checkout's advisory writer role, and ask
+  its current writer for a handoff of the role.
 - Daemon work notices name a repository and changed head. Use work_list with assigned_to_me
   or created_by_me, process memory_sync through that head, then acknowledge the handled
   inbox notice. Current queries remain complete after a reset or a missed notice, including
@@ -145,7 +148,8 @@ approval (PDR 005, Decision 3). A verdict reaches each
 named recipient as an inbox message and a wake that name its verdict ID: read it with
 decision_get, handle it, then decision_ack. decision_pending lists unacknowledged verdicts,
 also after the message aged out; a superseded one means the item was reopened. Editing a
-decided item reopens it for a new verdict.
+decided item reopens it for a new verdict. A card on another computer that names you sends a
+notice; read and acknowledge it there (Other Koinon computers).
 Record each decision that you handle, except an fyi acknowledgement, in the repository that the
 item was created in, in the pull request that does the work: in the ADR, PDR, WDR or sprint
 document that holds the rule (#623). Koinon writes no record file. Write the decision
@@ -154,10 +158,10 @@ question and the options), Decision, Reason and scope, and Review when (a known 
 calls for a review of the decision; leave it out when there is none). Put a declined decision
 into the record's Alternatives Considered. decision_get, decision_pending and the verdict
 message give the verdict, the card text and this instruction. Correct the spelling and typing
-errors in quoted words (notes, feedback and quotes), and keep their meaning and wording. Name a
-decision by its card reference, never by verdict ID: a verdict ID exists only in this machine's
-store. How a project cites its decisions is that project's own rule. Recorded text is public
-repository text, so write every card as public text (#536). koinon decision export PATH writes
+errors in quoted words (notes, feedback and quotes), and keep their meaning and wording. The
+repository record holds the decision itself and is its source: cite neither the card reference
+nor the verdict ID as the source, because both exist only in this machine's store. How a project cites its decisions is that project's own rule. Recorded text is public
+repository text, so write every card as public text (#536). koinon decision export --as FAMILY:ID PATH writes
 every item, live and deep-archived, as JSON lines to a new private file outside a Git work
 tree, which a person or CI can read without the daemon.
 
@@ -271,7 +275,8 @@ while fresh and for the current published name.
   shows and the handoff file name by that deadline. Then end your turn and stay idle: the
   cycle clears your context at your idle prompt, and enters Koinon's own pickup skill, koinon-pickup, which the
   daemon writes for the person and which loads skill.pickup. If your pane does not become
-  idle, overwatch sends the request again under a new revision; pause and report again.
+  idle, overwatch sends the request again under a new revision; pause and report again. If
+  the reply says that the cycle ended, no clear follows: go on with your work.
 - After a clear, call context_cycle_status. For a cycle in reset_verified or waiting_pickup,
   with or without a repository, finish your canonical pickup of the returned handoff file, then
   call context_cycle_pickup with the cycle ID, revision, file name, outcome resumed or paused,
@@ -332,6 +337,30 @@ facts from .koinon/skills/NAME.md.
   registers at its first tool call and takes the participant address by succession
   (Participants).
 
+## Other Koinon computers
+The maintainer pairs this computer with Koinon on the maintainer's other computers, in the
+dashboard's Settings, Computers, or with koinon link (#670). koinon link status shows this
+computer's name, its fingerprint and each paired computer: connected, offline or pending,
+with the time. A session that holds the maintainer secret can pair with koinon link invite
+--secret-file PATH and koinon link join --secret-file PATH, as the maintainer's own step. The
+computer that made the invitation introduces the joining computer to each of its other paired
+computers, so one join adds a computer to the whole group (LINK-GROUP-JOIN).
+peers also lists the sessions of each paired computer as NAME@COMPUTER, with remote true,
+computer, seen_at and stale when the list is not current; peer_status NAME@COMPUTER reads that
+list. send to NAME@COMPUTER queues the message on this computer and answers queued with a
+link_id; Koinon delivers it in order and delivery link_id reads queued, received (stored in
+that computer's inbox), refused with its reason, cancelled or may_have_been_delivered. An
+unknown COMPUTER is link_computer_unknown. A message from another computer has origin link
+and sender NAME@COMPUTER: answer it with send and reply_to set to its id.
+A decision card on another computer that names you as NAME@COMPUTER sends you a short
+notice from decision-board@COMPUTER, with no card text; it cannot be answered. Read the live
+card there with decision_get REFERENCE@COMPUTER (or reference and pair), list the cards there
+that name you with decision_list, filter mine and computer or pair, and your waiting verdicts
+with decision_pending and computer or pair. Acknowledge a handled verdict with decision_ack,
+the verdict ID from that computer and its pair. Nothing is stored here. link_computer_offline
+means nothing was sent; link_uncertain means the answer was lost: a retry is safe, and
+already lists an acknowledgement that was stored.
+
 ## Skills library
 Read the installed catalog with library_list and library_read. The command path is
 koinon library list/read --as FAMILY:NATIVE_SESSION_ID (DeepSeek examples below).
@@ -340,9 +369,11 @@ destination support. Machine-wide skills are the default; project-local adoption
 available. Use library_state (koinon library state on the command path) for present, missing,
 outdated or edited content, same-name collisions, repository facts and recorded decisions.
 Machine scope is the default; a project directory is a listed worktree of this session's
-registered repository. library_state reads this session's scope at a native tool call, and it
+registered repository. A Git submodule is its own repository: start the session in it. A
+refused directory returns a code that names the cause. library_state reads this session's scope at a native tool call, and it
 recommends the missing or outdated skills that available features need; declined and edited
-items show as such.
+items show as such. It does not read the koinon-NAME entries that koinon install and the daemon
+write; koinon install --plan reads them, and names koinon install for a missing or earlier one.
 To adopt an item: read it and its state, choose the scope, compare any same-name copy, apply
 it with normal editing tools, keep the surrounding instructions and custom discovery paths,
 check its hashes and record the outcome. If recording fails, keep the applied files and say
@@ -427,7 +458,9 @@ paths/connections and optional terminal operations.
 	"opencode": `
 ## OpenCode
 Koinon knows each OpenCode session through the Koinon plugin that koinon setup opencode
-installs; without it the tools refuse the call. Start OpenCode through koinon opencode for
+installs; without it the tools refuse the call. Setup writes the koinon server into OpenCode's
+global configuration: mcp.koinon with OpenCode 1 (checked with 1.18.35), mcp.servers.koinon
+with OpenCode 2 (checked with 2.3.0). Start OpenCode through koinon opencode for
 participant features and its wake endpoint. A direct opencode start registers as a plain
 peer using the plugin's native identity. It has no automatic wake because it has no launcher
 wake endpoint; read waiting messages with inbox.

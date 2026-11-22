@@ -34,6 +34,7 @@ func TestCompactionReviewR1RestartFreshRecovery(t *testing.T) {
 	}
 	t.Cleanup(func() { restarted.db.Close() })
 	restarted.now = func() time.Time { return f.clock }
+	restarted.processStart = f.s.processStart
 	f.s = restarted
 	f.step(t)
 	if v := f.status(t, f.k); v.State != cycleCompactWaiting || f.compactor.count("enter") != 0 {

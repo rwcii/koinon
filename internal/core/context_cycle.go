@@ -525,6 +525,13 @@ type CompactAdapter interface {
 	Compact(ctx context.Context, t CycleTarget, fence CycleFence) (submitted, received bool, err error)
 }
 
+// CompactBusyAdapter is a compaction adapter with a cheap read-only check that a waiting
+// compaction's pane is still busy (#758). CompactBusy returns a fixed code, which keeps the
+// compaction waiting without Inspect, or "", and then Inspect runs. It sends no key.
+type CompactBusyAdapter interface {
+	CompactBusy(ctx context.Context, t CycleTarget) string
+}
+
 // SessionAdapter is a cycle adapter whose reset creates a new native session by its host's API
 // and shows it in the pinned pane, instead of clearing the pane (OpenCode, #513). Its Clear is
 // not used.
@@ -621,6 +628,11 @@ func (s *Store) sessionProbe(ctx context.Context, k Key) CycleProbe {
 	}
 	if _, hostless := adapter.(HostlessAdapter); !hostless && (row.HostPID <= 0 || row.Pane == "") {
 		return CycleProbe{Reason: "host_unpinned"}
+	} else if !hostless && row.HostStart > 0 && s.processStart != nil && s.hostEnded(host{pid: row.HostPID, start: row.HostStart}) {
+		// The same test as succession and liveness: the process is gone, or its PID now names
+		// another process. Without a recorded start, or on another read error, the adapter's
+		// own probe decides (#637).
+		return CycleProbe{Reason: "host_ended", Step: "the host process of this session has ended; enable the session that replaced it"}
 	}
 	if native {
 		return compact.CompactProbe(ctx, s.cycleTarget(ctx, row))
@@ -679,6 +691,23 @@ const cycleReadyNext = "Paused and ready: end your turn now, start no other work
 // deepSeekReadyNext is cycleReadyNext for DeepSeek, whose reset is a new session (#514).
 const deepSeekReadyNext = "Paused and ready: end your turn now, start no other work and stay idle. Overwatch starts a new harness " +
 	"session once this session is idle and enters /koinon-pickup there."
+
+// readyNext is the instruction of a ready report's answer. The requester of a cycle that goes
+// on stays paused: the clear waits for its idle prompt (#431). A report can also end the
+// cycle, such as at its event limit; then no clear comes and the session goes on (#697).
+func readyNext(family string, cycle CycleView) string {
+	switch {
+	case cycleTerminal(cycle.State):
+		ended := "The managed context cycle ended: " + cycle.State
+		if cycle.Reason != "" {
+			ended += " (" + cycle.Reason + ")"
+		}
+		return ended + ". No context clear will follow this reply: go on with your work."
+	case family == "deepseek":
+		return deepSeekReadyNext
+	}
+	return cycleReadyNext
+}
 
 // cycleRepeatable reports whether a ready cycle whose stage deadline passed asks its
 // requester again (#431): the pane was read and was not at its idle prompt, such as a turn in

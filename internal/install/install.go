@@ -23,6 +23,7 @@ import (
 	"github.com/rwcii/koinon/internal/core"
 	"github.com/rwcii/koinon/internal/legacy"
 	"github.com/rwcii/koinon/internal/platform"
+	"github.com/rwcii/koinon/internal/remote"
 	"github.com/rwcii/koinon/internal/setup"
 )
 
@@ -31,6 +32,8 @@ var Families = []string{"claude", "codex", "agy", "opencode", "grok", "deepseek"
 
 // Options select the installation. Zero values take the documented defaults.
 type Options struct {
+	// Tailscale is an injectable adapter for uninstall mapping cleanup.
+	Tailscale        remote.Adapter
 	Prefix           string // default $XDG_DATA_HOME/koinon/go
 	StateDir         string // the Go state root; default platform.DefaultStateDir
 	Port             int    // the daemon's loopback port to record (#405); zero keeps the recorded one
@@ -48,9 +51,13 @@ type Options struct {
 	// daemon's secret route and returns a generated secret; default the loopback route.
 	HostAddresses    func() ([]string, error)
 	MaintainerSecret func(ctx context.Context, address, bearer, action, secret string) (string, error)
-	PythonPrefix     string   // the Python-era prefix that refuses a plain install
-	Agents           []string // families to set up, or to remove (default: all for removal)
-	NoStart          bool
+	// RemoteEnable enables remote access for the answer "this computer and your tailnet"
+	// (#665), as koinon remote enable --https-port does, for the daemon of state at address,
+	// with the operator question on the same terminal; it returns the remote URL.
+	RemoteEnable func(ctx context.Context, state, address string, port int) (string, error)
+	PythonPrefix string   // the Python-era prefix that refuses a plain install
+	Agents       []string // families to set up, or to remove (default: all for removal)
+	NoStart      bool
 	// System installs the daemon as a macOS LaunchDaemon (#283); a later install or
 	// uninstall finds system mode from its plist.
 	System bool
@@ -89,6 +96,9 @@ type Options struct {
 	Inspect     func(context.Context, setup.Options) setup.Inspection
 	Permissions func(setup.Options, bool) (setup.PermissionsResult, error)
 	Status      func(ctx context.Context, address, secret string) (json.RawMessage, error)
+	// Call calls a daemon route, as core.Call does; koinon remote configure reads the remote
+	// status through it (#685).
+	Call func(ctx context.Context, address, secret, path string, body any) (json.RawMessage, error)
 	// Background starts the daemon without a service manager, in its own session, with its
 	// output in log (#619).
 	Background func(binary, state, log string) (Started, error)
@@ -123,13 +133,15 @@ type Report struct {
 	StateDir         string                       `json:"state_dir"`
 	Port             int                          `json:"port,omitempty"`
 	DashboardNetwork *core.DashboardNetworkStatus `json:"dashboard_network,omitempty"`
-	Link             string                       `json:"link"`
-	LinkResult       string                       `json:"link_result"`
-	OnPath           string                       `json:"on_path,omitempty"`
-	PathStep         string                       `json:"path_step,omitempty"`
-	OtherBinary      string                       `json:"other_binary,omitempty"`
-	SourceStep       string                       `json:"source_step,omitempty"`
-	Agents           []setup.Report               `json:"agents"`
+	// Remote is the result of the answer "this computer and your tailnet" (#665).
+	Remote      *RemoteResult  `json:"remote,omitempty"`
+	Link        string         `json:"link"`
+	LinkResult  string         `json:"link_result"`
+	OnPath      string         `json:"on_path,omitempty"`
+	PathStep    string         `json:"path_step,omitempty"`
+	OtherBinary string         `json:"other_binary,omitempty"`
+	SourceStep  string         `json:"source_step,omitempty"`
+	Agents      []setup.Report `json:"agents"`
 	// Review is each family's state before an install at a terminal, with the permission rules
 	// after the question for a family that got it (#462); Permissions reports the permission
 	// rules of each set-up family after its question (#449).
@@ -144,6 +156,15 @@ type Report struct {
 	// RetiredInstructions reports the Codex AGENTS.md without the retired Python runtime's
 	// blocks: removed, unchanged or absent (#487).
 	RetiredInstructions *RetiredInstructions `json:"retired_instructions,omitempty"`
+}
+
+// RemoteResult is the remote dashboard that the install question enabled: its URL, or why
+// it is not enabled and the command that enables it.
+type RemoteResult struct {
+	HTTPSPort int    `json:"https_port"`
+	URL       string `json:"url,omitempty"`
+	Error     string `json:"error,omitempty"`
+	Step      string `json:"step,omitempty"`
 }
 
 // PickupSkill is one family's koinon-pickup skill file and what the install or uninstall did
@@ -191,6 +212,9 @@ func (o *Options) defaults() error {
 	}
 	if o.MaintainerSecret == nil {
 		o.MaintainerSecret = maintainerSecret
+	}
+	if o.RemoteEnable == nil {
+		o.RemoteEnable = RemoteEnable
 	}
 	if o.Services.Run == nil {
 		if o.Services, err = platform.NewServices(); err != nil {
@@ -659,6 +683,7 @@ func Install(ctx context.Context, o Options) (Report, error) {
 	// At a terminal, a first install asks where the dashboard opens; a saved setting, a saved
 	// local-only choice and an explicit --dashboard-address ask nothing (DASHBOARD-LAN-624).
 	var local bool
+	var tailnet int
 	var asked *core.DashboardAddress
 	if o.Line != nil && !o.Upgrade && o.DashboardAddress == "" && oldNetwork == nil && !invalidNetwork {
 		saved, err := core.ReadDashboardLocal(o.StateDir)
@@ -666,7 +691,7 @@ func Install(ctx context.Context, o Options) (Report, error) {
 			return r, err
 		}
 		if !saved {
-			if local, asked, err = askDashboard(ctx, o); err != nil {
+			if local, tailnet, asked, err = askDashboard(ctx, o); err != nil {
 				return r, err
 			}
 		}
@@ -739,18 +764,7 @@ func Install(ctx context.Context, o Options) (Report, error) {
 		r.SourceStep = fmt.Sprintf("this ran the installed binary, so nothing was copied; to install %s, run %s install", r.OtherBinary, shellQuote(r.OtherBinary))
 	}
 	// start starts the daemon through the backend that this installation uses.
-	start := func(before *daemonStatus) error {
-		if system != nil {
-			r.Artifact = o.Services.SystemArtifact()
-			if err := o.Services.InstallSystem(ctx, platform.SystemInstall{Binary: r.Binary, State: o.StateDir, Plist: *system,
-				StatusPID: func(ctx context.Context) (int, error) { return statusPID(ctx, o) }, Wait: o.SystemWait}); err != nil {
-				return err
-			}
-			r.Service = "system"
-			return nil
-		}
-		return startAgent(ctx, o, &r, before)
-	}
+	start := func(before *daemonStatus) error { return startService(ctx, o, &r, system, before) }
 	if err := start(before); err != nil {
 		return r, err
 	}
@@ -762,7 +776,7 @@ func Install(ctx context.Context, o Options) (Report, error) {
 	// A network address chosen at the terminal needs the maintainer secret. A secret set here
 	// takes effect after one restart through the same backend (DASHBOARD-LAN-624).
 	if asked != nil && !o.NoStart && r.DashboardNetwork != nil && r.DashboardNetwork.Code == "dashboard_secret_required" {
-		set, err := offerSecret(ctx, o)
+		set, err := offerSecret(ctx, o, "The network dashboard needs the maintainer secret for its login, and no secret is set.")
 		if err != nil {
 			return r, err
 		}
@@ -774,6 +788,11 @@ func Install(ctx context.Context, o Options) (Report, error) {
 	}
 	if asked != nil && r.DashboardNetwork != nil {
 		tellDashboard(o, *r.DashboardNetwork)
+	}
+	if tailnet != 0 {
+		if err := enableTailnet(ctx, o, &r, tailnet); err != nil {
+			return r, err
+		}
 	}
 	agents, err := reviewFamilies(ctx, o, &r)
 	if err != nil {
@@ -839,6 +858,22 @@ func removeRetiredInstructions(o Options, r *Report) error {
 	}
 	r.RetiredInstructions = &RetiredInstructions{Path: path, Result: result}
 	return nil
+}
+
+// startService starts the daemon through the backend that this installation uses: the macOS
+// LaunchDaemon when system is set, else the user service, else a background process.
+// koinon remote configure starts it again the same way (#685).
+func startService(ctx context.Context, o Options, r *Report, system *platform.SystemPlist, before *daemonStatus) error {
+	if system != nil {
+		r.Artifact = o.Services.SystemArtifact()
+		if err := o.Services.InstallSystem(ctx, platform.SystemInstall{Binary: r.Binary, State: o.StateDir, Plist: *system,
+			StatusPID: func(ctx context.Context) (int, error) { return statusPID(ctx, o) }, Wait: o.SystemWait}); err != nil {
+			return err
+		}
+		r.Service = "system"
+		return nil
+	}
+	return startAgent(ctx, o, r, before)
 }
 
 // startAgent writes the user service and, unless NoStart, starts it and waits for the daemon.
@@ -1119,6 +1154,7 @@ func stopDaemon(ctx context.Context, o Options, pid int) error {
 // daemonStatus is the part of the daemon's status that the install reads.
 type daemonStatus struct {
 	PID              int                          `json:"pid"`
+	SecretSet        bool                         `json:"maintainer_secret_set"`
 	Version          string                       `json:"version"`
 	DashboardNetwork *core.DashboardNetworkStatus `json:"dashboard_network"`
 }
@@ -1210,6 +1246,15 @@ func Uninstall(ctx context.Context, o Options) (Report, error) {
 		return r, err
 	} else if stopped {
 		removed = true
+	}
+	if err := core.CleanupRemote(ctx, o.StateDir, o.Tailscale); err != nil {
+		// The refusal keeps the Tailscale diagnostic's own code, so the report names
+		// the step to take; another failure gets remote_cleanup_failed.
+		var diagnostic *remote.Diagnostic
+		if errors.As(err, &diagnostic) {
+			return r, fmt.Errorf("%w; the daemon is stopped; repeat koinon uninstall to finish", err)
+		}
+		return r, fmt.Errorf("remote_cleanup_failed: %v; the daemon is stopped; repeat koinon uninstall to finish", err)
 	}
 	r.Service = map[bool]string{true: "removed", false: "absent"}[removed]
 	for _, skill := range pickupSkillPaths(o) {

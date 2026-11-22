@@ -96,6 +96,14 @@ func TestSkillTextHasNoLimitPhrases(t *testing.T) {
 		"spin-down":      {"Stop each named, verified session through a\nsupported interface."},
 		"spin-up":        {"Launch through the supported interfaces."},
 		"sprint":         {"Build the chunks with ship and the project's Build checks, in dependency order."},
+		// The procedures of PDR 008 Decision 5 (#732).
+		"preflight":        {"A preflight is an author check, not an independent review."},
+		"provenance":       {"Every command in this skill is a project fact."},
+		"refusal-audit":    {"Read the project's root instruction files first, and the Instruction files fact."},
+		"standards-review": {"This skill starts one lens of review: the check against the project's standards."},
+		"record":           {"read it in full. If this skill and that document differ, follow the document."},
+		"sprint-closeout":  {"Closeout merges nothing. Each merge follows the project's merge policy."},
+		"standards-audit":  {"The audit only reads."},
 	}
 	var skills int
 	for _, item := range catalog.Items {

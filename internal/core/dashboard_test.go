@@ -141,7 +141,7 @@ func TestDashboardLoginAndRequestProtection(t *testing.T) {
 		t.Fatalf("sessions: %d %s", page.status, page.body)
 	}
 	for name, want := range map[string]string{
-		"Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+		"Content-Security-Policy": "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
 		"X-Frame-Options":         "DENY", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "same-origin",
 		"Cache-Control": "no-store", "Cross-Origin-Opener-Policy": "same-origin",
 	} {
@@ -543,7 +543,7 @@ func TestDashboardViewsRenderSyntheticState(t *testing.T) {
 	if strings.Contains(messages, "<script>alert") || strings.Contains(messages, `href="javascript:`) {
 		t.Fatal("message body not escaped")
 	}
-	if got := strings.Count(messages, "<td>yes<br><small>by recipient ("+b.Name+", ack)</small></td>"); got != 1 {
+	if got := strings.Count(messages, "<td data-label=\"Acknowledged\">yes<br><small>by recipient ("+b.Name+", ack)</small></td>"); got != 1 {
 		t.Fatalf("acknowledged messages: %d", got)
 	}
 	contains(page("/dashboard/messages?to="+b.Name), "first message")
@@ -695,4 +695,24 @@ func sortOrder(t *testing.T, spec *sortSpec, key, dir, after string) dashboardSo
 		t.Fatal(err)
 	}
 	return order
+}
+
+// The dashboard header and tab show the Koinon icon, a light and a dark variant, served as
+// SVG images from the embedded static files.
+func TestDashboardLogo(t *testing.T) {
+	d, _ := startTestDaemon(t)
+	for _, name := range []string{"koinon-icon-for-light.svg", "koinon-icon-for-dark.svg"} {
+		r := dashboardDo(t, d, "GET", "/dashboard/static/"+name, "", nil, nil)
+		if r.status != 200 || r.header.Get("Content-Type") != "image/svg+xml" || strings.Contains(r.body, "<script") {
+			t.Fatalf("%s: %d %q", name, r.status, r.header.Get("Content-Type"))
+		}
+	}
+	page := dashboardDo(t, d, "GET", "/dashboard/sessions", "", nil, nil)
+	for _, want := range []string{`<link rel="icon" type="image/svg+xml" href="/dashboard/static/koinon-icon-for-light.svg">`,
+		`<link rel="icon" type="image/svg+xml" href="/dashboard/static/koinon-icon-for-dark.svg" media="(prefers-color-scheme: dark)">`,
+		`<source srcset="/dashboard/static/koinon-icon-for-dark.svg" media="(prefers-color-scheme: dark)">`} {
+		if !strings.Contains(page.body, want) {
+			t.Fatalf("page lacks %s", want)
+		}
+	}
 }

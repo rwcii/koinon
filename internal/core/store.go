@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rwcii/koinon/internal/link"
 	"github.com/rwcii/koinon/internal/platform"
 	"modernc.org/sqlite"
 )
@@ -134,6 +135,12 @@ type Store struct {
 	db *sql.DB
 	// logEvent writes a daemon log event, or is nil outside a daemon.
 	logEvent func(string, map[string]any)
+	// linkFence returns the paired computers for one decision board write and the release
+	// of its fence (#746); nil outside a daemon. See boardFence.
+	linkFence func(context.Context) (boardPairs, func())
+	// noticeKick wakes the daemon's notice dispatcher after a commit that queued a notice; it
+	// never blocks and takes no lock. nil outside a daemon.
+	noticeKick func()
 	// root is the state directory; the decision deep archive writes its log files there.
 	root      string
 	decisions decisionState
@@ -157,9 +164,12 @@ type Store struct {
 	retention retentionState
 	// calls holds each session's last tool call; processStart reads a host process's start
 	// time (chunk 04).
-	calls          toolCalls
-	processStart   func(int) (int64, error)
+	calls        toolCalls
+	processStart func(int) (int64, error)
+	// processParents reads the whole process table; processParent reads one process's
+	// parent, for an ancestry walk that reads only its own steps (#758).
 	processParents func() (map[int]int, error)
+	processParent  func(int) (int, error)
 	processCommand func(int) (string, []string, error)
 	// processEnvironment reads one variable of a host process (a Claude host's config root).
 	processEnvironment func(pid int, name string) (string, error)
@@ -270,7 +280,19 @@ func openStoreFile(root, name string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
-	if err := migrate(db, version, schemaVersion); err != nil {
+	var links []migrationLink
+	if version > 0 && version < 40 {
+		// The reconciliation of schema 40 reads the paired computers. A missing link file is
+		// no pair; an unreadable one stops the open before the migration, so the one-time
+		// reconciliation is never skipped.
+		st, err := link.ReadState(root)
+		if err != nil {
+			db.Close()
+			return nil, err
+		}
+		links = append(links, migrationLink{pairs: pairRefs(st), now: time.Now().UnixMilli()})
+	}
+	if err := migrate(db, version, schemaVersion, links...); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -299,7 +321,7 @@ func openStoreFile(root, name string) (*Store, error) {
 		return nil, err
 	}
 	s := &Store{db: db, root: root, now: time.Now, storage: storage{path: path, maxPages: defaultMaxPages}, processStart: platform.ProcessStart,
-		processParents: platform.ProcessParents, processCommand: platform.ProcessCommand,
+		processParents: platform.ProcessParents, processParent: platform.ProcessParent, processCommand: platform.ProcessCommand,
 		processEnvironment: platform.ProcessEnvironment, tmux: runTmux,
 		processGroups: platform.ProcessGroups,
 		codexPane:     runtime.GOOS == "linux" || runtime.GOOS == "darwin", processStartTime: platform.ProcessStartTime}
@@ -367,7 +389,7 @@ func checkFormat(db *sql.DB, path string) error {
 	return nil
 }
 
-const schemaVersion = 37
+const schemaVersion = 40
 
 // workItemsV16Columns are the work item columns before schema 17, which its rebuild copies.
 const workItemsV16Columns = `store,work_id,revision,lifecycle,title,criteria,non_goals,proposed_assignee,created_at,created_consumer,
@@ -407,9 +429,16 @@ const workEventsTable = `CREATE TABLE work_events (store TEXT NOT NULL, seq INTE
 		'finished','progress-overdue','lease-expired','reported','accepted','rejected')),
 	payload TEXT NOT NULL, actor TEXT NOT NULL DEFAULT '', PRIMARY KEY (store, seq))`
 
+// migrationLink is what the 39 to 40 step reads besides the database: the computers paired
+// when the store opens, and the time. A reference catalog migrates with none.
+type migrationLink struct {
+	pairs []linkPairRef
+	now   int64
+}
+
 // migrate brings the state schema from version to target in one transaction, so a crash
 // leaves either the old or the new schema. Each step starts from the version before it.
-func migrate(db *sql.DB, version, target int) error {
+func migrate(db *sql.DB, version, target int, links ...migrationLink) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -947,6 +976,33 @@ func migrate(db *sql.DB, version, target int) error {
 			return err
 		}
 	}
+	if version < 38 && target >= 38 {
+		// Version 38: the queue to paired computers, the ordered stream of each pair, and the
+		// link origin of a received message (#670 chunk 03, LINK-670-OFFLINE).
+		if _, err := tx.Exec(linkOutboxTablesV38); err != nil {
+			return err
+		}
+	}
+	if version < 39 && target >= 39 {
+		// Version 39: authorized maintainer client keys, the receipts of signed writes and the
+		// signer of a verdict (#693, LINK-693-SIGNED).
+		if _, err := tx.Exec(maintainerKeyTablesV39); err != nil {
+			return err
+		}
+	}
+	if version < 40 && target >= 40 {
+		// Version 40: remote recipients, verdict deliveries to them, their notices and the
+		// notice stream of each pair (#746 chunk 01); cards that already name a recipient on
+		// a paired computer are reconciled once.
+		if _, err := tx.Exec(boardLinkTablesV40); err != nil {
+			return err
+		}
+		for _, l := range links {
+			if err := reconcileBoardV40(tx, l.now, l.pairs); err != nil {
+				return err
+			}
+		}
+	}
 	if _, err := tx.Exec(fmt.Sprintf("PRAGMA user_version=%d", target)); err != nil {
 		return err
 	}
@@ -1374,6 +1430,31 @@ func (s *Store) List(ctx context.Context) ([]Session, bool, error) {
 		result = result[:1000]
 	}
 	return result, truncated, nil
+}
+
+// FamilyCount is the number of agent sessions of one family, for the Sessions page (#718).
+type FamilyCount struct {
+	Family string
+	Count  int64
+}
+
+// familyCounts counts the agent sessions of each family in the whole store, in family order,
+// as Counts counts them by state.
+func (s *Store) familyCounts(ctx context.Context) ([]FamilyCount, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT family,COUNT(*) FROM sessions s WHERE family!='maintainer' AND `+notParticipantRow+` GROUP BY family ORDER BY family`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	counts := []FamilyCount{}
+	for rows.Next() {
+		var c FamilyCount
+		if err := rows.Scan(&c.Family, &c.Count); err != nil {
+			return nil, err
+		}
+		counts = append(counts, c)
+	}
+	return counts, rows.Err()
 }
 
 func (s *Store) Counts(ctx context.Context) (map[string]int64, error) {

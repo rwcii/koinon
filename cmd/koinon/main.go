@@ -71,6 +71,10 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		if len(args) > 1 && args[1] == "clear" {
 			return cleanupCommand(ctx, "inbox", "clear", args[2:], out)
 		}
+	case "remote":
+		return remoteCommand(ctx, args[1:], in, out)
+	case "link":
+		return linkCommand(ctx, args[1:], in, out)
 	case "dashboard":
 		return dashboardCommand(ctx, args[1:], out)
 	case "maintainer":
@@ -88,7 +92,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 	flags.SetOutput(io.Discard)
 	state := flags.String("state-dir", root, "private Go state directory")
 	var listen, listen6, address, as *string
-	var after, limit, participant *int64
+	var after, limit, participant, replyTo *int64
 	var lockWait *time.Duration
 	var maintainer maintainerFlags
 	positional := 0
@@ -106,12 +110,15 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 		listen = flags.String("listen", "", "IPv4 loopback listener")
 		listen6 = flags.String("listen-v6", "", "IPv6 loopback listener")
 		lockWait = flags.Duration("lock-wait", 0, "wait this long for the daemon lock, then exit with status 0")
-	case "status", "peers", "peer-status", "send", "inbox", "ack", "cycle-status", "cycle-ready", "cycle-pickup":
+	case "status", "peers", "peer-status", "send", "delivery", "inbox", "ack", "cycle-status", "cycle-ready", "cycle-pickup":
 		address = addressFlag(flags)
 		if args[0] != "status" {
 			as = flags.String("as", "", "calling session as FAMILY:ID")
 		}
-		positional = map[string]int{"peer-status": 1, "send": 2, "ack": 1, "cycle-ready": 3, "cycle-pickup": 5}[args[0]]
+		positional = map[string]int{"peer-status": 1, "send": 2, "delivery": 1, "ack": 1, "cycle-ready": 3, "cycle-pickup": 5}[args[0]]
+		if args[0] == "send" {
+			replyTo = flags.Int64("reply-to", 0, "reply to this received message from another computer, on the pair it came from")
+		}
 		if args[0] == "inbox" {
 			after = flags.Int64("after", 0, "read messages after this sequence")
 			limit = flags.Int64("limit", 50, "most messages to read")
@@ -167,7 +174,7 @@ func run(ctx context.Context, args []string, in io.Reader, out io.Writer) error 
 			Tmux:        mcp.RunTmux, Parents: platform.ProcessParents, TmuxExecutable: mcp.LookTmux,
 			Version: version, Changed: changed, Replace: replace, Resume: []byte(resume), Stderr: os.Stderr}, in, out)
 	}
-	return call(ctx, args[0], *state, *address, as, after, limit, participant, flags.Args(), in, out)
+	return call(ctx, args[0], *state, *address, as, after, limit, participant, replyTo, flags.Args(), in, out)
 }
 
 // daemonLog receives the daemon's lifecycle lines; the service manager sends standard error
@@ -386,7 +393,7 @@ func replacedExecutable(start, now os.FileInfo, err error) bool {
 }
 
 const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N] [--dashboard-address HOST:PORT|none] [--agent FAMILY]... [--no-start] [--system]
-       koinon install --plan [--prefix DIR] [--state-dir DIR]
+       koinon install --plan [--json] [--prefix DIR] [--state-dir DIR]
        koinon uninstall [--prefix DIR] [--state-dir DIR] [--agent FAMILY]...
        koinon upgrade --from-python [--python-prefix DIR] [--prefix DIR] [--state-dir DIR] [--agent FAMILY]... [--repository KEY=PATH]... [--python PATH]
        koinon upgrade --status [--state-dir DIR]
@@ -395,10 +402,18 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N]
        koinon serve [--state-dir DIR] [--listen 127.0.0.1:PORT] [--listen-v6 [::1]:PORT] [--lock-wait 60s]
        koinon register --as deepseek:ID [--directory DIR] [--repository DIR] [--dsh-url URL] [--dsh-credentials FILE] [--state-dir DIR] [--address HOST:PORT]
        koinon status [--state-dir DIR] [--address 127.0.0.1:PORT]
+       koinon remote enable [--https-port PORT] [--state-dir DIR] [--address 127.0.0.1:PORT] [--json]
+       koinon remote status|disable [--state-dir DIR] [--address 127.0.0.1:PORT] [--json]
+       koinon remote configure [--choice local|tailnet|network] [--https-port PORT] [--dashboard-address HOST:PORT] [--prefix DIR] [--state-dir DIR] [--address 127.0.0.1:PORT] [--json]
+       koinon link status [--state-dir DIR] [--address 127.0.0.1:PORT] [--json]
+       koinon link name [NAME] [--port PORT] | invite | join | unpair PAIR | leave | cancel PAIR | cancel invitations | rename PAIR [NAME] | queue [COMPUTER] | cancel-message LINK_ID
+                   [--secret-file PATH] [--state-dir DIR] [--address 127.0.0.1:PORT] [--json]
        koinon dashboard [--state-dir DIR] [--address 127.0.0.1:PORT] [--no-open]
        koinon maintainer secret set|generate|clear [--state-dir DIR] [--address 127.0.0.1:PORT]
+       koinon maintainer key add --statement FILE | key list [--all] | key remove KEY_ID [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon mcp [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon mcp --maintainer --client NAME --secret-stdin|--secret-file PATH [--state-dir DIR] [--address 127.0.0.1:PORT]
+       koinon mcp --maintainer --signed [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon setup <claude|codex|agy|opencode|grok|deepseek> [--cli ABS_PATH] [--binary ABS_PATH]
        koinon setup claude --remove-status-line [--claude-config DIR] [--state-dir DIR]
        koinon setup agy --remove-status-line [--agy-config DIR] [--state-dir DIR]
@@ -433,6 +448,7 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N]
        koinon decision close --as FAMILY:ID --reference REF --if-revision N [--note TEXT] --key KEY --deadline UNIX_SECONDS
        koinon decision withdraw --as FAMILY:ID --reference REF --if-revision N --reason TEXT --key KEY --deadline UNIX_SECONDS
        koinon decision restore --as FAMILY:ID --reference REF [--if-revision N]
+       koinon decision export --as FAMILY:ID PATH
        koinon context show [--json] [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon context set FAMILY --mode observe|native_compaction|handoff_cycle --threshold PERCENT
        koinon context enable|disable NAME
@@ -453,10 +469,12 @@ const usage = `Usage: koinon install [--prefix DIR] [--state-dir DIR] [--port N]
        koinon work <get|propose|edit|start|update|release|finish|report|accept|reject> WORK_ID --as FAMILY:ID [--consumer KEY] [options]
        koinon claim renew WORK_ID --as FAMILY:ID --claim-generation N --if-claim-revision N [--lease-seconds S]
        koinon recover [--state-dir DIR] [--address 127.0.0.1:PORT]
-       koinon <claude|codex|agy|opencode|grok> [--state-dir DIR] [--address HOST:PORT] [--cli ABS_PATH] [--directory DIR] [--tmux-session NAME] [--] [CLI arguments...]
+       koinon <claude|codex|agy|opencode|grok> [--state-dir DIR] [--address HOST:PORT] [--cli ABS_PATH] [--directory DIR] [--tmux-session NAME] [--role ROLE] [--] [CLI arguments...]
+       koinon claude --bg [--state-dir DIR] [--address HOST:PORT] [--cli ABS_PATH] [--directory DIR] [--role ROLE] [--] [CLI arguments...]
        koinon peers --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon peer-status --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT] NAME
-       koinon send --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT] NAME BODY
+       koinon send --as FAMILY:ID [--reply-to MESSAGE_ID] [--state-dir DIR] [--address 127.0.0.1:PORT] NAME BODY
+       koinon delivery --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT] MESSAGE_ID|LINK_ID
        koinon inbox --as FAMILY:ID [--after SEQ] [--limit N] [--state-dir DIR] [--address 127.0.0.1:PORT]
        koinon ack --as FAMILY:ID [--state-dir DIR] [--address 127.0.0.1:PORT] SEQ
        koinon cycle-status --as deepseek:ID [--state-dir DIR] [--address 127.0.0.1:PORT]
@@ -515,7 +533,7 @@ func registerDeepSeek(ctx context.Context, args []string, out io.Writer) error {
 }
 
 // call runs one client command against the daemon's API and prints its JSON response.
-func call(ctx context.Context, command, state, address string, as *string, after, limit, participant *int64, args []string, in io.Reader, out io.Writer) error {
+func call(ctx context.Context, command, state, address string, as *string, after, limit, participant, replyTo *int64, args []string, in io.Reader, out io.Writer) error {
 	var caller core.Key
 	if as != nil {
 		family, id, found := strings.Cut(*as, ":")
@@ -542,7 +560,19 @@ func call(ctx context.Context, command, state, address string, as *string, after
 			}
 			text = string(data)
 		}
-		path, body = "/v1/messages/send", map[string]any{"caller": caller, "to": args[0], "body": text}
+		request := map[string]any{"caller": caller, "to": args[0], "body": text}
+		if replyTo != nil && *replyTo != 0 {
+			request["reply_to"] = *replyTo
+		}
+		path, body = "/v1/messages/send", request
+	case "delivery":
+		// A number is a message on this computer; 32 hex characters are a message to another
+		// computer (#670 chunk 03).
+		if id, err := strconv.ParseInt(args[0], 10, 64); err == nil && id > 0 {
+			path, body = "/v1/messages/outcome", map[string]any{"caller": caller, "message_id": id}
+		} else {
+			path, body = "/v1/messages/outcome", map[string]any{"caller": caller, "link_id": args[0]}
+		}
 	case "inbox":
 		request := map[string]any{"caller": caller, "after": *after, "limit": *limit}
 		if *participant >= 0 {

@@ -1,0 +1,81 @@
+# Board link — review
+
+## Scope review
+
+codex-koinon, 2026-11-18, on the options before BOARD-LINK-746 revision 1: favored the copy
+option, because it keeps the card readable while the origin is offline after receipt, and
+asked for these boundaries, which the plan holds: one authority at the origin; read-only copies
+with their origin; references and verdict IDs scoped by a stable pair identity; receipt only
+after a durable commit and before the wake; an acknowledgement that reaches the origin; no
+duplicate or earlier revision on retry; withdraw, close, recipient removal and unpair
+outcomes; queued, offline and unsupported outcomes; a full card that is never cut short. Its
+test list (disconnected recipient, origin offline after receipt, duplicate and reordered
+retry, holder change, same reference and ID on both computers, acknowledgement lost across a
+restart) is in the definition of done.
+
+## Plan review
+
+codex-koinon reviewed 4d0fa1b4d1486da6acbcc34a1339ebe8e3e40d26: needs revision, five P2
+findings and three clarifications. Each one is accepted and fixed in the next plan commit.
+
+| Finding | Disposition |
+| --- | --- |
+| 746-PLAN-F1: an earlier release reads a frame of an unknown operation with the 128 KiB bound, so a large board frame gets `link_frame_too_large` before `link_operation_unknown` (reproduced with a 147,512-byte frame); the handshake has no release version | Fixed: a small probe on each new board connection, `unsupported` as a waiting state, a re-probe on each later connection; own worker and connection per board stream; tests with the v0.13.1 codec and an upgrade while entries wait (Transport) |
+| 746-PLAN-F2: one shared copy cannot hold per-recipient removal, delivery, acknowledgement and retention | Fixed: one copy and one delivery per local recipient; a two-recipient test (Authority and identity; Delivery to the agent) |
+| 746-PLAN-F3: `REFERENCE@COMPUTER` cannot find a retained copy after unpair or name reuse; no remote-verdict types or merged paging | Fixed: local copy numbers and remote-verdict numbers as stable locators, `REFERENCE@COMPUTER` as a convenience form for the current pair, separate fields in `decision_ack`, a separate remote cursor; an unpair and re-pair test |
+| 746-PLAN-F4: change notices were dropped, against BOARD-LINK-746 item 4 and #746 | Fixed: each copy and change puts a typed inbox message with its wake; only verdicts enter `decision_pending` (acceptance 3) |
+| 746-PLAN-F5: existing tagged cards and skipped verdicts were not handled; chunk 01 accepted remote recipients before verdicts were captured | Fixed: upgrade reconciliation in the migration (acceptance 9); chunk 01 now captures every change and verdict durably before any transport; unpair at the origin in chunk 01, at the receiver in chunk 02 |
+| N1: refuse or store an unpaired computer's name | Stored unresolved with `link_computer_unknown`, as a local unknown name; paired but offline stays resolved and `queued` |
+| N2: copy retention is a new choice for the card | Added to BOARD-LINK-746 revision 2 |
+| N3: one schema version or several | One version, complete in chunk 01; later chunks change no schema (Schema) |
+
+codex-koinon, bounded recheck of 4d0fa1b..b785ec33c6214b0f4b2836d204d0b449d81a0c66: PASS. All
+five findings and N1 to N3 are addressed; no plan blocker remains. The pass is for the
+proposed plan; implementation starts only after the verdict on BOARD-LINK-746 and follows it.
+
+The maintainer's feedback on BOARD-LINK-746 revision 2 asked whether the plan sends a read-only
+card, notifies the agent and lets it read its card, and named the name resolution on the card.
+Revision 3 answers yes with the same scope; `decision.md` records the feedback.
+
+## Design change: the card lives in one place
+
+On 2026-11-18 the maintainer confirmed that the agent reads its card live from the card's own
+computer, and said: "the card lives in one place. spreading read only cards around to other
+nodes is a problem. they will QUICKLY fall out of sync." BOARD-LINK-746 revision 5 and this
+plan replace the stored copy with short notices that carry no card text, and remote read,
+list, pending and acknowledgement at the origin over the link. The copy parts of the earlier
+plan, and the plan review's findings F2 and F3 and N2 on copies, no longer apply. F1 (the
+probe), F4 (notices for changes) and F5 (capture before transport, upgrade reconciliation)
+carry into this plan. The changed plan needs a new review.
+
+codex-koinon, 2026-11-18, boundaries for the one-place plan, before its review: names from
+the authenticated local caller only, checked at the origin against the authenticated pair;
+removal and holder change keep outstanding verdict deliveries; one named computer per call
+with a finite deadline and coded errors, never an empty list or a stored card; pair identity
+beside the computer name; an acknowledgement that succeeds only after the origin commits, with
+`link_uncertain` on a lost answer and an idempotent retry; notices with no card text. Each one
+is in the Remote read and acknowledgement section of the definition of done, with its tests.
+
+codex-koinon reviewed the replacement plan at 079b99c849a9bdcc131f8649be57b6c2e371a538: three
+P2 findings and two clarifications. Each one is accepted.
+
+| Finding | Disposition |
+| --- | --- |
+| 746-LIVE-F1: a removed recipient lost its outstanding verdict deliveries | Fixed in 1f25296: current tags authorize live card reads; captured deliveries authorize pending and ack, by pair and recipient; test with two recipients, one removed |
+| 746-LIVE-F2: "no change" on a timeout contradicts a commit before a lost answer | Fixed: before-write failures say nothing was sent; after-write failures give `link_uncertain`; idempotent retry; acceptance 6 corrected; tests for both |
+| 746-LIVE-F3: friendly names alone cannot bind an acknowledgement to one pairing | Fixed in 1f25296: `origin` and notices carry the pair ID; tools accept `pair` and refuse a stale one; rename and unpair/re-pair tests |
+| N1: caller-derived names | Fixed in 1f25296, with the A-asks-for-B test |
+| N2: name the time budget | Fixed: 8 seconds in all, inside the 10-second write timeout of the local API; a shorter local deadline and a cancel win |
+
+codex-koinon, recheck of the replacement plan through 1f2529680392d9d79b3d35efee824771e440cadf:
+PASS. Its reading of the 746-LIVE-F2 fix, which 3c6c7a4 states: the "nothing was sent" errors
+apply only to definite failures before the request is written, and to reads. A lost
+acknowledgement answer after the request is written, also by the budget or a cancel, is
+`link_uncertain`, because the origin may have committed; it is never reported as a timeout
+with no change.
+
+codex-koinon, final recheck at 3c6c7a4ec5249e65908c55c160d0f225d52908fa: PASS; no plan
+blocker. Its reading, now stated in the definition of done: a definite refusal from the
+origin, such as an unknown operation at an earlier release, is `link_unsupported` and says
+that nothing ran, not that nothing was sent; only an ambiguous lost answer after the write is
+`link_uncertain`.

@@ -25,15 +25,21 @@ import (
 // line it reads, the program draws it as a submitted prompt above an empty composer.
 const codexScreenProgram = `#!/bin/sh
 state=$1 received=$2
+# A narrow pane wraps the status line onto a second row (#761).
+tail= up=0
+[ "$state" = narrow ] && tail='  69%% left\n' up=1
 composer() {
 	if [ -n "$1" ]; then
-		printf '\033[1m›\033[0m %s\n\n  synthetic-model · /tmp/synthetic/repo · Context 0%% used\n' "$1"
-		printf '\033[3A\r\033[2C'
+		printf '\033[1m›\033[0m %s\n\n  synthetic-model · /tmp/synthetic/repo · Context 0%% used\n'"$tail" "$1"
+		printf '\033[%dA\r\033[2C' $((3 + up))
 	else
-		printf '\033[1m›\033[0m \033[2mAsk Codex to do anything\033[0m\n\n  synthetic-model · /tmp/synthetic/repo · Context 0%% used\n  \033[1m?\033[0m for shortcuts\n'
-		printf '\033[4A\r\033[2C'
+		printf '\033[1m›\033[0m \033[2mAsk Codex to do anything\033[0m\n\n  synthetic-model · /tmp/synthetic/repo · Context 0%% used\n'"$tail"'  \033[1m?\033[0m for shortcuts\n'
+		printf '\033[%dA\r\033[2C' $((4 + up))
 	fi
 }
+# Without echo the typed notice never shows in the composer. stty runs before the screen
+# draws, so the program is the only foreground process when the composer shows (#704).
+[ "$state" = noecho ] && stty -echo
 printf '\033[2J\033[H'
 [ "$state" = working ] && printf '\033[2m•\033[0m \033[2mWorking\033[0m \033[2m(1s • \033[0;1mesc\033[0;2m to interrupt)\033[0m\n\n\n'
 draft=
@@ -44,8 +50,6 @@ composer "$draft"
 [ "$state" = truecolor ] && printf '\033[48;2;30;68;78m'
 # A deaf program never reads: typed keys stay in the composer.
 [ "$state" = deaf ] && exec sleep 300
-# Without echo the typed notice never shows in the composer.
-[ "$state" = noecho ] && stty -echo
 while IFS= read -r line; do
 	printf '%s\n' "$line" >> "$received"
 	printf '\033[2J\033[H\033[1;2m›\033[0m %s\n\n' "$line"
@@ -301,8 +305,9 @@ func TestCodexWakeAttemptsThroughTheScheduler(t *testing.T) {
 		switch {
 		case args[0] == "capture-pane":
 			captures++
-			// The reads after Enter fail: the submission stays unconfirmed.
-			if captures >= 3 && captures <= 7 {
+			// The reads after Enter fail: the submission stays unconfirmed. The busy check, the
+			// read before typing and the readback come first (#758).
+			if captures >= 4 && captures <= 8 {
 				return "", errors.New("synthetic capture failure")
 			}
 		case args[0] == "send-keys" && len(args) > 3 && args[3] == "-l":

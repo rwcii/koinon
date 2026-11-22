@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/rwcii/koinon/internal/core"
+	"github.com/rwcii/koinon/internal/signed"
 )
 
 // The maintainer mode of koinon mcp (PDR 009, Decision 3): a stdio server that acts as the
@@ -31,6 +32,9 @@ type MaintainerConfig struct {
 	Token   string
 	Client  string
 	Version string
+	// Signed is a signed session (#693; Decision 5.3 of the signed maintainer contract): the
+	// server has the one tool signed, no resources and no notices, and Token is the session's.
+	Signed bool
 }
 
 // ErrTokenExpired ends a maintainer-mode server after it answered a call with
@@ -61,6 +65,34 @@ var (
 	boardFilter  = map[string]any{"type": "string", "enum": []string{"waiting", "active", "returned", "in_progress", "archived"}}
 	pageLimit    = map[string]any{"type": "integer", "minimum": 0, "maximum": 100}
 )
+
+// SignedSession opens a signed maintainer session with a session envelope, as the client
+// signed it. It returns the token and the client, key:CLIENT.
+func SignedSession(ctx context.Context, stateDir, address string, envelope []byte) (string, string, error) {
+	bearer, err := core.ClientSecret(stateDir, address)
+	if err != nil {
+		return "", "", err
+	}
+	data, err := core.CallEnvelope(ctx, address, bearer, "/v1/maintainer/signed/session", envelope, "", 10*time.Second)
+	if err != nil {
+		return "", "", err
+	}
+	var reply struct {
+		Token  string `json:"token"`
+		Client string `json:"client"`
+	}
+	if json.Unmarshal(data, &reply) != nil || reply.Token == "" {
+		return "", "", errors.New("invalid daemon response")
+	}
+	return reply.Token, reply.Client, nil
+}
+
+// signedTools is the one tool of a signed session.
+var signedTools = []map[string]any{
+	{"name": "signed", "description": "Run one signed maintainer action: envelope is the envelope that the maintainer client signed, as a JSON object (or as a string of its JSON text). The answer is the target's answer unchanged: {\"ok\": true, \"result\": ...} or {\"ok\": false, \"code\", \"error\", \"details\"}.",
+		"inputSchema": map[string]any{"type": "object", "properties": map[string]any{"envelope": map[string]any{"type": []string{"object", "string"}}},
+			"required": []string{"envelope"}, "additionalProperties": false}},
+}
 
 // maintainerTools are the tools of the maintainer mode. Each one calls the daemon route with
 // its name, with - for _, under /v1/maintainer/.
@@ -111,7 +143,14 @@ type maintainerServer struct {
 	// expired is closed when the long poll reads maintainer_token_expired.
 	expired    chan struct{}
 	expireOnce sync.Once
+	// calls counts a signed session's tool calls in flight, and slots bounds them.
+	calls sync.WaitGroup
+	slots chan struct{}
 }
+
+// maxSignedCalls bounds a signed session's tool calls in flight: a client keeps one changes
+// wait per target, at most link.MaxPairs + 1, with room for as many actions besides.
+const maxSignedCalls = core.MaxSignedCalls
 
 // changePoll is a running long poll and the means to end and join it.
 type changePoll struct {
@@ -127,11 +166,23 @@ const pollSeconds = 25
 // of its change notices reads that code, it returns ErrTokenExpired, also while the input is
 // open and idle. A request in progress gets its reply first. The long poll ends before
 // ServeMaintainer returns, so nothing is written after it.
-func ServeMaintainer(ctx context.Context, c MaintainerConfig, in io.Reader, out io.Writer) error {
+func ServeMaintainer(ctx context.Context, c MaintainerConfig, in io.Reader, out io.Writer) (err error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	s := &maintainerServer{c: c, out: json.NewEncoder(out), subs: map[string]string{}, expired: make(chan struct{})}
+	s := &maintainerServer{c: c, out: json.NewEncoder(out), subs: map[string]string{}, expired: make(chan struct{}), slots: make(chan struct{}, maxSignedCalls)}
 	defer s.stopPoll()
+	// A signed session's calls in flight write their replies before the server returns, and
+	// an expiry that one of them reads, also after the end of the input, is the result.
+	defer func() {
+		s.calls.Wait()
+		select {
+		case <-s.expired:
+			if err == nil {
+				err = ErrTokenExpired
+			}
+		default:
+		}
+	}()
 	type input struct {
 		line []byte
 		err  error
@@ -208,11 +259,35 @@ func (s *maintainerServer) handle(ctx context.Context, line []byte) bool {
 	case "ping":
 		s.reply(r.ID, map[string]any{})
 	case "tools/list":
-		s.reply(r.ID, map[string]any{"tools": maintainerTools})
+		if s.c.Signed {
+			s.reply(r.ID, map[string]any{"tools": signedTools})
+		} else {
+			s.reply(r.ID, map[string]any{"tools": maintainerTools})
+		}
 	case "tools/call":
+		if s.c.Signed {
+			s.signedAsync(ctx, r)
+			return false
+		}
 		result, expired := s.call(ctx, r.Params)
 		s.reply(r.ID, result)
 		return expired
+	case "resources/list", "resources/read", "resources/subscribe", "resources/unsubscribe":
+		if s.c.Signed {
+			// A signed session learns of changes with signed changes waits (Decision 6).
+			s.fail(r.ID, -32601, "method not found")
+			return false
+		}
+		return s.resources(ctx, r)
+	default:
+		s.fail(r.ID, -32601, "method not found")
+	}
+	return false
+}
+
+// resources answers the resource methods of a secret session.
+func (s *maintainerServer) resources(ctx context.Context, r rpcRequest) bool {
+	switch r.Method {
 	case "resources/list":
 		return s.listResources(ctx, r.ID)
 	case "resources/read", "resources/subscribe", "resources/unsubscribe":
@@ -235,8 +310,6 @@ func (s *maintainerServer) handle(ctx context.Context, line []byte) bool {
 			return s.subscribe(ctx, r.ID, p.URI)
 		}
 		s.unsubscribe(r.ID, p.URI)
-	default:
-		s.fail(r.ID, -32601, "method not found")
 	}
 	return false
 }
@@ -258,6 +331,15 @@ func (s *maintainerServer) initialize(r rpcRequest) {
 	release := s.c.Version
 	if release == "" {
 		release = "dev"
+	}
+	if s.c.Signed {
+		s.reply(r.ID, map[string]any{
+			"protocolVersion": version,
+			"capabilities":    map[string]any{"tools": map[string]any{}},
+			"serverInfo":      map[string]any{"name": "koinon", "version": release},
+			"instructions":    "Koinon signed maintainer session: the tool signed runs one action that the maintainer client signed with its own key, as the maintainer, with the weight of the dashboard (PDR 005, Decision 3). The target computer checks the envelope and records the user and client of the key's authorization. Learn of changes with signed changes waits. When the session ends, a call answers maintainer_token_expired and this server exits; sign a new session envelope and start koinon mcp --maintainer --signed again.",
+		})
+		return
 	}
 	s.reply(r.ID, map[string]any{
 		"protocolVersion": version,
@@ -314,9 +396,87 @@ func invalidArguments(text string) map[string]any {
 	return result(map[string]any{"ok": false, "code": "invalid_arguments", "error": refusalText(text)}, true)
 }
 
+// signedAsync runs one signed tool call in its own goroutine, so that a changes wait does not
+// hold the session's other calls (Decisions 5.3 and 6.2 of the signed maintainer contract). A
+// call beyond maxSignedCalls is refused at once with nothing sent. maintainer_token_expired
+// from any call ends the server after the calls in flight have answered.
+func (s *maintainerServer) signedAsync(ctx context.Context, r rpcRequest) {
+	select {
+	case s.slots <- struct{}{}:
+	default:
+		s.reply(r.ID, result(map[string]any{"ok": false, "code": "too_many_calls",
+			"error": "too many calls of this session are in flight; send it again when one has answered", "details": map[string]any{"limit": maxSignedCalls}}, true))
+		return
+	}
+	s.calls.Add(1)
+	go func() {
+		defer s.calls.Done()
+		defer func() { <-s.slots }()
+		answer, expired := s.signedCall(ctx, r.Params)
+		s.reply(r.ID, answer)
+		if expired {
+			s.expireOnce.Do(func() { close(s.expired) })
+		}
+	}()
+}
+
+// signedCall runs the signed tool: it takes the envelope out of the call as the client wrote
+// it and posts those bytes with the session's token. It reports whether the daemon answered
+// maintainer_token_expired.
+func (s *maintainerServer) signedCall(ctx context.Context, raw json.RawMessage) (map[string]any, bool) {
+	var p struct {
+		Name      string                     `json:"name"`
+		Arguments map[string]json.RawMessage `json:"arguments"`
+	}
+	if json.Unmarshal(raw, &p) != nil {
+		return failure("invalid_arguments"), false
+	}
+	if p.Name != "signed" {
+		return failure("unknown_tool"), false
+	}
+	for name := range p.Arguments {
+		if name != "envelope" {
+			return invalidArguments("unknown argument " + name), false
+		}
+	}
+	value := bytes.TrimSpace(p.Arguments["envelope"])
+	var envelope []byte
+	switch {
+	case len(value) > 0 && value[0] == '{':
+		envelope = value
+	case len(value) > 0 && value[0] == '"':
+		// The string form: what decoding the string would replace silently is refused first.
+		if signed.ValidText(value) != nil {
+			return invalidArguments("envelope is not valid text"), false
+		}
+		var text string
+		if json.Unmarshal(value, &text) != nil {
+			return invalidArguments("envelope is not a JSON string"), false
+		}
+		envelope = []byte(text)
+	default:
+		return invalidArguments("missing argument envelope: a JSON object or a string of its JSON text"), false
+	}
+	data, err := s.withBearer(func(address, bearer string) (json.RawMessage, error) {
+		// A forwarded changes wait answers within the node's write deadline; this is longer.
+		return core.CallEnvelope(ctx, address, bearer, "/v1/maintainer/signed", envelope, s.c.Token, core.SignedCallTimeout)
+	})
+	if err != nil {
+		return refusal(core.Key{Family: "maintainer"}, err), code(err) == ErrTokenExpired.Code
+	}
+	return map[string]any{"content": []map[string]any{{"type": "text", "text": string(data)}}, "isError": false}, false
+}
+
 // daemon calls a maintainer route with the daemon's bearer secret and a time limit, reading
 // the secret again after a failure so that a recreated state root is picked up.
 func (s *maintainerServer) daemon(ctx context.Context, path string, body any, timeout time.Duration) (json.RawMessage, error) {
+	return s.withBearer(func(address, bearer string) (json.RawMessage, error) {
+		return core.CallTimeout(ctx, address, bearer, path, body, timeout)
+	})
+}
+
+// withBearer runs one daemon call with the daemon's address and bearer secret.
+func (s *maintainerServer) withBearer(call func(address, bearer string) (json.RawMessage, error)) (json.RawMessage, error) {
 	address := s.c.Address
 	if s.c.Resolve != nil {
 		var err error
@@ -336,7 +496,7 @@ func (s *maintainerServer) daemon(ctx context.Context, path string, body any, ti
 		s.bearer = bearer
 		s.mu.Unlock()
 	}
-	data, err := core.CallTimeout(ctx, address, bearer, path, body, timeout)
+	data, err := call(address, bearer)
 	var refused core.RefusedError
 	if errors.Is(err, core.ErrUnavailable) || errors.As(err, &refused) && refused.Code == "unauthorized" {
 		s.mu.Lock()

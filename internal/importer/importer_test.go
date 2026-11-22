@@ -282,15 +282,23 @@ func TestImportedStateServes(t *testing.T) {
 	overrides := f.overrides()
 	overrides[a.Key] = common
 	// The fixture's pending snapshot was created at a fixed time and the daemon expires it
-	// after an hour; the copy gets the current time, so the import keeps it pending (#443).
+	// after an hour (#443), and its cursors were updated at a fixed time and the daemon
+	// retires a consumer after 30 days (#778). The copy gets the current time, so the import
+	// keeps the snapshot pending and the consumers active.
 	copied, err := sql.Open("sqlite", "file:"+filepath.Join(f.state, "memory", a.Key, "memory.sqlite3"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r, err := copied.Exec(`UPDATE snapshots SET created=? WHERE acked IS NULL`, float64(time.Now().Unix())); err != nil {
+	now := float64(time.Now().Unix())
+	if r, err := copied.Exec(`UPDATE snapshots SET created=? WHERE acked IS NULL`, now); err != nil {
 		t.Fatal(err)
 	} else if n, _ := r.RowsAffected(); n != 1 {
 		t.Fatalf("pending snapshots in the copy: %d", n)
+	}
+	if r, err := copied.Exec(`UPDATE cursors SET updated=?`, now); err != nil {
+		t.Fatal(err)
+	} else if n, _ := r.RowsAffected(); n != 2 {
+		t.Fatalf("cursors in the copy: %d", n)
 	}
 	copied.Close()
 	p := Paths{Root: f.root, Attempt: "s"}

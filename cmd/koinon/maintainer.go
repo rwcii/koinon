@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,19 +11,24 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/rwcii/koinon/internal/core"
 	"github.com/rwcii/koinon/internal/mcp"
 	"github.com/rwcii/koinon/internal/platform"
+	"github.com/rwcii/koinon/internal/signed"
 )
 
 // maintainerCommand runs koinon maintainer secret set|generate|clear (PDR 009, Decision 1).
 // A secret is never an argument: set reads it from the terminal with echo off, or from
 // the first line of standard input.
 func maintainerCommand(ctx context.Context, args []string, in io.Reader, out io.Writer) error {
+	if len(args) > 0 && args[0] == "key" {
+		return maintainerKeyCommand(ctx, args[1:], out)
+	}
 	if len(args) < 2 || args[0] != "secret" || args[1] != "set" && args[1] != "generate" && args[1] != "clear" {
-		return usageError{"invalid_request", "use koinon maintainer secret set, generate or clear"}
+		return usageError{"invalid_request", "use koinon maintainer secret set, generate or clear, or koinon maintainer key add, list or remove"}
 	}
 	action := args[1]
 	root, err := platform.DefaultStateDir()
@@ -88,9 +94,22 @@ func readNewSecret(in io.Reader, tell *os.File) (string, error) {
 // readNewSecretFrom reads the two entries from in, the reader of the terminal fd, with echo
 // off on fd. in can be the buffered reader that the command's other questions share.
 func readNewSecretFrom(fd int, in io.Reader, tell *os.File) (string, error) {
-	restore, err := platform.NoEcho(fd)
+	entries, err := readHidden(fd, in, tell, "New maintainer secret: ", "Repeat it: ")
 	if err != nil {
 		return "", err
+	}
+	if entries[0] != entries[1] {
+		return "", usageError{"invalid_request", "the two entries differ; nothing was changed"}
+	}
+	return entries[0], nil
+}
+
+// readHidden reads one secret line for each prompt from in, the reader of the terminal fd,
+// with echo off on fd.
+func readHidden(fd int, in io.Reader, tell *os.File, prompts ...string) ([]string, error) {
+	restore, err := platform.NoEcho(fd)
+	if err != nil {
+		return nil, err
 	}
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGINT, syscall.SIGTERM)
@@ -111,8 +130,8 @@ func readNewSecretFrom(fd int, in io.Reader, tell *os.File) (string, error) {
 		case <-done:
 		}
 	}()
-	var entries [2]string
-	for i, prompt := range []string{"New maintainer secret: ", "Repeat it: "} {
+	entries := make([]string, len(prompts))
+	for i, prompt := range prompts {
 		fmt.Fprint(tell, prompt)
 		entries[i], err = core.ReadSecretLine(in)
 		fmt.Fprintln(tell)
@@ -123,19 +142,16 @@ func readNewSecretFrom(fd int, in io.Reader, tell *os.File) (string, error) {
 			if b, ok := in.(*bufio.Reader); ok {
 				b.Discard(b.Buffered())
 			}
-			return "", err
+			return nil, err
 		}
 	}
-	if entries[0] != entries[1] {
-		return "", usageError{"invalid_request", "the two entries differ; nothing was changed"}
-	}
-	return entries[0], nil
+	return entries, nil
 }
 
 // maintainerFlags are the options of koinon mcp --maintainer (PDR 009, Decision 3).
 type maintainerFlags struct {
-	on, stdin    *bool
-	client, file *string
+	on, stdin, signed *bool
+	client, file      *string
 }
 
 func (m *maintainerFlags) add(flags *flag.FlagSet) {
@@ -143,6 +159,7 @@ func (m *maintainerFlags) add(flags *flag.FlagSet) {
 	m.client = flags.String("client", "", "the maintainer client's name, recorded as via mcp:NAME")
 	m.stdin = flags.Bool("secret-stdin", false, "read the maintainer secret from the first line of standard input")
 	m.file = flags.String("secret-file", "", "read the maintainer secret from the first line of this private file")
+	m.signed = flags.Bool("signed", false, "open a signed session: the first line of standard input is a signed session envelope")
 }
 
 // used reports whether any maintainer-mode option was given.
@@ -150,7 +167,7 @@ func (m maintainerFlags) used(flags *flag.FlagSet) bool {
 	used := false
 	flags.Visit(func(f *flag.Flag) {
 		switch f.Name {
-		case "maintainer", "client", "secret-stdin", "secret-file":
+		case "maintainer", "client", "secret-stdin", "secret-file", "signed":
 			used = true
 		}
 	})
@@ -162,11 +179,20 @@ func (m maintainerFlags) used(flags *flag.FlagSet) bool {
 // maintainer token and then serves the maintainer tools. A refusal ends the command before
 // any MCP output. It registers no agent session.
 func maintainerMCP(ctx context.Context, state, address string, resolve func() (string, error), m maintainerFlags, flags *flag.FlagSet, in io.Reader, out io.Writer) error {
-	fileGiven := false
-	flags.Visit(func(f *flag.Flag) { fileGiven = fileGiven || f.Name == "secret-file" })
+	fileGiven, clientGiven := false, false
+	flags.Visit(func(f *flag.Flag) {
+		fileGiven = fileGiven || f.Name == "secret-file"
+		clientGiven = clientGiven || f.Name == "client"
+	})
+	if *m.on && *m.signed {
+		if clientGiven || *m.stdin || fileGiven {
+			return usageError{"invalid_request", "a signed session takes no --client or secret: the key's authorization names the client"}
+		}
+		return signedMCP(ctx, state, address, resolve, in, out)
+	}
 	switch {
 	case !*m.on:
-		return usageError{"invalid_request", "--client, --secret-stdin and --secret-file are options of koinon mcp --maintainer"}
+		return usageError{"invalid_request", "--client, --secret-stdin, --secret-file and --signed are options of koinon mcp --maintainer"}
 	case !core.MaintainerClientName.MatchString(*m.client):
 		return usageError{"invalid_request", "--client NAME is 1 to 32 characters of a-z, 0-9 and -, and starts with a letter or digit"}
 	case *m.stdin == fileGiven:
@@ -191,6 +217,54 @@ func maintainerMCP(ctx context.Context, state, address string, resolve func() (s
 		return err
 	}
 	return mcp.ServeMaintainer(ctx, mcp.MaintainerConfig{StateDir: state, Address: address, Resolve: resolve, Token: token, Client: *m.client, Version: version}, in, out)
+}
+
+// signedMCP runs koinon mcp --maintainer --signed (#693; Decision 5.1 of the signed maintainer
+// contract): the first line of standard input is a signed session envelope in place of the
+// secret. A refusal ends the command before any MCP output.
+func signedMCP(ctx context.Context, state, address string, resolve func() (string, error), in io.Reader, out io.Writer) error {
+	envelope, err := readEnvelopeLine(in)
+	if err != nil {
+		return err
+	}
+	token, client, err := mcp.SignedSession(ctx, state, address, envelope)
+	if err != nil {
+		return err
+	}
+	return mcp.ServeMaintainer(ctx, mcp.MaintainerConfig{StateDir: state, Address: address, Resolve: resolve, Token: token,
+		Client: strings.TrimPrefix(client, "key:"), Version: version, Signed: true}, in, out)
+}
+
+// readEnvelopeLine reads the first line of r one byte at a time, so that the MCP stream after
+// it stays unread, up to an envelope's bound. It removes one LF or CRLF.
+func readEnvelopeLine(r io.Reader) ([]byte, error) {
+	var line []byte
+	b := make([]byte, 1)
+	for {
+		n, err := r.Read(b)
+		if n == 1 {
+			if b[0] == '\n' {
+				break
+			}
+			// One byte beyond the bound is room for the CR of a CRLF.
+			if len(line) > signed.MaxEnvelopeBytes {
+				return nil, usageError{"invalid_request", "the session envelope is longer than an envelope's bound"}
+			}
+			line = append(line, b[0])
+			continue
+		}
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	line = bytes.TrimSuffix(line, []byte("\r"))
+	if len(bytes.TrimSpace(line)) == 0 {
+		return nil, usageError{"invalid_request", "no session envelope was given on the first line of standard input"}
+	}
+	return line, nil
 }
 
 // readSecretFile reads the first line of a secret file: a regular file, not a symbolic link,

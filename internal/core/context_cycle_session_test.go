@@ -440,6 +440,7 @@ func (g *sessionFixture) reopen(t *testing.T) {
 	}
 	t.Cleanup(func() { reopened.cycleWork.stop(); reopened.db.Close() })
 	reopened.now = g.s.now
+	reopened.processStart = g.s.processStart
 	g.s = reopened
 }
 
@@ -630,6 +631,7 @@ func TestSessionCycleWorkerBound(t *testing.T) {
 // no request for it (a two-cycle schedule).
 func TestSessionCycleReceiptDelaysNoOtherCycle(t *testing.T) {
 	g := newSessionFixture(t)
+	pinSyntheticHost(g.s, 4243, 78)
 	g.session.receiptBlock = make(chan struct{})
 	t.Cleanup(func() {
 		select {

@@ -65,7 +65,12 @@ func (s *server) libraryStateCall(ctx context.Context, caller core.Key, name str
 		value, err = client.Decision(ctx, *request.(*libraryclient.DecisionRequest))
 	}
 	if err != nil {
+		var local core.Refusal
 		switch {
+		case errors.As(err, &local):
+			// A refusal of this process, such as a project directory that is not a listed
+			// worktree of the registered repository (#753), keeps its code and reason.
+			return result(map[string]any{"ok": false, "code": local.Code, "error": local.Message}, true)
 		case errors.Is(err, library.ErrInvalidQuery), errors.Is(err, library.ErrInvalidDecision), errors.Is(err, core.ErrInvalid):
 			return failure("invalid_arguments")
 		case errors.Is(err, library.ErrUnsupportedScope):

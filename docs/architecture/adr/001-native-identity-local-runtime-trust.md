@@ -3,7 +3,7 @@ adr: "001"
 title: "Native Identity and Local Runtime Trust"
 status: draft
 created: "2026-10-12"
-updated: "2026-11-06"
+updated: "2026-11-12"
 parent_adr: ""
 authors:
   - "Robert Capps"
@@ -39,7 +39,10 @@ browser login and request checks. The upgrade from the Python runtime runs that 
 uninstaller.
 
 Every decision here is shipped behavior with no maintainer decision found, so the record is a
-draft: it states what Koinon currently does and why.
+draft: it states what Koinon currently does and why. The private Tailscale Serve dashboard
+surface, accepted by Robert Capps on 2026-11-12 (#645), is recorded in [ADR 002](002-private-remote-dashboard-transport.md);
+it retains the loopback agent API boundary and the existing LAN dashboard. Its Decision 4 adds
+a second loopback listener for the link between the maintainer's Koinon computers (#670).
 
 ---
 
@@ -219,11 +222,15 @@ and the replacement/removal commands for the same state directory, retaining the
 ownership, mode and link checks.
 
 Implementation (part 2, the installation questions): at a terminal, a first `koinon install`
-asks "Open the dashboard only on this computer (default), or also on a network address?". It
+asks "Where should the dashboard open?", with the answers only on this computer (default), on
+this computer and the tailnet through Tailscale Serve (#665, PDR 010 Refinement 8), or also on
+a network address. It
 asks nothing with a saved network setting, a saved local-only answer, `--dashboard-address`,
 `koinon upgrade`, `--plan` or without a terminal. The local answer, also an empty one, is saved
 in the private, owner-checked `dashboard-local.json`, which the daemon does not read;
-`--dashboard-address none` saves it too. A network answer lists this host's addresses without
+`--dashboard-address none` saves it too, and so does the tailnet answer, which then enables
+remote access after the start. The dashboard's access switch (#665) also saves it and
+removes the network setting, then closes the network listener at once. A network answer lists this host's addresses without
 loopback, multicast and IPv6 link-local addresses, takes a number or an FQDN, then a port
 (default 8443), and checks the answer as `--dashboard-address` does. A refused answer is shown
 with its reason and asked again. Ended input or a cancel in the choice, address or port
@@ -236,6 +243,18 @@ restart, with the URL and the certificate fingerprint, or `dashboard_restart_fai
 step. "Not now" keeps the network setting and reports `dashboard_secret_required` with its
 step. `--no-start` saves the answer and skips the secret, the start and the restart. One
 buffered reader serves every question of an install, so no answer typed ahead is lost.
+
+**Changed 2026-11-12 (#670, ADR 002 Decision 4, LINK-670-PAIR):** while Remote is on and the
+link is set up, the daemon also opens a link listener on `127.0.0.1`, reached through a raw TCP
+Tailscale Serve mapping. It serves no agent API route: it accepts only TLS 1.3 with a client
+key that is paired, or the pairing operation of an open invitation. Since #670 chunk 02 it
+also answers a paired key's request for the receiver directory (names, family, role,
+repository name and activity; no session ID, path or credential). Since #670 chunk 03 it
+also takes a paired key's `deliver` and `cancel` on that pair's ordered stream: a received
+message goes into the local inbox in one store transaction with the stream's mark. The queue to
+the other computers (`link_outbox`), the streams (`link_streams`) and the bodies are runtime
+data in the same private store as every other message. The agent API stays on loopback with
+its bearer secret.
 
 ### Alternatives Considered
 
@@ -314,6 +333,9 @@ refused unless `Host` is a literal loopback IP with a port (`127.0.0.1:PORT` or 
 `localhost`) and any `Origin` is `http://` plus that `Host`. The port need not be the listener's, so an SSH tunnel from another
 local port reaches the dashboard. A request other than `GET` or `HEAD` also needs a CSRF token
 derived from the session. Responses carry a strict content security policy and deny framing.
+**Changed 2026-11-12 (#645, ADR 002):** the policy also allows `blob:` images (`img-src 'self'
+blob:`), on every dashboard surface, so the dashboard on the host can show the sign-in QR that
+its page fetches as an image; scripts, styles and connections stay `'self'`.
 Each administrative action writes an audit record.
 
 The optional network listener (DASHBOARD-LAN-624, Decision 2) accepts exactly the selected
@@ -427,3 +449,8 @@ agent.
 | 2026-10-25 | Decision 4: the login form accepts the maintainer secret (PDR 009, #470) |
 | 2026-10-25 | Requirement 3, Decisions 1 and 3: the peer-data and "does not" statements are restated as what the code does (#487) |
 | 2026-10-26 | Decision 1: the maintainer kept the `identity_unavailable` refusal (493-1, #493) |
+| 2026-11-11 | Link the private remote surface in ADR 002 and PDR 010. |
+| 2026-11-12 | The remote surface is accepted by Robert Capps (#645); Decision 4 records the `blob:` image source of the content security policy. |
+| 2026-11-12 | Decision 2: the link listener for paired Koinon computers (ADR 002 Decision 4, #670). |
+| 2026-11-13 | Decision 2: the link listener also answers the receiver directory (#670 chunk 02). |
+| 2026-11-13 | Decision 2: the link listener takes messages of paired computers; the outbox and streams are in the private store (#670 chunk 03). |

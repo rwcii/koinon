@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,17 +16,19 @@ import (
 )
 
 // Dashboard login (sprint chunk 08). A one-time link from the bearer API, or the maintainer
-// secret (PDR 009), starts a browser session; the daemon keeps only hashes of links and session IDs, in memory, so a restart
-// ends every login. The CSRF token is derived from the session ID with a per-start key,
+// secret (PDR 009), starts a browser session. Local/API sessions remain in memory;
+// remote bearer hashes and their fixed deadlines persist in private SQLite.
+// The CSRF token is derived from the session bearer with a per-start key,
 // so it needs no storage of its own.
 
 const (
 	dashboardCookie = "koinon_dashboard"
 	dashboardCSRF   = "X-Koinon-CSRF"
 	linkLifetime    = 60 * time.Second
-	// A login lasts through a working day and the night after it without a request, and
-	// at most a week (#435).
+	// Local browser and maintainer-token logins allow a day idle (#435).
+	// Remote browser logins have a fixed 48-hour window; local/API limits stay unchanged.
 	sessionIdle       = 24 * time.Hour
+	remoteSessionIdle = 48 * time.Hour
 	sessionAbsolute   = 7 * 24 * time.Hour
 	maxLoginLinks     = 8
 	maxDashboardLogin = 16
@@ -37,14 +40,27 @@ const (
 type dashboardSession struct {
 	created, used time.Time
 	client        string
+	// key is the authorization of a signed session (#693): its client is key:CLIENT, and it
+	// ends when the key's authorization ends.
+	key *MaintainerKey
 }
 
 type dashboardAuth struct {
-	mu       sync.Mutex
-	now      func() time.Time
-	csrfKey  []byte
-	links    map[[32]byte]time.Time
-	sessions map[[32]byte]*dashboardSession
+	store              *Store
+	denied             map[[32]byte]string
+	denyAllRemote      bool
+	pendingRevocations map[string]string
+	// invalidRemote names the stored remote session rows that failed their checks.
+	invalidRemote []string
+	authReason    string
+	storeHealth   string
+	lastPhone     int64
+	mu            sync.Mutex
+	now           func() time.Time
+	csrfKey       []byte
+	links         map[[32]byte]time.Time
+	tickets       map[[32]byte]remoteTicket
+	sessions      map[[32]byte]*dashboardSession
 	// gate orders the maintainer secret's checks and changes (PDR 009).
 	gate secretGate
 }
@@ -54,7 +70,7 @@ func newDashboardAuth(now func() time.Time) (*dashboardAuth, error) {
 	if _, err := rand.Read(key); err != nil {
 		return nil, err
 	}
-	return &dashboardAuth{now: now, csrfKey: key, links: map[[32]byte]time.Time{}, sessions: map[[32]byte]*dashboardSession{},
+	return &dashboardAuth{denied: map[[32]byte]string{}, storeHealth: "healthy", now: now, csrfKey: key, links: map[[32]byte]time.Time{}, tickets: map[[32]byte]remoteTicket{}, sessions: map[[32]byte]*dashboardSession{},
 		gate: secretGate{mu: make(chanMutex, 1)}}, nil
 }
 
@@ -137,6 +153,19 @@ func (a *dashboardAuth) start(client string) (string, error) {
 	sessionHash, _ := tokenHash(id)
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if strings.HasPrefix(client, "remote:") {
+		if err := a.startRemoteLocked(sessionHash, strings.TrimPrefix(client, "remote:")); err != nil {
+			return "", err
+		}
+	} else {
+		a.startLocked(sessionHash, client)
+	}
+	return id, nil
+}
+
+// startLocked inserts a freshly generated session while the caller holds mu. QR
+// redemption uses it in the same critical section as consuming its ticket.
+func (a *dashboardAuth) startLocked(sessionHash [32]byte, client string) {
 	now := a.now()
 	a.prune(now)
 	for len(a.sessions) >= maxDashboardLogin {
@@ -150,19 +179,33 @@ func (a *dashboardAuth) start(client string) (string, error) {
 		delete(a.sessions, oldest)
 	}
 	a.sessions[sessionHash] = &dashboardSession{created: now, used: now, client: client}
-	return id, nil
 }
 
-// endAll ends every login and maintainer token, when the maintainer secret changes.
+// endAll ends every login and maintainer token, when the maintainer secret changes. A signed
+// session does not depend on the secret; it ends with its key's authorization (endKey).
 func (a *dashboardAuth) endAll() {
 	a.mu.Lock()
-	clear(a.sessions)
+	for h, s := range a.sessions {
+		if s.key == nil {
+			delete(a.sessions, h)
+		}
+	}
+	clear(a.tickets)
+	_ = a.revokeRemoteLocked("", "password_changed")
 	a.mu.Unlock()
 }
 
 func (a *dashboardAuth) prune(now time.Time) {
 	for h, s := range a.sessions {
-		if !now.Before(s.used.Add(sessionIdle)) || !now.Before(s.created.Add(sessionAbsolute)) {
+		idle := sessionIdle
+		if strings.HasPrefix(s.client, "remote:") {
+			idle = remoteSessionIdle
+		}
+		absolute := sessionAbsolute
+		if strings.HasPrefix(s.client, "remote:") {
+			absolute = remoteSessionLifetime
+		}
+		if !now.Before(s.used.Add(idle)) || !now.Before(s.created.Add(absolute)) {
 			delete(a.sessions, h)
 		}
 	}
@@ -170,8 +213,13 @@ func (a *dashboardAuth) prune(now time.Time) {
 
 // cookieName is the login cookie of the port in the request's Host. Browsers do not separate
 // cookies by port, so each board opened under one loopback IP, such as a local daemon and a
-// tunnel to another computer's daemon, keeps its own login (#454).
+// tunnel to another computer's daemon, keeps its own login (#454). A remote login is named
+// after the HTTPS port of its origin for the same reason: two daemons served on one tailnet
+// name, such as an installed Koinon on 443 and a second one on 8444, keep their own logins.
 func cookieName(r *http.Request) string {
+	if origin := remoteOrigin(r); origin != "" {
+		return remoteCookieName(origin)
+	}
 	_, port, _ := net.SplitHostPort(r.Host)
 	if networkDashboard(r) {
 		if port == "" {
@@ -181,6 +229,15 @@ func cookieName(r *http.Request) string {
 		}
 	}
 	return dashboardCookie + "_" + port
+}
+
+// remoteCookieName is koinon_remote_dashboard_PORT for an https origin; the default port is 443.
+func remoteCookieName(origin string) string {
+	port := "443"
+	if u, err := url.Parse(origin); err == nil && u.Port() != "" {
+		port = u.Port()
+	}
+	return "koinon_remote_dashboard_" + port
 }
 
 // session checks the request's cookie and records its use. It returns the session ID.
@@ -196,9 +253,12 @@ func (a *dashboardAuth) session(r *http.Request) (string, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	now := a.now()
+	if origin := remoteOrigin(r); origin != "" && a.store != nil {
+		return cookie.Value, a.remoteSessionLocked(hash, origin)
+	}
 	a.prune(now)
 	s, found := a.sessions[hash]
-	if !found || s.client != "dashboard" {
+	if !found || s.client != dashboardClient(r) {
 		return "", false
 	}
 	s.used = now
@@ -238,12 +298,37 @@ func (a *dashboardAuth) live(id string) bool {
 	return found && strings.HasPrefix(s.client, "mcp:")
 }
 
-func (a *dashboardAuth) logout(id string) {
-	if hash, ok := tokenHash(id); ok {
-		a.mu.Lock()
-		delete(a.sessions, hash)
-		a.mu.Unlock()
+func (a *dashboardAuth) logout(id string) error {
+	hash, ok := tokenHash(id)
+	if !ok {
+		return nil
 	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if s := a.sessions[hash]; s != nil && !strings.HasPrefix(s.client, "remote:") {
+		delete(a.sessions, hash)
+		return nil
+	}
+	a.denied[hash] = "device_revoked"
+	if a.store == nil {
+		delete(a.sessions, hash)
+		return nil
+	}
+	sessions, err := a.readRemoteLocked()
+	if err != nil {
+		a.storeHealth = "unavailable"
+		if a.pendingRevocations == nil {
+			a.pendingRevocations = map[string]string{}
+		}
+		a.pendingRevocations["hash:"+hex.EncodeToString(hash[:])] = "device_revoked"
+		return ErrRevocationIncomplete
+	}
+	for _, s := range sessions {
+		if s.Hash == hex.EncodeToString(hash[:]) {
+			return a.revokeRemoteLocked(s.ID, "device_revoked")
+		}
+	}
+	return nil
 }
 
 func (a *dashboardAuth) csrf(id string) string {
@@ -272,7 +357,7 @@ func dashboardHost(r *http.Request) bool {
 // dashboardHeaders apply to every dashboard response, refusals included.
 func dashboardHeaders(w http.ResponseWriter) {
 	h := w.Header()
-	h.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
+	h.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' blob:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'")
 	h.Set("X-Frame-Options", "DENY")
 	h.Set("X-Content-Type-Options", "nosniff")
 	// same-origin, not no-referrer: under no-referrer a browser sends "Origin: null" with every
@@ -280,4 +365,60 @@ func dashboardHeaders(w http.ResponseWriter) {
 	h.Set("Referrer-Policy", "same-origin")
 	h.Set("Cache-Control", "no-store")
 	h.Set("Cross-Origin-Opener-Policy", "same-origin")
+}
+
+// A remote login is bound to the configured external origin, even if a cookie value is
+// copied into another surface's cookie. The origin comes only from listener configuration.
+func dashboardClient(r *http.Request) string {
+	if origin := remoteOrigin(r); origin != "" {
+		return "remote:" + origin
+	}
+	return "dashboard"
+}
+
+func (a *dashboardAuth) endRemote() { _ = a.revokeRemote("", "remote_disabled") }
+
+// startSigned begins a signed maintainer session for an authorization (#693; Decision 5.1 of
+// the signed maintainer contract), with the limits of a maintainer token.
+func (a *dashboardAuth) startSigned(key MaintainerKey) (string, error) {
+	id, err := randomToken()
+	if err != nil {
+		return "", err
+	}
+	hash, _ := tokenHash(id)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.startLocked(hash, "key:"+key.Client)
+	a.sessions[hash].key = &key
+	return id, nil
+}
+
+// signedToken checks a signed session's token and records its use. It returns the session's
+// authorization.
+func (a *dashboardAuth) signedToken(id string) (MaintainerKey, bool) {
+	hash, ok := tokenHash(id)
+	if !ok {
+		return MaintainerKey{}, false
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	now := a.now()
+	a.prune(now)
+	s, found := a.sessions[hash]
+	if !found || s.key == nil {
+		return MaintainerKey{}, false
+	}
+	s.used = now
+	return *s.key, true
+}
+
+// endKey ends the signed sessions of a key, when its authorization is removed or replaced.
+func (a *dashboardAuth) endKey(keyID string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for h, s := range a.sessions {
+		if s.key != nil && s.key.KeyID == keyID {
+			delete(a.sessions, h)
+		}
+	}
 }

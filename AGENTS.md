@@ -15,8 +15,9 @@ Each significant decision has one record with its source, scope and status. Othe
 the record, for example "see WDR 004" (WDR 001). A decision, from the decision board or given
 directly, goes into the record that it changes, in the pull request that does the work, with
 the decider's name, the date, the context, the decision, the reason and scope, and the
-condition for its review when one is known (WDR 001, Decision 7). A board decision is named by
-its card reference, never by its verdict ID.
+condition for its review when one is known (WDR 001, Decision 7). The record holds a board
+decision itself and is its source; no text cites the card reference or the verdict ID as the
+source.
 
 - [ADRs](docs/architecture/adr/README.md): how Koinon is built: native caller identity, the
   loopback daemon and its private store, content-free wakes, dashboard checks, the Python-era
@@ -49,6 +50,9 @@ sh -n .githooks/pre-commit        # when shell files change
 sh -n .githooks/commit-msg        # when shell files change
 sh -n scripts/decision-citations.sh  # when shell files change
 sh -n scripts/rerun-unacquired.sh    # when shell files change
+sh -n scripts/install-skills.sh      # when shell files change
+bash -n scripts/homebrew-bottles.sh  # when shell files change
+bash -n scripts/homebrew-formula.sh  # when shell files change
 ```
 
 Runtime and installation changes also need the four `CGO_ENABLED=0` builds: linux/amd64,

@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"encoding/json"
+	"github.com/rwcii/koinon/internal/link"
 	"net/http"
 	"reflect"
 	"regexp"
@@ -501,7 +502,15 @@ func (d *Daemon) observationRoutes(mux *http.ServeMux) {
 			return
 		}
 		d.store.ToolCall(request.Caller)
-		status, err := d.store.PeerStatus(r.Context(), request.Caller, request.Peer)
+		var status PeerStatus
+		var err error
+		if link.IsRemoteAddress(request.Peer) {
+			if err = d.store.activeCaller(r.Context(), request.Caller, d.store.now().UnixMilli()); err == nil {
+				status, err = d.remotePeerStatus(request.Peer)
+			}
+		} else {
+			status, err = d.store.PeerStatus(r.Context(), request.Caller, request.Peer)
+		}
 		if err != nil {
 			failure(w, err)
 			return

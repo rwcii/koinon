@@ -3,7 +3,7 @@
 ## The Go runtime
 
 The Go runtime is one `koinon` binary and one daemon per user. It needs no Python. The checkout no longer carries the Python runtime. The pinned previous release
-remains a supported input to the import and upgrade commands below. Every command prints a JSON report, except `koinon install --plan`, which prints commands (Next steps, below); a refusal prints `ok: false` with a fixed `code`.
+remains a supported input to the import and upgrade commands below. Every command prints a JSON report, except `koinon install --plan`, which prints commands (Next steps, below; `--json` gives them with their reasons); a refusal prints `ok: false` with a fixed `code`.
 
 Install and uninstall keep completed-step details in their report when a later step fails;
 the report then has `ok: false`, and the command exits unsuccessfully.
@@ -65,8 +65,10 @@ because brew can replace the linked file; upgrade it with
 ### Download and check
 
 Each release attaches four binaries, `koinon-linux-amd64`, `koinon-linux-arm64`,
-`koinon-darwin-amd64` and `koinon-darwin-arm64`, and a `SHA256SUMS` file. Check the binary
-before you run it:
+`koinon-darwin-amd64` and `koinon-darwin-arm64`, their Homebrew bottles
+(`koinon-VERSION.TAG.bottle.tar.gz`), from v0.13.0 `koinon-skills.tar.gz` (see
+[Skills on a computer with no Koinon](#skills-on-a-computer-with-no-koinon)), and a
+`SHA256SUMS` file that lists every one of them. Check the binary before you run it:
 
 ```sh
 sha256sum --check --ignore-missing SHA256SUMS      # Linux
@@ -198,7 +200,7 @@ refused with `python_install_present`. Use the upgrade instead.
 
 ### Next steps
 
-`koinon install --plan [--prefix DIR] [--state-dir DIR]` reads this machine's installation and
+`koinon install --plan [--json] [--prefix DIR] [--state-dir DIR]` reads this machine's installation and
 prints, one per line, only the commands that it still needs, or `The Koinon installation is
 current.` It changes nothing: it writes no file and no service, and asks nothing. Each command
 names the running binary, or the formula's opt path for a Homebrew binary, and repeats a given
@@ -213,19 +215,35 @@ names the running binary, or the formula's opt path for a Homebrew binary, and r
    path): `koinon install`, and nothing more.
 5. No user service manager, and no daemon of this version answers: `koinon install`, and
    nothing more; without a manager nothing starts the daemon after a restart (#619).
-6. No maintainer secret: `koinon maintainer secret set`. The daemon reports this in
+6. A `koinon-pickup` entry, a `koinon-NAME` skill entry or an OpenCode command file that is
+   missing, or that an earlier Koinon wrote: `koinon install`, and nothing more (#741). The plan
+   reads the same files that the install writes and writes none. A linked entry, another skill
+   at a shared name such as an adopted `koinon-guide`, and an edited command are kept and need
+   nothing. `library_state` does not check these entries: it checks catalog adoption.
+7. No maintainer secret: `koinon maintainer secret set`. The daemon reports this in
    `GET /v1/status`; the plan waits up to 20 seconds for it, since the daemon restarts after
    `brew upgrade`.
-7. Each agent family whose CLI is on `PATH` without the koinon server for the installed binary,
+8. Each agent family whose CLI is on `PATH` without the koinon server for the installed binary,
    and each configured Claude, agy or Grok family whose status line is missing or out of date
-   (#631): `koinon setup FAMILY --binary <prefix>/bin/koinon`, which configures the installed binary as
-   the install does.
+   (#631): `koinon setup FAMILY --binary <prefix>/bin/koinon`, which configures the installed
+   binary as the install does.
 
 The port is not in the plan; a change is optional (Port, below). When a check cannot finish,
 for example when the daemon does not answer, a daemon of an earlier release does not report the
-secret, a binary cannot be read, an agent's CLI fails or its output does not end, or 30 seconds
-pass, the plan prints no step, exits with 1 and
+secret, a binary or a skill entry cannot be read (`skill_entry_unreadable`, naming the path),
+an agent's CLI fails or its output does not end, or 30 seconds pass, the plan prints no step, exits with 1 and
 writes the error's code to standard error.
+
+`koinon install --plan --json` does the same checks and prints one JSON object for scripts and
+agents (#745): `ok`, `current` (true exactly when `steps` is empty) and `steps`, each with its
+`command` and its `reasons`. Each reason has a `code`: `python_install`, `not_installed`,
+`binary_differs`, `homebrew_link_differs`, `no_current_daemon` (no service manager and no daemon
+of this release answers), `entry_needs_install` (one for each entry, with `kind`
+`pickup_skill`, `skill` or `opencode_command`, `family`, `path` and `result` `created` or
+`replaced`), `maintainer_secret_unset`, `agent_not_set_up` or `status_line_needed` (with
+`family`). As in the text form, an install or upgrade step comes alone, so the reasons are those
+of the checks that the plan reached. A check that cannot finish gives the same error, and no
+plan. The text form stays the one for people and the Homebrew caveats.
 
 ### Port
 
@@ -256,19 +274,67 @@ address. Without a recorded port, everything stays at 47671. A session that a la
 v0.6.0 or earlier started keeps the former address in its environment, also after `/clear`;
 start it again after the change.
 
+### Private remote dashboard
+
+For phone access away from home, install and connect Tailscale on the host and
+phone, enable its HTTPS certificate permission, and set the existing maintainer
+secret. Then run:
+
+```sh
+koinon remote enable
+koinon remote status
+```
+
+Enable prints a stable private HTTPS dashboard URL and a QR containing only that
+URL. The phone signs in with the maintainer secret. Status distinguishes local
+listener and dependency readiness from phone reachability, which remains
+unverified until checked on the phone. Follow the full
+[remote setup guide](REMOTE-DASHBOARD.md), including its cellular action check.
+The host must be awake and online. Ordinary local use needs no Tailscale.
+
+The optional listener has its own saved loopback port in the private, owner-checked
+`remote-dashboard.json`, and the daemon restores it after restart. Serve uses a
+persistent background mapping. Orderly daemon shutdown removes the owned mapping
+before releasing the backend port, keeping the enabled journal for restoration
+on the next start. A port conflict is reported and its owned forwarding removed
+instead of changing ports. An unavailable dependency leaves the local API
+running. Upgrade retains the setting. Remote browser sign-in survives routine
+restart and upgrade until its original fixed 48-hour deadline, provided the private
+state, origin, password and browser cookie remain valid. Local browser sessions
+still end on restart. The [remote guide](REMOTE-DASHBOARD.md#url-restarts-and-configuration-ownership)
+describes the unresolved loopback ownership window after abrupt termination or
+failed shutdown cleanup.
+
+`koinon remote disable` stops only this listener, ends its logins, and removes
+only its recorded Serve root mapping. Unrelated mappings and the Tailscale login
+stay. A changed mapping is preserved and reported. Cleanup failures retain
+ownership intent for a repeat or restart. This is separate from the LAN HTTPS
+listener below; neither exposes `/v1/`. See ADR 002 and PDR 010.
+
 ### Network dashboard
 
 At a terminal, the first `koinon install` asks where the dashboard opens:
 
 ```text
-Open the dashboard only on this computer (default), or also on a network address?
+Where should the dashboard open?
   1. Only on this computer
-  2. Also on a network address, over HTTPS, with a login by the maintainer secret
+  2. On this computer and your tailnet, through Tailscale Serve, with a login by the maintainer secret (recommended on a computer in a tailnet; no network address)
+  3. Also on a network address, over HTTPS, with a login by the maintainer secret
 Choice [1]:
 ```
 
 Enter, or 1, keeps it on this computer and saves that answer in `dashboard-local.json` in the
-private state directory, so a later install asks nothing. 2 lists this host's network
+private state directory, so a later install asks nothing. 2 keeps it off the network address
+too and saves the same answer (#665). It asks for the Tailscale Serve HTTPS port (Enter takes
+443). After the daemon starts it offers the maintainer secret when none is set, as below, and
+then enables remote access, as `koinon remote enable --https-port PORT` does, with the
+[remote dashboard](REMOTE-DASHBOARD.md) and its operator question on Linux. When the
+daemon reports remote access on, with its listener and Serve mapping ready, the terminal
+shows the tailnet URL, and the report's `remote` has it with the port. When remote access
+cannot be enabled yet, for example because Tailscale is not set up, the install still
+completes: the terminal and `remote.error` and `remote.step` name the reason and the
+command to run, with this installation's `--address` and, when not the default, its
+`--state-dir`. With `--no-start`, it names the start and that command. 3 lists this host's network
 addresses, numbered; type a number or a fully qualified name of this host, then a port (Enter
 takes 8443). A refused address is shown with its reason, and the question comes again. When no
 maintainer secret is set, the install then offers to type one (twice, with echo off), to
@@ -314,6 +380,55 @@ working. Install/status show `dashboard_network` with the reason and next step. 
 secret, then run `koinon install` to start the listener. If a selected IP went away, run install
 again with an available address; a saved FQDN is resolved again. The daemon log names a failed
 network bind and its address.
+
+### Change where the dashboard opens
+
+The install asks its question once. To see or change the answer later, use one command
+(#685; PDR 010, section 10):
+
+```sh
+koinon remote configure                        # shows the choice; at a terminal, asks the question again
+koinon remote configure --choice local         # 1. Only on this computer
+koinon remote configure --choice tailnet [--https-port PORT]           # 2. this computer and your tailnet
+koinon remote configure --choice network [--dashboard-address HOST:PORT]  # 3. also on a network address
+```
+
+It shows the saved answer in the words of the install question, and on separate lines what
+the daemon runs now: the network address and the tailnet. A saved state with both a network
+address and the tailnet is named as such; any answer replaces it. When the daemon does not
+answer, what runs now is unknown, and the saved answer still shows. At a terminal, without
+`--choice`, it then asks the install question with the current values as the defaults: the
+answer, the Serve HTTPS port, and the network host and port. Without a terminal and without
+`--choice`, it only shows the choice. `--https-port` goes only with `--choice tailnet`, and
+`--dashboard-address` only with `--choice network`; without them, the saved port or address is
+kept, else the port is 443, and a network answer without a saved address needs
+`--dashboard-address`.
+
+Before the first change it checks the options, that the daemon answers, the network address
+(as install does), and that this installation's binary is present (give `--prefix` when the
+installation has one). When the answer needs a daemon restart, a user service file must be the
+one that install writes for this binary and state directory; another one, or none while a
+service manager answers, is refused with `service_mismatch`, and the file is not changed. The tailnet and network answers need the maintainer secret: at a
+terminal it offers to set or generate one, and without a terminal it is refused with
+`remote_secret_required`. A refusal, "not now" or ended input (Ctrl-D) changes nothing.
+
+Then it closes the old access before it opens the new one, with only the steps that the answer
+needs, and reports each one:
+
+| Step | Effect |
+| --- | --- |
+| `remote_disable` | Turns remote access off. Remote sign-ins on your tailnet end. |
+| `save_no_network_address` or `save_choice` | Saves the local answer and removes a saved network address. |
+| `save_network_address` | Saves the new network address. |
+| `daemon_restart` | Starts the daemon again through this installation's service: the user service, the background process, or on macOS the LaunchDaemon of system mode. Open dashboard pages reconnect; a page on an old network address loses its connection. |
+| `network_address_open` | Checks that the network address runs at the chosen address and port. |
+| `remote_enable` | Turns remote access on at the port, as `koinon remote enable --https-port PORT` does. A new port on remote access that is on ends remote sign-ins. |
+| `tailnet_open` | Checks that the tailnet URL is ready at the chosen port. |
+
+An answer that is already saved, and runs at its own address or port, changes nothing. When a step fails, the command
+stops: the earlier steps stay done, and the result names the command that finishes the failed
+step. `--json` gives the result as a report. Install and `--dashboard-address` keep working as
+above.
 
 ### System mode on macOS
 
@@ -557,8 +672,9 @@ staging files.
 - What `koinon setup` added for each agent (all families by default):
   - the MCP entry, through the agent's own CLI, only while it still runs this binary,
     whether it is enabled or disabled;
-  - for OpenCode, which has no remove command, the `mcp.koinon` entry in `opencode.json` or
-    `opencode.jsonc`;
+  - for OpenCode, which has no remove command, the `mcp.koinon` (OpenCode 1) or
+    `mcp.servers.koinon` (OpenCode 2) entry in `opencode.json` or `opencode.jsonc`, both when
+    an upgrade left both;
   - the `agy` Stop hook, and the `agy` status line, whose saved original is restored;
   - the Codex SessionStart hook in `$CODEX_HOME/hooks.json` (default `~/.codex/hooks.json`),
     only while it runs this binary;
@@ -575,6 +691,12 @@ staging files.
 - In system mode on macOS, the LaunchDaemon plist that carries the marker: `sudo launchctl
   bootout system/<label>`, then `sudo rm`. A plist without the marker is kept, and the error
   gives the commands that remove it (`service_artifact_unowned`).
+- The remote dashboard's and the computer link's recorded Serve mappings, after the daemon is stopped,
+  only while it still matches Koinon's owned target. Unrelated Serve mappings
+  stay. A cleanup failure retains the journal and binary so repeating uninstall
+  can finish it; inspect the reported step before retrying. If Tailscale is missing,
+  install Tailscale again, then repeat the same uninstall command; the saved
+  disabled ownership journal needs no manual edit.
 - The binary.
 - The `~/.local/bin/koinon` link, only when the install created it (`<prefix>/link`) and it still
   points at the installed binary. Any other link or file there is kept (`"link_result": "kept"`).
@@ -636,7 +758,19 @@ Native hook trust and optional terminal operations remain separate. Read the ins
 
 `koinon setup FAMILY` installs the MCP entry through the selected agent's CLI. Families are
 `claude`, `codex`, `agy`, `opencode`, `grok` and `deepseek`; DeepSeek uses the explicit command path
-until its MCP support is verified. `--cli ABS_PATH` selects the native CLI and `--binary
+until its MCP support is verified. For OpenCode, setup runs `opencode mcp add` in OpenCode's
+global configuration directory (`$XDG_CONFIG_HOME/opencode`, default `~/.config/opencode`) and
+reads the entry back from its files (#692): OpenCode 1 writes `mcp.koinon` (checked with
+1.18.35); OpenCode 2, whose `mcp add` lists `--global`, gets `--global` and writes
+`mcp.servers.koinon` (checked with 2.3.0). Without `--global`, OpenCode 2 writes a project file
+in the current directory, which Koinon does not use. Setup reads the files that each version
+loads: OpenCode 1 merges the entry's fields from `config.json`, `opencode.json` and
+`opencode.jsonc`; OpenCode 2 reads `opencode.json`, then `opencode.jsonc`, whose entry replaces
+the earlier one. A later file that disables or changes the entry makes setup fail with that
+message. `--opencode-config DIR` selects another global directory: OpenCode 2 gets it as
+`OPENCODE_CONFIG_DIR`; for OpenCode 1, which uses `$XDG_CONFIG_HOME/opencode`, DIR must be named
+`opencode`.
+`--cli ABS_PATH` selects the native CLI and `--binary
 ABS_PATH` selects the installed Koinon binary, as given. Without `--binary`, setup records, in
 this order (#577): the default installation's binary, `<prefix>/bin/koinon` of the default
 prefix, when the running binary is that same file, which is the binary that `koinon install`
@@ -780,6 +914,31 @@ repositories for that family/root; project receipts share the repository's Git c
 directory. Schema 21 preserves existing state and adds ordinary bounded machine decisions.
 See [the adoption procedure](USAGE.md#inspect-and-adopt-an-item) before applying an item.
 
+### Skills on a computer with no Koinon
+
+Each release from v0.13.0 carries `koinon-skills.tar.gz`, every catalog skill of that
+release, with its line in `SHA256SUMS` (PDR 008, Decision 2). On a computer with no Koinon,
+`scripts/install-skills.sh` of a checkout or of the release's source installs them for the
+person who runs it:
+
+```sh
+sh scripts/install-skills.sh vMAJOR.MINOR.PATCH
+```
+
+It checks the archive's hash and every entry before it writes, and writes each skill as
+`koinon-NAME/SKILL.md`, with only its name line changed, into the roots that `koinon install`
+uses: Claude Code's configuration root (`$CLAUDE_CONFIG_DIR`, else `~/.claude`), `~/.agents`
+for Codex, and OpenCode's, agy's and Grok's configuration folders when they exist.
+`koinon-guide` needs the binary and is not written. Each entry is reported as created,
+replaced, unchanged or kept. A symbolic link at the entry file, its folder, the `skills`
+folder or the configuration folder is kept; a linked folder above them, such as a linked home,
+is written through. (`koinon install` checks only the entry file and its folder.) A
+destination that is not a folder or a regular file, such as a folder named `SKILL.md`, stops
+the script before it writes any root. The copies do
+not update by themselves: run the script again for a new release, or install Koinon, whose
+`koinon install` replaces them with its own entries. The steps of a skill that use Koinon tools,
+such as messages, work claims and the decision board, need Koinon.
+
 ## Launcher paths in launchers.json
 
 After successful `koinon setup claude`, `codex`, `agy`, `opencode` or `grok`, setup records the absolute
@@ -820,11 +979,22 @@ belong in Git or logs. The agent API binds loopback only; the optional network d
 its separate HTTPS listener. Custom state and agent API address must match
 between the daemon, command clients and MCP server; a recorded port matches by itself for every
 client of that state directory.
-The dashboard uses one-time login links, or the maintainer secret (`koinon maintainer secret
+The local dashboard uses one-time login links, or the maintainer secret (`koinon maintainer secret
 set`, docs/USAGE.md), a login cookie and CSRF-protected actions. A login ends after 24 hours
 without a request, 7 days after it was made, or when the daemon restarts; then log in again
-with the secret, or run `koinon dashboard` for a new link. Schema 29 adds the table that holds
-the secret's salted key; an upgrade starts with no secret set.
+with the secret, or run `koinon dashboard` for a new link. A login on the private remote
+surface (`koinon remote`, docs/REMOTE-DASHBOARD.md) instead has a fixed 48-hour
+window from sign-in and survives routine restart/upgrade within that window.
+First upgrade to remote control v2 requires fresh sign-in. Its versioned remote
+session and receipt records add no table. The same release, v0.11.0, moves the store
+to schema 38 for messages between computers (#670), and a v0.10.x binary refuses a
+schema 38 store, so a v0.11.0 store cannot go back to v0.10.x. v0.12.0 moves the store to
+schema 39 for signed maintainer actions (#693), and a v0.11.x binary refuses a schema 39 store,
+so a v0.12.0 store cannot go back to v0.11.x. v0.13.0 and v0.13.1 keep schema 39. v0.13.2
+moves the store to schema 40 for decision cards that name agents on another computer (#746),
+and a v0.13.1 or earlier binary refuses a schema 40 store, so a v0.13.2 store cannot go back to
+v0.13.1 or earlier. v0.13.3 keeps schema 40. Schema 29 originally added the secret's salted-key
+table; upgrading a pre-secret store starts with no secret set.
 
 The daemon applies supported Go schema migrations transactionally and refuses an unknown
 future schema. `koinon status` reports health, storage, delivery and retention counts. The
@@ -855,7 +1025,8 @@ the old session, which then stays retired.
 
 The daemon writes one JSON line to standard error for each lifecycle event: `start` (version,
 state directory, listeners), `stop` with its `reason` (`signal` and its name, `canceled`,
-`error` with a fixed code, or `lock_held`), `lock_wait` and `lock_acquired`. The lines hold no
+`error` with a fixed code, `lock_held`, or `binary_changed`, which exits non-zero so that the
+service manager starts the new binary), `lock_wait` and `lock_acquired`. The lines hold no
 secret, message body or session ID. On macOS the launchd agent writes them to
 `~/Library/Logs/koinon/daemon.log` (directory mode 0700). Installation refuses an existing log
 directory that is not private to this user (`service_log_unsafe`) and does not change it. On
@@ -874,3 +1045,8 @@ acknowledgement. Work claims are advisory leases. See
 [PROTOCOL.md](../PROTOCOL.md), [the work contract](WORK-ITEMS-V1.md) and
 [Go storage limits](WORK-ITEMS-GO-STORAGE.md). Python-era implementation evidence under
 historically marked documents is retained for migration provenance, not as an active recipe.
+
+For a renamed Tailscale host that retains an old-name Serve root, follow
+[name-change recovery](REMOTE-DASHBOARD.md#name-change-recovery), run remote disable,
+then repeat uninstall. The old network/name may need its account owner; Koinon
+retains the disabled journal until that mapping can be inspected and removed.

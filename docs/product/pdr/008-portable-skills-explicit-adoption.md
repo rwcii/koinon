@@ -3,7 +3,7 @@ pdr: "008"
 title: "Portable Skills and Explicit Adoption"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-25"
+updated: "2026-11-17"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -49,8 +49,9 @@ Since #487 the agent applies an adoption with ordinary editing tools and records
 3. Decision 2: Adoption is an explicit, scoped change
 4. Decision 3: Machine targets follow verified native discovery
 5. Decision 4: Catalog bounds and checks are engineering limits
-6. Conclusion
-7. Document History
+6. Decision 5: Procedures that adopting projects bring to the catalog
+7. Conclusion
+8. Document History
 
 ---
 
@@ -92,13 +93,14 @@ handoff and pickup skills, and its own `koinon-pickup` entry, are PDR 006.
 
 The skills Koinon uses are the same files it offers. The binary embeds `agents/skills/*/SKILL.md`
 and the shared `AGENTS.md` and builds the catalog from those bytes; `koinon version` reports
-`catalog_digest`. The current source includes 14 skills, with `refusal-review` added after
-the initial 13, and setup items for shared instructions, discovery links,
+`catalog_digest`. The current source includes 21 skills: `refusal-review` was added after
+the initial 13, and seven procedures that adopting projects brought (Decision 5), and setup items for shared instructions, discovery links,
 OpenCode wrappers, a guidance reference and permission recommendations. `spin-up` handles
 first-run permission prompts and alerts in the new session's verified terminal. Skills read
 project facts (branches, checks, release steps) from `.koinon/skills/NAME.md`; each skill
-declares required and optional facts with defaults, and only `check`, `ship` and `release`
-have required facts. When a required fact is missing, the agent derives it from the project's
+declares required and optional facts with defaults. `check`, `ship` and `release` have
+required facts, and of the Decision 5 skills `preflight`, `provenance`, `standards-review`,
+`record`, `sprint-closeout` and `standards-audit`. When a required fact is missing, the agent derives it from the project's
 evidence and records it in the file. Fact files live in the project; the binary does not embed
 them.
 
@@ -175,6 +177,31 @@ with the runtime; the item's procedure reads the repository's own facts from
 install writes only the `koinon-NAME` entries, so a personal or project skill of the bare name
 stays as it is. An entry that is a symbolic link, or that is in a linked directory, is kept and
 reported as `kept`. Adopting the catalog item itself follows this decision.
+
+On a computer with no Koinon, `scripts/install-skills.sh VERSION` installs the full skill text
+of one pinned release (#732). Each release carries `koinon-skills.tar.gz`, every
+`agents/skills/*/SKILL.md` of its tag, built reproducibly by `scripts/skills-archive`, with its
+line in `SHA256SUMS`. The script checks that line and every archive entry before it writes,
+and writes each skill except `koinon-guide` as `koinon-NAME/SKILL.md`, with only its name line
+changed, into the roots of `core.SkillRoots`: Claude Code's and Codex's always, and OpenCode's,
+agy's and Grok's when their configuration folder exists. A symbolic link at the entry file, its
+folder, the `skills` folder or the configuration folder is kept and reported; a linked folder
+above them is written through. These copies hold the procedure itself, unlike the entries
+above; a later `koinon install` replaces them with its entries. The copies do not update by
+themselves, and the steps that use Koinon tools need Koinon.
+
+- **Decided by:** Robert Capps.
+- **Date:** 2026-11-17, approved on the decision board at 21:58 UTC.
+- **Context:** an adopting project moved its procedures into Koinon (Decision 5) and wanted the
+  skills on computers that have no Koinon: Robert Capps, relayed from that project's terminal,
+  "Can we create an installable script that deploys these skills at the dev system level if
+  koinon isn't installed?" Each entry above loads its catalog item through the daemon, so with
+  no Koinon no skill loads. The options were a script that downloads each `SKILL.md` from the
+  tag's raw files, which has no checked hash, and a `koinon` command, which needs the binary.
+- **Decision:** the release archive with its checksum line and the script above.
+- **Reason and scope:** one source for every computer, checked against the release. Scope: the
+  release archive and the script. The Grok root follows `core.SkillRoots` (#515), which
+  `koinon install` uses; the approved text named Claude Code, Codex, OpenCode and agy.
 
 **Provenance:** Requested in #145 (issue body, requirements 5–7); a request record. Machine
 default plus approved project-local target: Robert Capps, 2026-10-12, session transcript:
@@ -320,6 +347,68 @@ reported explicitly; adopted baselines and declines survive current-state update
 
 ---
 
+## 6. Decision 5: Procedures that adopting projects bring to the catalog
+
+### Decision
+
+The catalog carries seven more generic procedures that an adopting project wrote for its own
+work: `preflight`, `provenance`, `refusal-audit`, `standards-review`, `record`,
+`sprint-closeout` and `standards-audit` (#732). Their steps are generic; each project's values
+come from the fact headings that each skill declares, in `.koinon/skills/NAME.md` of that
+project, as for the other skills (Decision 1). `koinon install` and the daemon write their
+`koinon-NAME` entries as for every catalog skill (Decision 2). Koinon offers these seven and
+adopts none of them for its own work; it has no fact file for them. LICENSE names "Robert Capps
+and Stratovera, LLC" as the copyright holder of Koinon, these skills included; the skills carry
+no notice of their own.
+
+- **Decided by:** Robert Capps.
+- **Date:** 2026-11-17.
+- **Context:** an adopting project kept its own copy of each procedure skill and installed
+  them by their bare names on the host, where they hid other projects' skills of the same name.
+  Robert Capps, in that project's orchestrator terminal, relayed by that session (claude-koinon
+  did not see these words): "I built koinon to manage these functions for us, because you were
+  struggling with the local skills. Can we create an installable script that deploys these
+  skills at the dev system level if koinon isn't installed? this would eliminate the skills in
+  repo altogether." Then: "I'm ok with moving the skills to koinon, assuming they do not
+  contain any [of that project's] proprietary information." The options were wrapper skills
+  under the project's own prefix, which keep a second installer and a second copy of the text,
+  and the current copies in each repository, which drift. He approved the design on the
+  decision board at 18:10 UTC: Koinon carries the seven generic skills and one install script
+  for a computer with no Koinon, and the project keeps only its fact files. He saw the exact
+  text of each skill before it came to Koinon. He then saw and approved the changes for
+  Koinon: each opening names this decision and WDR 002, Decision 1, and three sentences lose
+  the limit phrases that #487 removed from the skills. In review he directed one more change,
+  in claude-koinon's terminal on 2026-11-17: "owner-decisions.md is deprecated. it should
+  follow the same constraints as the refusal-review and decision record skill, verifying that
+  the decisions are memorialized in the appropriate tracked repo artifact, like a decision
+  record, sprint document, etc. there shall be no running log of decisions." So
+  `refusal-audit` writes no decision file: it asks the owner each open item through the
+  project's decision process and records the answer in the tracked artifact that holds the
+  rule, and a decision that no tracked artifact holds is not a source.
+- **Copyright:** asked which copyright holder the skills name, he answered in that project's
+  terminal, relayed: "Robert Capps and Stratovera, LLC". In claude-koinon's terminal he first
+  chose the option "Koinon LICENSE" (Robert Capps, no notice in the skills); asked which of the
+  two answers is right, he chose "Change Koinon's LICENSE": LICENSE names both holders and
+  covers all the skills. The MIT text does not change.
+- **Reason and scope:** Koinon holds each procedure once for every project, so a project holds
+  no copy to sync and no bare-name skill hides another. Scope: these seven skills and the
+  LICENSE holder. The install script for a computer with no Koinon changes Decision 2 and has
+  its own verdict (#732, chunk 02).
+
+### Alternatives Considered
+
+| Alternative | Description | Why Rejected |
+| ----------- | ----------- | ------------ |
+| Merge some of the seven into existing skills | For example `refusal-audit` into `refusal-review` | It changes text that the maintainer saw; the catalog has room (26 of 32 items) |
+| Wrappers in the adopting project | Skills under the project's own prefix | A second installer and a second copy of each procedure |
+
+### User Impact
+
+Every installed agent family gets seven more `koinon-NAME` skills. A project uses one by
+writing its facts in `.koinon/skills/NAME.md`.
+
+---
+
 ## Conclusion
 
 The catalog uses one embedded skill source, offers machine and project targets, and an agent
@@ -340,3 +429,5 @@ drift defect are ordinary corrections; they add no product decision.
 | 2026-10-22 | Decision 2: `koinon install` and the daemon write the team skill entries, which load their catalog items (#453) |
 | 2026-10-23 | Decisions 1 and 2: an entry for every catalog skill, also for OpenCode and agy when their configuration directory exists (#461) |
 | 2026-10-25 | Requirements and Decisions 1–4: removed the unsourced approval step, the fact-file and catalog caveats and the "grant no permission" text; the verified-root report and the install's bare-name and symbolic-link handling are stated as code facts (#487) |
+| 2026-11-17 | Decision 5: seven procedures that an adopting project brought, offered in the catalog; LICENSE names Robert Capps and Stratovera, LLC (#732) |
+| 2026-11-17 | Decision 2: a script installs the full skill text of one pinned release on a computer with no Koinon (#732) |

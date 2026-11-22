@@ -101,6 +101,7 @@ type codexTerminal struct {
 	home       string
 	pid, start int64
 	args       []string
+	narrow     bool // the status line takes two rows
 }
 
 func newCodexTerminal(t *testing.T) *codexTerminal {
@@ -165,6 +166,9 @@ func (c *codexTerminal) screen() string {
 		b.WriteString(c.input)
 	}
 	b.WriteString("\n\n  synthetic-model · /tmp/synthetic/repo\n")
+	if c.narrow {
+		b.WriteString("  69% left\n") // a narrow pane wraps the status line (#761)
+	}
 	if c.input == "" {
 		b.WriteString("  ? for shortcuts\n")
 	}
@@ -234,7 +238,7 @@ func (c *codexTerminal) target(t *testing.T) CycleTarget {
 		Socket: "/tmp/synthetic-socket", Pane: "%4", Epoch: "thread-a", Holds: true, Pickup: pickupSkillEntry(),
 		tools: hostTools{tmux: c.tmux,
 			processStart:   func(pid int) (int64, error) { return c.start, nil },
-			processParents: func() (map[int]int, error) { return map[int]int{}, nil },
+			processParent:  parentIn(map[int]int{}),
 			processCommand: func(pid int) (string, []string, error) { return "/synthetic/codex", c.args, nil },
 			processEnvironment: func(pid int, name string) (string, error) {
 				if name == "HOME" {

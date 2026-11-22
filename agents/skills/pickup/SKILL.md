@@ -43,7 +43,7 @@ if [ -f "$note" ] && [ "$(wc -c < "$note")" -le 4096 ]; then
 else
   echo "no usable progress note"
 fi
-file=$(ls "$dir"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]*.md 2>/dev/null | sort | tail -1)
+file=$(ls "$dir"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]*.md 2>/dev/null | LC_ALL=C sort | tail -1)
 if [ -z "$file" ]; then
   echo "no handoff for <agent-id>"
   ls "$root/_handoff/"
@@ -60,9 +60,9 @@ them. An older handoff has Goal and success criteria and Resume here in their pl
 as its goal and its next action, without a stop. When the note is absent,
 unreadable or larger than 4 KiB, read the whole handoff and say so in the report.
 
-Handoff file names start with a UTC timestamp, so the last name in sort order is the newest.
-The handoffs are the timestamped files: `progress.md` is the note, and a directory with only the
-note has no handoff. Note the branch that the note or the handoff names; that is usually the
+Handoff file names start with a UTC timestamp, so the last name in byte order (`LC_ALL=C`) is
+the newest. The handoffs are the timestamped files: `progress.md` is the note, and a directory
+with only the note has no handoff. Note the branch that the note or the handoff names; that is usually the
 branch to resume. No handoff is a normal result; handle it as step 1 says.
 
 ## 3. Verify against the live state
@@ -162,9 +162,10 @@ wait, and continue the other steps.
 Then check the decision board, with the installed guide's decision tools or its command path
 (WDR 005, Decision 5):
 
-1. Read `decision_list` with the filter `waiting`, and `decision_pending`, each page by page to
-   its end. `waiting` lists the active decision items and tasks; `decision_pending` lists the
-   verdicts delivered to you that you have not acknowledged, not undecided items.
+1. Read `decision_list` with the filters `waiting` and `in_progress`, and `decision_pending`, each
+   page by page to its end. `waiting` lists the active decision items and tasks; `in_progress`
+   lists the approved items whose work is not closed; `decision_pending` lists the verdicts
+   delivered to you that you have not acknowledged, not undecided items.
 2. Read each decision item that the note or the handoff names with `decision_get`, also one
    that is not in the waiting list.
 3. Compare each claim that a decision waits for the maintainer with that read:
@@ -185,9 +186,14 @@ Then check the decision board, with the installed guide's decision tools or its 
 4. A verdict from `decision_pending` that you did not handle yet: handle it from its current
    item as the guide's Decisions section says, then acknowledge it. A superseded verdict is not
    handled again.
+5. An approved item in progress of your repository (#640): an earlier session got its verdict,
+   and nothing else shows it to you again after a reset. Read it with `decision_get`. When its
+   work is done, with the record and the merged change that the item asked for, close it with
+   `decision_close` and a note that names them. Otherwise it is approved work that waits:
+   report its reference and what remains, and continue it or name who holds it.
 
-The report lists the waiting items of the work that you resume; the cards of other
-repositories are not part of it. Each summary's `author_repository` names its repository:
+The report lists the waiting and in-progress items of the work that you resume; the cards of
+other repositories are not part of it. Each summary's `author_repository` names its repository:
 keep the cards whose value is the `repository` of your own row in `peers`, and the cards
 without one that the note or the handoff names. A read that is refused, an unavailable daemon or tool, an older runtime without
 these tools and a page you could not finish leave the claim unverified: report it with the

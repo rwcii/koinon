@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"database/sql"
+	"github.com/rwcii/koinon/internal/link"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -327,12 +328,15 @@ func (d *Daemon) maintainerSessionRoutes(mux *http.ServeMux) {
 		To   string `json:"to"`
 		Body string `json:"body"`
 	}) {
-		valid := q.To != "" && len(q.To) <= 256 && !strings.ContainsAny(q.To, "\x00\r\n") && q.Body != "" && len(q.Body) <= maxBody && utf8.ValidString(q.Body)
+		valid := q.To != "" && len(q.To) <= link.MaxAddressBytes && !strings.ContainsAny(q.To, "\x00\r\n") && q.Body != "" && len(q.Body) <= maxBody && utf8.ValidString(q.Body)
 		target := "to " + q.To + " bytes " + strconv.Itoa(len(q.Body))
 		if auditName(q.To) == "invalid" {
 			target = "invalid recipient"
 		}
 		d.maintainerAct(ctx, w, "send", target, valid, func(ctx context.Context) (any, error) {
+			if link.IsRemoteAddress(q.To) {
+				return d.linkSend(ctx, nil, q.To, q.Body, 0)
+			}
 			return d.store.send(ctx, maintainerKey, q.To, q.Body, true)
 		})
 	})
@@ -423,13 +427,20 @@ func (d *Daemon) maintainerSessionRoutes(mux *http.ServeMux) {
 	})
 	maintainerRoute(d, mux, "peers", 16384, func(ctx context.Context, w http.ResponseWriter, q struct{ maintainerToken }) {
 		peers, truncated, err := d.store.maintainerPeers(ctx)
+		peers = append(peers, d.remoteRows()...)
 		maintainerRead(w, map[string]any{"peers": peers, "truncated": truncated}, err)
 	})
 	maintainerRoute(d, mux, "peer-status", 16384, func(ctx context.Context, w http.ResponseWriter, q struct {
 		maintainerToken
 		Peer string `json:"peer"`
 	}) {
-		status, err := d.store.maintainerPeerStatus(ctx, q.Peer)
+		var status PeerStatus
+		var err error
+		if link.IsRemoteAddress(q.Peer) {
+			status, err = d.remotePeerStatus(q.Peer)
+		} else {
+			status, err = d.store.maintainerPeerStatus(ctx, q.Peer)
+		}
 		maintainerRead(w, status, err)
 	})
 }

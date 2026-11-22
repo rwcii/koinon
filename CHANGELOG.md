@@ -5,6 +5,591 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-11-20 — Wakes for narrow Codex panes, and a macOS upgrade that starts the daemon
+
+This release wakes and compacts Codex sessions in 80-column panes again (#761), a macOS install
+or upgrade over a running daemon no longer fails at random (#777), and a message to an address
+that no live session holds no longer takes a wake place (#759). The store stays at schema 40.
+
+- A macOS install or upgrade over a running user agent no longer fails at random with
+  `launchctl bootstrap failed: Bootstrap failed: 5: Input/output error` (#777). The install
+  stopped the old agent with `launchctl bootout` and loaded the new one at once, while launchd
+  could still have the stopping agent; the daemon then stayed stopped. The install now waits
+  until launchd has removed the old agent, for at most 30 seconds, and says so when it is still
+  loaded.
+
+- A message to a participant address that no live session holds no longer takes a wake place
+  on every pass (#759). The wake pass listed that inbox each second, found no holder, and
+  recorded nothing, so it took one of the 16 places from inboxes that it could wake. It now
+  lists a participant inbox only while a live session holds its address; the message waits
+  as before and gets its notice when a holder takes the address. A message at the notice
+  limit still fails without a holder.
+
+- Koinon wakes and compacts a Codex session in a narrow pane again (#761). At 80 columns,
+  Codex's status line takes two rows, and the daemon read the input line as not empty: each
+  wake waited as `receiver_busy`, and each native compaction ended after 15 minutes with
+  `compact_waiting_timeout.input_not_empty`. A footer of three or four rows that ends with
+  the shortcut hint now counts as the footer.
+
+Upgrade from v0.13.2 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary. The store stays at schema 40, so v0.13.2 can still read it. The
+restart ends current local dashboard logins: log in again with the Koinon password, or run
+`koinon dashboard` for a one-time link. A remote sign-in keeps the rest of its fixed 48-hour
+window. Run `koinon install --plan` to check. A running `koinon mcp` server runs the new release
+without a session restart.
+
+Upgrade notes:
+
+- A host without a service manager, such as a container, runs the daemon in the background:
+  after `brew upgrade koinon`, run `koinon install` there to start it on the new binary.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+
+## 2026-11-19 — Decision cards for agents on another computer, and an idle daemon that stays idle
+
+This release lets a decision card name an agent on a paired computer: the agent gets a notice
+and reads and acknowledges the card at the card's computer (#746). An idle daemon no longer
+uses more than one CPU core (#756, #758). The store moves to schema 40.
+
+- A managed cycle accepts a Handoff path fact whose first word is a Markdown code span, such
+  as `` `_handoff/<agent>/` in the main checkout`` (#763). It refused the ready report and
+  looked for a directory whose name started with a backtick. Any other backtick in the
+  first word is refused.
+
+- The daemon reads the process table less often (#758). A foreground proof of a Codex or agy
+  pane read the whole table two times, and each managed cycle that waits for an idle pane
+  runs one each second. It now reads the table one time. The Claude status-line fallback,
+  the agy witness and the pane proof read only the ancestors of the process, one at a time.
+  On a host with 1,640 processes, one table read takes about 50 ms. A waiting Codex
+  compaction whose pane shows a draft, a running turn or no input line now waits with no
+  table read: it proves the pane by its ancestry and reads the screen. The full proof runs
+  only when the screen can be ready. A wake of a Codex pane that shows a running turn or a
+  draft also waits with no table read.
+
+- An idle daemon no longer uses more than one CPU core (#756). Each second, the wake loop
+  read every message that its recipient had already read, because a message keeps its
+  delivery state after it is read. It now reads only the messages after each inbox's handled
+  sequence. On a store with 27,234 handled messages, the query took 55 ms and now takes
+  0.2 ms.
+
+- `koinon install --plan --json` prints the plan as one JSON object, with `current` and the
+  reason for each step: each skill entry or OpenCode command file that the install would
+  create or replace is named by kind, family and path (#745). The text form and its exit
+  status do not change.
+
+- `library_state` with scope `project` accepts a Git submodule checkout when the session is
+  registered in that submodule; it refused every submodule checkout (#753). A refused
+  directory now returns a code that names the cause (`directory_unresolved`,
+  `directory_other_repository`, `directory_not_listed` or `project_context_unavailable`) with
+  a reason, instead of a bare `invalid_arguments`.
+
+- A Claude session whose host process changed its session ID gets its context readings and
+  handoff cycles again (#751). The daemon kept the old session ID active while the host ran,
+  so after the next `/clear` it could not tell which session a status-line reading belonged
+  to, refused each one, and started no cycle. The liveness sweep now keeps only the session
+  that registered or renewed last on a host; the old one expires unless it renews itself.
+
+- An agent on a paired computer reads and acknowledges the decision card that names it, at
+  the card's own computer, over the link (#746, chunk 03). `decision_get REFERENCE@COMPUTER`
+  reads the live card; `decision_list` with filter `mine`, `decision_pending` and
+  `decision_ack` take `computer` or `pair` (`--computer` and `--pair` on the command path).
+  Nothing of the card is stored on the agent's computer. An offline computer answers
+  `link_computer_offline`, an earlier release `link_unsupported`, and a lost answer
+  `link_uncertain`, after which a retry is safe. The notice now names the card's computer and
+  its pair ID, and the dashboard card shows each remote recipient's notice state.
+
+- An agent on a paired computer gets a short notice in its inbox, with its ordinary wake, for
+  each decision card that names it as `NAME@COMPUTER`: when it is named, the card changes, it
+  is removed, the card is withdrawn, closed or restored, and each verdict (#746, chunk 02). The
+  notice comes from `decision-board@COMPUTER`, names the card to read with `decision_get
+  REFERENCE@COMPUTER`, and holds no card text; it cannot be answered. The card's computer shows
+  each notice as `received`, `refused` with the reason, or `unsupported` while the other
+  computer runs an earlier release; notices resume by themselves after its upgrade. Notices
+  have their own stream, so they never delay direct messages.
+
+- A decision card can name an agent on a paired computer as `NAME@COMPUTER` (#746, chunk 01).
+  The card now resolves that recipient as `remote`, with its pair, instead of `unknown_name`,
+  and keeps it through a rename of the computer. Each new card, change and verdict queues a
+  short notice for it, with no card text; a verdict delivery to it waits for its
+  acknowledgement. The store moves to schema 40, and the upgrade fixes open cards that already
+  name such an agent. A v0.13.1 or earlier binary refuses a schema 40 store, so you cannot go
+  back to v0.13.1 or earlier after the upgrade.
+
+Upgrade from v0.13.1 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and moves the store to schema 40; a v0.13.1 or earlier binary
+refuses a schema 40 store, so you cannot go back after the upgrade. The restart ends current
+local dashboard logins: log in again with the Koinon password, or run `koinon dashboard` for a
+one-time link. A remote sign-in keeps the rest of its fixed 48-hour window. Run
+`koinon install --plan` to check. A running `koinon mcp` server runs the new release without a
+session restart.
+
+Upgrade notes:
+
+- Upgrade both computers of a pair. A computer at v0.13.1 or earlier answers the decision
+  notice and board operations as unknown: the card's computer shows those notices as
+  `unsupported`, and they resume by themselves after the other computer's upgrade.
+- A host without a service manager, such as a container, runs the daemon in the background:
+  after `brew upgrade koinon`, run `koinon install` there to start it on the new binary.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+
+## 2026-11-18 — A plan that checks the skill entries
+
+This release makes `koinon install --plan` check the skill entries that `koinon install` and
+the daemon write (#741). The store stays at schema 39.
+
+- `koinon install --plan` checks the skill entries (#741): a `koinon-pickup` entry, a
+  `koinon-NAME` skill entry or an OpenCode command file that is missing, or that an earlier
+  Koinon wrote, gives `koinon install`. The plan reads the files that the install writes and
+  writes none; a linked entry, an adopted skill at a shared name and an edited command are kept
+  and need nothing. `library_state` checks catalog adoption, not these entries; the guide now
+  says so.
+
+Upgrade from v0.13.0 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary. The store stays at schema 39, so v0.13.0 can still read it. The
+restart ends current local dashboard logins: log in again with the Koinon password, or run
+`koinon dashboard` for a one-time link. A remote sign-in keeps the rest of its fixed 48-hour
+window. Run `koinon install --plan` to check; it now also names `koinon install` for a missing
+or earlier skill entry. A running `koinon mcp` server runs the new release without a session
+restart.
+
+Upgrade notes:
+
+- A host without a service manager, such as a container, runs the daemon in the background:
+  after `brew upgrade koinon`, run `koinon install` there to start it on the new binary.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+
+## 2026-11-18 — Skills on a computer with no Koinon, and seven more catalog skills
+
+This release carries its skills as `koinon-skills.tar.gz`, and `scripts/install-skills.sh`
+installs them on a computer with no Koinon (#736). The catalog adds seven skills from an
+adopting project (#735). The store stays at schema 39.
+
+- A computer with no Koinon can get the skills of one release (#732). Each release carries
+  `koinon-skills.tar.gz` with its line in `SHA256SUMS`, and `sh scripts/install-skills.sh
+  VERSION` checks it and writes each skill as `koinon-NAME` into the Claude Code and Codex
+  skill folders, and OpenCode's, agy's and Grok's when they exist. A later `koinon install`
+  replaces these copies with its own entries (docs/INSTALL.md, Skills on a computer with no
+  Koinon).
+- Seven more skills in the catalog, for every installed agent family as `koinon-NAME` (#732):
+  `preflight` (the project's review lenses before a pull request), `provenance` (AI usage as
+  Git notes), `refusal-audit` (a whole-repository audit of refusal traps),
+  `standards-review` (an independent standards review of a frozen commit), `record` (write
+  or change a decision record), `sprint-closeout` (finish a sprint) and `standards-audit`
+  (decisions that have no record). Each reads the project's values from
+  `.koinon/skills/NAME.md`. LICENSE names Robert Capps and Stratovera, LLC.
+- A read of a private state file, such as `remote-dashboard.json` or `link.json`, while the
+  daemon replaces that file no longer fails with "state file must be a regular file with one
+  link" (#727). The read held the file that the replacement had just removed; it now opens the
+  file again, at most 8 times. A write still refuses a replaced file, and every other check of
+  a state file is unchanged.
+- The pickup and handoff skills pick the newest handoff in byte order (`LC_ALL=C sort`), so
+  two handoffs of the same second give the same file in every locale (#737).
+
+Upgrade from v0.12.0 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and rewrites the skill entries, which adds the seven new
+`koinon-NAME` entries. The store stays at schema 39, so v0.12.0 can still read it. The restart
+ends current local dashboard logins: log in again with the Koinon password, or run
+`koinon dashboard` for a one-time link. A remote sign-in keeps the rest of its fixed 48-hour
+window. Homebrew then shows the steps that `koinon install --plan` finds; run them, and run
+`koinon install --plan` again to check. A running `koinon mcp` server runs the new release
+without a session restart.
+
+Upgrade notes:
+
+- A host without a service manager, such as a container, runs the daemon in the background:
+  after `brew upgrade koinon`, run `koinon install` there to start it on the new binary.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+
+## 2026-11-17 — Signed maintainer actions across your computers, and a dashboard address you can change
+
+This release lets a maintainer client act with its own key, also on your other linked
+computers (#693). `koinon remote configure` changes where the dashboard opens in one step
+(#685), and the Sessions page selects the sessions of one agent family and turns managed
+context on or off for all of them (#718). The store moves to schema 39.
+
+- The verdict record instruction and the installed guide say that the repository record holds a
+  board decision and is its source, and that neither the card reference nor the verdict ID is
+  cited as the source (#723). Koinon's own records no longer name a card as a decision's source.
+- Every section of the Settings page starts closed (#719). The browser keeps the sections that
+  you leave open, so they open again after an action reloads the page and when you come back;
+  a link such as `/dashboard/settings#remote-access` opens its section and no longer closes the
+  others.
+- The Sessions page shows the sessions of one agent family with an exact match, from a row of
+  family counts, in place of a text search that also matched names and directories (#718).
+  **Change the selected sessions** can enable or disable managed context for every selected
+  session at once; each session uses its own family's mode and threshold, and gets its own
+  audit record.
+- The Settings page changes each family's context handoff in its own row of the Context handoff
+  table (#720): a Mode drop-down and a Threshold field show the family's current values, and
+  the row's Save changes that family only. The separate "Change a family's context handoff"
+  section is gone.
+- `koinon remote configure` shows where the dashboard opens and changes the install answer in
+  one step (#685). At a terminal it asks the install question again, with the current values as
+  the defaults; `--choice local|tailnet|network`, with `--https-port` or `--dashboard-address`,
+  gives the answer from a script. It refuses before the first change, closes the old access
+  before it opens the new one, restarts the daemon through the installation's own service when
+  the network address changes, and names each step's effect on sign-ins.
+- A maintainer client can act with its own key (#693, PDR 011 Decision 6). `koinon maintainer
+  key add --statement FILE` adds a client's Ed25519 key from a statement that the client signed
+  for this computer, once; `koinon maintainer key list` and `remove` show and remove keys.
+  `koinon mcp --maintainer --signed` opens a session with a signed envelope in place of the
+  secret and serves the tool `signed`, which runs each action that the client signed for this
+  computer once: board reads, verdicts, the inbox and ack, send, rooms, peers, `outcome`,
+  `computers` and `changes`. An action under an authorization that is not the key's current one
+  on this computer is refused with `authorization_changed`; its text says that the key was
+  added again only when this computer replaced that authorization (#702). Each verdict records the key's user and client and shows
+  `by USER (CLIENT)`. An action signed for a paired computer goes over the link unchanged and
+  runs there, under the key that computer added; both computers need this release. A computer
+  that cannot be reached answers `computer_offline` within 3 seconds and nothing runs; an answer lost after the
+  action was sent is `outcome_unknown`, and `outcome` on that computer tells what happened. A
+  client with no Koinon on its computer reaches a computer at its Remote address, which serves
+  the two signed routes with the session's token as the bearer, and no other API. A session
+  has at most 128 actions in flight. The state schema moves to 39:
+  a schema 38 binary refuses the upgraded store.
+- When a handoff cycle waits because the session's input box holds text, the Attention page
+  and the session's row on the Sessions page say so (#711): clear the input box and the cycle
+  goes on. Before, the cycle only repeated its request until its event limit.
+- A ready report that ends its managed context cycle, such as at the cycle's event limit, no
+  longer tells the session to stay paused and idle (#697). Its `next` names the ended state and
+  reason and says that no context clear will follow, so the session goes on with its work.
+- `koinon setup opencode` works with OpenCode 2 (#692). OpenCode 2.3.0 writes an MCP server into
+  the current directory's project file unless `--global` is given, and its `mcp list` no longer
+  shows the server's command, so setup left an `opencode.json` in the directory where it ran
+  and `koinon install --plan` asked for `koinon setup opencode` again after every run. Setup now
+  passes `--global` to OpenCode 2, runs OpenCode in its global configuration directory, and
+  reads the entry from the global files that each version loads, in its order;
+  `koinon uninstall` removes both versions' entries. `--opencode-config` now reaches OpenCode's
+  own `mcp add`. Remove an `opencode.json` that an earlier
+  setup left in a project when it holds only the koinon server.
+
+Upgrade from v0.11.2 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary, rewrites the skill entries and moves the store to schema 39. A
+v0.11.x binary refuses a schema 39 store, so you cannot go back to v0.11.x after the upgrade
+(docs/INSTALL.md). The restart ends current local dashboard logins: log in again with the
+Koinon password, or run `koinon dashboard` for a one-time link. A remote sign-in keeps the rest
+of its fixed 48-hour window. Homebrew then shows the steps that `koinon install --plan` finds;
+run them, and run `koinon install --plan` again to check. A running `koinon mcp` server runs
+the new release without a session restart.
+
+Upgrade notes:
+
+- A signed maintainer action for a linked computer runs only when both computers have v0.12.0.
+  Upgrade each computer that a client acts on, then add the client's key there with
+  `koinon maintainer key add`.
+- A host without a service manager, such as a container, runs the daemon in the background:
+  after `brew upgrade koinon`, run `koinon install` there to start it on the new binary.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+
+## 2026-11-14 — Computer links work where Tailscale runs in userspace networking mode
+
+This release lets a computer whose Tailscale runs in userspace networking mode, as in many
+containers, join and use the links between your computers (#688). The state schema stays at 38.
+
+- The link between your computers works on a host whose Tailscale runs in userspace
+  networking mode, as in many containers (#688). Such a host has no route to tailnet
+  addresses, so a join from it failed with `link_unreachable`, and its pings, introductions
+  and messages could not leave it. When `tailscale status` reports no TUN interface, Koinon now
+  makes each link connection through tailscaled with `tailscale nc`. `koinon link status`
+  shows "Connections out: through tailscale nc". No Tailscale setting changes.
+
+Upgrade from v0.11.1 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and rewrites the skill entries; the store stays at schema 38. The
+restart ends current local dashboard logins: log in again with the Koinon password, or run
+`koinon dashboard` for a one-time link. Remote sign-ins keep their 48 hours. Homebrew then shows
+the steps that `koinon install --plan` finds; run them, and run `koinon install --plan` again to
+check. A running `koinon mcp` server runs the new release without a session restart.
+
+Upgrade notes:
+
+- A host without a service manager, such as a container, runs the daemon in the background:
+  after `brew upgrade koinon`, run `koinon install` there to start it on the new binary.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+
+## 2026-11-14 — One join adds a computer to the whole group of your Koinon computers
+
+This release makes it easy to link more than two computers (#683). The computer that makes an
+invitation introduces the joining computer to each of its other paired computers, so four
+computers need three joins, not six pairs. `koinon link leave` removes every pair of a computer.
+The state schema stays at 38.
+
+- One join adds a computer to the whole group of your Koinon computers (#683, LINK-GROUP-JOIN).
+  Make the invitation on a computer that is already paired: after the join, that computer
+  introduces the new computer to each of its other paired computers, on their pinned links, so
+  you do not pair each two computers yourself. Four computers need three joins, not six pairs.
+  `koinon link join` names the computers of the introduction, and says when the introductions
+  did not arrive yet; `koinon link status` and Settings, Computers show "introduced by NAME" for
+  each pair that an introduction made, and the introductions that still wait for an offline
+  computer. A computer that is off gets its introduction when it answers again, with no time
+  limit, and an unpair is never undone by a repeated introduction. A new `koinon link leave`,
+  and **Unpair from every computer** in Settings, Computers, remove every pair of this computer.
+  Update every computer before you pair: a computer before this version does not accept an
+  introduction, and the new computer then shows it as rejected until you unpair it there.
+  `link.json` holds the waiting introductions; a downgrade reads it only after `koinon link
+  leave`.
+
+Upgrade from v0.11.0 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and rewrites the skill entries; the store stays at schema 38. The
+restart ends current local dashboard logins: log in again with the Koinon password, or run
+`koinon dashboard` for a one-time link. Remote sign-ins keep their 48 hours. Homebrew then shows
+the steps that `koinon install --plan` finds; run them, and run `koinon install --plan` again to
+check. A running `koinon mcp` server runs the new release without a session restart.
+
+Upgrade notes:
+
+- Upgrade every computer that you pair to v0.11.1 before you pair them. Then make each
+  invitation on a computer that is already paired, and join it on the new computer
+  (docs/REMOTE-DASHBOARD.md, Connect your computers).
+- Pairs made with v0.11.0 stay as they are; an introduction adds only the missing pairs.
+- To go back to v0.11.0 after introductions were made, run `koinon link leave` first: v0.11.0
+  cannot read the new fields of `link.json`.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+
+## 2026-11-13 — Messages between your Koinon computers, and remote sign-in that lasts 48 hours across restarts
+
+This release pairs your Koinon computers through Tailscale (#670): agents see the sessions on
+your other computers as `NAME@COMPUTER` and send them messages, which wait in a queue while a
+computer is offline. Remote control v2 (#673, contributed by Andrew Deugarte, @andyde8) keeps a
+phone signed in for a fixed 48 hours across restarts and upgrades, lists and forgets signed-in
+devices, checks the result of an action after a lost connection, and opens on a new Attention
+page. The remote dashboard can use another HTTPS port, the first install can open the dashboard
+on the tailnet only, and Linux remote setup can grant the Tailscale operator step with one
+answer. The store moves to schema 38.
+
+- `koinon link join`, and **Connect** in Settings, Computers, now show why a join failed when
+  the other computer does not answer, for example `link_unreachable` when the tailnet policy
+  blocks the link port. Before, the daemon's answer was cut after 10 seconds and the command
+  reported that the daemon was unavailable or too old (#677). The `link_unreachable` message
+  also names the tailnet policy for the link port. The same holds for naming,
+  inviting and unpairing.
+
+- Agents send messages to sessions on your other Koinon computers (#670, third part). `send`
+  to `NAME@COMPUTER` (MCP, CLI and the agent API) queues the message on this computer at once
+  and answers with its `link_id`; Koinon delivers each computer's queue in send order while
+  remote access is on, through an offline computer, a remote off and a restart, with no
+  expiry, and no message is stored twice. `delivery` with `link_id` (or `koinon delivery
+  LINK_ID`) shows queued, received (stored in that computer's inbox), refused with the reason,
+  cancelled, or may have been delivered when an answer was lost. A received message shows its
+  sender as `NAME@COMPUTER` with `origin` `link`; `send` with `reply_to` (`--reply-to` in the
+  CLI) answers it on the computer it came from. Settings, Computers lists the messages to each
+  computer with **Cancel**; `koinon link queue` and `koinon link cancel-message` do the same
+  with the maintainer secret. The queue holds 1,000 messages and 16 MiB for each computer
+  (10,000 and 64 MiB in all); a full queue refuses a send with `link_queue_full`. Finished
+  entries are kept 30 days. The maintainer still sends only on this computer. The store moves
+  to schema 38.
+
+- Paired computers share the list of their agent sessions (#670, second part). `peers` (MCP,
+  CLI and the agent API) and the dashboard's Sessions page list each paired computer's sessions
+  as `NAME@COMPUTER`: NAME is the session's participant address or peer name there, COMPUTER
+  is this computer's name for that computer. Each entry has its family, role, repository name
+  (never a path), observed activity, the time the list was read, and a mark when the list is
+  not current. `peer_status NAME@COMPUTER` reads it. A computer's new name reaches its paired
+  computers at once or with the next list; a name that collides here gets the next free
+  `NAME-2`, and your own name for a computer stays. A send to `NAME@COMPUTER` for a name that
+  no pair has answers `link_computer_unknown`; the maintainer sends only on this computer.
+
+- Pair your Koinon computers (#670, first part). With remote access on on both, **Copy
+  invitation** in Settings, Computers on one computer, and **Paste invitation** and **Connect**
+  on the other; or `koinon link invite` and `koinon link join`, which take the maintainer
+  secret from `--secret-file` or the terminal and read the invitation from the terminal or
+  standard input. The invitation works once, for 10 minutes. Each computer advertises a name
+  that you choose once (`koinon link name`, the short host name by default). The daemons talk
+  TLS 1.3 with each other's pinned key through a raw TCP Tailscale Serve mapping on the link
+  port (47672 by default), which remote enable adds and remote disable removes; disable also
+  closes the link and cancels open invitations, and keeps the pairs. `koinon link status` and
+  the Computers section show each paired computer as connected, offline or pending, the link
+  listener and its mapping, and the last refused key; `koinon remote status` shows the link's
+  port, listener and Serve mapping. Unpair, Cancel and
+  Rename are in the same places. Messages between computers come in the next parts.
+
+- The first `koinon install` at a terminal now offers a third answer for where the dashboard
+  opens: on this computer and your tailnet, through Tailscale Serve, with no network address
+  (#665). It asks the Serve HTTPS port, offers the maintainer secret when none is set, and
+  enables remote access after the start; the report's `remote` has the URL once the listener
+  and Serve mapping are ready, or the reason and the command to run for this installation. The dashboard's remote access panel names where the dashboard opens and
+  offers **Use this computer and the tailnet only**, which enables remote access, removes the
+  network address and closes it at once.
+
+- Remote control v2 (#673, contributed by Andrew Deugarte, @andyde8). A remote browser
+  sign-in now lasts a fixed 48 hours from sign-in, also across daemon restarts, upgrades and
+  reboots; a small host-clock correction keeps it. Settings, **Signed-in remote devices**,
+  lists each remote browser with its name, and you can rename or forget one or forget all.
+  At the 32-device limit, sign-in says how to forget a device, and a QR code scanned at the
+  limit stays valid until it expires. After a lost connection, the phone checks the result
+  of a message, room post or verdict by its receipt, so that it does not send it twice;
+  receipts use the host clock and are kept 7 days. Opt-in private drafts on the phone keep
+  unsent text; a selected draft is checked again for its recipient, form and text, and
+  drafts are cleared at an opt-out or an observed revocation. The new **Attention** page is
+  the remote landing page, with unread marks for each browser. Remote diagnostics show
+  observed requests, storage health and why the last sign-in ended. A failed expiry write stays
+  visible and is retried when storage recovers. A failed logout or device revocation stays
+  visible and is retried while the daemon runs; after a restart, forget the device again.
+  Local browser logins and maintainer API tokens do not change. The Android Chrome, overnight
+  and 48-hour checks on real phones are open in #672.
+
+- `koinon remote enable --https-port PORT` publishes the remote dashboard on another
+  Tailscale Serve HTTPS port, for a computer where another program, such as a container
+  that publishes `443:443`, takes port 443 (#665). Koinon saves the port. The URL, the QR
+  code, the sign-in links, the login checks and the tailnet policy entry in
+  `koinon remote status` name it. A later enable, also from the dashboard, keeps it.
+  Choosing a new port ends remote logins and removes Koinon's old Serve mapping first.
+  The remote login cookie is named after the port, `koinon_remote_dashboard_PORT`, because
+  browsers do not separate cookies by port: two Koinon daemons on one tailnet name, such as
+  one on 443 and a test daemon on 8444, no longer sign each other's browsers out.
+  The API's `POST /v1/remote/enable` takes an optional `https_port`.
+
+- On Linux, when Tailscale refuses to let the account that runs Koinon change Serve,
+  `koinon remote enable` at a terminal now asks once whether to grant that account control
+  of this computer's Tailscale settings by running `sudo tailscale set --operator=NAME`
+  (#656, PDR 010 Decision 6). On `y`, it runs that one command through sudo, which asks for
+  the password, and then enables. The default is no; then, and with `--json`, in scripts,
+  in the dashboard and after a failed sudo, the manual step is shown as before. The tailnet
+  policy entry for TCP 443 stays a manual step.
+
+- A session whose host process has ended now shows its handoff cycle or compaction as
+  unavailable with `host_ended`, and the dashboard's Enable button says to enable the session
+  that replaced it (#637). Before, the probe stopped at a later step, such as
+  `native_registry_unavailable`, which did not say that the host had stopped. The session's
+  lease does not change.
+
+- When remote access is on and Serve is ready, `koinon remote status` (fields `policy_hint` and
+  `policy_rule` in `--json`) and the dashboard's connection details say that the tailnet access
+  policy must allow TCP 443 to this computer, and show an example policy entry with its own
+  IPv4 and IPv6 Tailscale addresses (#653). Before, status showed "ready" while the policy
+  blocked the phone, which then timed out. Koinon cannot read the policy: Tailscale's debug
+  reads of the packet filter disagree with the filter in effect, so Koinon names the rule and
+  does not claim a block.
+
+Upgrade from v0.10.3 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary, rewrites the skill entries and moves the store to schema 38. A
+v0.10.x binary refuses a schema 38 store, so you cannot go back to v0.10.x after the upgrade
+(docs/INSTALL.md). The restart ends current dashboard logins, remote logins too: log in again
+with the Koinon password, or run `koinon dashboard` for a one-time link. From v0.11.0 on, a
+remote sign-in survives later restarts and upgrades for its 48 hours. Homebrew then shows the
+steps that `koinon install --plan` finds; run them, and run `koinon install --plan` again to
+check. A running `koinon mcp` server runs the new release without a session restart.
+
+Upgrade notes:
+
+- To pair two computers, upgrade both to v0.11.0 and turn remote access on on both. The
+  tailnet access policy must allow TCP on the link port (47672 by default) between them, as
+  for the dashboard's HTTPS port (docs/REMOTE-DASHBOARD.md).
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+
+## 2026-11-12 — Bulk session actions work again, and Linux remote setup names the Tailscale operator step
+
+This release fixes the Sessions view's bulk actions, which failed with HTTP 404 in v0.10.2. On
+Linux, when Tailscale refuses to change Serve for the account that runs Koinon, remote setup now
+names the exact command to run. The state schema stays at 37.
+
+- The Sessions view's bulk actions (retire, purge, keep and clear the inbox) work again (#654).
+  Since v0.10.2 the dashboard script read the form's target as `form.action`, which the bulk
+  form's `action` select hides, so each bulk action went to `/dashboard/[object HTMLSelectElement]`
+  and failed with HTTP 404. The script now reads the `action` and `method` attributes, and a
+  test refuses a form control that hides a form property that a dashboard script reads.
+
+- On Linux, when Tailscale refuses to change Serve for the account that runs Koinon,
+  `koinon remote enable`, `koinon remote status` and the dashboard setup now name the step:
+  `sudo tailscale set --operator=NAME` with the literal account name, then `koinon remote enable`
+  (#652). The code is `tailscale_operator_required`. Before, status showed only "Serve: missing"
+  and a general message, and a step with `$USER` in a root shell made root the operator.
+
+Upgrade from v0.10.2 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and rewrites the skill entries; the state schema stays at 37. The
+restart ends current dashboard logins, remote logins too: log in again with the Koinon password,
+or run `koinon dashboard` for a one-time link. Homebrew then shows the steps that `koinon install
+--plan` finds; run them, and run `koinon install --plan` again to check. A running `koinon mcp`
+server runs the new release without a session restart.
+
+Upgrade notes:
+
+- Remote access keeps its setting across the upgrade. On Linux, if `koinon remote status` shows
+  `tailscale_operator_required`, run the command that it names once, then `koinon remote enable`
+  (docs/REMOTE-DASHBOARD.md). Koinon does not run that command itself; #656 reviews that.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+
+## 2026-11-12 — A private remote dashboard with one-time QR sign-in, the Koinon logo, and approved work after a reset
+
+This release can open the dashboard privately from a phone or another computer through
+Tailscale Serve (`koinon remote`, contributed by Andrew Deugarte, @andyde8). A one-time sign-in
+QR from the dashboard on the host signs the phone in, and the agent API stays on loopback. The
+dashboard and the README show the Koinon logo. Pickup shows approved decision items in progress
+again after a context reset. On Linux, `brew upgrade` no longer names a false install step. The
+documentation, `koinon --help` and the guide match the code again. The state schema stays at 37.
+
+- Pickup also reads the board's approved items in progress of its repository (#640). After a
+  context reset, nothing else showed an approved card again to the session that must finish it.
+  Pickup closes such an item with `decision_close` when its record and merged change exist, and
+  otherwise reports it as approved work that waits.
+
+- On Linux, `brew upgrade koinon` no longer shows "ACTION REQUIRED: ... koinon install" while the
+  installation is current (#643). Homebrew runs the plan without `XDG_RUNTIME_DIR`, so
+  `systemctl --user` did not reach the user manager, and the plan then compared the version of
+  the daemon that had not restarted yet. A `systemctl` or `journalctl` command without
+  `XDG_RUNTIME_DIR` now gets the user's own `/run/user/UID`.
+
+- `koinon --help` names `koinon decision export --as FAMILY:ID PATH` and the launcher's `--role`
+  and the Claude-only `--bg`, and `koinon guide` names Grok and the `work_checkout` and `work_checkout_request`
+  tools. README, PROTOCOL.md, docs/INSTALL.md and docs/USAGE.md now include Grok in the lists of
+  families that get the shared skills, launchers and context cycles, the network dashboard, and
+  the `binary_changed` stop reason.
+
+- The dashboard shows the Koinon icon in its header and browser tab, with a light and a dark
+  variant, and the README opens with the Koinon logo.
+
+- Private remote access to the dashboard through Tailscale Serve (#645, PR 644 by Andrew
+  Deugarte, @andyde8; ADR 002, PDR 010). `koinon remote enable`, `status` and `disable` manage a
+  dashboard-only loopback listener and one owned private HTTPS mapping, and keep other Serve
+  configuration. The agent API is absent from that listener. The dashboard header offers **Go
+  remote**, which opens **Settings, Remote access** with one next step at a time; it is hidden
+  on the remote dashboard itself. Remote access needs a maintainer secret, now labeled
+  **Koinon password** on every login page, whose button now says **Sign in**.
+- On the dashboard of the host, **Show sign-in QR** gives a one-time sign-in code for the phone
+  that works once, for two minutes. A remote session cannot create one. The URL alone still
+  asks for the Koinon password; the QR that `koinon remote enable` prints holds only the URL.
+  A remote login allows 7 days without a request and lasts at most 7 days; local logins keep
+  24 hours without a request.
+- Dashboard pages fit a phone: long content wraps, controls are larger, and the page shows
+  when its data was last read. A refresh keeps open forms and unsent text; an interrupted
+  submission reports an unknown result and is never sent again automatically.
+- `koinon remote` refusals have fixed codes: `invalid_request`, `daemon_unavailable`,
+  `remote_secret_required`, a Tailscale code such as `tailscale_disconnected`, or
+  `remote_setup_required`; `--json` reports `ok`. Disable closes the remote surface also when
+  its record cannot be written.
+- After remote access was enabled, `koinon uninstall` removes Koinon's Serve mapping. When it
+  cannot, the uninstall stops with the Tailscale code and keeps the binary; repeat it after the
+  step that the report names.
+
+Upgrade from v0.10.1 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and rewrites the skill entries; the state schema stays at 37. The
+restart ends current dashboard logins: log in again with the maintainer secret, or run `koinon
+dashboard` for a one-time link. Homebrew then shows the steps that `koinon install --plan`
+finds; run them, and run `koinon install --plan` again to check. A running `koinon mcp` server
+runs the new release without a session restart.
+
+Upgrade notes:
+
+- Remote access stays off until you turn it on with `koinon remote enable` or under Settings,
+  Remote access. It needs Tailscale on the host and the phone, and a maintainer secret
+  (docs/REMOTE-DASHBOARD.md).
+- Login pages call the maintainer secret **Koinon password**. It is the same secret.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+
+## 2026-11-10 — Decision cards with the form at each write, a fix-loop answer and an on-track answer
+
+This release gives an agent the decision-card form each time it writes a card, also after a
+compaction, and the reply has `form_notes` when the card does not follow the form. A card now
+also answers two questions: whether the agent is in a fix loop, and whether its work is on
+track. A note does not refuse a card. The state schema stays at 37.
+
 - An agent gets the card form each time it writes a decision card, also after a compaction
   (#635; CARD-FORM-AT-WRITE-635 in PDR 007, Decision 1). The `decision_create` and
   `decision_edit` field text and the `koinon decision` usage give the form, and the reply has
@@ -18,6 +603,23 @@ into a dated release section when promoted to `main`.
   track" or "off track" and gives the assigned or approved work that the card belongs to, and
   where it was assigned or approved; an "off track" card names the work that nobody approved.
   `form_notes` names a missing label or an answer that is not one of the fixed answers.
+
+Upgrade from v0.10.0 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and rewrites the skill entries; the state schema stays at 37. The
+restart ends current dashboard logins: log in again with the maintainer secret, or run `koinon
+dashboard` for a one-time link. Homebrew then shows the steps that `koinon install --plan`
+finds; run them, and run `koinon install --plan` again to check. A running `koinon mcp` server
+runs the new release without a session restart.
+
+Upgrade notes:
+
+- A decision card without **Fix loop:** or **On track:**, or with an answer that is not one of
+  the fixed answers, gets `form_notes` in the reply. The card is kept; correct it with
+  `decision_edit` (#638).
+- A client that reads the tool list again after the upgrade shows the new card form in the
+  `decision_create` and `decision_edit` field text (#635).
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
 
 ## 2026-11-06 — A network dashboard over HTTPS, install network questions, and no DECISIONS.md
 

@@ -225,7 +225,31 @@ var contextCycleProbe = func(s *Store, ctx context.Context, k Key) CycleProbe { 
 // (0 when there is none). Enabling needs an available cycle; disabling is always accepted.
 // Family settings never create an Enable.
 func (s *Store) SetContextEnable(ctx context.Context, peer string, sessionRevision, ifRevision int64, enabled bool) (ContextEnable, error) {
-	if peer == "" || sessionRevision < 1 || ifRevision < 0 {
+	if peer == "" {
+		return ContextEnable{}, ErrInvalid
+	}
+	return s.setContextEnable(ctx, func(q querier) (Key, error) {
+		var k Key
+		err := q.QueryRowContext(ctx, `SELECT family,session_id FROM names WHERE kind='peer' AND name=? AND family!='maintainer'`, peer).Scan(&k.Family, &k.ID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return k, ErrPeerNotFound
+		}
+		return k, err
+	}, sessionRevision, ifRevision, enabled)
+}
+
+// SetContextEnableOf turns the Enable of the session with key k on or off, as SetContextEnable
+// does, for the Sessions page's bulk action (#718): the selected key is the session that
+// changes, so no name lookup can point the change at another session.
+func (s *Store) SetContextEnableOf(ctx context.Context, k Key, sessionRevision, ifRevision int64, enabled bool) (ContextEnable, error) {
+	if !validKey(k.Family, k.ID) || k.Family == "maintainer" {
+		return ContextEnable{}, ErrInvalid
+	}
+	return s.setContextEnable(ctx, func(querier) (Key, error) { return k, nil }, sessionRevision, ifRevision, enabled)
+}
+
+func (s *Store) setContextEnable(ctx context.Context, resolve func(querier) (Key, error), sessionRevision, ifRevision int64, enabled bool) (ContextEnable, error) {
+	if sessionRevision < 1 || ifRevision < 0 {
 		return ContextEnable{}, ErrInvalid
 	}
 	// The adapter's Probe reads the host, its pane and its files, so it runs before the
@@ -233,9 +257,7 @@ func (s *Store) SetContextEnable(ctx context.Context, peer string, sessionRevisi
 	// revision.
 	var probe CycleProbe
 	if enabled {
-		var k Key
-		if err := s.db.QueryRowContext(ctx, `SELECT family,session_id FROM names WHERE kind='peer' AND name=? AND family!='maintainer'`, peer).
-			Scan(&k.Family, &k.ID); err == nil {
+		if k, err := resolve(s.db); err == nil {
 			probe = contextCycleProbe(s, ctx, k)
 		}
 	}
@@ -251,17 +273,18 @@ func (s *Store) SetContextEnable(ctx context.Context, peer string, sessionRevisi
 	defer tx.Rollback()
 	tx.audited = true
 	now := s.now().UnixMilli()
-	var k Key
-	err = tx.QueryRowContext(ctx, `SELECT family,session_id FROM names WHERE kind='peer' AND name=? AND family!='maintainer'`, peer).Scan(&k.Family, &k.ID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return ContextEnable{}, ErrPeerNotFound
-	}
+	k, err := resolve(tx)
 	if err != nil {
 		return ContextEnable{}, err
 	}
 	session, err := scanSession(tx.QueryRowContext(ctx, sessionQuery+` WHERE s.family=? AND s.id=?`, k.Family, k.ID), now)
 	if err != nil {
 		return ContextEnable{}, err
+	}
+	// The audit names the session by its peer name, as the dashboard shows it.
+	peer := session.Name
+	if peer == "" {
+		peer = k.Family + ":" + k.ID
 	}
 	var hostPID, hostStart int64
 	var socket, pane string

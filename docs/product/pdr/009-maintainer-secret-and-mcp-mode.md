@@ -3,7 +3,7 @@ pdr: "009"
 title: "Maintainer Secret and Maintainer MCP Mode"
 status: modified
 created: "2026-10-25"
-updated: "2026-11-06"
+updated: "2026-11-12"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -83,7 +83,9 @@ From #470:
 
 This record covers the maintainer's credential, the dashboard login and the maintainer MCP
 mode, including the optional HTTPS dashboard listener approved in DASHBOARD-LAN-624 (ADR 001,
-Decision 2). Agent identity and agent API transport keep their existing behavior.
+Decision 2). Agent identity and agent API transport keep their existing behavior. The private
+Tailscale Serve surface and its distinct remote sessions are specified in ADR 002
+and PDR 010.
 
 ---
 
@@ -168,6 +170,11 @@ Nothing else changes until a secret is set.
   expiry and CSRF checks apply. Robert Capps approved this on 2026-11-05 with the optional FQDN
   note; ADR 001 Decision 2 records DASHBOARD-LAN-624's context, options, quoted decision, reason
   and scope, and Decision 4 records the request checks.
+- **Changed 2026-11-12 (#645, PDR 010):** the private Tailscale Serve surface is a separate
+  surface with its own rules, accepted by Robert Capps: "yes we take it." There, a
+  one-time sign-in QR, created by a signed-in dashboard on the host, also starts a login,
+  and a remote login allows seven days without a request, inside the same 7 days in all.
+  The network HTTPS listener above keeps the secret as its only login.
 
 **Provenance:** as Decision 1. The maintainer called the one-time link "overkill"; the
 approved draft keeps it as the way in before a secret exists, because removing it would
@@ -292,3 +299,5 @@ use Koinon as intended from acting as the maintainer.
 | 2026-10-25 | Accepted (#470); Decisions 1 and 2 built |
 | 2026-10-26 | Decision 3 built without its change notices, and Decision 4 built (#470, PR 2). Decision 3 records the token's end, the start during the wait and the idle refresh, which the first client requested |
 | 2026-10-26 | Decision 3's change notices built (#470, PR 3). Decision 3 records that each long poll moves the idle limit, so a quiet subscribed client keeps its token, as the first client requested |
+| 2026-11-11 | Link the private remote surface in ADR 002 and PDR 010. |
+| 2026-11-12 | Record the remote surface's QR sign-in and seven-day idle limit in Decision 2 as a change, accepted by Robert Capps (#645). |

@@ -1,0 +1,89 @@
+{{define "remote"}}
+{{if and .Status.Configured (eq .Status.Listener "ready") (eq .Status.Serve "ready")}}
+<p>Remote access is on.</p>
+{{if .OnRemote}}<p>Sign-in codes are shown only on this computer's own dashboard.</p>{{else}}<div id="remote-ticket">
+<p>Connect Tailscale on your phone, then scan a sign-in code.</p>
+<button type="button" data-remote-ticket data-csrf="{{.CSRF}}">Show sign-in QR</button>
+<div id="remote-ticket-output" hidden>
+<img id="remote-ticket-image" width="224" height="224" alt="One-time Koinon sign-in QR">
+<p id="remote-ticket-message" role="status">Scan with your phone. No password needed.</p>
+</div>
+<p id="remote-ticket-result" role="status" hidden></p>
+</div>{{end}}
+<details class="remote-link-option"><summary>Use a link instead</summary>
+<p>Sign in with your Koinon password when asked.</p>
+<div class="remote-url"><code>{{.Status.URL}}</code> <button type="button" class="copy">Copy link</button></div>
+</details>
+{{else}}
+<div id="remote-setup">
+{{if .Operator}}
+<h2>Allow Koinon to configure Tailscale</h2>
+<p>Tailscale refused this account. On this computer, run:</p>
+{{if .OperatorCommand}}<p><code>{{.OperatorCommand}}</code></p>{{else}}<p>As the account that runs Koinon, outside a root shell, run <code>id -un</code>. Then run <code>sudo tailscale set --operator=NAME</code> with that name.</p>{{end}}
+<form method="post" action="/dashboard/actions/remote-enable"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">I’ve run it — enable remote access</button></form>
+{{else if not .Checked}}
+<p>Open Koinon on your phone. Let’s check your computer first.</p>
+<p><a class="remote-link" data-remote-check href="/dashboard/remote/status?setup=1#remote-access">Get started</a></p>
+{{else if not .Secret}}
+<h2>Set up your Koinon password</h2>
+<p>You’ll use it if you sign in without a QR code.</p>
+<details><summary>How to set a password</summary><p>On this computer, run:</p><p><code>koinon maintainer secret set</code></p></details>
+<p><a data-remote-check href="/dashboard/remote/status?setup=1#remote-access">I’ve set it up</a></p>
+{{else if .Ready}}
+<p>Your computer is ready.</p>
+<form method="post" action="/dashboard/actions/remote-enable"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Enable remote access</button></form>
+{{else if .Approval.URL}}
+<h2>Allow access in Tailscale</h2>
+<p>Approve the connection, then come back here.</p>
+<p><a class="remote-link" href="{{.Approval.URL}}" target="_blank" rel="noreferrer noopener">Open Tailscale</a></p>
+<p><a data-remote-check href="/dashboard/remote/status?setup=1#remote-access">I’ve approved it</a></p>
+{{else if not .Status.Tailscale}}
+<h2>Connect your computer</h2>
+<p>Install Tailscale and sign in. It connects your computer and phone privately.</p>
+<p><a class="remote-link" href="https://tailscale.com/download" target="_blank" rel="noreferrer noopener">Get Tailscale</a></p>
+<p><a data-remote-check href="/dashboard/remote/status?setup=1#remote-access">Check again</a></p>
+{{else if or (ne .Status.Tailscale.BackendState "Running") (not .Status.Tailscale.Online)}}
+<h2>Connect Tailscale</h2><p>Open Tailscale on this computer and sign in.</p>
+<p><a class="remote-link" data-remote-check href="/dashboard/remote/status?setup=1#remote-access">Check again</a></p>
+{{else}}
+<h2>Finish Tailscale setup</h2>
+<p>Follow Tailscale’s setup instructions, then come back here.</p>
+<p><a class="remote-link" href="https://tailscale.com/docs/how-to/set-up-https-certificates" target="_blank" rel="noreferrer noopener">Open setup instructions</a></p>
+<p><a data-remote-check href="/dashboard/remote/status?setup=1#remote-access">Check again</a></p>
+{{end}}
+{{if .Checked}}<small>After making a change, check again to continue.</small>{{end}}
+</div>
+{{end}}
+<p><small>Keep this computer awake and Koinon running.</small></p>
+<section id="dashboard-access">
+<h3>Dashboard access</h3>
+<p>The dashboard opens on this computer{{with .Access}}{{if .Network}}{{if .NetworkOpen}}, and on the network address <code>{{.Network}}</code>{{else}}; the network address <code>{{.Network}}</code> is configured but not open ({{.NetworkCode}}){{end}}{{end}}{{if .Tailnet}}{{if .TailnetReady}}, and on your tailnet at <code>{{.Tailnet}}</code>{{else}}; tailnet access at <code>{{.Tailnet}}</code> is not ready yet{{end}}{{end}}{{end}}.</p>
+{{if not .Access.TailnetOnly}}<form method="post" action="/dashboard/actions/dashboard-access"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="mode" value="tailnet">
+<p>Use this computer and your tailnet only: Koinon enables remote access through Tailscale Serve{{if .Access.Network}} and closes the network address{{if .Access.NetworkOpen}} at once; a page open on it then loses its connection{{end}}{{end}}.</p>
+<button type="submit">Use this computer and the tailnet only</button></form>{{end}}
+</section>
+<details data-remote-diagnostics><summary>Connection details</summary>
+<dl>
+<dt>Host configured</dt><dd>{{if .Status.Configured}}Yes{{else}}No{{end}}</dd>
+<dt>Computer listener</dt><dd>{{.Status.Listener}}</dd>
+<dt>Tailscale</dt><dd>{{with .Status.Tailscale}}{{.BackendState}}{{if not .Online}} · offline{{end}}{{else}}unavailable{{end}}</dd>
+<dt>Serve mapping</dt><dd>{{.Status.Serve}}</dd>
+<dt>Phone connected at (server time)</dt><dd>{{with .Status.Sessions}}{{if index . "phone_connected_at"}}{{ms (index . "phone_connected_at")}}{{else}}Not observed{{end}}{{else}}Unavailable{{end}}</dd>
+<dt>Cellular access</dt><dd>Unverified — try it on your phone with Wi-Fi off</dd>
+<dt>Last successful reconciliation (server time)</dt><dd>{{if .Status.LastReconciled}}{{ms .Status.LastReconciled}}{{else}}Not observed{{end}}</dd>
+{{with .Status.Sessions}}
+{{if index . "revocation_incomplete"}}<dt>Device revocation</dt><dd>Revocation incomplete; private storage could not be updated. Retry forgetting the device.</dd>{{end}}
+<dt>Private session storage</dt><dd>{{index . "store_health"}}</dd>
+<dt>Unexpired remote sessions (host observation)</dt><dd>{{if index . "active_sessions"}}{{index . "active_sessions"}}{{else if eq (index . "store_health") "healthy"}}0{{else}}Unavailable{{end}}</dd>
+<dt>Latest observed sign-in end reason</dt><dd>{{if index . "last_auth_end_reason"}}{{index . "last_auth_end_reason"}}{{else}}None observed{{end}}</dd>
+{{end}}
+</dl>
+<p><small>A browser request proves reachability at its recorded time. It does not identify the network used or prove a person is online. Session deadlines use the host clock.</small></p>
+{{if .Status.Error}}<p>{{.Status.Error}}</p>{{end}}
+{{if .Status.PolicyHint}}<p>{{.Status.PolicyHint}}</p>{{if .Status.PolicyRule}}<p><code>{{.Status.PolicyRule}}</code></p>{{end}}{{end}}
+{{if .Prerequisite}}<p>{{.Prerequisite}}</p>{{end}}
+{{if .SetupError}}<p>{{.SetupError}}</p>{{end}}
+{{if and .Checked .Secret .SetupError (not .Ready) (not .Operator)}}<form method="post" action="/dashboard/actions/remote-enable"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Try enabling remote access</button></form>{{end}}
+</details>
+{{if or .Status.Configured (eq .Status.Serve "cleanup pending")}}<details><summary>Turn off remote access</summary><p>Your phone will lose access. Koinon keeps working on this computer.</p><form method="post" action="/dashboard/actions/remote-disable"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">Turn off remote access</button></form></details>{{end}}
+{{end}}

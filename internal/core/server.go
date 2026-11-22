@@ -19,6 +19,7 @@ import (
 
 	"github.com/rwcii/koinon/internal/library"
 	"github.com/rwcii/koinon/internal/platform"
+	"github.com/rwcii/koinon/internal/remote"
 )
 
 type Config struct {
@@ -30,9 +31,21 @@ type Config struct {
 	// SecretCost is the PBKDF2 iteration count of a new maintainer secret key; 0 is the
 	// production count. Tests of other packages lower it.
 	SecretCost int
+	// Tailscale is injectable; nil uses the installed CLI only when remote access is configured.
+	Tailscale remote.Adapter
+	// linkHooks sets a test's link hooks, such as its dial and clock, before any goroutine of
+	// the daemon starts, so a restored Remote reads them without a race (#773). Production
+	// callers leave it nil.
+	linkHooks func(*linkRuntime)
 }
 
 type Daemon struct {
+	// computers is the node's computers topic of signed changes waits (#693).
+	computers computersTopic
+	// signedCalls counts the actions in flight of each signed session (#693 chunk 3).
+	signedCalls       signedCalls
+	remote            remoteRuntime
+	link              linkRuntime
 	release           string
 	store             *Store
 	secret            string
@@ -67,6 +80,9 @@ type Daemon struct {
 	wakePass         func(context.Context) error // the real pass, injectable in loop tests
 	// sweepMu keeps the maintenance sweep and koinon maintenance sweep from overlapping.
 	sweepMu sync.Mutex
+
+	// notices wakes the decision notice dispatcher (#746 chunk 02); a send never blocks.
+	notices chan struct{}
 }
 
 func validAddress(address string) bool {
@@ -104,8 +120,12 @@ func Start(c Config) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
-	d := &Daemon{release: c.Release, lock: lock, errors: make(chan error, 3), stop: make(chan struct{}), root: root, launch: runLauncher, catalog: catalog, workNoticeSignal: make(chan struct{}, 1)}
+	d := &Daemon{release: c.Release, lock: lock, errors: make(chan error, 3), stop: make(chan struct{}), root: root, launch: runLauncher, catalog: catalog, workNoticeSignal: make(chan struct{}, 1), notices: make(chan struct{}, 1)}
 	d.logEvent = c.LogEvent
+	d.remote.manager = remote.Manager{Adapter: c.Tailscale}
+	if c.linkHooks != nil {
+		c.linkHooks(&d.link)
+	}
 	defer func() {
 		if err != nil {
 			d.Close()
@@ -122,6 +142,8 @@ func Start(c Config) (*Daemon, error) {
 	d.started = d.store.now()
 	d.store.library.catalog = catalog
 	d.store.logEvent = c.LogEvent
+	d.store.linkFence = d.boardFence
+	d.store.noticeKick = d.noticeSignal
 	d.store.secretCost = c.SecretCost
 	// No tool call before this start is known, so the succession guard counts the start as one.
 	d.store.calls.since = d.started.UnixMilli()
@@ -135,6 +157,7 @@ func Start(c Config) (*Daemon, error) {
 	if d.auth, err = newDashboardAuth(func() time.Time { return d.store.now() }); err != nil {
 		return nil, err
 	}
+	d.auth.store = d.store
 	if d.dashboard, err = d.dashboardHandler(); err != nil {
 		return nil, err
 	}
@@ -164,6 +187,8 @@ func Start(c Config) (*Daemon, error) {
 	d.wg.Add(1)
 	go d.maintainDeepSeekContext()
 	d.startDashboardNetwork(net.InterfaceAddrs, net.Listen)
+	d.wg.Add(1)
+	go d.maintainRemote()
 	for _, listener := range d.listeners {
 		server := &http.Server{Handler: d.handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
 		d.servers = append(d.servers, server)
@@ -191,6 +216,9 @@ func (d *Daemon) Errors() <-chan error { return d.errors }
 func (d *Daemon) Close() error {
 	d.closeOnce.Do(func() {
 		close(d.stop)
+		remoteCtx, remoteCancel := context.WithTimeout(context.Background(), 8*time.Second)
+		d.closeErr = errors.Join(d.closeErr, d.shutdownRemote(remoteCtx))
+		remoteCancel()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		for _, s := range d.servers {
@@ -474,6 +502,8 @@ func (d *Daemon) handler() http.Handler {
 			respond(w, 200, map[string]any{"ok": true, "session": result, "renewal_seconds": d.store.Settings().RenewalSeconds})
 		})
 	}
+	d.remoteRoutes(mux)
+	d.linkRoutes(mux)
 	d.messageRoutes(mux)
 	d.memoryRoutes(mux)
 	d.workRoutes(mux)
@@ -487,7 +517,10 @@ func (d *Daemon) handler() http.Handler {
 	d.roomRoutes(mux)
 	d.decisionRoutes(mux)
 	d.maintainerRoutes(mux)
+	d.maintainerKeyRoutes(mux)
+	d.signedRoutes(mux)
 	d.maintainerSessionRoutes(mux)
+	d.linkMaintainerRoutes(mux)
 	mux.HandleFunc("POST /v1/dashboard/links", func(w http.ResponseWriter, r *http.Request) {
 		if err := decode(w, r, &struct{}{}); err != nil {
 			failure(w, err)
@@ -561,16 +594,34 @@ func Call(ctx context.Context, address, secret, path string, body any) (json.Raw
 // CallTimeout is Call with its own time limit, for a request that the daemon answers later,
 // such as the long poll of the maintainer's change notices.
 func CallTimeout(ctx context.Context, address, secret, path string, body any, timeout time.Duration) (json.RawMessage, error) {
+	if body == nil {
+		return callRaw(ctx, address, secret, path, nil, nil, timeout)
+	}
+	data, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	return callRaw(ctx, address, secret, path, data, nil, timeout)
+}
+
+// CallEnvelope posts one signed envelope as it is, with a signed session's token when token is
+// not empty (#693): the daemon checks the bytes that the client signed.
+func CallEnvelope(ctx context.Context, address, secret, path string, envelope []byte, token string, timeout time.Duration) (json.RawMessage, error) {
+	var header map[string]string
+	if token != "" {
+		header = map[string]string{MaintainerTokenHeader: token}
+	}
+	return callRaw(ctx, address, secret, path, envelope, header, timeout)
+}
+
+// callRaw makes one daemon request: a GET without a body, else a POST of the JSON body.
+func callRaw(ctx context.Context, address, secret, path string, body []byte, header map[string]string, timeout time.Duration) (json.RawMessage, error) {
 	if !validAddress(address) {
 		return nil, ErrInvalid
 	}
 	method, reader := http.MethodGet, io.Reader(nil)
 	if body != nil {
-		data, err := json.Marshal(body)
-		if err != nil {
-			return nil, err
-		}
-		method, reader = http.MethodPost, bytes.NewReader(data)
+		method, reader = http.MethodPost, bytes.NewReader(body)
 	}
 	transport := &http.Transport{Proxy: nil}
 	defer transport.CloseIdleConnections()
@@ -582,6 +633,9 @@ func CallTimeout(ctx context.Context, address, secret, path string, body any, ti
 	r.Header.Set("Authorization", "Bearer "+secret)
 	if body != nil {
 		r.Header.Set("Content-Type", "application/json")
+	}
+	for name, value := range header {
+		r.Header.Set(name, value)
 	}
 	response, err := client.Do(r)
 	if err != nil {

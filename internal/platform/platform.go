@@ -16,6 +16,8 @@ var ErrProcessGone = errors.New("no such process")
 // and that terminal's foreground process group: the group that receives the terminal's input.
 type ProcessGroup struct {
 	Group, Terminal, Foreground int
+	// Parent is the parent process, from the same record (#758).
+	Parent int
 }
 
 // DefaultStateDir is separate from every Python-era state file.
@@ -75,20 +77,57 @@ func owned(info os.FileInfo, directory bool) error {
 // OpenPrivate does not follow a final symlink and verifies the opened inode.
 // It never fixes permissions of existing files.
 func OpenPrivate(path string, flags int) (*os.File, error) {
+	return openPrivate(path, flags, openNoFollow)
+}
+
+// replacedOpens bounds the opens of a read whose file is replaced each time between its open
+// and its check (#727).
+const replacedOpens = 8
+
+func openNoFollow(path string, flags int) (*os.File, error) {
 	fd, err := syscall.Open(path, flags|syscall.O_NOFOLLOW|syscall.O_CLOEXEC|syscall.O_NONBLOCK, 0600)
 	if err != nil {
 		return nil, err
 	}
-	f := os.NewFile(uintptr(fd), path)
-	info, err := f.Stat()
-	if err == nil {
-		err = owned(info, false)
+	return os.NewFile(uintptr(fd), path), nil
+}
+
+// openPrivate opens path with open and checks the opened inode. WriteAtomic replaces a file by
+// rename, so a read that opens the file just before the rename holds the old inode, now with 0
+// links (#727). A read-only open then opens the path again, at most replacedOpens times in all;
+// a writable or creating open still refuses it, so that no write goes to a replaced inode.
+func openPrivate(path string, flags int, open func(string, int) (*os.File, error)) (*os.File, error) {
+	opens := 1
+	if flags&syscall.O_ACCMODE == syscall.O_RDONLY && flags&(syscall.O_CREAT|syscall.O_TRUNC|syscall.O_EXCL) == 0 {
+		opens = replacedOpens
 	}
-	if err != nil {
+	var err error
+	for range opens {
+		f, openErr := open(path, flags)
+		if openErr != nil {
+			return nil, openErr
+		}
+		info, statErr := f.Stat()
+		if statErr == nil {
+			if statErr = owned(info, false); statErr == nil {
+				return f, nil
+			}
+		}
 		f.Close()
-		return nil, err
+		err = statErr
+		if info == nil || !replacedInode(info) {
+			break
+		}
 	}
-	return f, nil
+	return nil, err
+}
+
+// replacedInode reports an inode that passes every check of owned except that it has 0 links:
+// the file that was at its path when it was opened, since replaced or removed.
+func replacedInode(info os.FileInfo) bool {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && stat.Nlink == 0 && stat.Uid == uint32(os.Geteuid()) && info.Mode().IsRegular() &&
+		info.Mode().Perm() == 0600 && info.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) == 0
 }
 
 // Lock holds a kernel lock for the daemon's lifetime. Death releases it even if

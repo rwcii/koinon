@@ -3,7 +3,7 @@ pdr: "007"
 title: "Human Decision Board"
 status: draft
 created: "2026-10-12"
-updated: "2026-11-09"
+updated: "2026-11-22"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -160,8 +160,7 @@ them as standard options, but they don't all need to be present in ALL cards if 
 relevant data." (CARD-LABELS-582, #582).
 Intent: each card gives these parts under the same labels, and a card leaves out a label that
 has nothing to say. Card form at the write:
-- **Decided by:** Robert Capps, 2026-11-07, on the decision board, card CARD-FORM-AT-WRITE-635,
-  revision 3, "approved", with no note.
+- **Decided by:** Robert Capps, 2026-11-07, on the decision board, "approved", with no note.
 - **Context:** cards had drifted from the form, and the form text had not changed. The form was
   only in the guide, which a session reads once and can lose at a compaction. Robert Capps: "the
   point of koinon is to allow agents to run semi-autonomously. I won't be there to prompt it to
@@ -178,8 +177,7 @@ has nothing to say. Card form at the write:
 - **Review when:** agents leave notes unanswered and cards drift again.
 
 Fix loop and On track:
-- **Decided by:** Robert Capps, 2026-11-09, on the decision board, card CARD-LOOP-SCOPE,
-  revision 2, "approved", with no note.
+- **Decided by:** Robert Capps, 2026-11-09, on the decision board, "approved", with no note.
 - **Context:** Robert Capps: "I see claude consistently get stuck in an infinite fix loop." Many
   cards on a local board asked for one more fix, retry or exception after earlier fixes of the
   same deliverable. On the meaning of on track: "I'm mostly concerned that the agent is working
@@ -347,11 +345,18 @@ record the decision, other than an `fyi` acknowledgement: in the ADR, PDR, WDR o
 document that holds the rule, in the pull request that does the work, with the decider's name,
 the date, the context, the decision, the reason and scope, and the condition for a review
 (#623; WDR 001, Decision 7). Koinon writes no record file. The item read gives the verdict with
-its card text. `koinon decision export PATH` writes every item, live and deep-archived, as JSON
+its card text. `koinon decision export --as FAMILY:ID PATH` writes every item, live and deep-archived, as JSON
 lines to a new private file outside a Git work tree, which a person or CI can read without the
 daemon (#589). Repository text names a decision by its reference, never by its verdict ID,
 which exists only in this machine's store. How a project cites its decisions is that project's
 own rule; Koinon's own repository follows WDR 001, Decision 7 (#580).
+
+A recipient `NAME@COMPUTER` on a paired computer is a remote recipient (PDR 011, Decision 2,
+amendment BOARD-LINK-746). Its verdict delivery is recorded at the card's computer, with the
+pair ID, and waits there for the agent's acknowledgement. The agent hears of a new card, each
+change and each verdict through a short notice with no card text, and reads the card and
+acknowledges at the card's computer over the link. A name for a computer that is not paired
+is flagged with `link_computer_unknown`.
 
 **Provenance:** Requested in #206 (issue body, requirement 9 and the settled point on
 delivery); a request record. Stored, queryable
@@ -421,4 +426,5 @@ blocks, which the maintainer copies into a terminal, hold printable ASCII only. 
 | 2026-11-05 | Decision 1: the spoken-alert decision (SPEAK-SCOPE-553), moved into this record (#623) |
 | 2026-11-07 | Decision 1: the card form at each write, and `form_notes` in the replies (#635, CARD-FORM-AT-WRITE-635) |
 | 2026-11-09 | Decision 1: the card labels Fix loop and On track (#638, CARD-LOOP-SCOPE) |
-| 2026-11-09 | Executive summary: the board is built (#353, #358, #360) |
+| 2026-11-18 | Decision 4: remote recipients on a paired computer get notices and read and acknowledge at the card's computer (#746; PDR 011, Decision 2, amendment BOARD-LINK-746) |
+| 2026-11-22 | Executive summary: the board is built (#353, #358, #360) |

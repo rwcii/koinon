@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"io/fs"
 	"net/http"
+	"os"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -22,7 +23,18 @@ import (
 //go:embed web
 var webFiles embed.FS
 
-var dashboardViews = []string{"sessions", "messages", "rooms", "decisions", "memory", "work", "health", "settings", "audit"}
+// authedSessionKey holds the login that authedLimit accepted for a request.
+type authedSessionKey struct{}
+
+// requestSession returns the request's accepted login, or authenticates it once.
+func (d *Daemon) requestSession(r *http.Request) (string, bool) {
+	if id, ok := r.Context().Value(authedSessionKey{}).(string); ok {
+		return id, true
+	}
+	return d.auth.session(r)
+}
+
+var dashboardViews = []string{"attention", "sessions", "messages", "rooms", "decisions", "memory", "work", "health", "settings", "audit"}
 
 // settingsData is the settings view: the values in force, the defaults and the time of
 // the last change.
@@ -32,6 +44,9 @@ type settingsData struct {
 	// Context is each family's context policy (#196); Modes are the selectable modes.
 	Context []ContextFamilyPolicy
 	Modes   []string
+	Remote  *dashboardRemoteData
+	// Link is the Computers section (#670).
+	Link *LinkStatus
 }
 
 // loginData is the login page's reason, and whether it shows the secret form.
@@ -60,6 +75,7 @@ type loginData struct {
 	Reason  string
 	Form    bool
 	Network bool
+	Return  string
 }
 
 // loginFormLimit bounds a login form: a secret of MaintainerSecretMaxBytes, form-encoded.
@@ -76,7 +92,14 @@ type dashboardPage struct {
 	Back   string // the view's order and filters, which its action forms return to
 	// Reload makes the refresh load the whole page once its list reads again: the fault page
 	// has none of the view's actions or filters to keep (#507).
-	Reload bool
+	Reload          bool
+	Host            string
+	Remote          bool
+	RemoteSessionID string
+	SessionExpires  int64
+	// AuthReason is why a remote page was refused, so the browser clears drafts after a
+	// revocation that it sees only through a full page load (#673 review M8).
+	AuthReason string
 }
 
 func dashboardTemplates() (map[string]*template.Template, error) {
@@ -103,6 +126,12 @@ func dashboardTemplates() (map[string]*template.Template, error) {
 				return "—"
 			}
 			return time.Unix(0, int64(f*1e9)).UTC().Format("2006-01-02 15:04:05Z")
+		},
+		"unix": func(v int64) string {
+			if v == 0 {
+				return "—"
+			}
+			return time.Unix(v, 0).UTC().Format("2006-01-02 15:04:05Z")
 		},
 		"list": func(values ...string) []string { return values },
 		"decisionCard": func(page dashboardPage, item DecisionItem, lookup bool) decisionCard {
@@ -134,12 +163,12 @@ func dashboardTemplates() (map[string]*template.Template, error) {
 			return text
 		},
 	}
-	layout, err := template.New("layout.html").Funcs(funcs).ParseFS(webFiles, "web/layout.html")
+	layout, err := template.New("layout.html").Funcs(funcs).ParseFS(webFiles, "web/layout.html", "web/remote.html")
 	if err != nil {
 		return nil, err
 	}
 	result := map[string]*template.Template{}
-	for _, view := range append([]string{"login", "fault"}, dashboardViews...) {
+	for _, view := range append([]string{"login", "fault", "pair"}, dashboardViews...) {
 		t, err := template.Must(layout.Clone()).ParseFS(webFiles, "web/"+view+".html")
 		if err != nil {
 			return nil, err
@@ -165,6 +194,15 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 			name = "list"
 		}
 		page.Views, page.Now = dashboardViews, d.store.now()
+		page.Host, _ = os.Hostname()
+		page.Remote = remoteOrigin(r) != ""
+		if page.Remote {
+			if token, ok := d.requestSession(r); ok {
+				info := d.auth.sessionInfo(token)
+				page.RemoteSessionID = info.ID
+				page.SessionExpires = info.ExpiresAt
+			}
+		}
 		page.Back = backField(page.View, r.URL.Query())
 		if page.CSRF != "" {
 			page.Notice = notice(r.URL.Query().Get("notice"))
@@ -187,8 +225,16 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 	// refuse shows the login page with its reason, and the secret form when a maintainer
 	// secret is set (PDR 009, Decision 2).
 	refuse := func(w http.ResponseWriter, r *http.Request, status int, reason string) {
+		target := dashboardReturn(r.URL.RequestURI())
+		if r.URL.Path == "/dashboard/login" {
+			target = dashboardReturn(r.URL.Query().Get("return"))
+		}
+		if target == "" {
+			target = dashboardReturn(r.PostForm.Get("return"))
+		}
 		form, _ := d.store.maintainerSecretSet(r.Context())
-		render(w, r, status, dashboardPage{View: "login", Title: "Not signed in", Data: loginData{Reason: reason, Form: form, Network: networkDashboard(r)}})
+		render(w, r, status, dashboardPage{View: "login", Title: "Not signed in", AuthReason: w.Header().Get("X-Koinon-Auth-Reason"),
+			Data: loginData{Reason: reason, Form: form, Network: networkDashboard(r) || remoteOrigin(r) != "", Return: target}})
 	}
 	// authedLimit requires a live login session and, for a state-changing request, its
 	// CSRF token; it reads a form body of at most limit bytes.
@@ -196,6 +242,7 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 		return func(w http.ResponseWriter, r *http.Request) {
 			id, ok := d.auth.session(r)
 			if !ok {
+				w.Header().Set("X-Koinon-Auth-Reason", d.auth.remoteRejectionReason(r))
 				refuse(w, r, http.StatusUnauthorized, "login")
 				return
 			}
@@ -217,7 +264,8 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 				}
 			}
 			// Each action's audit record names the dashboard as its origin (PDR 009, Decision 4).
-			next(w, r.WithContext(withOrigin(r.Context(), "dashboard")), id)
+			// The request keeps its login, so the handler does not authenticate again (#673 review M4).
+			next(w, r.WithContext(context.WithValue(withOrigin(r.Context(), "dashboard"), authedSessionKey{}, id)), id)
 		}
 	}
 	authed := func(next func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
@@ -228,10 +276,28 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 	// signedIn sets the login cookie and opens the board. The cookie lasts as long as the
 	// login can, so a browser restart keeps it (#435).
 	signedIn := func(w http.ResponseWriter, r *http.Request, id string) {
-		http.SetCookie(w, &http.Cookie{Name: cookieName(r), Value: id, Path: "/dashboard/", MaxAge: int(sessionAbsolute.Seconds()),
-			HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: networkDashboard(r)})
-		http.Redirect(w, r, "/dashboard/sessions", http.StatusSeeOther)
+		lifetime := sessionAbsolute
+		if remoteOrigin(r) != "" {
+			info := d.auth.sessionInfo(id)
+			lifetime = time.Duration(max(int64(1000), info.ExpiresAt-d.auth.now().UnixMilli())) * time.Millisecond
+		}
+		http.SetCookie(w, &http.Cookie{Name: cookieName(r), Value: id, Path: "/dashboard/", MaxAge: int(lifetime.Seconds()),
+			HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: networkDashboard(r) || remoteOrigin(r) != ""})
+		target := dashboardReturn(r.PostForm.Get("return"))
+		if target == "" {
+			target = "/dashboard/sessions"
+			if remoteOrigin(r) != "" {
+				target = "/dashboard/attention"
+			}
+		}
+		http.Redirect(w, r, target, http.StatusSeeOther)
 	}
+	d.dashboardPairRoutes(mux, authed, signedIn, render)
+	d.dashboardDeviceRoutes(mux, authed)
+	mux.HandleFunc("GET /dashboard/session", authed(func(w http.ResponseWriter, r *http.Request, id string) {
+		info := d.auth.sessionInfo(id)
+		respond(w, 200, map[string]any{"csrf": d.auth.csrf(id), "session_id": info.ID, "expires_at": info.ExpiresAt, "server_time": d.store.now().UnixMilli()})
+	}))
 	mux.HandleFunc("GET /dashboard/login", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			// A HEAD request, such as a link preview, never uses the token.
@@ -261,7 +327,7 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 			refuse(w, r, http.StatusBadRequest, "request")
 			return
 		}
-		id, err := d.passwordLogin(r.Context(), r.PostForm.Get("secret"), "dashboard")
+		id, err := d.passwordLogin(r.Context(), r.PostForm.Get("secret"), dashboardClient(r))
 		var backoff SecretBackoff
 		switch {
 		case err == nil:
@@ -271,6 +337,8 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 			refuse(w, r, http.StatusTooManyRequests, "backoff")
 		case errors.Is(err, ErrSecretInvalid):
 			refuse(w, r, http.StatusUnauthorized, "secret")
+		case errors.Is(err, ErrRemoteCapacity):
+			http.Error(w, "Signed-in device limit reached. Open Settings → Signed-in remote devices on the host or in a signed-in browser and forget a device, then try again.", http.StatusConflict)
 		case errors.Is(err, ErrSecretUnset):
 			refuse(w, r, http.StatusUnauthorized, "unset")
 		default:
@@ -278,13 +346,25 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 		}
 	})
 	mux.HandleFunc("POST /dashboard/logout", authed(func(w http.ResponseWriter, r *http.Request, id string) {
-		d.auth.logout(id)
-		http.SetCookie(w, &http.Cookie{Name: cookieName(r), Value: "", Path: "/dashboard/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: networkDashboard(r)})
+		if err := d.auth.logout(id); err != nil {
+			http.Error(w, err.Error(), 503)
+			return
+		}
+		http.SetCookie(w, &http.Cookie{Name: cookieName(r), Value: "", Path: "/dashboard/", MaxAge: -1, HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: networkDashboard(r) || remoteOrigin(r) != ""})
 		refuse(w, r, http.StatusOK, "logout")
 	}))
 	d.dashboardActions(mux, authedLimit)
+	d.dashboardRemoteRoutes(mux, authed, pages)
+	d.dashboardAccessRoutes(mux, authed)
+
+	d.dashboardAttentionRoutes(mux, authed)
+	d.dashboardLinkRoutes(mux, authed)
 	mux.HandleFunc("GET /dashboard/{$}", authed(func(w http.ResponseWriter, r *http.Request, _ string) {
-		http.Redirect(w, r, "/dashboard/sessions", http.StatusSeeOther)
+		target := "/dashboard/sessions"
+		if remoteOrigin(r) != "" {
+			target = "/dashboard/attention"
+		}
+		http.Redirect(w, r, target, http.StatusSeeOther)
 	}))
 	// The spoken alert's read of the waiting items (#553).
 	mux.HandleFunc("GET /dashboard/waiting", authed(func(w http.ResponseWriter, r *http.Request, _ string) {
@@ -308,6 +388,12 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 				refuse(w, r, http.StatusBadRequest, "request")
 				return
 			}
+			if settings, ok := data.(settingsData); ok && r.URL.Query().Get("fragment") != "1" && (r.URL.Query().Get("remote_status") == "1" || r.URL.Query().Get("remote_setup") == "1") {
+				remoteData := d.dashboardRemoteState(r.Context(), r.URL.Query().Get("remote_setup") == "1", d.auth.csrf(id))
+				remoteData.OnRemote = remoteOrigin(r) != ""
+				settings.Remote = &remoteData
+				data = settings
+			}
 			render(w, r, http.StatusOK, dashboardPage{View: view, Title: strings.ToUpper(view[:1]) + view[1:], CSRF: d.auth.csrf(id), Data: data})
 		}))
 	}
@@ -316,7 +402,7 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 		origin := r.Header.Get("Origin")
 		scheme := "http://"
 		expectedHost := r.Host
-		if networkDashboard(r) {
+		if networkDashboard(r) || remoteOrigin(r) != "" {
 			scheme = "https://"
 			expectedHost = dashboardHTTPSAuthority(expectedHost)
 			if strings.HasPrefix(origin, "https://") {
@@ -324,7 +410,7 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 			}
 		}
 		switch {
-		case !networkDashboard(r) && !dashboardHost(r):
+		case !networkDashboard(r) && remoteOrigin(r) == "" && !dashboardHost(r):
 			http.Error(w, "foreign host", http.StatusForbidden)
 		case origin != "" && origin != scheme+expectedHost:
 			http.Error(w, "foreign origin", http.StatusForbidden)
@@ -364,6 +450,9 @@ type contextRow struct {
 	// Dialog is the native dialog that the managed cycle waits on and that the adapter does
 	// not answer itself: the maintainer's response applies only to this dialog.
 	Dialog *CycleDialog
+	// DraftBlocks is draftBlockedText while the requester's handoff cycle waits on text in
+	// its input box, else "" (#711).
+	DraftBlocks string
 	// Subagents is, for a Claude requester at waiting_ready, the count of its background
 	// subagents running since the request, "unknown" when they cannot all be read, else ""
 	// (#467).
@@ -402,6 +491,13 @@ func (s *Store) contextRowOf(session Session, enable ContextEnable, now int64) c
 		}
 		if v, err := cycles[0].view(context.Background(), s.db, role); err == nil {
 			row.Managed = &v
+			if role == "requester" {
+				if blocked, err := draftBlockedCycles(context.Background(), s.db); err == nil {
+					if blocked[k] == v.ID {
+						row.DraftBlocks = draftBlockedText
+					}
+				}
+			}
 			if v.State == cycleWaitingReady && role == "requester" && cycles[0].Family == "claude" {
 				row.Subagents = "unknown"
 				if requested, err := cycleRequestedAt(context.Background(), s.db, cycles[0]); err == nil {
@@ -436,8 +532,35 @@ type sessionsData struct {
 	// Status is the status filter shown ("" is all); the counts stay totals under it.
 	Status string
 	Counts map[string]int64
-	Sort   dashboardSort
-	Next   string
+	// Family is the family filter shown ("" is all families), and Families each family's
+	// count in the whole store (#718).
+	Family   string
+	Families []FamilyCount
+	Sort     dashboardSort
+	Next     string
+	// Computers are the receivers of paired computers, one group each (#670).
+	Computers []remoteGroup
+}
+
+// remoteGroup is one paired computer's receivers from its last directory.
+type remoteGroup struct {
+	Computer  string
+	SeenAt    int64
+	Stale     bool
+	Truncated bool
+	Rows      []Peer
+}
+
+// remoteGroups groups the remote rows by computer, in pair order.
+func remoteGroups(rows []Peer) []remoteGroup {
+	var groups []remoteGroup
+	for _, r := range rows {
+		if n := len(groups); n == 0 || groups[n-1].Computer != r.Computer {
+			groups = append(groups, remoteGroup{Computer: r.Computer, SeenAt: r.SeenAt, Stale: r.Stale, Truncated: r.DirectoryTruncated})
+		}
+		groups[len(groups)-1].Rows = append(groups[len(groups)-1].Rows, r)
+	}
+	return groups
 }
 
 type messagesData struct {
@@ -478,12 +601,15 @@ type healthData struct {
 func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 	ctx, q, path := r.Context(), r.URL.Query(), "/dashboard/"+view
 	switch view {
+	case "attention":
+		id, _ := d.requestSession(r)
+		return d.store.attention(ctx, d.attentionBrowser(id), remoteOrigin(r))
 	case "sessions":
 		order, err := parseSort(&sessionSort, path, q, viewFilters["sessions"]...)
 		if err != nil {
 			return nil, err
 		}
-		sessions, next, err := d.store.dashboardSessions(ctx, order, q.Get("q"), q.Get("status"))
+		sessions, next, err := d.store.dashboardSessions(ctx, order, q.Get("q"), q.Get("status"), q.Get("family"))
 		if err != nil {
 			return nil, err
 		}
@@ -512,12 +638,18 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+		families, err := d.store.familyCounts(ctx)
+		if err != nil {
+			return nil, err
+		}
 		enables, err := d.store.contextEnables(ctx)
 		if err != nil {
 			return nil, err
 		}
 		now := d.store.now().UnixMilli()
-		result := sessionsData{Rows: make([]sessionRow, 0, len(sessions)), Search: q.Get("q"), Status: q.Get("status"), Counts: counts, Sort: order, Next: next}
+		result := sessionsData{Rows: make([]sessionRow, 0, len(sessions)), Search: q.Get("q"), Status: q.Get("status"), Counts: counts,
+			Family: q.Get("family"), Families: families, Sort: order, Next: next,
+			Computers: remoteGroups(d.remoteRows())}
 		for _, s := range sessions {
 			result.Rows = append(result.Rows, sessionRow{Session: s, Work: claims[s.Family+":"+s.ID], Observed: d.store.sessionObservations(pull, s), Participant: byAddress[s.Address],
 				Cycle: d.store.contextRowOf(s, enables[Key{s.Family, s.ID}], now)})
@@ -545,8 +677,12 @@ func (d *Daemon) dashboardData(r *http.Request, view string) (any, error) {
 		return result, err
 	case "settings":
 		at, err := d.store.settingsUpdatedAt(ctx)
+		var linkState *LinkStatus
+		if q.Get("fragment") != "1" {
+			linkState = d.dashboardLinkState(ctx)
+		}
 		return settingsData{Current: d.store.Settings(), Default: DefaultSettings, UpdatedAt: at, Context: d.store.ContextPolicy(),
-			Modes: []string{ContextObserve, ContextNativeCompaction, ContextHandoffCycle}}, err
+			Modes: []string{ContextObserve, ContextNativeCompaction, ContextHandoffCycle}, Link: linkState}, err
 	case "decisions":
 		return d.store.dashboardDecisions(ctx, q)
 	case "audit":

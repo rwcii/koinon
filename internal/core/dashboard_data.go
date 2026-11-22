@@ -94,10 +94,11 @@ func validRepository(repository string) bool {
 var sessionStates = map[string]bool{"": true, "active": true, "expired": true, "retired": true}
 
 // dashboardSessions lists agent sessions in the sort's order after its cursor, those that
-// match search when it is set and are in state when it is set; next is the cursor for the
-// following page, or "". The maintainer's inbox is on the messages view.
-func (s *Store) dashboardSessions(ctx context.Context, order dashboardSort, search, state string) ([]Session, string, error) {
-	if len(search) > dashboardSearchMax || !sessionStates[state] {
+// match search when it is set, are in state when it is set and are of family when it is set;
+// next is the cursor for the following page, or "". The family is an exact match (#718): an
+// unknown family has no rows. The maintainer's inbox is on the messages view.
+func (s *Store) dashboardSessions(ctx context.Context, order dashboardSort, search, state, family string) ([]Session, string, error) {
+	if len(search) > dashboardSearchMax || !sessionStates[state] || len(family) > dashboardSearchMax {
 		return nil, "", ErrInvalid
 	}
 	where, after, by := order.sql()
@@ -106,6 +107,10 @@ func (s *Store) dashboardSessions(ctx context.Context, order dashboardSort, sear
 	if state != "" {
 		where += ` AND state=?`
 		args = append(args, state)
+	}
+	if family != "" {
+		where += ` AND family=?`
+		args = append(args, family)
 	}
 	if search != "" {
 		// LIKE ignores ASCII case. Each listed field is searched as a substring.
