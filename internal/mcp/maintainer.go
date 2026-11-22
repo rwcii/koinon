@@ -89,7 +89,7 @@ func SignedSession(ctx context.Context, stateDir, address string, envelope []byt
 
 // signedTools is the one tool of a signed session.
 var signedTools = []map[string]any{
-	{"name": "signed", "description": "Run one signed maintainer action: envelope is the envelope that the maintainer client signed, as a JSON object (or as a string of its JSON text). The answer is the target's answer unchanged: {\"ok\": true, \"result\": ...} or {\"ok\": false, \"code\", \"error\", \"details\"}.",
+	{"name": "signed", "description": "Run one signed maintainer action: envelope is the envelope that the maintainer client signed, as a JSON object (or as a string of its JSON text). The answer is the target's answer unchanged: {\"ok\": true, \"result\": ...} or {\"ok\": false, \"code\", \"error\", \"details\"}; for a koinon-maintainer-2 envelope, the signed answer object (v koinon-answer-2) that carries it, in each status.",
 		"inputSchema": map[string]any{"type": "object", "properties": map[string]any{"envelope": map[string]any{"type": []string{"object", "string"}}},
 			"required": []string{"envelope"}, "additionalProperties": false}},
 }

@@ -509,7 +509,7 @@ func TestSignedForwardReplyShape(t *testing.T) {
 		"extra fields":   {`{"status":200,"answer":{"ok":true,"result":[1],"more":1}}`, true},
 		"status 600":     {`{"status":600,"answer":{"ok":false,"code":"x"}}`, false},
 	} {
-		answer, ok := validReply(link.Frame{Op: "maintainer-ok", Body: json.RawMessage(c.body)})
+		answer, ok := validReply(link.Frame{Op: "maintainer-ok", Body: json.RawMessage(c.body)}, signed.Version)
 		if ok != c.ok {
 			t.Fatalf("%s: %v", name, ok)
 		}
@@ -517,7 +517,7 @@ func TestSignedForwardReplyShape(t *testing.T) {
 			t.Fatalf("%s: bytes changed: %s", name, answer.body)
 		}
 	}
-	if _, ok := validReply(link.Frame{Op: "error", Body: json.RawMessage(`{"status":200,"answer":{"ok":true}}`)}); ok {
+	if _, ok := validReply(link.Frame{Op: "error", Body: json.RawMessage(`{"status":200,"answer":{"ok":true}}`)}, signed.Version); ok {
 		t.Fatal("another operation")
 	}
 }

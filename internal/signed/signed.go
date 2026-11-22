@@ -20,8 +20,13 @@ import (
 	"unicode/utf8"
 )
 
-// Version is the envelope version and the domain of its signed bytes.
-const Version = "koinon-maintainer-1"
+// Version is the envelope version and the domain of its signed bytes. Version2 is the same
+// envelope with its own domain; every answer to it is signed (#696,
+// docs/sprints/2026-11-22-signed-answers/contract.md, section 2).
+const (
+	Version  = "koinon-maintainer-1"
+	Version2 = "koinon-maintainer-2"
+)
 
 // MaxEnvelopeBytes bounds one envelope as it arrives (decision.md, Answer shapes).
 const MaxEnvelopeBytes = 512 << 10
@@ -122,13 +127,16 @@ func Parse(data []byte) (Envelope, error) {
 	if e.V, err = str("v", true); err != nil {
 		return Envelope{}, refuse("version", "%v", err)
 	}
-	if e.V != Version {
-		return Envelope{}, refuse("version", "the version is not %s", Version)
+	if e.V != Version && e.V != Version2 {
+		return Envelope{}, refuse("version", "the version is not %s or %s", Version, Version2)
 	}
 	if e.Op, err = str("op", true); err != nil {
 		return Envelope{}, refuse("version", "%v", err)
 	}
 	enroll := e.Op == "enroll"
+	if enroll && e.V != Version {
+		return Envelope{}, refuse("version", "an enrollment statement is %s", Version)
+	}
 	allowed := map[string]bool{"v": true, "key": true, "target": true, "op": true, "args": true, "created": true, "sig": true}
 	if !enroll {
 		allowed["auth"], allowed["request"] = true, true
@@ -195,7 +203,7 @@ func Parse(data []byte) (Envelope, error) {
 	if err != nil {
 		return Envelope{}, refuse("version", "%v", err)
 	}
-	e.signed = append([]byte(Version+"\n"), canonical...)
+	e.signed = append([]byte(e.V+"\n"), canonical...)
 	return e, nil
 }
 
@@ -485,7 +493,11 @@ func Sign(fields map[string]any, private ed25519.PrivateKey) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	sig := ed25519.Sign(private, append([]byte(Version+"\n"), canonical...))
+	domain := Version
+	if v, _ := fields["v"].(string); v == Version2 {
+		domain = Version2
+	}
+	sig := ed25519.Sign(private, append([]byte(domain+"\n"), canonical...))
 	signed := map[string]any{}
 	for k, v := range fields {
 		signed[k] = v

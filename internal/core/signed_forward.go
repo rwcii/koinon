@@ -185,7 +185,7 @@ func (d *Daemon) signedForward(ctx context.Context, e signed.Envelope, data []by
 		}
 		return nil, outcomeUnknown(e.Target, e.Request)
 	}
-	answer, ok := validReply(reply)
+	answer, ok := validReply(reply, e.V)
 	if !ok {
 		return nil, outcomeUnknown(e.Target, e.Request)
 	}
@@ -194,11 +194,32 @@ func (d *Daemon) signedForward(ctx context.Context, e signed.Envelope, data []by
 
 // validReply takes a maintainer-ok reply that has the form of a route's answer: a JSON object
 // whose ok is true with status 200 and a result, or false with a refusal status and a code.
-// Its bytes stay as they came.
-func validReply(reply link.Frame) (forwardedAnswer, bool) {
+// For a version 2 envelope it takes the target's signed answer with the same status, or the
+// unsigned version refusal of a computer at an earlier release, which the client shows as not
+// verified (#696, contract.md, sections 3.6 and 4). Its bytes stay as they came.
+func validReply(reply link.Frame, version string) (forwardedAnswer, bool) {
 	var answer maintainerReply
 	if reply.Op != "maintainer-ok" || reply.Decode(&answer) != nil {
 		return forwardedAnswer{}, false
+	}
+	if version == signed.Version2 {
+		if a, err := signed.ParseAnswer(answer.Answer); err == nil {
+			if a.Status != int64(answer.Status) || a.Signer != signed.SignerTarget {
+				return forwardedAnswer{}, false
+			}
+			return forwardedAnswer{status: answer.Status, body: answer.Answer}, true
+		}
+		var refusal struct {
+			OK      *bool  `json:"ok"`
+			Code    string `json:"code"`
+			Details struct {
+				Reason string `json:"reason"`
+			} `json:"details"`
+		}
+		if json.Unmarshal(answer.Answer, &refusal) != nil || refusal.OK == nil || *refusal.OK ||
+			refusal.Code != "signature_refused" || refusal.Details.Reason != "version" {
+			return forwardedAnswer{}, false
+		}
 	}
 	var shape struct {
 		OK     *bool           `json:"ok"`
@@ -296,9 +317,8 @@ func (d *Daemon) answerMaintainer(pin string, f link.Frame, gen uint64) (link.Fr
 	} else {
 		result, err = d.SignedAction(ctx, data)
 	}
-	w := &answerWriter{header: http.Header{}}
-	maintainerRead(w, result, err)
-	reply, err := link.NewFrame("maintainer-ok", maintainerReply{Status: w.status, Answer: trimNewline(w.body)})
+	status, answer := d.signedReply(data, result, err)
+	reply, err := link.NewFrame("maintainer-ok", maintainerReply{Status: status, Answer: answer})
 	return reply, false, err
 }
 
