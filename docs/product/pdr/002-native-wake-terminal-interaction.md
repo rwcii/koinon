@@ -317,6 +317,12 @@ A cycled agent resumes with its participant address, claims and handoff.
   4. `peer-tmux` lists the family dialogs that were observed, with the installed version. Terminal
      steps stay in `peer-tmux`; the stop of a family whose login is gone, with no handoff, is in
      `spin-down`, and its restart in `recover-team`. Saved panes are evidence, not a handoff.
+  5. From the requesting orchestrator's review of the draft: the watch finds dialogs and error
+     notices too, flushes each line, and stops before the coordinator's own managed handoff; a
+     merge is checked on the host against the reviewed head and its required checks; a key is
+     sent only when a fresh capture still shows the same request, with the option for this one
+     request; a member's refused action is reported, not done another way; text in a member's
+     input field is left alone.
 - **Reason and scope:** the coordinator did these steps by hand, and each session learned them
   again. Answering a member's prompt is ordinary terminal work (Decision 2). The skill changes no
   runtime behavior.

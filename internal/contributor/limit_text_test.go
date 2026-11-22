@@ -78,7 +78,7 @@ func TestSkillTextHasNoLimitPhrases(t *testing.T) {
 		t.Fatal(err)
 	}
 	steps := map[string][]string{
-		"coordinate":   {"keep it; do not start a second one.", "For a merge, compare the head with the reviewed head first."},
+		"coordinate":   {"keep it; do not start a second one.", "send the key only when it still shows the same command or diff"},
 		"check":        {"When a required check\nfails, fix the cause and run the check again."},
 		"handoff":      {"`_handoff/` directory of the main checkout", "When the output is `not ready`, stop: tell the maintainer which check failed, with the output,\nand write no handoff.", "Report the path of the new file."},
 		"koinon-guide": {"report the command and its output to the maintainer."},
