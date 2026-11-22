@@ -13,6 +13,13 @@ into a dated release section when promoted to `main`.
   room post answer keeps its counts only. A signed `send` refused for its recipient keeps the
   code and reason in its receipt, so the repeat and `outcome` give them.
 
+- A maintainer client can now check that each answer came from the computer that it asked
+  (#696). An envelope of version `koinon-maintainer-2` gets every answer signed with that
+  computer's link key, as one `koinon-answer-2` object, on the Serve route, the `signed` MCP
+  tool and the link; a node that passes an action on signs only its own claims, such as
+  `computer_offline`, with its own key. A node can no longer change another computer's answer
+  unseen. Version 1 envelopes work as before, with unsigned answers.
+
 ## 2026-11-20 — Wakes for narrow Codex panes, and a macOS upgrade that starts the daemon
 
 This release wakes and compacts Codex sessions in 80-column panes again (#761), a macOS install
