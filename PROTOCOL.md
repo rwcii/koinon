@@ -3112,7 +3112,7 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     `fragment=1` it is 303 to `/dashboard/settings?remote_status=1#remote-access`.
     `GET /dashboard/remote/qr` is a PNG QR of the dashboard URL only (`ORIGIN/dashboard/`),
     404 when remote access is off.
-- **Views.** `sessions` (100 per page, with the counts of active, expired and retired
+- **Views.** `attention` (`GET /dashboard/attention`, below), `sessions` (100 per page, with the counts of active, expired and retired
   sessions; names, family, repository and working directory, state and times, the
   observations below with their source and time, and the live claims held under the session
   key `FAMILY:ID`; `q=TEXT`, at most 256 bytes, lists only the sessions whose peer name,
