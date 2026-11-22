@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -224,7 +225,8 @@ func TestMaintainerRoutes(t *testing.T) {
 	refused("room-add", map[string]any{"room_id": room, "peer": "synthetic-nobody"}, "peer_not_found")
 	refused("room-add", map[string]any{"room_id": unknownRoom, "peer": a.Name}, "room_not_found")
 	deadline := float64(time.Now().Unix() + 600)
-	if posted := call("room-post", map[string]any{"room_id": room, "body": "a synthetic post", "key": "post-1", "deadline": deadline}); posted["seq"] != float64(1) || posted["queued"] != float64(1) || posted["allowance"] != nil {
+	if posted := call("room-post", map[string]any{"room_id": room, "body": "a synthetic post", "key": "post-1", "deadline": deadline}); posted["seq"] != float64(1) || posted["queued"] != float64(1) || posted["allowance"] != nil ||
+		fmt.Sprint(posted["recipients"]) != "[map[name:codex-maintainerrepo state:sent]]" { // the member's roster label
 		t.Fatalf("post: %v", posted)
 	}
 	refused("room-post", map[string]any{"room_id": unknownRoom, "body": "x", "key": "post-2", "deadline": deadline}, "room_not_found")

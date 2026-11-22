@@ -562,7 +562,7 @@ func (d *Daemon) signedWrite(ctx context.Context, e signed.Envelope, a *signedAc
 		deadline := float64(a.created + signedWindow)
 		a.shape = func(r any) any {
 			if p, ok := r.(RoomPostResult); ok {
-				return maintainerPost{p.RoomID, p.Seq, p.Queued, p.Skipped, p.Duplicate}
+				return maintainerPostOf(p)
 			}
 			return r
 		}
@@ -690,6 +690,16 @@ type refusedResult struct {
 func (r storedReceipt) refusal() error {
 	var refused refusedResult
 	json.Unmarshal(r.result, &refused)
+	// A send's recipient refusals answer again with their own status and form (#695).
+	switch r.code {
+	case "peer_not_found":
+		return ErrPeerNotFound
+	case "alias_unheld":
+		return ErrAliasUnheld
+	case "recipient_inactive":
+		reason, _ := refused.Details["reason"].(string)
+		return InactiveRecipient{reason}
+	}
 	return WorkRefusal{Code: r.code, Message: refused.Error, Details: refused.Details}
 }
 
@@ -731,8 +741,13 @@ func (t *writeTx) writeSignedReceipt(a *signedAction, state, code string, result
 func (t *writeTx) signedRefused(a *signedAction, err error) error {
 	refused := refusedResult{Error: err.Error()}
 	var work WorkRefusal
+	var inactive InactiveRecipient
 	if errors.As(err, &work) {
 		refused = refusedResult{Error: work.Message, Details: work.Details}
+	} else if errors.As(err, &inactive) {
+		// The receipt keeps why the recipient was not sent the message (#695), as the
+		// route's answer gives it.
+		refused = refusedResult{Error: "the recipient session is expired or retired", Details: map[string]any{"reason": inactive.Reason}}
 	}
 	data, _ := json.Marshal(refused)
 	return t.writeSignedReceipt(a, "refused", errorCode(err), data)

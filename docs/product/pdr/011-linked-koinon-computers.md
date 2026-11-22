@@ -3,7 +3,7 @@ pdr: "011"
 title: "Linked Koinon Computers"
 status: accepted
 created: "2026-11-12"
-updated: "2026-11-18"
+updated: "2026-11-22"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -41,7 +41,7 @@ actions cross, so that one maintainer client works the boards and inboxes of all
 computers (Decision 6).
 
 Robert Capps approved Decisions 1 to 4 on the decision board on 2026-11-12, Decision 5 on
-2026-11-14 and Decision 6 on 2026-11-15. The decision
+2026-11-14, Decision 6 on 2026-11-15 and Decision 7 on 2026-11-21. The decision
 records with their full context are in
 [the sprint's decision record](../../sprints/2026-11-12-system-link/decision.md); LINK-670-PAIR,
 how computers pair and how link traffic is protected, is in ADR 002, Decision 4. The work ships
@@ -274,8 +274,9 @@ maintainer secret is in PDR 009; Remote is in PDR 010.
 - **Reason and scope:** one maintainer client works all paired computers, and each computer
   trusts an action because a key it registered signed it, not because of the link it came
   over. The node is trusted to show the target's answers; target-signed answers are #696.
-- **Review when:** a queue for an offline computer is wanted (#695), a node must not be
-  trusted to show answers (#696), or computers of other people connect (Decision 1).
+- **Review when:** a node must not be trusted to show answers (#696, Decision 7), or computers
+  of other people connect (Decision 1). The queue for an offline computer (#695) was declined
+  in Decision 7.
 - **Shipped:** chunk 1, the keys (`koinon maintainer key add`, `list`, `remove`), the envelope
   checks, once-only receipts and `outcome`, the signed session of
   `koinon mcp --maintainer --signed` and every action on a node's own pin, with the signer on
@@ -289,6 +290,43 @@ maintainer secret is in PDR 009; Remote is in PDR 010.
   answered `computer_offline` only after 15 seconds; #703 bounds the connect to 3 seconds, and
   the check passed again on that build. A reply lost on the target's side, a write held across
   the end of its window and Acceptance 4 have tests only.
+
+## 8. Decision 7: Real-time maintainer messages and signed answers (SIGNED-ANSWERS-695-696)
+
+- **Decided by:** Robert Capps. **Date:** 2026-11-21, decision board, revision 3 approved after
+  feedback on revision 2 (#695, #696).
+- **Context:** Koinon Voice asked to queue the maintainer's signed `send` and `room_post` for a
+  computer that is off (#695), and the node showed the target's answers unchecked (#696).
+  Revision 2 recommended a queue at the node for at most 24 hours, with an end time that the
+  client signs, and answers signed by the target. The feedback: "Chat and rooms are real time.
+  They cannot queue messages for hours or a day. The participants are either in the chat, or
+  they are not part of it. Missed messages don't deliver. They fail, and the sent message shows
+  that they were not sent to a given participant and why." Revision 3 removed the queue.
+- **Decision:** the record and contract at `docs/sprints/2026-11-22-signed-answers/`
+  (`decision.md`, `contract.md`):
+  1. No queue for a signed `send` or `room_post`, at the node or in the client.
+  2. The target's answer gives each recipient's result: sent, or not sent with the reason; for
+     a room post, each member of the roster at the post. The receipt keeps it, so `outcome`
+     gives the same list. Nothing that was not sent is delivered later; `room_read` still shows
+     a member the posts that it missed.
+  3. A computer that is off gives `computer_offline` at once, as the node's claim. A lost
+     answer leaves the outcome unknown: the client reads the outcome of that request, or sends
+     the same envelope again within its window, which answers from its receipt; it never signs
+     a new write to recover from a lost answer.
+  4. The target signs every answer with its link key, over the request envelope's digest, its
+     pin and the full answer, in a new envelope version; the client checks the key against
+     the pin that it enrolled. The node signs its own claims.
+- **Reason and scope:** chat is real time: a participant who is not there does not get the
+  message, and the sender sees who did not get it and why. A node cannot forge a target's
+  answer. Agent messages to another computer keep their queue (Decision 4).
+- **Alternatives considered:** a queue at the node for at most 24 hours (revision 2; declined:
+  chat and rooms are real time); a queue in the client; #696 first and #695 later; counts
+  only, as before; signing only the writes and `outcome`; `room_read` showing a member only the
+  posts that reached it (revision 3; not taken: the room's history stays readable, apart from
+  delivery and wakes).
+- **Shipped:** chunk 01, the recipient results of item 2: the maintainer's room post answer
+  lists each member with its reason, and a refused signed send keeps its reason in the
+  receipt. Agents' room post answers keep their counts only. Items 3 and 4 are chunk 02.
 
 ## Conclusion
 
@@ -308,3 +346,4 @@ computer keeps its own stores and controls.
 | 2026-11-15 | Decision 6: chunk 1 shipped, signed actions on a node's own pin (#693). |
 | 2026-11-15 | Decision 6: chunks 2 and 3 shipped (#700, #701); the live checks with Koinon Voice passed on Linux and macOS, after the fix of #703 (#693). |
 | 2026-11-18 | Decision 2 amended, BOARD-LINK-746, approved by Robert Capps: cards for agents on another computer, with notices and reads at the card's computer (#746). |
+| 2026-11-22 | Decision 7, SIGNED-ANSWERS-695-696, approved by Robert Capps on 2026-11-21: real-time maintainer messages with each recipient's result, and signed answers; chunk 01 (recipient results) shipped (#695). |
