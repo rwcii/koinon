@@ -32,8 +32,8 @@ printf '%s\n' "$head" | grep -Eq '^[0-9a-f]{40}$' || die "HEAD must be a full 40
 printf '%s\n' "$reference" | grep -Eq '^[A-Za-z0-9-]{1,32}$' || die "REFERENCE must be a card reference: $reference"
 command -v jq >/dev/null || die "jq is required"
 
-card=$(koinon decision get --as "$as" --reference "$reference") || die "cannot read card $reference: $card"
-[ "$(printf '%s' "$card" | jq -r '.ok')" = true ] || die "cannot read card $reference: $(printf '%s' "$card" | jq -c .)"
+card=$(koinon decision get --as "$as" --reference "$reference" 2>&1) || die "cannot read card $reference: $card"
+printf '%s' "$card" | jq -e '.ok == true' >/dev/null 2>&1 || die "cannot read card $reference: $card"
 verdict=$(printf '%s' "$card" | jq -r '.result.verdict.verdict // "none"')
 [ "$verdict" = approved ] || die "card $reference has no approval (verdict: $verdict)"
 revision=$(printf '%s' "$card" | jq -r '.result.revision')

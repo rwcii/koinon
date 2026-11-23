@@ -1,6 +1,9 @@
 #!/bin/sh
-# Run each preflight lens once on the committed head, each in a fresh read-only agent worker
-# with no forge credential, and keep the reports (PDR 008, Decision 5; WDR 004, Decision 8).
+# Run each preflight lens once on the committed head, each in a fresh agent worker with no forge
+# credential, and keep the reports (PDR 008, Decision 5; WDR 004, Decision 8). A claude worker
+# reads only its worktree and runs no shell command; a codex worker runs in Codex's read-only
+# sandbox, which can still read outside the worktree, so the publish script checks each report
+# for secrets and private paths before it posts it.
 #
 # Usage: scripts/preflight-run.sh --family claude|codex [--base REF]
 #
@@ -37,6 +40,7 @@ command -v "$family" >/dev/null || die "$family is not on PATH"
 head=$(git rev-parse HEAD)
 base_sha=$(git rev-parse --verify "$base^{commit}") || die "unknown base $base"
 merge_base=$(git merge-base "$base_sha" "$head") || die "the head has no merge base with $base"
+[ "$merge_base" != "$head" ] || die "the head is already in $base; give the pull request's base branch"
 policy_path=.koinon/preflight/lenses.md
 if git cat-file -e "$merge_base:$policy_path" 2>/dev/null; then
 	policy_source="the base ($merge_base)"
@@ -61,9 +65,13 @@ cleanup() {
 	git worktree remove --force "$work/head" >/dev/null 2>&1 || true
 	rm -rf "$work"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT TERM
 git worktree add --quiet --detach "$work/head" "$head" || die "cannot make the frozen worktree"
-mkdir "$work/no-forge"
+mkdir "$work/no-forge" "$work/head/.preflight"
+# The workers read the change from these files, so a claude worker needs no shell command.
+git diff "$merge_base...$head" >"$work/head/.preflight/change.diff"
+git log --format='%H %s' "$merge_base..$head" >"$work/head/.preflight/commits.txt"
 
 echo "preflight-run: head $head, base $base ($merge_base), lens policy from $policy_source"
 echo "preflight-run: reports in $out"
@@ -76,9 +84,9 @@ for lens in $lenses; do
 	prompt=$out/$lens.prompt.md
 	cat >"$prompt" <<EOF
 You are the $lens lens of a preflight review. This is an author check before a pull request.
-Work read-only in the current directory, a detached worktree of head $head.
-Review the change \`git diff $merge_base...$head\` and the code and docs that it affects.
-Do not edit files and do not use the network.
+Work in the current directory, a detached worktree of head $head.
+The change, \`git diff $merge_base...$head\`, is in .preflight/change.diff, and its commits are in
+.preflight/commits.txt. Review it and the code and docs that it affects.
 
 $brief
 
@@ -104,8 +112,7 @@ EOF
 				claude)
 					claude -p --output-format json --no-session-persistence --strict-mcp-config \
 						--setting-sources local --permission-mode default \
-						--allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(git show:*)" \
-						--disallowedTools "Edit,Write,NotebookEdit,WebFetch,WebSearch" <"$2" >"$3"
+						--disallowedTools "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch" <"$2" >"$3"
 					;;
 				codex)
 					codex exec --ephemeral --ignore-user-config --sandbox read-only --skip-git-repo-check \

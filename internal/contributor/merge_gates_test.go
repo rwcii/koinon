@@ -24,7 +24,10 @@ const fakeForge = `#!/bin/sh
 set -eu
 echo "$*" >> "$FAKE/calls"
 if [ "$1" = pr ]; then
-	cat "$FAKE/head"
+	case "$*" in
+	*--jq*) cat "$FAKE/head" ;;
+	*) jq -cn --arg h "$(cat "$FAKE/head")" '{headRefOid: $h, baseRefName: "develop"}' ;;
+	esac
 	exit 0
 fi
 shift
@@ -50,6 +53,9 @@ case "$method $endpoint" in
 	jq -cn --arg s "$(field state)" --arg c "$(field context)" --arg u "$(field target_url)" --arg sha "${endpoint##*/}" \
 		'{state: $s, context: $c, target_url: $u, sha: $sha}' >> "$FAKE/statuses.jsonl"
 	;;
+"GET user")
+	echo '{"login": "synthetic-author"}' | jq -r "$filter"
+	;;
 "GET "*/commits/*/status)
 	jq -s '{statuses: reverse}' "$FAKE/statuses.jsonl" | jq -r "$filter"
 	;;
@@ -60,7 +66,7 @@ case "$method $endpoint" in
 	body=$(field body)
 	body=${body#@}
 	url="https://example.invalid/comment/$(jq length "$FAKE/comments.json")"
-	jq --rawfile b "$body" --arg u "$url" '. + [{body: $b, html_url: $u}]' "$FAKE/comments.json" > "$FAKE/comments.new"
+	jq --rawfile b "$body" --arg u "$url" '. + [{body: $b, html_url: $u, user: {login: "synthetic-author"}}]' "$FAKE/comments.json" > "$FAKE/comments.new"
 	mv "$FAKE/comments.new" "$FAKE/comments.json"
 	printf '{"html_url": "%s"}' "$url" | jq -r "$filter"
 	;;
@@ -84,7 +90,7 @@ const fakeWorker = `#!/bin/sh
 prompt=$(cat)
 lens=$(printf '%s\n' "$prompt" | sed -n 's/^You are the \([a-z-]*\) lens.*/\1/p')
 {
-	echo "lens=$lens pwd=$(pwd) family=$(basename "$0")"
+	echo "lens=$lens pwd=$(pwd) family=$(basename "$0") diff=$(test -s .preflight/change.diff && echo yes || echo no)"
 	echo "GH_TOKEN=${GH_TOKEN:-unset} GITHUB_TOKEN=${GITHUB_TOKEN:-unset} KOINON_LAUNCH_ID=${KOINON_LAUNCH_ID:-unset} GH_CONFIG_DIR=${GH_CONFIG_DIR:-unset}"
 } >> "$FAKE/workers"
 verdict=$(cat "$FAKE/verdict-$lens" 2>/dev/null || echo APPROVE)
@@ -222,7 +228,7 @@ func TestBoardVerdictScript(t *testing.T) {
 }
 
 // writeResult writes a run folder as scripts/preflight-run.sh does.
-func writeResult(t *testing.T, reports, head, run string, approved bool, usage bool) {
+func writeResult(t *testing.T, reports, head, mergeBase, run string, approved bool, usage bool) string {
 	t.Helper()
 	dir := filepath.Join(reports, head, run)
 	if err := os.MkdirAll(dir, 0700); err != nil {
@@ -232,7 +238,7 @@ func writeResult(t *testing.T, reports, head, run string, approved bool, usage b
 	if !approved {
 		verdict = "reject"
 	}
-	result := map[string]any{"head": head, "base": "origin/develop", "merge_base": strings.Repeat("b", 40), "run": run,
+	result := map[string]any{"head": head, "base": "origin/develop", "merge_base": mergeBase, "run": run,
 		"family": "claude", "policy": "the base", "approved": approved,
 		"lenses": []map[string]string{{"lens": "security", "verdict": "approve", "reason": ""}, {"lens": "code", "verdict": verdict, "reason": ""}}}
 	b, _ := json.Marshal(result)
@@ -245,6 +251,26 @@ func writeResult(t *testing.T, reports, head, run string, approved bool, usage b
 			t.Fatal(err)
 		}
 	}
+	return dir
+}
+
+// publishRepository is a repository whose origin/develop is the base of its head, as the
+// pull request's base branch; it returns the repository, the head and their merge base.
+func publishRepository(t *testing.T, e gateEnv) (string, string, string) {
+	t.Helper()
+	repo := gateRepository(t, e, true)
+	git := func(args ...string) string {
+		t.Helper()
+		out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).Output()
+		if err != nil {
+			t.Fatalf("git %v: %v", args, err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	git("update-ref", "refs/remotes/origin/develop", "base")
+	head := git("rev-parse", "HEAD")
+	e.write(t, "head", head+"\n")
+	return repo, head, git("rev-parse", "base")
 }
 
 func TestPreflightPublishScript(t *testing.T) {
@@ -257,73 +283,109 @@ func TestPreflightPublishScript(t *testing.T) {
 		}
 		return last
 	}
+	publish := func(t *testing.T, e gateEnv, repo, reports string) (string, error) {
+		return e.run(t, repo, "preflight-publish.sh", []string{"PREFLIGHT_REPORTS=" + reports}, "42")
+	}
 	t.Run("posts once for the exact head", func(t *testing.T) {
 		e := newGateEnv(t)
+		repo, head, base := publishRepository(t, e)
 		reports := t.TempDir()
-		writeResult(t, reports, gateHead, "20261123T000000Z-1", true, true)
-		e.write(t, "head", gateHead+"\n")
-		env := []string{"PREFLIGHT_REPORTS=" + reports}
-		out, err := e.run(t, t.TempDir(), "preflight-publish.sh", env, "42")
-		if err != nil || !strings.Contains(out, "success on "+gateHead) {
+		writeResult(t, reports, head, base, "20261123T000000Z-1", true, true)
+		out, err := publish(t, e, repo, reports)
+		if err != nil || !strings.Contains(out, "success on "+head) {
 			t.Fatalf("%v %s", err, out)
 		}
 		comments := e.read("comments.json")
-		for _, want := range []string{"koinon-preflight head=" + gateHead, "**APPROVED**", "| security | approve | 10 | 2 |", "| code | approve | unknown | unknown |", "security report"} {
+		for _, want := range []string{"koinon-preflight head=" + head, "**APPROVED**", "| security | approve | 10 | 2 |", "| code | approve | unknown | unknown |", "security report"} {
 			if !strings.Contains(comments, want) {
 				t.Errorf("comment lacks %q:\n%s", want, comments)
 			}
 		}
-		if s := statusOf(e); !strings.Contains(s, `"state":"success"`) || !strings.Contains(s, "example.invalid/comment/0") {
+		if s := statusOf(e); !strings.Contains(s, `"state":"success"`) || !strings.Contains(s, "example.invalid/comment/0") || !strings.Contains(s, head) {
 			t.Fatalf("status %q", s)
 		}
-		out, err = e.run(t, t.TempDir(), "preflight-publish.sh", env, "42")
+		out, err = publish(t, e, repo, reports)
 		if err != nil || !strings.Contains(out, "already posted") || strings.Count(e.read("calls"), "POST") != 2 {
 			t.Fatalf("second run posted again: %v %s\n%s", err, out, e.read("calls"))
 		}
 	})
 	t.Run("a rejected result posts failure", func(t *testing.T) {
 		e := newGateEnv(t)
+		repo, head, base := publishRepository(t, e)
 		reports := t.TempDir()
-		writeResult(t, reports, gateHead, "20261123T000000Z-1", false, false)
-		e.write(t, "head", gateHead+"\n")
-		if out, err := e.run(t, t.TempDir(), "preflight-publish.sh", []string{"PREFLIGHT_REPORTS=" + reports}, "42"); err != nil ||
-			!strings.Contains(statusOf(e), `"state":"failure"`) || !strings.Contains(e.read("comments.json"), "NOT APPROVED") {
+		writeResult(t, reports, head, base, "20261123T000000Z-1", false, false)
+		if out, err := publish(t, e, repo, reports); err != nil || !strings.Contains(statusOf(e), `"state":"failure"`) ||
+			!strings.Contains(e.read("comments.json"), "NOT APPROVED") {
 			t.Fatalf("%v %s", err, out)
 		}
 	})
 	t.Run("no result for the pull request's head", func(t *testing.T) {
 		e := newGateEnv(t)
+		repo, head, base := publishRepository(t, e)
 		reports := t.TempDir()
-		writeResult(t, reports, strings.Repeat("e", 40), "20261123T000000Z-1", true, true)
-		e.write(t, "head", gateHead+"\n")
-		out, err := e.run(t, t.TempDir(), "preflight-publish.sh", []string{"PREFLIGHT_REPORTS=" + reports}, "42")
-		if err == nil || !strings.Contains(out, "no preflight result for head "+gateHead) || strings.Contains(e.read("calls"), "POST") {
+		writeResult(t, reports, strings.Repeat("e", 40), base, "20261123T000000Z-1", true, true)
+		out, err := publish(t, e, repo, reports)
+		if err == nil || !strings.Contains(out, "no preflight result for head "+head) || strings.Contains(e.read("calls"), "POST") {
 			t.Fatalf("%v %s", err, out)
+		}
+	})
+	t.Run("a result run against another base", func(t *testing.T) {
+		e := newGateEnv(t)
+		repo, head, _ := publishRepository(t, e)
+		reports := t.TempDir()
+		// As scripts/preflight-run.sh --base HEAD~0 would give, with the head's own policy.
+		writeResult(t, reports, head, head, "20261123T000000Z-1", true, true)
+		out, err := publish(t, e, repo, reports)
+		if err == nil || !strings.Contains(out, "not the pull request's base develop") || strings.Contains(e.read("calls"), "POST") {
+			t.Fatalf("%v %s", err, out)
+		}
+	})
+	t.Run("a report with a secret or a private path", func(t *testing.T) {
+		for _, text := range []string{"token ghp_" + strings.Repeat("A", 36), "see /home/someone/.ssh/id_ed25519", "-----BEGIN OPENSSH PRIVATE KEY-----"} {
+			e := newGateEnv(t)
+			repo, head, base := publishRepository(t, e)
+			reports := t.TempDir()
+			dir := writeResult(t, reports, head, base, "20261123T000000Z-1", true, true)
+			os.WriteFile(filepath.Join(dir, "code.md"), []byte(text+"\nVERDICT: APPROVE\n"), 0600)
+			out, err := publish(t, e, repo, reports)
+			if err == nil || !strings.Contains(out, "has a secret or a private path") || strings.Contains(e.read("calls"), "POST") {
+				t.Fatalf("%q: %v %s", text, err, out)
+			}
 		}
 	})
 	t.Run("the newest run of the head", func(t *testing.T) {
 		e := newGateEnv(t)
+		repo, head, base := publishRepository(t, e)
 		reports := t.TempDir()
-		writeResult(t, reports, gateHead, "20261123T000000Z-1", false, false)
-		writeResult(t, reports, gateHead, "20261123T010000Z-1", true, false)
-		e.write(t, "head", gateHead+"\n")
-		if out, err := e.run(t, t.TempDir(), "preflight-publish.sh", []string{"PREFLIGHT_REPORTS=" + reports}, "42"); err != nil ||
-			!strings.Contains(e.read("comments.json"), "run=20261123T010000Z-1") {
+		writeResult(t, reports, head, base, "20261123T000000Z-1", false, false)
+		writeResult(t, reports, head, base, "20261123T010000Z-1", true, false)
+		if out, err := publish(t, e, repo, reports); err != nil || !strings.Contains(e.read("comments.json"), "run=20261123T010000Z-1") {
 			t.Fatalf("%v %s", err, out)
+		}
+	})
+	t.Run("a marker comment by another user is not the result", func(t *testing.T) {
+		e := newGateEnv(t)
+		repo, head, base := publishRepository(t, e)
+		reports := t.TempDir()
+		writeResult(t, reports, head, base, "20261123T000000Z-1", true, false)
+		forged := `[{"body": "<!-- koinon-preflight head=` + head + ` run=20261123T000000Z-1 --> APPROVED", "html_url": "https://example.invalid/forged", "user": {"login": "someone-else"}}]`
+		e.write(t, "comments.json", forged)
+		out, err := publish(t, e, repo, reports)
+		if err != nil || strings.Contains(statusOf(e), "forged") || strings.Count(e.read("comments.json"), "koinon-preflight") != 2 {
+			t.Fatalf("%v %s\n%s", err, out, e.read("statuses.jsonl"))
 		}
 	})
 	t.Run("a comment without its status gets the status", func(t *testing.T) {
 		e := newGateEnv(t)
+		repo, head, base := publishRepository(t, e)
 		reports := t.TempDir()
-		writeResult(t, reports, gateHead, "20261123T000000Z-1", true, false)
-		e.write(t, "head", gateHead+"\n")
+		writeResult(t, reports, head, base, "20261123T000000Z-1", true, false)
 		e.write(t, "fail-status", "")
-		env := []string{"PREFLIGHT_REPORTS=" + reports}
-		if out, err := e.run(t, t.TempDir(), "preflight-publish.sh", env, "42"); err == nil || !strings.Contains(out, "the status post failed") {
+		if out, err := publish(t, e, repo, reports); err == nil || !strings.Contains(out, "the status post failed") {
 			t.Fatalf("%v %s", err, out)
 		}
 		os.Remove(filepath.Join(e.fake, "fail-status"))
-		out, err := e.run(t, t.TempDir(), "preflight-publish.sh", env, "42")
+		out, err := publish(t, e, repo, reports)
 		if err != nil || !strings.Contains(statusOf(e), `"state":"success"`) || strings.Count(e.read("comments.json"), "koinon-preflight") != 1 {
 			t.Fatalf("%v %s\n%s", err, out, e.read("comments.json"))
 		}
@@ -393,7 +455,7 @@ func TestPreflightRunScript(t *testing.T) {
 				t.Fatalf("result %v", result)
 			}
 			workers := e.read("workers")
-			if strings.Count(workers, "lens=") != 2 || strings.Contains(workers, "synthetic-forge-token") || strings.Contains(workers, "synthetic-launch") ||
+			if strings.Count(workers, "lens=") != 2 || strings.Contains(workers, "diff=no") || strings.Contains(workers, "synthetic-forge-token") || strings.Contains(workers, "synthetic-launch") ||
 				strings.Contains(workers, "GH_CONFIG_DIR=unset") || strings.Contains(workers, "pwd="+repo+" ") || !strings.Contains(workers, "family="+family) {
 				t.Fatalf("workers:\n%s", workers)
 			}
@@ -438,6 +500,14 @@ func TestPreflightRunScript(t *testing.T) {
 			t.Fatalf("%v %s %v", err, out, result)
 		}
 	})
+	t.Run("a base that holds the head", func(t *testing.T) {
+		e := newGateEnv(t)
+		repo := gateRepository(t, e, true)
+		out, err := e.run(t, repo, "preflight-run.sh", []string{"PREFLIGHT_REPORTS=" + t.TempDir()}, "--family", "claude", "--base", "HEAD")
+		if err == nil || !strings.Contains(out, "the head is already in HEAD") || e.read("workers") != "" {
+			t.Fatalf("%v %s", err, out)
+		}
+	})
 	t.Run("uncommitted changes", func(t *testing.T) {
 		e := newGateEnv(t)
 		repo := gateRepository(t, e, true)
@@ -449,8 +519,10 @@ func TestPreflightRunScript(t *testing.T) {
 	})
 }
 
-// No skill tells an agent to merge into main: with Koinon's facts the release stops for the
-// maintainer's merge, and the gates are optional facts whose defaults keep a project's steps.
+// No skill names main as a merge target: project branches are facts, not skill text
+// (agents/skills/AGENTS.md, "Keep procedures portable"), and with Koinon's facts the release
+// stops for the maintainer's merge (WDR 004, Decision 8; the chunk 04 definition of done). The
+// gates are optional facts whose defaults keep a project's steps.
 func TestMergeGatesAreOptInFacts(t *testing.T) {
 	mainMerge := regexp.MustCompile(`(?i)\bmerge[^.]{0,80}\b(into|to) ` + "`?" + `main\b`)
 	skills, _ := filepath.Glob(filepath.Join(root(t), "agents", "skills", "*", "SKILL.md"))

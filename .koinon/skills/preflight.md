@@ -15,20 +15,23 @@ preflight
 
 ## Review run command
 scripts/preflight-run.sh --family FAMILY --base origin/develop, with FAMILY the author's agent
-family (claude or codex). Each lens runs once in a fresh read-only worker in a detached
-worktree of the head, with no forge credential and no Koinon connection.
+family (claude or codex). Each lens runs once in a fresh worker in a detached worktree of the
+head, with the change in .preflight/change.diff, no forge credential and no Koinon connection.
 ## Review publish command
-scripts/preflight-publish.sh PR, with the author's gh login. It posts one comment and the
-preflight commit status on the pull request's current head, and refuses when the newest result
-is for another head.
+scripts/preflight-publish.sh PR, with the author's gh login. It takes the newest result of
+the pull request's current head, and posts one comment and the preflight commit status on that
+head. It refuses when there is no result for that head, when the result was run against
+another base than the pull request's, and when a report has a secret or a private path.
 ## Lens policy
 .koinon/preflight/lenses.md at the base commit: security, code, standards and refusal. The
 change that adopts preflight runs with the head's policy, because its base has none.
 ## Base ref
 origin/develop
 ## Route and image rules
-The worker is `claude -p` or `codex exec`, of the author's family, on this computer, with
-read-only tools, no MCP servers, no forge token and no Git credential helper prompt.
+The worker is `claude -p` or `codex exec`, of the author's family, on this computer, with no
+MCP servers, no forge token and no Git credential prompt. A claude worker reads only its
+worktree and has no shell, edit or web tools. A codex worker runs in Codex's read-only sandbox,
+which can read outside the worktree; the publish command checks each report before it posts it.
 ## Report folder
 _preflight/HEAD/RUN/ in the main checkout, ignored by Git.
 ## Review procedure

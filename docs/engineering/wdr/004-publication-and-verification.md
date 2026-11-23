@@ -33,10 +33,11 @@ tags:
 This record describes how a Koinon change currently reaches `develop` and `main`: the branch
 model, one open pull request per target branch on a head merged with the latest `develop`,
 the required checks on Linux and macOS, auto-merge, the commit conventions and the account of
-failed CI runs before a release, the docs gate before publication, with what GitHub and the
-local hook enforce. One open pull
-request, auto-merge, the commit account, the "maintainer" naming, the failed-run account
-and the docs gate come from the maintainer's words; the rest shipped without a recorded
+failed CI runs before a release, the docs gate before publication, the merge gates (a
+preflight and the maintainer's board approval of each head, and the maintainer's merge into
+`main`), with what GitHub and the local hook enforce. One open pull
+request, auto-merge, the commit account, the "maintainer" naming, the failed-run account,
+the docs gate and the merge gates come from the maintainer's words; the rest shipped without a recorded
 maintainer decision, so this record is a draft.
 
 ---
@@ -477,8 +478,8 @@ job checks the docs.
 For a project whose facts opt in, as Koinon's do:
 
 - Before a pull request into `develop` opens, the author runs the `preflight` skill at the
-  frozen head with the lenses security, code, standards and refusal, each in a fresh read-only
-  worker with no forge credential (`scripts/preflight-run.sh`). After the pull request opens,
+  frozen head with the lenses security, code, standards and refusal, each in a fresh worker
+  with no forge credential (`scripts/preflight-run.sh`). After the pull request opens,
   `scripts/preflight-publish.sh` posts one result comment and the `preflight` commit status on
   that head.
 - After preflight, `peer-review` and `refusal-review` pass, the author puts a card on the
@@ -511,6 +512,13 @@ For a project whose facts opt in, as Koinon's do:
 - **Reason and scope:** the gates are process rules that GitHub shows as statuses; they do not
   stop an agent that goes around them. The ruleset change is a repository setting, applied with
   the maintainer's direct go.
+- **The agents' design, reviewed in the pull request (#795), not the maintainer's words:** the
+  `preflight` skill asks for a fresh worker with no forge credential. A preflight report is
+  posted in public, and the reviewed change can hold instructions for its reviewer, so the
+  workers also write nothing and use no network: a claude worker has no shell, edit or web
+  tools and reads only its worktree; a codex worker runs in Codex's read-only sandbox. The
+  publish script refuses a report with a secret or a private path, and a result run against
+  another base than the pull request's, because the lens policy comes from that base.
 
 ### Alternatives Considered
 

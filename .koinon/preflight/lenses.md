@@ -18,11 +18,11 @@ failure scenario.
 
 ## code
 
-Find correctness defects in the change. Check: each changed behavior and its error paths;
-races and leaks under `go test -race`; Linux and macOS differences (`internal/platform`);
-upgrade from the released state; tests that prove the change and fail without it; tests that
-reach the person's real configuration, services or tmux sessions (WDR 006). Run no command
-that writes outside the worktree. Report each defect with the input that breaks it.
+Find correctness defects in the change by reading it. Check: each changed behavior and its
+error paths; races and leaks (CI runs `go test -race`; read the code for them); Linux and macOS
+differences (`internal/platform`); upgrade from the released state; tests that prove the change
+and would fail without it; tests that reach the person's real configuration, services or tmux
+sessions (WDR 006). Report each defect with the input that breaks it.
 
 ## standards
 

@@ -20,7 +20,9 @@ pr=$1
 printf '%s\n' "$pr" | grep -Eq '^[1-9][0-9]*$' || die "PR must be a pull request number: $pr"
 command -v jq >/dev/null || die "jq is required"
 
-head=$(gh pr view "$pr" --json headRefOid --jq .headRefOid) || die "cannot read pull request #$pr"
+pull=$(gh pr view "$pr" --json headRefOid,baseRefName) || die "cannot read pull request #$pr"
+head=$(printf '%s' "$pull" | jq -r .headRefOid)
+base_ref=$(printf '%s' "$pull" | jq -r .baseRefName)
 reports=${PREFLIGHT_REPORTS:-}
 if [ -z "$reports" ]; then
 	common=$(git rev-parse --path-format=absolute --git-common-dir) || die "run this command in the checkout"
@@ -33,11 +35,26 @@ done
 [ -n "$dir" ] || die "no preflight result for head $head of pull request #$pr; run scripts/preflight-run.sh at that head"
 result=$dir/result.json
 [ "$(jq -r .head "$result")" = "$head" ] || die "the result in $dir is not for head $head"
+# The lens policy comes from the merge base, so the result must be for the pull request's base.
+expected=$(git merge-base "origin/$base_ref" "$head") || die "cannot find the merge base of origin/$base_ref and $head; fetch first"
+[ "$(jq -r .merge_base "$result")" = "$expected" ] ||
+	die "the result in $dir was run against $(jq -r .base "$result"), not the pull request's base $base_ref; run scripts/preflight-run.sh --base origin/$base_ref"
 run=$(jq -r .run "$result")
 marker="<!-- koinon-preflight head=$head run=$run -->"
 
+# A report is posted in public: refuse one with a secret or a private path.
+for report in "$dir"/*.md; do
+	[ -e "$report" ] || continue
+	case $report in *.prompt.md) continue ;; esac
+	if grep -Eq 'gh[pousr]_[A-Za-z0-9]{20,}|github_pat_|-----BEGIN [A-Z ]*PRIVATE KEY|sk-ant-|AKIA[0-9A-Z]{16}|xox[abprs]-|/home/[A-Za-z0-9_]|/Users/[A-Za-z0-9_]' "$report" ||
+		grep -Fq "$HOME/" "$report"; then
+		die "$report has a secret or a private path; remove it from the report and run this command again"
+	fi
+done
+
+me=$(gh api user --jq .login) || die "cannot read the gh login"
 existing=$(gh api --paginate "repos/{owner}/{repo}/issues/$pr/comments" \
-	--jq ".[] | select(.body | contains(\"$marker\")) | .html_url") || die "cannot read the comments of pull request #$pr"
+	--jq ".[] | select(.user.login == \"$me\" and (.body | contains(\"$marker\"))) | .html_url") || die "cannot read the comments of pull request #$pr"
 approved=$(jq -r .approved "$result")
 if [ "$approved" = true ]; then
 	state=success
@@ -68,7 +85,8 @@ if [ -n "$existing" ]; then
 	exit 0
 fi
 body=$(mktemp "${TMPDIR:-/tmp}/preflight-body.XXXXXX")
-trap 'rm -f "$body"' EXIT INT TERM
+trap 'rm -f "$body"' EXIT
+trap 'exit 130' INT TERM
 {
 	echo "$marker"
 	echo "## Preflight"

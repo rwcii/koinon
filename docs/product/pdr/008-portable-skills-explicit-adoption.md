@@ -444,5 +444,5 @@ drift defect are ordinary corrections; they add no product decision.
 | 2026-10-23 | Decisions 1 and 2: an entry for every catalog skill, also for OpenCode and agy when their configuration directory exists (#461) |
 | 2026-10-25 | Requirements and Decisions 1–4: removed the unsourced approval step, the fact-file and catalog caveats and the "grant no permission" text; the verified-root report and the install's bare-name and symbolic-link handling are stated as code facts (#487) |
 | 2026-11-17 | Decision 5: seven procedures that an adopting project brought, offered in the catalog; LICENSE names Robert Capps and Stratovera, LLC (#732) |
-| 2026-11-23 | Decision 5: Koinon adopts `preflight` for its own work (#795) |
 | 2026-11-17 | Decision 2: a script installs the full skill text of one pinned release on a computer with no Koinon (#732) |
+| 2026-11-23 | Decision 5: Koinon adopts `preflight` for its own work (#795) |
