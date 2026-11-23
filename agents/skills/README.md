@@ -65,8 +65,6 @@ Generated files have an ownership comment. Generation repairs or removes only th
 and narrowly adopts the nine original wrappers when their template is unchanged. A custom
 command that collides with a skill name, modified legacy template or managed symlink causes
 an error before any changes. Custom commands and native OpenCode package files are preserved.
-The existing nine wrappers are already tracked on `develop`, so merging this change replaces
-them normally.
 
 Check mode compares bytes and the executable bit without writing; it accepts checkout
 permissions from the user's umask. Go contributor tests run it on Linux and

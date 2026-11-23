@@ -34,9 +34,10 @@ In short:
 - Merged working branches are deleted automatically; long-lived branches are protected.
 - Your clone prunes on fetch, so `git branch -r` reports the branches the remote still holds.
 
-Run `scripts/setup-repo.sh` to apply the local guards and GitHub settings. The `commit-msg`
-hook refuses a commit message that cites a decision board verdict by its ID; name the card
-reference instead (WDR 001, Decision 7). Server-side
+Run `scripts/setup-repo.sh` to apply the local guards and GitHub settings. The `pre-commit`
+hook refuses a commit on `main` or `develop`. The `commit-msg` hook refuses a commit message
+that cites a decision board verdict by its ID; cite the repository record that holds the
+decision instead (WDR 001, Decision 7). Server-side
 rulesets depend on the account's support for private-repository protection; the script
 reports any unavailable enforcement explicitly. This follows the branch policy in
 [rwcii/engineering-standards](https://github.com/rwcii/engineering-standards) and the
@@ -61,7 +62,9 @@ gh pr create --base develop
 gh pr merge --auto --squash
 ```
 
-The `release` skill promotes `develop` to `main` (WDR 002, Decision 6).
+The `release` skill promotes `develop` to `main` with the account of failed CI runs (WDR 004,
+Decision 6). The `ship` skill runs a docs gate: the docs and agent files in
+`.koinon/skills/ship.md` agree with the code at the head (WDR 004, Decision 7).
 
 ## Commit conventions
 
@@ -77,9 +80,10 @@ is preserved; signed-off contributions are required from adoption of this policy
 ## Local checks and scope
 
 Run `go vet ./...`, `gofmt -l .` (it must print nothing), `go test -race -timeout 30m ./...`
-and `git diff --check`. Runtime and
+and `git diff --check origin/develop...HEAD`. Runtime and
 installation changes also need the four `CGO_ENABLED=0` builds for linux/amd64, linux/arm64, darwin/amd64
-and darwin/arm64. Go tests live beside packages; operating-system differences belong in
+and darwin/arm64, and a local compile and vet of the native-tagged tests
+(`go vet -tags native ./internal/nativetest/`). Go tests live beside packages; operating-system differences belong in
 `internal/platform`. For changed shell tooling, run `bash -n scripts/setup-repo.sh`,
 `sh -n .githooks/pre-commit`, `sh -n .githooks/commit-msg`, `sh -n scripts/decision-citations.sh`,
 `sh -n scripts/rerun-unacquired.sh`, `sh -n scripts/install-skills.sh`,

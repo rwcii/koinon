@@ -338,6 +338,10 @@ sent; a definite refusal of the card's computer
 keeps its code; any other failure after the write began is `link_uncertain`, and an
 acknowledgement may have been stored: a retry is safe and reports it in `already`.
 
+The table lists the core routes. The sections of each feature describe its own routes: context
+and cycles, rooms, decisions, work items and checkouts, cleanup and maintenance, the library,
+and maintainer keys.
+
 | Route | Operation |
 | --- | --- |
 | `GET /v1/status` | Daemon readiness, the release `version`, `pid`, listeners, schema, session counts, storage, content-free wake health and `maintainer_secret_set`. |
@@ -2268,7 +2272,8 @@ project inspection. Recommendations select only verified missing/outdated skills
 by available features, with no decline, collision or decision-inspection limitation.
 
 Machine `library_decision` accepts item ID, adopted/declined choice, evidence text,
-catalog/item digests, typed pre-edit/result target digests and compared revision. The client
+catalog/item digests, typed pre-edit/result target digests and compared revision; an adoption
+needs at least one result target digest. The client
 fills native family/root metadata and calls `POST /v1/library/decision` internally;
 `POST /v1/library/decision/read` returns current state. `POST /v1/library/context` supplies
 the registered directory/common-directory context internally and is not a model tool.
@@ -2649,7 +2654,7 @@ fact: a `.koinon/skills/ship.md` that holds it stays valid, and Koinon ignores i
 `koinon mcp` is a stdio MCP server: newline-delimited JSON-RPC 2.0 with `initialize` (protocol
 versions `2025-06-18`, `2025-03-26` and `2024-11-05`; another requested version gets
 `2025-06-18`), `ping`, `tools/list` and `tools/call`. Other methods get error -32601; a message
-longer than 1 MiB gets -32700. Its tools are `peers`, `send` (`to`, `body`), `inbox` (`after`,
+longer than 1 MiB gets -32700. Its tools are `peers`, `peer_status` (`peer`), `send` (`to`, `body`, optional `reply_to`), `inbox` (`after`,
 `participant_after`, `limit`), `ack` (`through`, `participant_through`) and `delivery` (`message_id`), and `memory_status`, `memory_sync`,
 `memory_ack`, `memory_record` and `memory_recall` with the fields of the memory routes, and
 `work_create`, `work_get`, `work_list`, `work_propose`, `work_edit`, `work_start`, `work_update`,
@@ -2659,8 +2664,10 @@ and `work_checkout_request` (also optional `note`) call the checkout routes. Rel
 directories resolve against the MCP working directory and must share its Git common
 directory. `library_list` (`after`, `limit`) and `library_read` (`item_id`) call the catalog
 routes, using native caller identity and accepting no target path or family override.
-`library_state` (`item_ids`, `scope`, `directory`) and `library_decision` (item, choice,
-evidence, catalog/item digests, pre-edit/result arrays and `if_revision`) combine catalog,
+`library_state` (`item_ids`, `scope`, `directory`) and `library_decision` (required `item_id`,
+`decision` `adopted` or `declined`, `evidence`, `catalog_digest`, `item_digest` and
+`if_revision`; optional `pre_edit` target digests; `result` target digests, required and not
+empty for `adopted` and optional for `declined`) combine catalog,
 decisions and bounded reads in that same native client.
 `room_list` (`after`, `limit`), `room_members` (`room_id`, `after`, `limit`), `room_post`
 (`room_id`, `body`, `key`, `deadline`) and `room_read` (`room_id`, `after`, `limit`) call the
@@ -2668,6 +2675,9 @@ room routes.
 `decision_create`, `decision_edit`, `decision_list`, `decision_get`, `decision_history`,
 `decision_pending`, `decision_ack`, `decision_close`, `decision_withdraw` and `decision_restore` take the fields of the
 decision routes, refuse any other argument by name and call those routes.
+`context_cycle_status`, `context_cycle_ready` and `context_cycle_pickup` call the cycle routes,
+and `context_show`, `context_set`, `context_enable` and `context_threshold` the context routes
+(both described above).
 They take no model-supplied consumer or caller identity. A tool
 error is a result with `isError` and a JSON text `{"ok": false, "code": ...}`: the daemon's code,
 `daemon_unavailable`, `identity_unavailable`, `grok_leader_mode`, `invalid_arguments` or `unknown_tool`, with the
