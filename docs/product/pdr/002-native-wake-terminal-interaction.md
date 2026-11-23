@@ -321,8 +321,9 @@ A cycled agent resumes with its participant address, claims and handoff.
      notices too, flushes each line, and stops before the coordinator's own managed handoff; a
      merge is checked on the host against the reviewed head and its required checks; a key is
      sent only when a fresh capture still shows the same request, with the option for this one
-     request; a member's refused action is reported, not done another way; text in a member's
-     input field is left alone.
+     request; when the maintainer or a permission rule refused a member's action, the refusal is
+     honored and reported with its reason, not done another way; text in a member's input field
+     is left alone.
 - **Reason and scope:** the coordinator did these steps by hand, and each session learned them
   again. Answering a member's prompt is ordinary terminal work (Decision 2). The skill changes no
   runtime behavior.

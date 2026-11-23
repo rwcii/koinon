@@ -23,7 +23,9 @@ the remaining work.
 When a family's login is gone and its members cannot write a handoff, stop that family without
 one: save each member's pane capture, its native thread or session ID, its launch command, sandbox,
 role and directory in the private manifest, and mark each member "no handoff". The saved panes
-are evidence, not a handoff. Quit each member at an empty, idle prompt (`peer-tmux`).
+are evidence, not a handoff. Read and close each open dialog of the pane first, such as a
+usage-limit or model-switch dialog, with the `peer-tmux` steps and its Observed dialogs. Then
+quit each member at an empty, idle prompt (`peer-tmux`).
 
 ## Repository facts
 

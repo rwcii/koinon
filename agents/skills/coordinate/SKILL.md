@@ -45,8 +45,6 @@ manifest for the members, their panes and their approved work.
      head is the reviewed commit, each required check is complete and none failed, and the
      review names that exact head. For auto-merge, check that the branch rules require each
      check that the merge needs.
-   - For an edit of a document or an instruction file, check each new sentence against the code
-     or the approved item.
 3. Choose the option that allows this one request, not an option that adds a standing rule or
    changes settings. Answer with the `peer-tmux` steps. Directly before the key, capture the
    pane again and send the key only when it still shows the same command or diff; match a
@@ -54,8 +52,9 @@ manifest for the members, their panes and their approved work.
    after it.
 4. When the request is outside the member's approved work, do not answer it. Send the member a
    Koinon message with what you read, and report it.
-5. When a member's tool refused an action, report the refusal to the maintainer; do not do that
-   action another way for the member.
+5. When the maintainer or a permission rule refused a member's action, honor that refusal:
+   report it to the maintainer with the reason that the tool gave, and do not do that action
+   another way for the member.
 6. Send the member one short Koinon message: what you read, the option that you chose and the
    result. Raw pane captures stay in your private state.
 
@@ -64,8 +63,9 @@ manifest for the members, their panes and their approved work.
 At the fact **Check interval**, and when an event asks for it:
 
 1. Read your inbox and `decision_pending`, page by page, and handle each item. Verdicts on your
-   own cards go to their recipients: name yourself as a recipient, or read `decision_list` with
-   `in_progress` and `returned` at each check.
+   own cards go to their recipients: name yourself as a recipient, or read each card that you
+   track with `decision_get` at each check, because a declined decision and a completed or
+   declined task go to `archived` at once.
 2. Read each member's pane: busy, idle, a dialog, or near its context limit. For a member near
    its limit: when its managed cycle is on, the cycle runs; otherwise run the `peer-tmux`
    handoff, reset and pickup steps; a family that compacts itself needs no step.
