@@ -3,7 +3,7 @@ pdr: "011"
 title: "Linked Koinon Computers"
 status: accepted
 created: "2026-11-12"
-updated: "2026-11-22"
+updated: "2026-11-23"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -330,7 +330,10 @@ maintainer secret is in PDR 009; Remote is in PDR 010.
   envelope version `koinon-maintainer-2`, whose every answer the target signs with its link key
   (`koinon-answer-2`), the node's own claims signed by the node, the node's check of the
   target's signed answer on the link, and the shared test vectors (#696). Version 1 keeps its
-  unsigned answers.
+  unsigned answers. The live check ran on 2026-11-23 with a Go v2 test client and two test
+  nodes, one on Linux and one on macOS: every operation on both pins through each node, and the
+  node's claims, verified by the client (`docs/sprints/2026-11-22-signed-answers/verification.md`).
+  The check with Koinon Voice follows its v2 client (#789).
 
 ## Conclusion
 
@@ -352,3 +355,4 @@ computer keeps its own stores and controls.
 | 2026-11-18 | Decision 2 amended, BOARD-LINK-746, approved by Robert Capps: cards for agents on another computer, with notices and reads at the card's computer (#746). |
 | 2026-11-22 | Decision 7, SIGNED-ANSWERS-695-696, approved by Robert Capps on 2026-11-21: real-time maintainer messages with each recipient's result, and signed answers; chunk 01 (recipient results) shipped (#695). |
 | 2026-11-22 | Decision 7: chunk 02 (signed answers, envelope version 2) shipped (#696). |
+| 2026-11-23 | Decision 7: the live check of chunk 02 passed with a Go v2 test client on Linux and macOS; the Voice part follows koinon-voice#41, decided by Robert Capps (#696, #789). |
