@@ -125,7 +125,9 @@ Each agent writes its session handoffs to the Git-ignored `_handoff/<agent>/` of
 checkout with the [handoff](agents/skills/handoff/SKILL.md) skill; Git ignores them
 ([WDR 005](docs/engineering/wdr/005-private-handoffs-and-continuity.md)).
 Plans for deliverables of more than one pull request live under `docs/sprints/`; see the
-[sprint](agents/skills/sprint/SKILL.md) skill.
+[sprint](agents/skills/sprint/SKILL.md) skill. A plan with a parallel view gives each chunk its
+dependencies and owned items, and `internal/contributor/sprint_plan_test.go` checks the groups
+(WDR 002, Decision 7).
 
 Installation ships one binary with the canonical skills embedded as catalog data. It writes
 Koinon's `koinon-` skill entries, `koinon-pickup` for the managed context cycle among them, in

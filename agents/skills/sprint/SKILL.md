@@ -17,7 +17,19 @@ without design. Write definition-of-done.md before the chunk specifications: mea
 synthetic unit and integration checks, actual interfaces, platform evidence, edge cases,
 commands and publication gates. Split the outcome into ordered chunks, each one complete,
 testable alone and mergeable. Write sprint.md and chunks/NN-<slug>.md; each chunk cites the
-decision and the definition of done and can be built from those files alone. Commit the plan
+decision and the definition of done and can be built from those files alone.
+
+In sprint.md, give the chunks a table with the columns Chunk, Depends on and Owns. Depends on
+lists the chunk numbers that must merge first, or "none". Owns lists, separated by commas, the
+files, directories, interfaces and records that only that chunk changes: a path in backticks, a
+record by its name, such as WDR 002. Name the shared files that each chunk adds lines to, such
+as the changelog, below the table as not owned. Under a "## Parallel view" heading, add a table
+with the columns Group and Chunks: group 1 holds the chunks with no dependency, and each later
+group holds chunks whose dependencies are in earlier groups. Two chunks of one group own no item
+in common; two items are common when they are the same path, when one is a directory that holds
+the other, or when they name the same record. Each chunk is in one group. A coordinator
+dispatches a chunk when its dependencies have merged and no chunk in progress owns an item in
+common with it (WDR 002, Decision 7). Commit the plan
 under project policy, and have the other agent family review that hash with peer-review. Record
 each finding and its disposition in review.md; changed scope or tests get a bounded review.
 Build the chunks with ship and the project's Build checks, in dependency order. Correct the plan
