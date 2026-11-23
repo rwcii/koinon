@@ -39,7 +39,7 @@ decisions; MCP still registers and renews its calling session as usual. Adopt an
 
 `koinon install`, and the daemon at each start, write a skill entry for each catalog skill for
 you, next to the managed cycle's `koinon-pickup`: `koinon-spin-up`, `koinon-spin-down`,
-`koinon-recover-team`, `koinon-peer-tmux`, `koinon-handoff`, `koinon-check`, `koinon-ship`,
+`koinon-recover-team`, `koinon-coordinate`, `koinon-peer-tmux`, `koinon-handoff`, `koinon-check`, `koinon-ship`,
 `koinon-release`, `koinon-pair`, `koinon-peer-review`, `koinon-refusal-review`, `koinon-sprint`,
 `koinon-preflight`, `koinon-provenance`, `koinon-record`, `koinon-refusal-audit`,
 `koinon-sprint-closeout`, `koinon-standards-audit`, `koinon-standards-review` and

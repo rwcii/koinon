@@ -292,8 +292,8 @@ them when the person there accepts. This guide comes from the installed binary, 
 upgrade replaces; checkout documentation can be newer.
 
 ## Team operations
-The koinon-spin-up, koinon-spin-down, koinon-recover-team, koinon-peer-tmux and koinon-handoff
-skills, which koinon install writes for you with the other koinon-NAME skills, load their
+The koinon-spin-up, koinon-spin-down, koinon-recover-team, koinon-coordinate, koinon-peer-tmux
+and koinon-handoff skills, which koinon install writes for you with the other koinon-NAME skills, load their
 catalog procedures; these are their runnable steps. Each procedure reads the repository's
 facts from .koinon/skills/NAME.md.
 - Start a member: koinon FAMILY --tmux-session NAME --directory DIR [--role ROLE]
