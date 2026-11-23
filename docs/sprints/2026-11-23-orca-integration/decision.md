@@ -83,6 +83,48 @@ computers. Today:
   second login with the key in clear (a stolen disk gives the key); a copy of every card
   (PDR 011).
 
+### Fleet reads, lost answers and the admin password
+
+- **Decided by:** Robert Capps. **Date:** 2026-11-23, decision board, approved at revision 4.
+- **Context:** the approved fleet board design reads every node live, and keeps the signing key
+  encrypted until the admin password unlocks it for one action; it does not say how reads
+  authenticate while the key is locked. Each signed read needs an envelope signed by an added
+  key (`internal/core/signed_actions.go`). `outcome` finds only the receipts of the key's own
+  authorization (`signedOutcome`), so a read key cannot check a write key's action. A write runs
+  once; for 7 days the same envelope gives its first answer again; a write that has not run must
+  arrive within 5 minutes of its signing (USAGE, signed actions with a client key). Spec section
+  2: "Pending decisions wait in their queue. There is no fallback to agent approval." The
+  maintainer's decision for #695 (2026-11-21): no queue for signed sends. Added keys have no
+  scope (`internal/core/maintainer_keys.go`). Codex's plan review of round 1 found the gaps in
+  the outcome check, the queue and the password rule.
+- **Decision:** approved:
+  1. The fleet board has two keys. The read key signs reads only. The write key signs verdicts
+     and session actions; the admin password unlocks it for each action.
+  2. The read key is stored like the node's other private keys (mode 0600, not encrypted), so
+     the pages read at login with no password.
+  3. Added keys get a scope: the enroll statement names `read` or `full`. A `read` key is
+     refused for each write (`signature_refused`, reason `scope`). Existing keys stay `full`.
+     `koinon fleet enroll` writes one statement for each key.
+  4. Outcome check after a lost answer, with no key unlock: the board keeps each signed write
+     envelope until its answer is known, and sends the same signed bytes again when the node
+     answers. Within 5 minutes of signing, the node gives the first answer, or runs the action
+     once if it never arrived; this is the action that the maintainer signed. From 5 minutes to
+     7 days, the node gives the first answer if it ran; an expired refusal means it never ran.
+     After 7 days, the board reads the item live with the read key (the card's verdicts, the
+     session's state) and shows what it finds.
+  5. No verdict queue. "Pending decisions wait" means that the cards wait on their own nodes:
+     an unreachable node shows as unreachable, and the maintainer answers the card when it is
+     back, on the Fleet page or the node's own page.
+  6. The admin password has the length rule of the maintainer secret: 12 characters to 1024
+     bytes (`internal/core/maintainer_secret.go`).
+- **Reason and scope:** the approved design needs live reads at login with a locked write key,
+  and a check of a lost answer without the key. A stolen board disk then gives reads of all
+  nodes, but no verdict and no session action. Cost: a key scope in the store and the key
+  commands, in chunk 05. Rejected: one key kept unlocked in memory for the board login, with the
+  admin password asked for each write as a check only (a running board holds the write key in
+  clear); a queue of verdicts on the board, sent when the node is back (it differs from the #695
+  decision, and a queued verdict can meet a changed card); no length rule for the admin password.
+
 ### Merge gates (spec section 8)
 
 - **Decided by:** Robert Capps. **Date:** 2026-11-23, terminal.

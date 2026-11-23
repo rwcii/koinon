@@ -80,15 +80,16 @@ private tmux servers (WDR 006).
 ## Fleet Decisions (chunk 05)
 
 - The fleet role: `koinon fleet enable` on a separate install or an existing node, an admin
-  password set at that step (the same length rule as the maintainer secret,
-  `internal/core/maintainer_secret.go`), and a new Ed25519 client key stored encrypted with a
-  key derived from the admin password (a memory-hard KDF with its parameters stored beside it);
-  the clear key is never written. `koinon fleet enroll` writes the enroll statement for each
-  node's `koinon maintainer key add`.
-- Reads: as the maintainer decides on the read authentication (decision board, pending when
-  this plan was written); the plan's recommendation is a second key with scope `read`, stored
-  like the node's private keys, used for every read; a read-scoped key is refused for every
-  write. The page loads, refreshes after a stale revision, and filters with reads only.
+  password set at that step (12 characters to 1024 bytes, the rule of the maintainer secret,
+  `internal/core/maintainer_secret.go`), and two new Ed25519 client keys. The write key is
+  stored encrypted with a key derived from the admin password (a memory-hard KDF with its
+  parameters stored beside it); its clear key is never written. The read key is stored like the
+  node's other private keys (mode 0600). `koinon fleet enroll` writes one enroll statement for
+  each key, with scope `read` or `full`, for each node's `koinon maintainer key add`.
+- Key scope: an added key has scope `read` or `full`; a key added before this change is `full`.
+  A `read` key is refused for each write with `signature_refused`, reason `scope`.
+- Reads: the read key signs every read, with no password. The page loads, refreshes after a
+  stale revision, and filters with reads only.
 - The top navigation shows **Fleet** when the role is on, with Fleet Decisions: the layout of
   the Decisions page, each row with its node, and a node filter (all, or one node). The page
   reads each paired node's board live with signed `board_list` and `decision_get`; a node that
@@ -100,17 +101,23 @@ private tmux servers (WDR 006).
 - A node that does not answer: `computer_offline` before the send means nothing ran, and the
   page says the node is unreachable and the card still waits there; nothing is queued (the
   card waits on its node, as the approved design says). `outcome_unknown` after the send: the
-  page shows the outcome as unknown and checks it with a signed `outcome` read when the node
-  answers again; the same envelope sent again gives the first answer.
-- Tests: a wrong admin password unlocks nothing and sends nothing; the read path signs
-  reads only, and a write with the read key is refused; a node that goes away before the
-  answer shows `outcome_unknown`, and the outcome read after it reconnects shows the recorded
-  verdict; a repeated action gives the first answer; a verdict on a stale
+  page shows the outcome as unknown; the board keeps the signed envelope until its answer is
+  known and sends the same bytes again when the node answers, with no key unlock. Within 5
+  minutes of signing, the node gives the first answer or runs the action once; from 5 minutes
+  to 7 days, the first answer, or an expired refusal that means it never ran; after 7 days, the
+  board reads the card's verdicts live with the read key and shows them.
+- Tests: a wrong admin password unlocks nothing and sends nothing; an admin password outside
+  the length rule is refused; the read path signs reads only, and a write with the read key is
+  refused with reason `scope`; a key added before the change keeps scope `full`; a node that
+  goes away before the answer shows `outcome_unknown`, and the resend after it reconnects shows
+  the first answer within 7 days, an expired refusal as never ran, and after 7 days the live
+  read; a repeated action gives the first answer; a verdict on a stale
   revision is refused and the page reads again; an unsigned, mis-signed or wrongly targeted
   envelope is refused by the node; a node secret alone cannot make a fleet action; a node that
-  does not answer is unreachable; the key file holds no clear key. Two live nodes on Linux and
+  does not answer is unreachable; the write key file holds no clear key. Two live nodes on Linux and
   macOS: a verdict from the Fleet page reaches the card's node.
-- PDR 011 records the fleet board decision and the node key check (spec section 3).
+- PDR 011 records the fleet board decision, the read key, the outcome check, no verdict queue,
+  the admin password rule and the node key check (spec section 3), with the maintainer's words.
 
 ## Fleet Sessions (chunk 06)
 
