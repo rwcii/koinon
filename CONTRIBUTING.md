@@ -97,7 +97,9 @@ and darwin/arm64, and a local compile and vet of the native-tagged tests
 `internal/platform`. For changed shell tooling, run `bash -n scripts/setup-repo.sh`,
 `sh -n .githooks/pre-commit`, `sh -n .githooks/commit-msg`, `sh -n scripts/decision-citations.sh`,
 `sh -n scripts/rerun-unacquired.sh`, `sh -n scripts/install-skills.sh`,
-`bash -n scripts/homebrew-bottles.sh` and `bash -n scripts/homebrew-formula.sh`.
+`sh -n scripts/preflight-run.sh`, `sh -n scripts/preflight-publish.sh`,
+`sh -n scripts/board-verdict.sh`, `bash -n scripts/homebrew-bottles.sh` and
+`bash -n scripts/homebrew-formula.sh`.
 
 Tests use synthetic peers and temporary state/configuration, ephemeral loopback ports and
 private tmux servers, so they do not reach the person's services, terminals or agent

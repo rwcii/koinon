@@ -24,8 +24,9 @@ each matching path or address. Confirm visible changes have an Unreleased CHANGE
 ## Conditional checks
 For shell edits: bash -n scripts/setup-repo.sh, sh -n .githooks/pre-commit, sh -n .githooks/commit-msg,
 sh -n scripts/decision-citations.sh, sh -n scripts/rerun-unacquired.sh,
-sh -n scripts/install-skills.sh, bash -n scripts/homebrew-bottles.sh and
-bash -n scripts/homebrew-formula.sh.
+sh -n scripts/install-skills.sh, sh -n scripts/preflight-run.sh,
+sh -n scripts/preflight-publish.sh, sh -n scripts/board-verdict.sh,
+bash -n scripts/homebrew-bottles.sh and bash -n scripts/homebrew-formula.sh.
 Runtime or installation changes: four CGO_ENABLED=0 builds (linux/amd64, linux/arm64,
 darwin/amd64, darwin/arm64), plus a local compile and vet of the native-tagged tests. The
 service-manager checks run on disposable CI runners.
