@@ -29,10 +29,3 @@ exact-head CI with the repository Actions runs API (`created>=` the commit time,
 split the time range when a query reaches 1,000 results). For a run with `run_attempt` above 1,
 read each attempt 1..N from its attempts endpoint. List each failed run and attempt in the
 promotion PR evidence with its cause, fix or open issue.
-## Docs and agent files
-README.md, PROTOCOL.md, CONTRIBUTING.md, AGENTS.md, CLAUDE.md, CHANGELOG.md (Unreleased),
-docs/USAGE.md, docs/INSTALL.md, docs/REMOTE-DASHBOARD.md, docs/PERMISSIONS.md, docs/NOTIFIER.md,
-docs/WORK-ITEMS-COMMANDS.md, agents/skills/README.md, agents/skills/AGENTS.md, each
-agents/skills/*/SKILL.md, the guide text in internal/setup/guide.go (`koinon guide --agent
-FAMILY`), the command usage text in cmd/koinon/main.go, and the ADR, PDR and WDR README
-indexes. The historical documents that say so are out of scope.

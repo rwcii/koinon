@@ -2663,9 +2663,10 @@ and `work_checkout_request` (also optional `note`) call the checkout routes. Rel
 directories resolve against the MCP working directory and must share its Git common
 directory. `library_list` (`after`, `limit`) and `library_read` (`item_id`) call the catalog
 routes, using native caller identity and accepting no target path or family override.
-`library_state` (`item_ids`, `scope`, `directory`) and `library_decision` (`item_id`,
-`decision` `adopted` or `declined`, `evidence`, `catalog_digest`, `item_digest`, `pre_edit`,
-and optional `result` and `if_revision`) combine catalog,
+`library_state` (`item_ids`, `scope`, `directory`) and `library_decision` (required `item_id`,
+`decision` `adopted` or `declined`, `evidence`, `catalog_digest`, `item_digest` and
+`if_revision`; optional `pre_edit` and `result` target digest arrays, as the machine
+`library_decision` paragraph describes) combine catalog,
 decisions and bounded reads in that same native client.
 `room_list` (`after`, `limit`), `room_members` (`room_id`, `after`, `limit`), `room_post`
 (`room_id`, `body`, `key`, `deadline`) and `room_read` (`room_id`, `after`, `limit`) call the

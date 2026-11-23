@@ -35,8 +35,9 @@ In short:
 - Your clone prunes on fetch, so `git branch -r` reports the branches the remote still holds.
 
 Run `scripts/setup-repo.sh` to apply the local guards and GitHub settings. The `pre-commit`
-hook refuses a commit on `main` or `develop`. The `commit-msg` hook refuses a commit message that cites a decision board verdict by its ID; name the card
-reference instead (WDR 001, Decision 7). Server-side
+hook refuses a commit on `main` or `develop`. The `commit-msg` hook refuses a commit message
+that cites a decision board verdict by its ID; cite the repository record that holds the
+decision instead (WDR 001, Decision 7). Server-side
 rulesets depend on the account's support for private-repository protection; the script
 reports any unavailable enforcement explicitly. This follows the branch policy in
 [rwcii/engineering-standards](https://github.com/rwcii/engineering-standards) and the
@@ -62,8 +63,8 @@ gh pr merge --auto --squash
 ```
 
 The `release` skill promotes `develop` to `main` with the account of failed CI runs (WDR 004,
-Decision 6). The `ship` and `release` skills run a docs gate: the docs and agent files in
-`.koinon/skills/ship.md` agree with the code at the head.
+Decision 6). The `ship` skill runs a docs gate: the docs and agent files in
+`.koinon/skills/ship.md` agree with the code at the head (WDR 004, Decision 7).
 
 ## Commit conventions
 

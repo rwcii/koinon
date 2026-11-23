@@ -30,7 +30,7 @@ Read back the merge and issue state. Promotion to main uses the release skill. C
 when it is fully delivered.
 ## Docs and agent files
 README.md, PROTOCOL.md, CONTRIBUTING.md, AGENTS.md, CLAUDE.md, CHANGELOG.md (Unreleased),
-docs/USAGE.md, docs/INSTALL.md, docs/REMOTE-DASHBOARD.md, docs/PERMISSIONS.md, docs/NOTIFIER.md,
+docs/USAGE.md, docs/INSTALL.md, docs/REMOTE-DASHBOARD.md, docs/PERMISSIONS.md,
 docs/WORK-ITEMS-COMMANDS.md, agents/skills/README.md, agents/skills/AGENTS.md, each
 agents/skills/*/SKILL.md, the guide text in internal/setup/guide.go (`koinon guide --agent
 FAMILY`), the command usage text in cmd/koinon/main.go, and the ADR, PDR and WDR README

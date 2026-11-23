@@ -67,7 +67,8 @@ compare the files in the Docs and agent files fact with the code at the head:
 
 1. List the user-visible changes against the base: commands, tools, flags, defaults, limits,
    error codes, routes, paths, versions, features and skills.
-2. Read each listed file that describes a changed item, and the README in each case.
+2. Read each file in the fact at the head. Check first the parts that describe a changed item,
+   then the rest of the file, because a statement can be wrong from an earlier change.
 3. Correct each statement that the code at the head contradicts.
 4. Describe each new user-visible feature in the file where a reader looks for it.
 5. Make the version numbers, release names and skill lists in those files agree with the code

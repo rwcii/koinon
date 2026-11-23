@@ -14,8 +14,8 @@ files facts. Work on the
 assigned branch in an isolated checkout, and hold the assigned work claim when the project's
 runtime supplies one: read its checkpoint before writing, report progress and renew its lease.
 Commit under the declared policy, with no automated attribution. Bring the branch current with
-its work target, keeping published history. Run the check skill, its required gates and the docs
-gate below. Follow
+its work target, keeping published history. Run the docs gate below, then the check skill and its
+required gates. Follow
 the project's PR limit, and coordinate the publication turn through the installed runtime.
 Record each board decision that the change carries out in the ADR, PDR, WDR or sprint document
 that holds the rule, in the form that the verdict read gives: decided by (the person's name),
@@ -38,7 +38,8 @@ the head:
 
 1. List the user-visible changes against the base: commands, tools, flags, defaults, limits,
    error codes, routes, paths, versions, features and skills.
-2. Read each listed file that describes a changed item, and the README in each case.
+2. Read each file in the fact at the head. Check first the parts that describe a changed item,
+   then the rest of the file, because a statement can be wrong from an earlier change.
 3. Correct each statement that the code at the head contradicts.
 4. Describe each new user-visible feature in the file where a reader looks for it.
 5. Make the version numbers, release names and skill lists in those files agree with the code
