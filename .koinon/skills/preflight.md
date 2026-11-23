@@ -14,27 +14,26 @@ preflight
 - scripts/preflight-publish.sh
 
 ## Review run command
-scripts/preflight-run.sh --family FAMILY --base origin/develop, with FAMILY the author's agent
-family (claude or codex). Each lens runs once in a fresh worker in a detached worktree of the
-head, with the change in .preflight/change.diff, no forge credential and no Koinon connection.
+scripts/preflight-run.sh --base origin/develop, for an author of any family. Each lens runs
+once in a fresh claude worker in a detached worktree of the head, with the change in
+.preflight/change.diff, no forge credential and no Koinon connection.
 ## Review publish command
 scripts/preflight-publish.sh PR, with the author's gh login. It takes the newest result of
 the pull request's current head, and posts one comment and the preflight commit status on that
 head. It refuses when there is no result for that head, when the result was run against
 another base than the pull request's, and when a report has a secret, a private path or an
-email address.
+email address. Each report is posted as a fenced block.
 ## Lens policy
 .koinon/preflight/lenses.md at the base commit: security, code, standards and refusal. The
 change that adopts preflight runs with the head's policy, because its base has none.
 ## Base ref
 origin/develop
 ## Route and image rules
-The worker is `claude -p` or `codex exec`, of the author's family, on this computer, with no
-MCP servers, no forge token and no Git credential prompt. A claude worker has only the Read,
-Grep and Glob tools, loads no settings, auto-memory or instruction files, and reads only its
-worktree; Claude Code still gives it the account's email address. A codex worker runs in
-Codex's read-only sandbox, which can read outside the worktree, and is refused for a head that
-tracks Codex configuration. The publish command checks each report before it posts it.
+The worker is `claude -p` on this computer, for an author of any family, with no MCP servers,
+no forge token and no Git credential prompt. It has only the Read, Grep and Glob tools, loads
+no settings, auto-memory or instruction files, and reads only its worktree; Claude Code still
+gives it the account's email address. A codex worker is not used: Codex's read-only sandbox can
+read outside the worktree. The publish command checks each report before it posts it.
 ## Report folder
 _preflight/HEAD/RUN/ in the main checkout, ignored by Git.
 ## Review procedure

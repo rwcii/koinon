@@ -22,6 +22,7 @@ command -v jq >/dev/null || die "jq is required"
 
 pull=$(gh pr view "$pr" --json headRefOid,baseRefName) || die "cannot read pull request #$pr"
 head=$(printf '%s' "$pull" | jq -r .headRefOid)
+printf '%s\n' "$head" | grep -Eq '^[0-9a-f]{40}$' || die "unexpected head of pull request #$pr: $head"
 base_ref=$(printf '%s' "$pull" | jq -r .baseRefName)
 reports=${PREFLIGHT_REPORTS:-}
 if [ -z "$reports" ]; then
@@ -40,17 +41,20 @@ expected=$(git merge-base "origin/$base_ref" "$head") || die "cannot find the me
 [ "$(jq -r .merge_base "$result")" = "$expected" ] ||
 	die "the result in $dir was run against $(jq -r .base "$result"), not the pull request's base $base_ref; run scripts/preflight-run.sh --base origin/$base_ref"
 run=$(jq -r .run "$result")
+# The run name enters a jq filter and the comment marker: only the form that preflight-run.sh
+# writes is accepted.
+printf '%s\n' "$run" | grep -Eq '^[0-9]{8}T[0-9]{6}Z-[0-9]{10}$' || die "the result in $dir has an unexpected run name: $run"
 marker="<!-- koinon-preflight head=$head run=$run -->"
 
 # A report is posted in public: refuse one with a secret, a private path or an email address.
 # Tokens: GitHub, private keys, Anthropic and OpenAI (sk-), JSON web tokens, AWS, Slack, xAI and
 # Google keys.
 secrets='gh[pousr]_[A-Za-z0-9]{20,}|github_pat_|-----BEGIN [A-Z ]*PRIVATE KEY|sk-[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|AKIA[0-9A-Z]{16}|xox[abprs]-|xai-[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{35}'
-private='/home/[A-Za-z0-9_]|/Users/[A-Za-z0-9_]|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}'
+private='/home/[A-Za-z0-9_]|/var/home/[A-Za-z0-9_]|/Users/[A-Za-z0-9_]|/root/|~/|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}'
 for report in "$dir"/*.md; do
 	[ -e "$report" ] || continue
 	case $report in *.prompt.md) continue ;; esac
-	if grep -Eq "$secrets|$private" "$report" || grep -Fq "$HOME/" "$report"; then
+	if grep -Eq "$secrets|$private" "$report" || { [ -n "${HOME:-}" ] && grep -Fq "$HOME/" "$report"; }; then
 		die "$report has a secret, a private path or an email address; remove it from the report and run this command again"
 	fi
 done
@@ -66,6 +70,25 @@ else
 	state=failure
 	title="NOT APPROVED"
 fi
+# Print a report as a fenced block, so that its Markdown and HTML cannot change the comment. The
+# fence is longer than the longest backtick run in the report.
+fenced() {
+	fence=$(awk '{ while (match($0, /`+/)) { if (RLENGTH > n) n = RLENGTH; $0 = substr($0, RSTART + RLENGTH) } }
+		END { n = (n < 3) ? 3 : n + 1; while (n-- > 0) printf "`" }' "$1")
+	echo "${fence}text"
+	if [ "$(wc -c <"$1")" -le 12000 ]; then
+		cat "$1"
+	else
+		# Whole lines only, so that no character is cut; a first line longer than the limit is cut.
+		cut=$(head -c 12000 "$1" | sed '$d')
+		[ -n "$cut" ] || cut=$(head -c 12000 "$1")
+		printf '%s\n' "$cut"
+	fi
+	echo "$fence"
+	if [ "$(wc -c <"$1")" -gt 12000 ]; then
+		printf '\n(The report is longer; the full text is in the run folder.)\n'
+	fi
+}
 post_status() {
 	gh api -X POST "repos/{owner}/{repo}/statuses/$head" -f state="$state" -f context=preflight \
 		-f target_url="$1" -f description="Preflight $title, run $run" >/dev/null ||
@@ -113,13 +136,7 @@ trap 'exit 130' INT TERM
 		echo "<details><summary>$lens report</summary>"
 		echo
 		if [ -f "$dir/$lens.md" ]; then
-			if [ "$(wc -c <"$dir/$lens.md")" -le 12000 ]; then
-				cat "$dir/$lens.md"
-			else
-				# Whole lines only, so that no character is cut.
-				head -c 12000 "$dir/$lens.md" | sed '$d'
-				printf '\n\n(The report is longer; the full text is in the run folder.)\n'
-			fi
+			fenced "$dir/$lens.md"
 		else
 			echo "No report."
 		fi

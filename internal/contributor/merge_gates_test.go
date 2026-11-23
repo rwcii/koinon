@@ -83,7 +83,7 @@ echo "$*" >> "$FAKE/koinon-calls"
 cat "$FAKE/card.json"
 `
 
-// fakeWorker is a claude or codex worker. It logs its directory and whether a forge or Koinon
+// fakeWorker is a claude worker. It logs its directory and whether a forge or Koinon
 // variable reached it, and answers with the verdict in $FAKE/verdict-LENS: APPROVE, REJECT,
 // NONE (no verdict line) or EXIT (a failed worker).
 const fakeWorker = `#!/bin/sh
@@ -99,18 +99,7 @@ verdict=$(cat "$FAKE/verdict-$lens" 2>/dev/null || echo APPROVE)
 report="Synthetic $lens report."
 [ "$verdict" = NONE ] || report="$report
 VERDICT: $verdict"
-if [ "$(basename "$0")" = claude ]; then
-	jq -n --arg r "$report" '{result: $r, session_id: "synthetic", usage: {input_tokens: 10, output_tokens: 2}, total_cost_usd: 0.01}'
-else
-	out=
-	while [ $# -gt 0 ]; do
-		[ "$1" != -o ] || out=$2
-		shift
-	done
-	printf '%s\n' "$report" > "$out"
-	echo '{"type": "thread.started", "thread_id": "synthetic"}'
-	echo '{"type": "turn.completed", "usage": {"input_tokens": 7, "output_tokens": 1}}'
-fi
+jq -n --arg r "$report" '{result: $r, session_id: "synthetic", usage: {input_tokens: 10, output_tokens: 2}, total_cost_usd: 0.01}'
 `
 
 type gateEnv struct {
@@ -131,7 +120,7 @@ func newGateEnv(t *testing.T) gateEnv {
 			t.Fatal(err)
 		}
 	}
-	for name, body := range map[string]string{"gh": fakeForge, "koinon": fakeKoinon, "claude": fakeWorker, "codex": fakeWorker} {
+	for name, body := range map[string]string{"gh": fakeForge, "koinon": fakeKoinon, "claude": fakeWorker} {
 		if err := os.WriteFile(filepath.Join(e.bin, name), []byte(body), 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -292,7 +281,7 @@ func TestPreflightPublishScript(t *testing.T) {
 		e := newGateEnv(t)
 		repo, head, base := publishRepository(t, e)
 		reports := t.TempDir()
-		writeResult(t, reports, head, base, "20261123T000000Z-1", true, true)
+		writeResult(t, reports, head, base, "20261123T000000Z-0000000001", true, true)
 		out, err := publish(t, e, repo, reports)
 		if err != nil || !strings.Contains(out, "success on "+head) {
 			t.Fatalf("%v %s", err, out)
@@ -315,7 +304,7 @@ func TestPreflightPublishScript(t *testing.T) {
 		e := newGateEnv(t)
 		repo, head, base := publishRepository(t, e)
 		reports := t.TempDir()
-		writeResult(t, reports, head, base, "20261123T000000Z-1", false, false)
+		writeResult(t, reports, head, base, "20261123T000000Z-0000000001", false, false)
 		if out, err := publish(t, e, repo, reports); err != nil || !strings.Contains(statusOf(e), `"state":"failure"`) ||
 			!strings.Contains(e.read("comments.json"), "NOT APPROVED") {
 			t.Fatalf("%v %s", err, out)
@@ -325,7 +314,7 @@ func TestPreflightPublishScript(t *testing.T) {
 		e := newGateEnv(t)
 		repo, head, base := publishRepository(t, e)
 		reports := t.TempDir()
-		writeResult(t, reports, strings.Repeat("e", 40), base, "20261123T000000Z-1", true, true)
+		writeResult(t, reports, strings.Repeat("e", 40), base, "20261123T000000Z-0000000001", true, true)
 		out, err := publish(t, e, repo, reports)
 		if err == nil || !strings.Contains(out, "no preflight result for head "+head) || strings.Contains(e.read("calls"), "POST") {
 			t.Fatalf("%v %s", err, out)
@@ -336,7 +325,7 @@ func TestPreflightPublishScript(t *testing.T) {
 		repo, head, _ := publishRepository(t, e)
 		reports := t.TempDir()
 		// As scripts/preflight-run.sh --base HEAD~0 would give, with the head's own policy.
-		writeResult(t, reports, head, head, "20261123T000000Z-1", true, true)
+		writeResult(t, reports, head, head, "20261123T000000Z-0000000001", true, true)
 		out, err := publish(t, e, repo, reports)
 		if err == nil || !strings.Contains(out, "not the pull request's base develop") || strings.Contains(e.read("calls"), "POST") {
 			t.Fatalf("%v %s", err, out)
@@ -344,11 +333,12 @@ func TestPreflightPublishScript(t *testing.T) {
 	})
 	t.Run("a report with a secret or a private path", func(t *testing.T) {
 		for _, text := range []string{"token ghp_" + strings.Repeat("A", 36), "see /home/someone/.ssh/id_ed25519", "-----BEGIN OPENSSH PRIVATE KEY-----",
-			"key sk-proj-" + strings.Repeat("a", 30), "token eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0", "the account is someone@example.com"} {
+			"key sk-proj-" + strings.Repeat("a", 30), "token eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0", "the account is someone@example.com",
+			"see /root/.config/token", "see /var/home/someone/notes", "see ~/.config/gh/hosts.yml"} {
 			e := newGateEnv(t)
 			repo, head, base := publishRepository(t, e)
 			reports := t.TempDir()
-			dir := writeResult(t, reports, head, base, "20261123T000000Z-1", true, true)
+			dir := writeResult(t, reports, head, base, "20261123T000000Z-0000000001", true, true)
 			os.WriteFile(filepath.Join(dir, "code.md"), []byte(text+"\nVERDICT: APPROVE\n"), 0600)
 			out, err := publish(t, e, repo, reports)
 			if err == nil || !strings.Contains(out, "has a secret, a private path or an email address") || strings.Contains(e.read("calls"), "POST") {
@@ -356,13 +346,39 @@ func TestPreflightPublishScript(t *testing.T) {
 			}
 		}
 	})
+	t.Run("a result with another run name", func(t *testing.T) {
+		e := newGateEnv(t)
+		repo, head, base := publishRepository(t, e)
+		reports := t.TempDir()
+		writeResult(t, reports, head, base, `x" or true or "`, true, true)
+		out, err := publish(t, e, repo, reports)
+		if err == nil || !strings.Contains(out, "unexpected run name") || strings.Contains(e.read("calls"), "POST") {
+			t.Fatalf("%v %s", err, out)
+		}
+	})
+	t.Run("a report is a fenced block", func(t *testing.T) {
+		e := newGateEnv(t)
+		repo, head, base := publishRepository(t, e)
+		reports := t.TempDir()
+		dir := writeResult(t, reports, head, base, "20261123T000000Z-0000000001", true, true)
+		os.WriteFile(filepath.Join(dir, "code.md"), []byte("</details> ```` <!-- x -->\nVERDICT: APPROVE\n"), 0600)
+		if out, err := publish(t, e, repo, reports); err != nil {
+			t.Fatalf("%v %s", err, out)
+		}
+		var comments []map[string]any
+		json.Unmarshal([]byte(e.read("comments.json")), &comments)
+		body, _ := comments[len(comments)-1]["body"].(string)
+		if !strings.Contains(body, "`````text\n</details> ```` <!-- x -->\nVERDICT: APPROVE\n`````\n") {
+			t.Fatalf("body:\n%s", body)
+		}
+	})
 	t.Run("the newest run of the head", func(t *testing.T) {
 		e := newGateEnv(t)
 		repo, head, base := publishRepository(t, e)
 		reports := t.TempDir()
-		writeResult(t, reports, head, base, "20261123T000000Z-1", false, false)
-		writeResult(t, reports, head, base, "20261123T010000Z-1", true, false)
-		if out, err := publish(t, e, repo, reports); err != nil || !strings.Contains(e.read("comments.json"), "run=20261123T010000Z-1") {
+		writeResult(t, reports, head, base, "20261123T000000Z-0000000001", false, false)
+		writeResult(t, reports, head, base, "20261123T010000Z-0000000001", true, false)
+		if out, err := publish(t, e, repo, reports); err != nil || !strings.Contains(e.read("comments.json"), "run=20261123T010000Z-0000000001") {
 			t.Fatalf("%v %s", err, out)
 		}
 	})
@@ -370,8 +386,8 @@ func TestPreflightPublishScript(t *testing.T) {
 		e := newGateEnv(t)
 		repo, head, base := publishRepository(t, e)
 		reports := t.TempDir()
-		writeResult(t, reports, head, base, "20261123T000000Z-1", true, false)
-		forged := `[{"body": "<!-- koinon-preflight head=` + head + ` run=20261123T000000Z-1 --> APPROVED", "html_url": "https://example.invalid/forged", "user": {"login": "someone-else"}}]`
+		writeResult(t, reports, head, base, "20261123T000000Z-0000000001", true, false)
+		forged := `[{"body": "<!-- koinon-preflight head=` + head + ` run=20261123T000000Z-0000000001 --> APPROVED", "html_url": "https://example.invalid/forged", "user": {"login": "someone-else"}}]`
 		e.write(t, "comments.json", forged)
 		out, err := publish(t, e, repo, reports)
 		if err != nil || strings.Contains(statusOf(e), "forged") || strings.Count(e.read("comments.json"), "koinon-preflight") != 2 {
@@ -382,7 +398,7 @@ func TestPreflightPublishScript(t *testing.T) {
 		e := newGateEnv(t)
 		repo, head, base := publishRepository(t, e)
 		reports := t.TempDir()
-		writeResult(t, reports, head, base, "20261123T000000Z-1", true, false)
+		writeResult(t, reports, head, base, "20261123T000000Z-0000000001", true, false)
 		e.write(t, "fail-status", "")
 		if out, err := publish(t, e, repo, reports); err == nil || !strings.Contains(out, "the status post failed") {
 			t.Fatalf("%v %s", err, out)
@@ -443,39 +459,37 @@ func readResult(t *testing.T, reports string) map[string]any {
 }
 
 func TestPreflightRunScript(t *testing.T) {
-	for _, family := range []string{"claude", "codex"} {
-		t.Run(family+" approves with the base policy and no forge credential", func(t *testing.T) {
-			e := newGateEnv(t)
-			repo := gateRepository(t, e, true)
-			reports := t.TempDir()
-			out, err := e.run(t, repo, "preflight-run.sh", []string{"PREFLIGHT_REPORTS=" + reports}, "--family", family, "--base", "base")
-			if err != nil {
-				t.Fatalf("%v %s", err, out)
-			}
-			result := readResult(t, reports)
-			lenses, _ := json.Marshal(result["lenses"])
-			if result["approved"] != true || string(lenses) != `[{"lens":"security","reason":"","verdict":"approve"},{"lens":"code","reason":"","verdict":"approve"}]` {
-				t.Fatalf("result %v", result)
-			}
-			workers := e.read("workers")
-			if family == "claude" && (!strings.Contains(workers, `--tools Read,Grep,Glob`) || !strings.Contains(workers, "--setting-sources  --disable-slash-commands")) {
-				t.Fatalf("claude worker tools or settings:\n%s", workers)
-			}
-			if strings.Count(workers, "lens=") != 2 || strings.Contains(workers, "diff=no") || strings.Contains(workers, "memory-off=unset") || strings.Contains(workers, "instructions-off=unset") || strings.Contains(workers, "synthetic-forge-token") || strings.Contains(workers, "synthetic-launch") ||
-				strings.Contains(workers, "GH_CONFIG_DIR=unset") || strings.Contains(workers, "pwd="+repo+" ") || !strings.Contains(workers, "family="+family) {
-				t.Fatalf("workers:\n%s", workers)
-			}
-			usage, _ := filepath.Glob(filepath.Join(reports, "*", "*", "security.usage.json"))
-			if b, _ := os.ReadFile(usage[0]); !strings.Contains(string(b), "input_tokens") {
-				t.Fatalf("usage %s", b)
-			}
-			// The frozen worktree is gone after the run.
-			list, _ := exec.Command("git", "-C", repo, "worktree", "list").Output()
-			if strings.Count(string(list), "\n") != 1 {
-				t.Fatalf("worktrees left:\n%s", list)
-			}
-		})
-	}
+	t.Run("approves with the base policy and no forge credential", func(t *testing.T) {
+		e := newGateEnv(t)
+		repo := gateRepository(t, e, true)
+		reports := t.TempDir()
+		out, err := e.run(t, repo, "preflight-run.sh", []string{"PREFLIGHT_REPORTS=" + reports}, "--base", "base")
+		if err != nil {
+			t.Fatalf("%v %s", err, out)
+		}
+		result := readResult(t, reports)
+		lenses, _ := json.Marshal(result["lenses"])
+		if result["approved"] != true || string(lenses) != `[{"lens":"security","reason":"","verdict":"approve"},{"lens":"code","reason":"","verdict":"approve"}]` {
+			t.Fatalf("result %v", result)
+		}
+		workers := e.read("workers")
+		if !strings.Contains(workers, `--tools Read,Grep,Glob`) || !strings.Contains(workers, "--setting-sources  --disable-slash-commands") {
+			t.Fatalf("claude worker tools or settings:\n%s", workers)
+		}
+		if strings.Count(workers, "lens=") != 2 || strings.Contains(workers, "diff=no") || strings.Contains(workers, "memory-off=unset") || strings.Contains(workers, "instructions-off=unset") || strings.Contains(workers, "synthetic-forge-token") || strings.Contains(workers, "synthetic-launch") ||
+			strings.Contains(workers, "GH_CONFIG_DIR=unset") || strings.Contains(workers, "pwd="+repo+" ") || !strings.Contains(workers, "family=claude") {
+			t.Fatalf("workers:\n%s", workers)
+		}
+		usage, _ := filepath.Glob(filepath.Join(reports, "*", "*", "security.usage.json"))
+		if b, _ := os.ReadFile(usage[0]); !strings.Contains(string(b), "input_tokens") {
+			t.Fatalf("usage %s", b)
+		}
+		// The frozen worktree is gone after the run.
+		list, _ := exec.Command("git", "-C", repo, "worktree", "list").Output()
+		if strings.Count(string(list), "\n") != 1 {
+			t.Fatalf("worktrees left:\n%s", list)
+		}
+	})
 	for _, c := range []struct {
 		name, verdict, want string
 		code                int
@@ -489,7 +503,7 @@ func TestPreflightRunScript(t *testing.T) {
 			repo := gateRepository(t, e, true)
 			e.write(t, "verdict-code", c.verdict)
 			reports := t.TempDir()
-			out, err := e.run(t, repo, "preflight-run.sh", []string{"PREFLIGHT_REPORTS=" + reports}, "--family", "claude", "--base", "base")
+			out, err := e.run(t, repo, "preflight-run.sh", []string{"PREFLIGHT_REPORTS=" + reports}, "--base", "base")
 			exit, _ := err.(*exec.ExitError)
 			if exit == nil || exit.ExitCode() != c.code || !strings.Contains(out, c.want) || readResult(t, reports)["approved"] != false {
 				t.Fatalf("%v %s", err, out)
@@ -500,7 +514,7 @@ func TestPreflightRunScript(t *testing.T) {
 		e := newGateEnv(t)
 		repo := gateRepository(t, e, false)
 		reports := t.TempDir()
-		out, err := e.run(t, repo, "preflight-run.sh", []string{"PREFLIGHT_REPORTS=" + reports}, "--family", "claude", "--base", "base")
+		out, err := e.run(t, repo, "preflight-run.sh", []string{"PREFLIGHT_REPORTS=" + reports}, "--base", "base")
 		result := readResult(t, reports)
 		if err != nil || !strings.Contains(result["policy"].(string), "first adoption") || !strings.Contains(e.read("workers"), "lens=standards") {
 			t.Fatalf("%v %s %v", err, out, result)
@@ -509,33 +523,35 @@ func TestPreflightRunScript(t *testing.T) {
 	t.Run("a base that holds the head", func(t *testing.T) {
 		e := newGateEnv(t)
 		repo := gateRepository(t, e, true)
-		out, err := e.run(t, repo, "preflight-run.sh", []string{"PREFLIGHT_REPORTS=" + t.TempDir()}, "--family", "claude", "--base", "HEAD")
+		out, err := e.run(t, repo, "preflight-run.sh", []string{"PREFLIGHT_REPORTS=" + t.TempDir()}, "--base", "HEAD")
 		if err == nil || !strings.Contains(out, "the head is already in HEAD") || e.read("workers") != "" {
 			t.Fatalf("%v %s", err, out)
 		}
 	})
-	t.Run("a codex run of a head with Codex configuration", func(t *testing.T) {
+	t.Run("the family option is gone", func(t *testing.T) {
 		e := newGateEnv(t)
 		repo := gateRepository(t, e, true)
-		os.MkdirAll(filepath.Join(repo, ".codex"), 0700)
-		os.WriteFile(filepath.Join(repo, ".codex", "config.toml"), []byte("[synthetic]\n"), 0600)
-		for _, args := range [][]string{{"add", "-A"}, {"commit", "-q", "-m", "codex config"}} {
-			cmd := exec.Command("git", append([]string{"-c", "user.name=synthetic", "-c", "user.email=synthetic@example.invalid", "-c", "commit.gpgsign=false", "-C", repo}, args...)...)
-			cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
-			if out, err := cmd.CombinedOutput(); err != nil {
-				t.Fatalf("%v %s", err, out)
-			}
-		}
-		out, err := e.run(t, repo, "preflight-run.sh", []string{"PREFLIGHT_REPORTS=" + t.TempDir()}, "--family", "codex", "--base", "base")
-		if err == nil || !strings.Contains(out, "tracks Codex configuration") || e.read("workers") != "" {
+		out, err := e.run(t, repo, "preflight-run.sh", []string{"PREFLIGHT_REPORTS=" + t.TempDir()}, "--family", "codex")
+		if err == nil || !strings.Contains(out, "usage: scripts/preflight-run.sh [--base REF]") || e.read("workers") != "" {
 			t.Fatalf("%v %s", err, out)
+		}
+	})
+	t.Run("the run name", func(t *testing.T) {
+		e := newGateEnv(t)
+		repo := gateRepository(t, e, true)
+		reports := t.TempDir()
+		if out, err := e.run(t, repo, "preflight-run.sh", []string{"PREFLIGHT_REPORTS=" + reports}, "--base", "base"); err != nil {
+			t.Fatalf("%v %s", err, out)
+		}
+		if run, _ := readResult(t, reports)["run"].(string); !regexp.MustCompile(`^[0-9]{8}T[0-9]{6}Z-[0-9]{10}$`).MatchString(run) {
+			t.Fatalf("run %q", run)
 		}
 	})
 	t.Run("uncommitted changes", func(t *testing.T) {
 		e := newGateEnv(t)
 		repo := gateRepository(t, e, true)
 		os.WriteFile(filepath.Join(repo, "file"), []byte("dirty\n"), 0600)
-		out, err := e.run(t, repo, "preflight-run.sh", []string{"PREFLIGHT_REPORTS=" + t.TempDir()}, "--family", "claude", "--base", "base")
+		out, err := e.run(t, repo, "preflight-run.sh", []string{"PREFLIGHT_REPORTS=" + t.TempDir()}, "--base", "base")
 		if err == nil || !strings.Contains(out, "commit your change first") || e.read("workers") != "" {
 			t.Fatalf("%v %s", err, out)
 		}

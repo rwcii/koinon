@@ -32,8 +32,8 @@ In short:
   Decision 3; WDR 001, Decision 6).
 - Before a pull request into `develop` opens, its author runs the `preflight` skill: four lenses
   (security, code, standards, refusal), each in a fresh worker that writes nothing, with
-  `scripts/preflight-run.sh --family FAMILY`; after it opens, `scripts/preflight-publish.sh PR`
-  posts the result and the `preflight` status on the head. After the reviews pass, the author
+  `scripts/preflight-run.sh`; after it opens, `scripts/preflight-publish.sh PR` posts the
+  result and the `preflight` status on the head. After the reviews pass, the author
   puts a card on the decision board that names the pull request and its full head; after the
   maintainer approves it, `scripts/board-verdict.sh --as FAMILY:ID PR HEAD REFERENCE` posts
   the `board-verdict` status (WDR 004, Decision 8). `scripts/setup-repo.sh` makes both statuses
@@ -66,7 +66,7 @@ git commit -S -s -m "Add a concise description"
 gh pr list --base develop --state open   # one open pull request at a time
 git fetch origin && git merge --no-edit origin/develop
 go test -race -timeout 30m ./...
-scripts/preflight-run.sh --family claude   # or codex: the four preflight lenses
+scripts/preflight-run.sh                   # the four preflight lenses
 git push -u origin feature/my-change
 gh pr create --base develop
 scripts/preflight-publish.sh PR            # the result and the preflight status
@@ -77,8 +77,9 @@ gh pr merge --auto --squash
 
 The `release` skill prepares the promotion of `develop` to `main` with the account of failed CI
 runs (WDR 004, Decision 6); the maintainer merges it, and the agent then pushes the tag and
-checks the publish steps (WDR 004, Decision 8). The `ship` and `release` skills run a docs gate: the docs and agent files in
-`.koinon/skills/ship.md` agree with the code at the head (WDR 004, Decision 7).
+checks the publish steps (WDR 004, Decision 8). The `ship` and `release` skills run a docs
+gate: the docs and agent files in `.koinon/skills/ship.md` agree with the code at the head
+(WDR 004, Decision 7).
 
 ## Commit conventions
 

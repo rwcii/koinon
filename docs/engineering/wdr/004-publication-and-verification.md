@@ -478,8 +478,10 @@ job checks the docs.
 For a project whose facts opt in, as Koinon's do:
 
 - Before a pull request into `develop` opens, the author runs the `preflight` skill at the
-  frozen head with the lenses security, code, standards and refusal, each in a fresh worker
-  with no forge credential (`scripts/preflight-run.sh`). After the pull request opens,
+  frozen head with the lenses security, code, standards and refusal, each in a fresh claude
+  worker with no forge credential (`scripts/preflight-run.sh`). The lens policy comes from the
+  pull request's base; the change that adopts preflight runs with its own head's policy,
+  because its base has none. After the pull request opens,
   `scripts/preflight-publish.sh` posts one result comment and the `preflight` commit status on
   that head.
 - After preflight, `peer-review` and `refusal-review` pass, the author puts a card on the
@@ -515,18 +517,22 @@ For a project whose facts opt in, as Koinon's do:
 - **The agents' design, reviewed in the pull request (#795), not the maintainer's words:** the
   `preflight` skill asks for a fresh worker with no forge credential. A preflight report is
   posted in public, and the reviewed change can hold instructions for its reviewer, so the
-  workers also write nothing and use no network: a claude worker has only the Read, Grep and
-  Glob tools, loads no settings, auto-memory or instruction files, and reads only its
-  worktree; a codex worker runs in Codex's read-only sandbox, which can read outside the
-  worktree. Claude Code gives a worker the account's email address, so the publish script
-  refuses a report with a secret, a private path or an email address, and a result run against
-  another base than the pull request's, because the lens policy comes from that base.
+  workers also write nothing and use no network. The worker is `claude -p` for an author of any
+  family: it has only the Read, Grep and Glob tools, loads no settings, auto-memory or
+  instruction files, and reads only its worktree. A `codex exec` worker is not used, because
+  Codex's read-only sandbox can read files outside the worktree. Claude Code gives a worker the
+  account's email address, so the publish script refuses a report with a secret, a private
+  path or an email address, and posts each report as a fenced block. It also refuses a result
+  run against another base than the pull request's, because the lens policy comes from that
+  base. The first-adoption exception: the change that adopts preflight has a base with no lens
+  policy, so its run takes the head's policy and says so in its result.
 
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
 | A GitHub App status | Only the fleet board holds the App key that posts `board-verdict` | Guards against an agent that goes around the gate, which is not the threat model |
+| A worker of the author's family | A Codex author runs `codex exec` in its read-only sandbox | That sandbox can read files outside the worktree, and the report is posted in public (agents' design) |
 | A separate agent identity | The agents work under their own GitHub account | "that was a DISASTER when we tried to implement it on unify" |
 | Skill rules only | The skills say what to do, with no status | GitHub shows nothing, and a merge without the approval is not visible on the pull request |
 
