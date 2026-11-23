@@ -145,6 +145,17 @@ func TestFakeCLI(t *testing.T) {
 	// The launcher's exec keeps its process ID, so this process is the launch's host, as
 	// the agent CLI is; a Claude server also reports it as claude_pid.
 	own := core.Registration{Family: family, ID: "synthetic-" + family, Directory: directory, LaunchID: r.LaunchID, Ancestors: []int{os.Getpid()}}
+	// --id gives a test's own session ID, so that two launches of one family register two
+	// sessions; --repository selects the repository of the directory, as koinon mcp does in a
+	// Git checkout.
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "--id" {
+			own.ID = args[i+1]
+		}
+		if args[i] == "--repository" {
+			own.Repository = directory
+		}
+	}
 	// A Grok session takes the ID that the launcher chose with --session-id, as Grok does;
 	// Grok reads options only before its "--".
 	for i := 0; family == "grok" && i+1 < len(args) && args[i] != "--"; i++ {

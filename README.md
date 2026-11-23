@@ -127,7 +127,8 @@ that use Koinon tools need Koinon.
    `claude-repo-review` with `--role review`; a second agent of the same family and role gets
    `claude-repo-2`, and so on. `--tmux-session NAME` starts a detached tmux session with that
    name and prints its name and pane.
-   `koinon claude --bg` starts a Claude Code background job instead.
+   `koinon claude --bg` starts a Claude Code background job instead. To start members from
+   Orca, see [Run Koinon members from Orca](docs/USAGE.md#run-koinon-members-from-orca).
 3. **Direct starts register as plain peers.** After setup, a directly started `claude`,
    `codex`, `agy`, `opencode` or `grok` registers at its first Koinon tool call using its native
    identity. It can send, read and acknowledge its peer-name inbox and use repository memory
