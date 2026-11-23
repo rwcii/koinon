@@ -9,13 +9,13 @@ Koinon's procedure source is [WDR 004](https://github.com/rwcii/koinon/blob/deve
 (WDR 002, Decision 1). Apply them with the adopting project's instructions, and use
 `agents/skills/AGENTS.md` when you edit a canonical skill.
 
-Load the Work target, Commit policy, Required checks, PR and merge policy, Merge approval, and
-Docs and agent files facts. Work on the
+Load the Work target, Commit policy, Required checks, Extra checks, PR and merge policy, Merge
+approval, and Docs and agent files facts. Work on the
 assigned branch in an isolated checkout, and hold the assigned work claim when the project's
 runtime supplies one: read its checkpoint before writing, report progress and renew its lease.
 Commit under the declared policy, with no automated attribution. Bring the branch current with
 its work target, keeping published history. Run the docs gate below, then the check skill and its
-required gates. Follow
+required gates. Run the steps of the Extra checks fact at the points that it names. Follow
 the project's PR limit, and coordinate the publication turn through the installed runtime.
 Record each board decision that the change carries out in the ADR, PDR, WDR or sprint document
 that holds the rule, in the form that the verdict read gives: decided by (the person's name),

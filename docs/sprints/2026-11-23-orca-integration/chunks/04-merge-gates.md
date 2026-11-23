@@ -1,7 +1,7 @@
 # Chunk 04 — Merge gates
 
-Cites `../decision.md` (Merge gates; acceptance 4) and `../definition-of-done.md` (Merge
-gates).
+Cites `../decision.md` (Merge gates, recorded in WDR 004, Decision 8; acceptance 4) and
+`../definition-of-done.md` (Merge gates).
 
 ## Outcome
 

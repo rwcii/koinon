@@ -127,26 +127,8 @@ computers. Today:
 
 ### Merge gates (spec section 8)
 
-- **Decided by:** Robert Capps. **Date:** 2026-11-23, terminal.
-- **Context:** the spec restores approval gates: a board verdict on the exact reviewed head
-  before a merge to `develop`, and a human merge to `main`. The agents work under the
-  maintainer's GitHub account, so GitHub cannot tell an agent from the maintainer. The options
-  were skill rules only; a required status from a GitHub App that only the fleet board holds;
-  and a separate GitHub identity for the agents.
-- **Decision:**
-  - The preflight lenses: "security, code, standards, refusal".
-  - No separate identity: "they do not. that was a DISASTER when we tried to implement it on
-    unify."
-  - The threat model: "An agent bypassing a gate and merging is not a threat model we're
-    trying to solve for at this point."
-  - "I approve your non blocking controls proposed": a required `preflight` status (the four
-    lenses), a required `board-verdict` status that the agent posts after it reads the
-    maintainer's approval of a card that names the pull request and its exact head, and a
-    `release` skill that stops when the promotion pull request and its evidence are ready; the
-    maintainer merges to `main`, and the agent then tags and checks the publish steps.
-- **Reason and scope:** the gates are process rules that GitHub shows as statuses; they do not
-  stop an agent that goes around them. The ruleset change is a repository setting and waits
-  for the maintainer's direct go when chunk 04 ships.
+Recorded in [WDR 004, Decision 8](../../engineering/wdr/004-publication-and-verification.md),
+which holds the rule: the maintainer's words of 2026-11-23 and the agents' design.
 
 ### The observer's scratch copy (spec sections 6 and 9.1)
 

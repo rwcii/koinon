@@ -37,8 +37,8 @@ failed CI runs before a release, the docs gate before publication, the merge gat
 preflight and the maintainer's board approval of each head, and the maintainer's merge into
 `main`), with what GitHub and the local hook enforce. One open pull
 request, auto-merge, the commit account, the "maintainer" naming, the failed-run account,
-the docs gate and the merge gates (Decision 8, apart from the worker and publish design that it
-marks as the agents') come from the maintainer's words; the rest shipped without a recorded
+the docs gate and the merge gates (Decision 8, apart from the parts that it marks as the agents'
+design) come from the maintainer's words; the rest shipped without a recorded
 maintainer decision, so this record is a draft.
 
 ---
@@ -476,7 +476,8 @@ job checks the docs.
 
 ### Decision
 
-For a project whose facts opt in, as Koinon's do:
+For a project whose facts opt in, as Koinon's do (the opt-in facts, the revision check and the
+worker and publish details are the agents' design, below):
 
 - Before a pull request into `develop` opens, the author runs the `preflight` skill at the
   frozen head with the lenses security, code, standards and refusal, each in a fresh claude
@@ -506,8 +507,8 @@ For a project whose facts opt in, as Koinon's do:
   The agents work under the maintainer's GitHub account, so GitHub cannot tell an agent from
   the maintainer. The options were skill rules only; a required status from a GitHub App that
   only the fleet board holds; and a separate GitHub identity for the agents.
-- **Decision:** the preflight lenses: "security, code, standards, refusal". No separate
-  identity: "they do not. that was a DISASTER when we tried to implement it on unify." The
+- **Decision:** the preflight lenses: "security, code, standards, refusal". Asked whether the
+  agents get their own GitHub identity (the third option): "they do not. that was a DISASTER when we tried to implement it on unify." The
   threat model: "An agent bypassing a gate and merging is not a threat model we're trying to
   solve for at this point." Then "I approve your non blocking controls proposed": the required
   `preflight` and `board-verdict` statuses, and a `release` skill that stops before the merge
@@ -515,18 +516,25 @@ For a project whose facts opt in, as Koinon's do:
 - **Reason and scope:** the gates are process rules that GitHub shows as statuses; they do not
   stop an agent that goes around them. The ruleset change is a repository setting, applied with
   the maintainer's direct go.
-- **The agents' design, reviewed in the pull request (#795), not the maintainer's words:** the
-  `preflight` skill asks for a fresh worker with no forge credential. A preflight report is
-  posted in public, and the reviewed change can hold instructions for its reviewer, so the
-  workers also write nothing and use no network. The worker is `claude -p` for an author of any
-  family: it has only the Read, Grep and Glob tools, loads no settings, auto-memory or
-  instruction files, and reads only its worktree. A `codex exec` worker is not used, because
-  Codex's read-only sandbox can read files outside the worktree. Claude Code gives a worker the
-  account's email address, so the publish script refuses a report with a secret, a path in a
-  named person's home directory or the running user's home, or an email address, and posts each report as a fenced block. It also refuses a result
-  run against another base than the pull request's, because the lens policy comes from that
-  base. The first-adoption exception: the change that adopts preflight has a base with no lens
-  policy, so its run takes the head's policy and says so in its result.
+- **The agents' design, reviewed in the plan and the pull request (#795), not the maintainer's
+  words:**
+  - Opt-in facts: the gates live in the optional facts "Merge approval" and "Promotion merge",
+    so a project without them keeps its steps (the plan review's refusal finding).
+  - The revision check: `board-verdict.sh` takes only an approval of the card's current
+    revision, so a new head needs a new card or revision.
+  - The workers: the `preflight` skill asks for a fresh worker with no forge credential. A
+    report is posted in public, and the reviewed change can hold instructions for its reviewer,
+    so the workers also write nothing and use no network. The worker is `claude -p` for an
+    author of any family: it has only the Read, Grep and Glob tools, loads no settings,
+    auto-memory or instruction files, and reads only its worktree. A `codex exec` worker is not
+    used, because Codex's read-only sandbox can read files outside the worktree.
+  - The publish checks: Claude Code gives a worker the account's email address, so the publish
+    script refuses a report with a secret, a path in a named person's home directory or the
+    running user's home, or an email-shaped string, synthetic ones included; the author then
+    edits the report. It posts each report as a fenced block, and refuses a result run against
+    another base than the pull request's, because the lens policy comes from that base.
+  - The first-adoption exception: the change that adopts preflight has a base with no lens
+    policy, so its run takes the head's policy and says so in its result.
 
 ### Alternatives Considered
 
@@ -562,7 +570,7 @@ last one, and each change and release passes the docs gate. GitHub rulesets enfo
 check and up-to-date rules; one open pull request, the merge of `develop` into a published
 branch, signing and DCO are practice. The pull request order, auto-merge, commit identity,
 naming, the failed-run account, the docs gate and the merge gates are the maintainer's choices,
-apart from the worker and publish design that Decision 8 marks as the agents'; the rest waits for the maintainer's decision. Each pull request into `develop` has a preflight
+apart from the parts that Decision 8 marks as the agents' design; the rest waits for the maintainer's decision. Each pull request into `develop` has a preflight
 and the maintainer's board approval of its head, and the maintainer merges each release into
 `main`.
 
