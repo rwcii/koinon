@@ -3,7 +3,7 @@ wdr: "004"
 title: "Publication and Verification"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-26"
+updated: "2026-11-23"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -33,9 +33,10 @@ tags:
 This record describes how a Koinon change currently reaches `develop` and `main`: the branch
 model, one open pull request per target branch on a head merged with the latest `develop`,
 the required checks on Linux and macOS, auto-merge, the commit conventions and the account of
-failed CI runs before a release, with what GitHub and the local hook enforce. One open pull
-request, auto-merge, the commit account, the "maintainer" naming and the failed-run account
-come from the maintainer's words; the rest shipped without a recorded
+failed CI runs before a release, the docs gate before publication, with what GitHub and the
+local hook enforce. One open pull
+request, auto-merge, the commit account, the "maintainer" naming, the failed-run account
+and the docs gate come from the maintainer's words; the rest shipped without a recorded
 maintainer decision, so this record is a draft.
 
 ---
@@ -49,8 +50,9 @@ maintainer decision, so this record is a draft.
 5. Decision 4: Auto-merge
 6. Decision 5: Signed, human-authored commits
 7. Decision 6: Failed CI runs are accounted for before a release
-8. Conclusion
-9. Document History
+8. Decision 7: A docs gate before publication
+9. Conclusion
+10. Document History
 
 ---
 
@@ -412,15 +414,66 @@ list. The rerun of unacquired jobs is the `rerun-unacquired.yml` workflow.
 
 ---
 
+## 8. Decision 7: A docs gate before publication
+
+### Decision
+
+Before a change is published, its author compares the project docs and the agent files with
+the code at the head. The `preflight` and `ship` skills run this docs gate before the head is
+frozen: the author lists the user-visible changes against the base, reads each file that
+describes a changed item and the README, corrects each statement that the code contradicts,
+describes each new user-visible feature, makes the versions, release names and skill lists
+agree with the code, and commits the corrections in the same change. The `release` skill runs
+the same gate on the candidate, with the released baseline as its base, for every file in the
+list. The optional repository fact "Docs and agent files" names the files; its default is the
+README, the user docs, the agent instruction files and the project's skills. Koinon's
+`.koinon/skills/ship.md` and `.koinon/skills/release.md` name Koinon's own files.
+
+- Decided by: Robert Capps, 2026-11-23, in a Claude Code terminal session: "can you validate
+  that the main readme and other in-repo docs are consistent with the current repo. the main
+  readme is out of sync with current features. a few more fixes, the preflight and ship should
+  include a gate to validate that the project docs and agents files are all up to date with the
+  release version of the code".
+- Context: the README did not describe rooms, the decision board, context cycles, the skills
+  catalog or signed answers, and cited a closed issue and a deprecated decision (#791). No
+  step of `check`, `preflight`, `ship` or `release` compared the docs with the code.
+- Reason and scope: a docs fix in the same change keeps the docs and the code in step; the
+  release gate covers the release version that the maintainer named. The gate is a step of
+  the author; it does not replace the independent reviews. A historical document that says so
+  is out of scope.
+- Review when: a deterministic check can compare a doc with the code, for example the skill
+  lists with the catalog.
+
+### Alternatives Considered
+
+| Alternative | Description | Why Rejected |
+| ----------- | ----------- | ------------ |
+| Release only | Check the docs once, before each release | A change that ships without its docs leaves them wrong on develop until the release |
+| A deterministic check only | A contributor test compares the docs with the code | It covers lists and names, not the description of a feature |
+| No gate | Fix the docs when a reader finds a gap | The README went out of sync over several releases (#791) |
+
+### Rationale
+
+1. The author of a change knows which docs it affects.
+2. The release check finds what each change missed.
+
+### Enforcement
+
+Practice only: the `preflight`, `ship` and `release` skills and their review evidence. No CI
+job checks the docs.
+
+---
+
 ## Conclusion
 
 Koinon currently publishes through one squash pull request at a time into `develop`, on a head
 merged with the latest `develop`, with the Linux and macOS checks and a commit-bound
 `peer-review` status required, and auto-merge set; a release lists the failed CI runs since the
-last one. GitHub rulesets enforce the branch, check and up-to-date rules; one open pull request,
-the merge of `develop` into a published branch, signing and DCO are practice. The pull request
-order, auto-merge, commit identity, naming and the failed-run account are the maintainer's
-choices; the rest waits for the maintainer's decision.
+last one, and each change and release passes the docs gate. GitHub rulesets enforce the branch,
+check and up-to-date rules; one open pull request, the merge of `develop` into a published
+branch, signing and DCO are practice. The pull request order, auto-merge, commit identity,
+naming, the failed-run account and the docs gate are the maintainer's choices; the rest waits
+for the maintainer's decision.
 
 ---
 
@@ -433,3 +486,4 @@ choices; the rest waits for the maintainer's decision.
 | 2026-10-25 | #487: Decision 2 states the branch update without its limits; Decision 3 drops the push gate; Decision 6 drops the release approval |
 | 2026-10-26 | #493: Decision 3 cites the maintainer's verdict that keeps the required `peer-review` and `refusal-review` statuses (493-5 in WDR 001, Decision 6); Decision 1 cites the verdict that keeps the `pre-commit` block (493-6) |
 | 2026-11-06 | Decision 6: the rerun of CI jobs that no runner acquired (#630) |
+| 2026-11-23 | Decision 7: a docs gate in `preflight`, `ship` and `release` (#792) |

@@ -5,6 +5,15 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The `preflight`, `ship` and `release` skills have a docs gate (#792, WDR 004, Decision 7):
+  before the head is frozen, the author compares the README, the user docs, the agent
+  instruction files and the skills with the code at the head, and corrects them in the same
+  change. The release runs it on the candidate for every file. The new optional repository
+  fact "Docs and agent files" names the files.
+
+- The README describes rooms, the decision board, context cycles, the skills catalog and
+  signed answers, and the docs name the MCP tools and checks that they left out (#791).
+
 - A new catalog skill, `coordinate`, gives the coordinator of a running team its loop (#784): one
   watch over the members' panes for prompts, dialogs and error notices, kept in private state
   with no second watch, an answer to each prompt after a check against the member's approved work, with a

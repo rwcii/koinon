@@ -594,7 +594,8 @@ procedure, so a project's own `pickup` skill neither blocks the cycle nor is cha
 ([INSTALL.md](INSTALL.md#install), step 7). For Codex, agy and OpenCode, the new thread, conversation or session after the
 reset takes the address and reports the pickup. An enabled session
 whose context reaches its threshold gets a request from `overwatch`, Koinon's reserved system
-requester, in its inbox. The request asks the session to pause at a safe stopping point, start no new work for this
+requester, in its inbox; `context_cycle_status` (DeepSeek: `koinon cycle-status`) reads the
+session's own cycle: its ID, revision, stage, deadlines and history. The request asks the session to pause at a safe stopping point, start no new work for this
 cycle (the handoff does not record the pause as a rule), write its handoff and report it with `context_cycle_ready`, then end its turn and stay idle. The
 daemon clears the session's context in its tmux pane only at its idle prompt, enters its
 pickup, and the new context reports with `context_cycle_pickup`. When the session does not
@@ -952,8 +953,16 @@ sent, it is `outcome_unknown`: ask `outcome` of that computer, or send the same 
 A client with no Koinon on its computer reaches a computer at its Remote address
 (`koinon remote enable`, on the maintainer's tailnet) on the same two signed routes, with the
 session's token as `Authorization: Bearer TOKEN`; that address serves no other API, and the
-key must be added on each computer that runs the actions. PROTOCOL.md has the envelope and the
-operations.
+key must be added on each computer that runs the actions.
+
+An envelope of version `koinon-maintainer-2` gets its answer signed (#696): the computer that
+ran the action signs its answer with its link key, as one `koinon-answer-2` object, on the
+Remote routes, the `signed` tool and the link. A computer that passes an action on signs only
+its own claims, such as `computer_offline` or `outcome_unknown`, with its own key. The client
+checks each answer against the digest of the envelope that it sent, the target computer's pin
+and the pin of the computer that it asked, so no computer can change another computer's answer
+unseen. A version 1 envelope works as before, with an unsigned answer. PROTOCOL.md has the
+envelopes, the answer and the operations.
 
 Administrative actions require CSRF protection and are
 audited. Health reports unknown observations explicitly.

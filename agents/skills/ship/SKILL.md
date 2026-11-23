@@ -9,11 +9,13 @@ Koinon's procedure source is [WDR 004](https://github.com/rwcii/koinon/blob/deve
 (WDR 002, Decision 1). Apply them with the adopting project's instructions, and use
 `agents/skills/AGENTS.md` when you edit a canonical skill.
 
-Load the Work target, Commit policy, Required checks, and PR and merge policy facts. Work on the
+Load the Work target, Commit policy, Required checks, PR and merge policy, and Docs and agent
+files facts. Work on the
 assigned branch in an isolated checkout, and hold the assigned work claim when the project's
 runtime supplies one: read its checkpoint before writing, report progress and renew its lease.
 Commit under the declared policy, with no automated attribution. Bring the branch current with
-its work target, keeping published history. Run the check skill and its required gates. Follow
+its work target, keeping published history. Run the check skill, its required gates and the docs
+gate below. Follow
 the project's PR limit, and coordinate the publication turn through the installed runtime.
 Record each board decision that the change carries out in the ADR, PDR, WDR or sprint document
 that holds the rule, in the form that the verdict read gives: decided by (the person's name),
@@ -27,6 +29,22 @@ the declared merge policy, with auto-merge when the policy uses it. Read back th
 issue states. Close the delivered issues, record the evidence and finish the issue's work item;
 release it with a checkpoint when a later chunk or another driver has work left. Use the release
 skill to publish a release.
+
+## Docs gate
+
+Koinon's procedure source for this gate is WDR 004, Decision 7.
+Before you freeze the head, compare the files in the Docs and agent files fact with the code at
+the head:
+
+1. List the user-visible changes against the base: commands, tools, flags, defaults, limits,
+   error codes, routes, paths, versions, features and skills.
+2. Read each listed file that describes a changed item, and the README in each case.
+3. Correct each statement that the code at the head contradicts.
+4. Describe each new user-visible feature in the file where a reader looks for it.
+5. Make the version numbers, release names and skill lists in those files agree with the code
+   at the head.
+6. Commit the corrections in this change. Name the files that you read and changed in the
+   review evidence.
 
 ## Repository facts
 
@@ -57,6 +75,11 @@ the file. The parser reads the file as plain text, up to 64 KiB.
     {
       "heading": "PR and merge policy",
       "required": true
+    },
+    {
+      "heading": "Docs and agent files",
+      "required": false,
+      "default": "the README, the user docs, the agent instruction files such as AGENTS.md and CLAUDE.md, and the project's skills"
     },
     {
       "heading": "Extra checks",

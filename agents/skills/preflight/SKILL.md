@@ -12,7 +12,8 @@ Koinon's procedure source is [PDR 008](https://github.com/rwcii/koinon/blob/deve
 A preflight is an author check, not an independent review. The project's independent reviews
 stay required. Their round and stop rules apply to those reviews, not to preflight runs.
 
-Load the Review run command, Review publish command, Lens policy and Base ref facts. When the
+Load the Review run command, Review publish command, Lens policy, Base ref, and Docs and agent
+files facts. When the
 project declares a Review tool pin, use a review tool built from that exact source revision.
 
 ## Before you start
@@ -21,6 +22,7 @@ project declares a Review tool pin, use a review tool built from that exact sour
 2. Make sure that the lens policy exists at the base commit.
 3. Get the family route and the worker image under the Route and image rules fact.
 4. Make sure that the report folder is ignored by Git.
+5. Run the docs gate below. A lens reviews the docs only as they are at the head.
 
 ## 1. Run the lenses before the pull request
 
@@ -58,6 +60,21 @@ the Usage import step. When that fact is "none", report the usage files as not i
 
 The comment shows a value that is not available as `unknown`. Never show it as zero.
 
+## Docs gate
+
+Koinon's procedure source for this gate is WDR 004, Decision 7. Before you run the lenses,
+compare the files in the Docs and agent files fact with the code at the head:
+
+1. List the user-visible changes against the base: commands, tools, flags, defaults, limits,
+   error codes, routes, paths, versions, features and skills.
+2. Read each listed file that describes a changed item, and the README in each case.
+3. Correct each statement that the code at the head contradicts.
+4. Describe each new user-visible feature in the file where a reader looks for it.
+5. Make the version numbers, release names and skill lists in those files agree with the code
+   at the head.
+6. Commit the corrections in this change. Name the files that you read and changed in the
+   review evidence.
+
 ## Repository facts
 
 The project's facts for this skill are local data in the file named below, in the current
@@ -72,6 +89,11 @@ the file. The parser reads the file as plain text, up to 64 KiB.
   "version": 1,
   "filename": ".koinon/skills/preflight.md",
   "fields": [
+    {
+      "heading": "Docs and agent files",
+      "required": false,
+      "default": "the README, the user docs, the agent instruction files such as AGENTS.md and CLAUDE.md, and the project's skills"
+    },
     {
       "heading": "Review run command",
       "required": true

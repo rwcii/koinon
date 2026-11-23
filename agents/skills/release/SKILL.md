@@ -9,10 +9,13 @@ Koinon's procedure source is [WDR 004](https://github.com/rwcii/koinon/blob/deve
 (WDR 002, Decision 1). Apply them with the adopting project's instructions, and use
 `agents/skills/AGENTS.md` when you edit a canonical skill.
 
-Read the Promotion path, Publish steps and Release checks facts and the project policy. Find the
+Read the Promotion path, Publish steps, Release checks, and Docs and agent files facts and the
+project policy. Find the
 exact candidate and the current released baseline. Prepare dated release notes and the project's
 installation and upgrade evidence in isolated fixtures, in the project's test environment, with
-retained state and unrelated artifacts kept as they are. Run the project's checks and the CI of
+retained state and unrelated artifacts kept as they are. Run the docs gate of the `ship` skill
+on the candidate, with the released baseline as its base, for every file in the Docs and agent
+files fact, and merge its corrections before the promotion. Run the project's checks and the CI of
 the exact candidate; reuse verified results for identical content. Account for failed CI runs in
 the release scope that the Release checks define. Prepare the promotion PR and record the
 evidence for independent review. Verify the exact head and merge it under the declared promotion
@@ -46,6 +49,11 @@ the file. The parser reads the file as plain text, up to 64 KiB.
     {
       "heading": "Release checks",
       "required": true
+    },
+    {
+      "heading": "Docs and agent files",
+      "required": false,
+      "default": "the README, the user docs, the agent instruction files such as AGENTS.md and CLAUDE.md, and the project's skills"
     },
     {
       "heading": "Extra proof",
