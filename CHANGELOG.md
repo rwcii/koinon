@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The `sprint` skill gives each chunk `Depends on` and `Owns` columns and adds a parallel view
+  to `sprint.md`: groups of chunks whose dependencies are in earlier groups and whose owned
+  files, directories and records do not overlap, so that two or more pairs can build them at
+  the same time (#795, WDR 002, Decision 7). A contributor test checks each plan with a
+  parallel view.
+
 - The `preflight` and `ship` skills have a docs gate (#792, WDR 004, Decision 7): before the
   head is frozen and before the other checks, the author reads the README, the user docs, the
   agent instruction files and the skills at the head, compares them with the code, and
