@@ -71,7 +71,7 @@ with a changed argument (`signature_refused`, reason `signature`), and a version
 | `session` signed for the paired pin, on the session route | each node | 400 `invalid_request`, signed by the node. |
 | A pin that is neither the node nor a paired computer | each node | 409 `signature_refused`, reason `target`, signed by the node. |
 | A lost answer: a `changes` wait of 25 s for the Linux pin, with `blackhole-test` paused (SIGSTOP) during the wait | `mac-studio-test` | 409 `outcome_unknown` with the request ID, signed by the node, after 40.0 s (the wait and the 15 s exchange bound). |
-| A computer that is off: `send` with `blackhole-test` paused before the call | `mac-studio-test` | 409 `computer_offline`, reason `link_unreachable`, signed by the node, after 3.0 s. Afterwards the target's `outcome` for that request is `unknown_request`: the send did not run. |
+| A computer that is off: `send` with `blackhole-test` paused before the call | `mac-studio-test` | 409 `computer_offline`, reason `link_unreachable`, signed by the node, after 3.0 s. Afterwards an `outcome` envelope for that request ID and created time answers 200, signed by the target, with `state` `unknown_request`: the send did not run. (The client's log marks this step FAIL, because the client expected a refusal code; the verified answer is the result.) |
 | A computer that is off: `send` with `blackhole-test` stopped | `mac-studio-test` | 409 `computer_offline`, signed by the node, after 3.0 s. |
 
 A version 1 session on each node's own pin still opens, and its answer is not signed.
@@ -84,12 +84,13 @@ address, with two test sessions in one room; one session was then retired:
 | Case | Result |
 | --- | --- |
 | A signed room post with sent and not-sent members | 200, signed by the target: `queued` 1, `skipped` 1; the active member `sent`, the retired member `not_sent` with reason `retired`. Its `outcome` reads the same result, `recorded`. |
-| A signed send to an ended session | 409 `recipient_inactive`, reason `retired`, signed by the target. |
+| A signed send to a retired session, in place of an ended one | 409 `recipient_inactive`, reason `retired`, signed by the target. |
 | A target that is off | The two `computer_offline` rows above. |
 
-A node that changes an answer is shown "answer not verified": tests only
-(`TestSignedAnswersEachOperation` and the answer refusals of `internal/signed`), because the
-live run cannot change bytes.
+A send to an ended session (its host process is gone; a different state from retired) did not
+run live; the Voice check (#789) includes it. A changed answer is refused by the Go verifier:
+tests only (`TestAnswerRefusals` in `internal/signed`), because the live run cannot change
+bytes. The Voice display of "answer not verified" is part of #789.
 
 ## Found during the check
 
