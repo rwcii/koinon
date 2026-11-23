@@ -13,22 +13,11 @@ import (
 // each pair, and returns the two worktree directories.
 func orcaWorktrees(t *testing.T, root string) (string, string) {
 	t.Helper()
-	repository := filepath.Join(root, "orca-repo")
-	git := func(dir string, args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=synthetic", "-c", "user.email=synthetic@example.invalid"}, args...)...)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v %s", args, err, out)
-		}
-	}
-	if err := os.Mkdir(repository, 0700); err != nil {
-		t.Fatal(err)
-	}
-	git(repository, "init", "-q")
-	git(repository, "commit", "-q", "--allow-empty", "-m", "synthetic")
+	// gitRun ignores the person's Git configuration, such as commit signing or hooks.
+	repository := syntheticRepo(t, filepath.Join(root, "orca-repo"))
 	first, second := filepath.Join(root, "pair-1"), filepath.Join(root, "pair-2")
-	git(repository, "worktree", "add", "-q", "--detach", first)
-	git(repository, "worktree", "add", "-q", "--detach", second)
+	gitRun(t, repository, "worktree", "add", "-q", "--detach", first)
+	gitRun(t, repository, "worktree", "add", "-q", "--detach", second)
 	return first, second
 }
 

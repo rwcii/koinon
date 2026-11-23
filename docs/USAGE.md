@@ -713,14 +713,17 @@ features in a new session.
 ### Run Koinon members from Orca
 
 Orca can start each member of a pair through the Koinon launcher, as the command of an Orca
-terminal. Give each member `--directory` with the pair's worktree and `--role` with the pair
-and the member's part:
+terminal. Orca selects the pair's worktree with its selector `path:ABSOLUTE_PATH` (see the
+[Orca CLI reference](https://orca.dev/docs/cli/reference)); Koinon takes the same path with
+`--directory`, quoted in the command for a path with spaces. Give each member `--role` with
+the pair and the member's part:
 
 ```sh
-orca terminal create --worktree PAIR_WORKTREE --title p1-driver \
-  --command "koinon claude --directory PAIR_WORKTREE --role p1-driver"
-orca terminal create --worktree PAIR_WORKTREE --title p1-observer \
-  --command "koinon codex --directory PAIR_WORKTREE --role p1-observer"
+PAIR=/absolute/path/to/pair-1-worktree
+orca terminal create --worktree "path:$PAIR" --title p1-driver \
+  --command "koinon claude --directory '$PAIR' --role p1-driver"
+orca terminal create --worktree "path:$PAIR" --title p1-observer \
+  --command "koinon codex --directory '$PAIR' --role p1-observer"
 ```
 
 - Always give `--role`. Linked worktrees of one repository share their label, from the Git
