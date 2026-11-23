@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- docs/USAGE.md has "Run Koinon members from Orca": the `orca terminal create` command form,
+  `--role` with the pair for each member, the label of linked worktrees, the tmux session by
+  `TMUX`, and the observer's scratch copy (#795). Launcher tests start two pairs in two
+  worktrees of one repository with Orca-like terminal variables, in a pane and in a new tmux
+  session. The `pair` skill says that the observer reproduces findings in a detached worktree
+  of the checkpoint, outside the driver's worktree.
+
 - The `sprint` skill gives each chunk `Depends on` and `Owns` columns and adds a parallel view
   to `sprint.md`: groups of chunks whose dependencies are in earlier groups and whose owned
   files, directories and records do not overlap, so that two or more pairs can build them at

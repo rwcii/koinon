@@ -3,7 +3,7 @@ wdr: "003"
 title: "Pairing and Independent Review"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-25"
+updated: "2026-11-23"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -105,6 +105,19 @@ worktree or temporary location. The observer sends findings together at the comm
 checkpoint, and interrupts earlier only to stop an imminent destructive or security mistake.
 This governs writes to the shared checkout; it does not stop the observer from running tests
 in its own scratch location. The `pair` skill describes the steps.
+
+**The observer's scratch copy (#795):**
+
+- **Decided by:** Robert Capps. **Date:** 2026-11-23, terminal.
+- **Context:** the Orca integration spec, section 6, gives one Orca worktree to each pair,
+  owned by the driver, and the observer a scratch location outside that worktree. The options
+  were a change to Orca or the Koinon launcher, or a copy that the observer makes.
+- **Decision:** "yes" to the recommendation: the observer makes its own detached
+  `git worktree add` of the frozen checkpoint, outside the pair's worktree, for example under
+  its own `$TMPDIR`, and removes it after the review. Orca and the Koinon launcher need no
+  change.
+- **Reason and scope:** the observer reproduces findings at the exact checkpoint without
+  writing to the driver's worktree. It applies to each pair, with or without Orca.
 
 **Provenance:** Robert Capps, 2026-10-06, session transcript: "work in a pair programming
 framework. share the checkout, with one driving, and one observing.  trade off from time to
@@ -283,3 +296,4 @@ rest shipped in the shared skills, and #487 removed their limits.
 | 2026-10-12 | Initial creation |
 | 2026-10-25 | #487: Decisions 3, 4 and 5 state the review and worktree steps without their limits |
 | 2026-11-01 | Decision 2: no swap with an accepted blocker or during an unfinished fix or check, approved on the decision board (RESTORE-STEPS-487) |
+| 2026-11-23 | Decision 1: the observer's scratch copy is a detached worktree of the checkpoint (#795) |
