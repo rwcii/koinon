@@ -105,8 +105,12 @@ func splitOwned(cell string) []string {
 
 func parseOwned(text string) ownedItem {
 	var item ownedItem
+	m := backticked.FindStringSubmatch(text)
+	whole := m != nil && m[0] == text
 	for _, m := range backticked.FindAllStringSubmatch(text, -1) {
-		if strings.ContainsAny(m[1], "/.") {
+		// An entry that is one backticked token is a path, such as `internal` or `Makefile`;
+		// in a longer entry, a backticked token is a path when it has a slash or a dot.
+		if whole || strings.ContainsAny(m[1], "/.") {
 			p := path.Clean(strings.TrimPrefix(m[1], "./"))
 			if f := recordFile.FindStringSubmatch(p); f != nil {
 				p = f[1]
@@ -341,6 +345,8 @@ func TestSprintPlanCheckControls(t *testing.T) {
 		{"record and its file", replace(", PDR 011 |", ", `docs/engineering/wdr/002-authority.md` |"), "both own docs/engineering/wdr/002"},
 		{"record and its series directory", replace(", PDR 011 |", ", `docs/engineering/wdr/` |"), "both own docs/engineering/wdr/002 and docs/engineering/wdr"},
 		{"top-level directory", replace("`internal/a/`,", "`internal/`,"), "both own internal and internal/b/b.go"},
+		{"bare top-level directory", replace("`internal/a/`,", "`internal`,"), "both own internal and internal/b/b.go"},
+		{"bare file and its ./ form", rep(replace("`internal/a/`,", "`internal/a/`, `Makefile`,"), ", PDR 011 |", ", `./Makefile` |"), "both own Makefile and Makefile"},
 		{"two rows for one chunk", replace("| [03 Three]", "| [02 Again](chunks/02-again.md) | b | b | none | `x/y.go` |\n| [03 Three]"), "chunk 02 has two rows"},
 		{"empty owns", replace("| none | `internal/b/b.go`, the `x` entry of `cmd/main.go`, PDR 011 |", "| none |  |"), "chunk 02 owns nothing"},
 		{"owns none", replace("| none | `internal/b/b.go`, the `x` entry of `cmd/main.go`, PDR 011 |", "| none | none |"), "chunk 02 owns nothing"},
