@@ -7,7 +7,9 @@
 # --as names the calling Koinon session, as for other koinon commands. The script reads the
 # card with koinon decision get, and posts the status only when:
 #   - the card's current verdict is "approved", for the card's current revision;
-#   - the text that the maintainer approved names the pull request (#PR) and the full HEAD;
+#   - the Where field that the maintainer approved names the target OWNER/REPO#PR@HEAD, with
+#     this repository, the pull request and the full HEAD (other card text can name other
+#     heads and pull requests);
 #   - the pull request's head is HEAD.
 # It then reads the status back. A new head needs a new card or a new revision.
 set -eu
@@ -40,9 +42,11 @@ verdict=$(printf '%s' "$card" | jq -r '.result.verdict.verdict // "none"')
 revision=$(printf '%s' "$card" | jq -r '.result.revision')
 approved=$(printf '%s' "$card" | jq -r '.result.verdict.revision')
 [ "$revision" = "$approved" ] || die "card $reference is at revision $revision, but the approval is for revision $approved"
-snapshot=$(printf '%s' "$card" | jq -r '.result.verdict.snapshot | [.title, .where, .context, .recommendation] + (.commands // []) | map(. // "") | join("\n")')
-printf '%s\n' "$snapshot" | grep -q "$head" || die "the approved text of card $reference does not name head $head"
-printf '%s\n' "$snapshot" | grep -Eq "(#|/pull/)$pr([^0-9]|\$)" || die "the approved text of card $reference does not name pull request #$pr"
+repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner) || die "cannot read the repository name"
+target="$repo#$pr@$head"
+where=$(printf '%s' "$card" | jq -r '.result.verdict.snapshot.where // ""')
+printf '%s\n' "$where" | grep -Fq -- "$target" ||
+	die "the approved Where field of card $reference does not name the target $target"
 
 current=$(gh pr view "$pr" --json headRefOid --jq .headRefOid) || die "cannot read pull request #$pr"
 [ "$current" = "$head" ] || die "pull request #$pr is at $current, not $head; a new head needs a new card"

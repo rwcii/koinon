@@ -489,11 +489,13 @@ worker and publish details are the agents' design, below):
 - The `preflight` status is `success` only when all four lenses approve, and `failure` on a
   REJECT or a failed lens. It informs the maintainer and is not a required check.
 - After `peer-review` and `refusal-review` pass, the author puts a card on the decision board
-  that names the pull request, its full head, the preflight result and each open preflight
-  finding with what the author did about it. After the maintainer approves
-  it, `scripts/board-verdict.sh` reads the card, checks that the approval is for the card's
-  current revision and names that pull request and head, checks the pull request's head, and
-  posts the `board-verdict` commit status. A new head needs a new card or revision.
+  whose Where field names the target `OWNER/REPO#PR@HEAD`, with the full head, and whose
+  context gives the preflight result and each open preflight finding with what the author did
+  about it. After the maintainer approves it, `scripts/board-verdict.sh` reads the card, checks
+  that the approval is for the card's current revision and that its approved Where field names
+  the target of this repository, pull request and head, checks the pull request's head, and
+  posts the `board-verdict` commit status. A new head needs a new card or revision. The
+  required status holds the merge, so the author can set auto-merge before it posts.
 - The `release` skill stops when the promotion pull request and its evidence are ready and
   reports to the maintainer. The maintainer merges into `main`; the agent then pushes the tag
   and checks the publish steps.
@@ -510,12 +512,15 @@ worker and publish details are the agents' design, below):
   The agents work under the maintainer's GitHub account, so GitHub cannot tell an agent from
   the maintainer. The options were skill rules only; a required status from a GitHub App that
   only the fleet board holds; and a separate GitHub identity for the agents.
-- **Decision:** the preflight lenses: "security, code, standards, refusal". Asked whether the
-  agents get their own GitHub identity (the third option): "they do not. that was a DISASTER when we tried to implement it on unify." The
-  threat model: "An agent bypassing a gate and merging is not a threat model we're trying to
+- **Decision:** asked "Do you want the preflight required on `develop`?", with the lenses
+  security, code and standards proposed, the maintainer added the refusal lens: "sorry, I meant
+  security, code, standards, refusal for preflight". The source gives no further reason; the
+  four lenses are Koinon's lens policy. Asked whether the agents get their own GitHub identity
+  (the third option): "they do not. that was a DISASTER when we tried to implement it on unify."
+  The threat model: "An agent bypassing a gate and merging is not a threat model we're trying to
   solve for at this point." Then "I approve your non blocking controls proposed": the required
-  `preflight` and `board-verdict` statuses, and a `release` skill that stops before the merge
-  to `main`.
+  `preflight` and `board-verdict` statuses, and a `release` skill that stops before the merge to
+  `main`.
 - **Reason and scope:** the gates are process rules that GitHub shows as statuses; they do not
   stop an agent that goes around them. The ruleset change is a repository setting, applied with
   the maintainer's direct go.
@@ -529,8 +534,12 @@ worker and publish details are the agents' design, below):
     report is posted in public, and the reviewed change can hold instructions for its reviewer,
     so the workers also write nothing and use no network. The worker is `claude -p` for an
     author of any family: it has only the Read, Grep and Glob tools, loads no settings,
-    auto-memory or instruction files, and reads only its worktree. A `codex exec` worker is not
-    used, because Codex's read-only sandbox can read files outside the worktree.
+    auto-memory or instruction files, and reads only its worktree: in the default permission
+    mode, with no settings that allow more, Claude Code asks before a read outside the working
+    directory, and a `-p` run has nobody to answer, so the read is denied (probed 2026-11-23:
+    `/etc/hostname`, the home directory and the parent folder were denied). A test checks the
+    worker's options. The author reads each report before publishing it. A `codex exec` worker
+    is not used, because Codex's read-only sandbox can read files outside the worktree.
   - The publish checks: Claude Code gives a worker the account's email address, so the publish
     script refuses a report with a secret, a path in a named person's home directory or the
     running user's home, or an email-shaped string, synthetic ones included; the author then

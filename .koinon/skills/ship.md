@@ -36,11 +36,11 @@ Before the pull request opens, run the preflight skill at the frozen head with
 scripts/preflight-publish.sh PR. A new head needs a new run (WDR 004, Decision 8).
 ## Merge approval
 A board approval for each pull request into develop (WDR 004, Decision 8). After peer-review
-and refusal-review pass on the frozen head, put a card on the decision board that names the
-pull request (#N), its full head, the preflight result and each open preflight finding with
-what you did about it. After the maintainer approves it, run
+and refusal-review pass on the frozen head, put a card on the decision board whose Where field
+names the target rwcii/koinon#N@FULLHEAD, and whose context gives the preflight result and
+each open preflight finding with what you did about it. After the maintainer approves it, run
 scripts/board-verdict.sh --as FAMILY:ID PR HEAD REFERENCE, which posts the board-verdict status
-on that head. Set auto-merge after that status reads back as success.
+on that head.
 ## Docs and agent files
 README.md, PROTOCOL.md, CONTRIBUTING.md, AGENTS.md, CLAUDE.md, CHANGELOG.md (Unreleased),
 docs/USAGE.md, docs/INSTALL.md, docs/REMOTE-DASHBOARD.md, docs/PERMISSIONS.md,

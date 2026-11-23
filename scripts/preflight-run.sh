@@ -5,10 +5,12 @@
 # Usage: scripts/preflight-run.sh [--base REF]
 #
 # The worker is `claude -p` for an author of any family. It has only the Read, Grep and Glob
-# tools, loads no settings, auto-memory or instruction files, reads only its worktree and gets
-# no forge or Koinon variable; Claude Code still gives it the account's email address, which the
-# publish script refuses in a report. Codex's read-only sandbox can read outside the worktree,
-# so a codex worker is not used.
+# tools, loads no settings, auto-memory or instruction files and gets no forge or Koinon
+# variable. It reads only its worktree: in the default permission mode, with no settings that
+# allow more, Claude Code asks before a read outside the working directory, and a -p run has
+# nobody to answer, so the read is denied; usage.json counts the denials; Claude Code still
+# gives it the account's email address, which the publish script refuses in a report. Codex's
+# read-only sandbox can read outside the worktree, so a codex worker is not used.
 #
 # The lens policy is .koinon/preflight/lenses.md at the merge base with REF: each "## NAME"
 # section is one enabled lens and its brief. The change that adopts the preflight brings the
@@ -125,7 +127,8 @@ EOF
 		reason="the claude worker exited with status $worker"
 	else
 		jq -r '.result // empty' "$raw" >"$report" 2>/dev/null || reason="the claude worker's answer is not JSON"
-		jq '{event_key: (.session_id // "unknown"), usage: (.usage // "unknown"), cost_usd: (.total_cost_usd // "unknown")}' \
+		jq '{event_key: (.session_id // "unknown"), usage: (.usage // "unknown"), cost_usd: (.total_cost_usd // "unknown"),
+			denied_reads: ((.permission_denials // []) | length)}' \
 			"$raw" >"$usage" 2>/dev/null || echo '{"usage": "unknown"}' >"$usage"
 	fi
 	verdict=failed

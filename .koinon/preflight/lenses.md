@@ -2,9 +2,9 @@
 
 Koinon's preflight lens policy (PDR 008, Decision 5; WDR 004, Decision 8). Each "## NAME"
 section is one enabled lens; its text is the brief that `scripts/preflight-run.sh` gives that
-lens's worker. The maintainer chose these four lenses on 2026-11-23: "security, code,
-standards, refusal". The run reads this file at the base commit, so a change cannot weaken
-its own lenses.
+lens's worker. The maintainer chose these four lenses on 2026-11-23, adding refusal to the three
+proposed: "security, code, standards, refusal" (WDR 004, Decision 8). The run reads this file at
+the base commit, so a change cannot weaken its own lenses.
 
 ## security
 

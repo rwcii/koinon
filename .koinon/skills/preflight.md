@@ -31,8 +31,10 @@ origin/develop
 ## Route and image rules
 The worker is `claude -p` on this computer, for an author of any family, with no MCP servers,
 no forge token and no Git credential prompt. It has only the Read, Grep and Glob tools, loads
-no settings, auto-memory or instruction files, and reads only its worktree; Claude Code still
-gives it the account's email address. A codex worker is not used: Codex's read-only sandbox can
+no settings, auto-memory or instruction files, and reads only its worktree: in the default
+permission mode a -p run has nobody to grant a read outside it, so the read is denied. Claude
+Code still gives it the account's email address. The author reads each report before the
+publish command posts it. A codex worker is not used: Codex's read-only sandbox can
 read outside the worktree. The publish command checks each report before it posts it.
 ## Report folder
 _preflight/HEAD/RUN/ in the main checkout, ignored by Git.

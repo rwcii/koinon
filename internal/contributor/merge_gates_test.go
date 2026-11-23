@@ -23,6 +23,10 @@ import (
 const fakeForge = `#!/bin/sh
 set -eu
 echo "$*" >> "$FAKE/calls"
+if [ "$1" = repo ]; then
+	echo rwcii/koinon
+	exit 0
+fi
 if [ "$1" = pr ]; then
 	case "$*" in
 	*--jq*) cat "$FAKE/head" ;;
@@ -169,7 +173,7 @@ func card(verdict string, revision, approved int, text string) string {
 }
 
 func TestBoardVerdictScript(t *testing.T) {
-	names := "rwcii/koinon PR #42, head " + gateHead
+	names := "rwcii/koinon#42@" + gateHead
 	for _, c := range []struct {
 		name, card, prHead, want string
 		args                     []string
@@ -180,9 +184,10 @@ func TestBoardVerdictScript(t *testing.T) {
 		{"declined", card("declined", 3, 3, names), gateHead, "has no approval (verdict: declined)", nil, false},
 		{"no verdict", card("", 3, 0, names), gateHead, "has no approval (verdict: none)", nil, false},
 		{"approval of an earlier revision", card("approved", 4, 3, names), gateHead, "approval is for revision 3", nil, false},
-		{"approval that names them in its commands", strings.Replace(card("approved", 3, 3, "rwcii/koinon"), `"where":"rwcii/koinon"`, `"where":"rwcii/koinon","commands":["scripts/board-verdict.sh --as FAMILY:ID 42 `+gateHead+` MERGE-42 for PR #42"]`, 1), gateHead, "board-verdict: success on " + gateHead, nil, true},
-		{"approved text without the head", card("approved", 3, 3, "rwcii/koinon PR #42"), gateHead, "does not name head", nil, false},
-		{"approved text for another pull request", card("approved", 3, 3, "PR #421, head "+gateHead), gateHead, "does not name pull request #42", nil, false},
+		{"the target only in other card text", strings.Replace(card("approved", 3, 3, "koinon"), `"where":"koinon"`, `"where":"koinon","commands":["scripts/board-verdict.sh --as FAMILY:ID 42 `+gateHead+` MERGE-42"],"context":"PR #42 at `+gateHead+`"`, 1), gateHead, "does not name the target rwcii/koinon#42@" + gateHead, nil, false},
+		{"a target without the head", card("approved", 3, 3, "rwcii/koinon#42@"+strings.Repeat("e", 40)), gateHead, "does not name the target", nil, false},
+		{"a target of another pull request", card("approved", 3, 3, "rwcii/koinon#421@"+gateHead), gateHead, "does not name the target", nil, false},
+		{"a target in another repository", card("approved", 3, 3, "other/koinon#42@"+gateHead), gateHead, "does not name the target", nil, false},
 		{"short head", card("approved", 3, 3, names), gateHead, "full 40-character commit hash", []string{"--as", "claude:synthetic", "42", "0123456", "MERGE-42"}, false},
 		{"no caller", card("approved", 3, 3, names), gateHead, "--as FAMILY:ID is required", []string{"42", gateHead, "MERGE-42"}, false},
 		{"--as without a value", card("approved", 3, 3, names), gateHead, "--as needs FAMILY:ID", []string{"--as"}, false},
@@ -484,7 +489,8 @@ func TestPreflightRunScript(t *testing.T) {
 			t.Fatalf("result %v", result)
 		}
 		workers := e.read("workers")
-		if !strings.Contains(workers, `--tools Read,Grep,Glob`) || !strings.Contains(workers, "--setting-sources  --disable-slash-commands") {
+		if !strings.Contains(workers, `--tools Read,Grep,Glob`) || !strings.Contains(workers, "--setting-sources  --disable-slash-commands") ||
+			!strings.Contains(workers, "--permission-mode default") || strings.Contains(workers, "--add-dir") || strings.Contains(workers, "--allowedTools") {
 			t.Fatalf("claude worker tools or settings:\n%s", workers)
 		}
 		if strings.Count(workers, "lens=") != 2 || strings.Contains(workers, "diff=no") || strings.Contains(workers, "memory-off=unset") || strings.Contains(workers, "instructions-off=unset") || strings.Contains(workers, "synthetic-forge-token") || strings.Contains(workers, "synthetic-launch") ||
