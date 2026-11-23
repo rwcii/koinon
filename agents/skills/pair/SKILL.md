@@ -13,7 +13,8 @@ Write observable acceptance criteria for the agreed task before the first edit. 
 agrees or proposes corrections, and the pair settles them before building. Agree on one
 work branch and checkout, the first driver and the next complete increment. The driver edits,
 stages and commits. The observer reads a named committed checkpoint and reproduces findings in
-its own scratch location. At a frozen checkpoint the observer sends one batch of verified
+its own scratch location: a detached worktree of that checkpoint outside the driver's worktree,
+which the observer makes and removes after the review (WDR 003). At a frozen checkpoint the observer sends one batch of verified
 findings, each with its failure and its evidence. The driver triages each finding as
 accepted or dropped, with a reason, and takes a material disagreement to the maintainer.
 Verify the accepted fixes and the behavior they affect; unchanged content keeps its review.

@@ -710,6 +710,39 @@ cursor and work claims remain retained. A retained native claim still needs the 
 or lease expiry before another session can acquire it. Use the launcher for participant
 features in a new session.
 
+### Run Koinon members from Orca
+
+Orca can start each member of a pair through the Koinon launcher, as the command of an Orca
+terminal. Orca selects the pair's worktree with its selector `path:ABSOLUTE_PATH` (see the
+[Orca CLI reference](https://orca.dev/docs/cli/reference)); Koinon takes the same path with
+`--directory`, quoted in the command for a path with spaces. Give each member `--role` with
+the pair and the member's part:
+
+```sh
+PAIR=/absolute/path/to/pair-1-worktree
+orca terminal create --worktree "path:$PAIR" --title p1-driver \
+  --command "koinon claude --directory '$PAIR' --role p1-driver"
+orca terminal create --worktree "path:$PAIR" --title p1-observer \
+  --command "koinon codex --directory '$PAIR' --role p1-observer"
+```
+
+- Always give `--role`. Linked worktrees of one repository share their label, from the Git
+  common directory, so the role keeps two pairs apart: `claude-LABEL-p1-driver` and
+  `claude-LABEL-p2-driver`. Without a role, a second member of one family takes a numbered
+  tmux name in launch order and holds no address of its own.
+- The default tmux session name is the address with the role, as above.
+- When Orca's terminal is not a tmux pane (`TMUX` unset), the launcher starts the tmux session
+  and attaches it in that terminal. When `TMUX` is set, the member runs in the current pane.
+  Orca's other terminal variables change neither the address nor the session name nor the
+  registration.
+- Orca's idle detection and terminal titles can see the launcher and tmux, not the agent.
+- The observer reproduces findings in its own scratch copy: a detached worktree of the frozen
+  checkpoint outside the pair's worktree, for example
+  `git worktree add --detach "$TMPDIR/review-HASH" HASH`, removed with `git worktree remove`
+  after the review.
+- Pane access does not cross linked computers: each computer runs its own coordinator, which
+  reports through Koinon.
+
 The dashboard link is single-use and expires; keep it out of logs, Git and messages.
 To reach another computer's dashboard, forward a local port to its daemon, for example
 `ssh -L 47670:127.0.0.1:47671 HOST`, run `koinon dashboard --no-open` there and open the printed
