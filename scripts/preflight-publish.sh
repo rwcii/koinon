@@ -46,11 +46,12 @@ run=$(jq -r .run "$result")
 printf '%s\n' "$run" | grep -Eq '^[0-9]{8}T[0-9]{6}Z-[0-9]{10}$' || die "the result in $dir has an unexpected run name: $run"
 marker="<!-- koinon-preflight head=$head run=$run -->"
 
-# A report is posted in public: refuse one with a secret, a private path or an email address.
+# A report is posted in public: refuse one with a secret, a private path (a home directory that
+# names a person, or the running user's home) or an email address.
 # Tokens: GitHub, private keys, Anthropic and OpenAI (sk-), JSON web tokens, AWS, Slack, xAI and
 # Google keys.
 secrets='gh[pousr]_[A-Za-z0-9]{20,}|github_pat_|-----BEGIN [A-Z ]*PRIVATE KEY|sk-[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|AKIA[0-9A-Z]{16}|xox[abprs]-|xai-[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{35}'
-private='/home/[A-Za-z0-9_]|/var/home/[A-Za-z0-9_]|/Users/[A-Za-z0-9_]|/root/|~/|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}'
+private='/home/[A-Za-z0-9_]|/var/home/[A-Za-z0-9_]|/Users/[A-Za-z0-9_]|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}'
 for report in "$dir"/*.md; do
 	[ -e "$report" ] || continue
 	case $report in *.prompt.md) continue ;; esac

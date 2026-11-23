@@ -40,7 +40,7 @@ verdict=$(printf '%s' "$card" | jq -r '.result.verdict.verdict // "none"')
 revision=$(printf '%s' "$card" | jq -r '.result.revision')
 approved=$(printf '%s' "$card" | jq -r '.result.verdict.revision')
 [ "$revision" = "$approved" ] || die "card $reference is at revision $revision, but the approval is for revision $approved"
-snapshot=$(printf '%s' "$card" | jq -r '.result.verdict.snapshot | [.title, .where, .context, .recommendation] | map(. // "") | join("\n")')
+snapshot=$(printf '%s' "$card" | jq -r '.result.verdict.snapshot | [.title, .where, .context, .recommendation] + (.commands // []) | map(. // "") | join("\n")')
 printf '%s\n' "$snapshot" | grep -q "$head" || die "the approved text of card $reference does not name head $head"
 printf '%s\n' "$snapshot" | grep -Eq "(#|/pull/)$pr([^0-9]|\$)" || die "the approved text of card $reference does not name pull request #$pr"
 

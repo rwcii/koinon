@@ -37,7 +37,8 @@ failed CI runs before a release, the docs gate before publication, the merge gat
 preflight and the maintainer's board approval of each head, and the maintainer's merge into
 `main`), with what GitHub and the local hook enforce. One open pull
 request, auto-merge, the commit account, the "maintainer" naming, the failed-run account,
-the docs gate and the merge gates come from the maintainer's words; the rest shipped without a recorded
+the docs gate and the merge gates (Decision 8, apart from the worker and publish design that it
+marks as the agents') come from the maintainer's words; the rest shipped without a recorded
 maintainer decision, so this record is a draft.
 
 ---
@@ -521,8 +522,8 @@ For a project whose facts opt in, as Koinon's do:
   family: it has only the Read, Grep and Glob tools, loads no settings, auto-memory or
   instruction files, and reads only its worktree. A `codex exec` worker is not used, because
   Codex's read-only sandbox can read files outside the worktree. Claude Code gives a worker the
-  account's email address, so the publish script refuses a report with a secret, a private
-  path or an email address, and posts each report as a fenced block. It also refuses a result
+  account's email address, so the publish script refuses a report with a secret, a path in a
+  named person's home directory or the running user's home, or an email address, and posts each report as a fenced block. It also refuses a result
   run against another base than the pull request's, because the lens policy comes from that
   base. The first-adoption exception: the change that adopts preflight has a base with no lens
   policy, so its run takes the head's policy and says so in its result.
@@ -560,8 +561,8 @@ merged with the latest `develop`, with the Linux and macOS checks and a commit-b
 last one, and each change and release passes the docs gate. GitHub rulesets enforce the branch,
 check and up-to-date rules; one open pull request, the merge of `develop` into a published
 branch, signing and DCO are practice. The pull request order, auto-merge, commit identity,
-naming, the failed-run account, the docs gate and the merge gates are the maintainer's choices;
-the rest waits for the maintainer's decision. Each pull request into `develop` has a preflight
+naming, the failed-run account, the docs gate and the merge gates are the maintainer's choices,
+apart from the worker and publish design that Decision 8 marks as the agents'; the rest waits for the maintainer's decision. Each pull request into `develop` has a preflight
 and the maintainer's board approval of its head, and the maintainer merges each release into
 `main`.
 

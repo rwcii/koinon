@@ -180,6 +180,7 @@ func TestBoardVerdictScript(t *testing.T) {
 		{"declined", card("declined", 3, 3, names), gateHead, "has no approval (verdict: declined)", nil, false},
 		{"no verdict", card("", 3, 0, names), gateHead, "has no approval (verdict: none)", nil, false},
 		{"approval of an earlier revision", card("approved", 4, 3, names), gateHead, "approval is for revision 3", nil, false},
+		{"approval that names them in its commands", strings.Replace(card("approved", 3, 3, "rwcii/koinon"), `"where":"rwcii/koinon"`, `"where":"rwcii/koinon","commands":["scripts/board-verdict.sh --as FAMILY:ID 42 `+gateHead+` MERGE-42 for PR #42"]`, 1), gateHead, "board-verdict: success on " + gateHead, nil, true},
 		{"approved text without the head", card("approved", 3, 3, "rwcii/koinon PR #42"), gateHead, "does not name head", nil, false},
 		{"approved text for another pull request", card("approved", 3, 3, "PR #421, head "+gateHead), gateHead, "does not name pull request #42", nil, false},
 		{"short head", card("approved", 3, 3, names), gateHead, "full 40-character commit hash", []string{"--as", "claude:synthetic", "42", "0123456", "MERGE-42"}, false},
@@ -334,7 +335,7 @@ func TestPreflightPublishScript(t *testing.T) {
 	t.Run("a report with a secret or a private path", func(t *testing.T) {
 		for _, text := range []string{"token ghp_" + strings.Repeat("A", 36), "see /home/someone/.ssh/id_ed25519", "-----BEGIN OPENSSH PRIVATE KEY-----",
 			"key sk-proj-" + strings.Repeat("a", 30), "token eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0", "the account is someone@example.com",
-			"see /root/.config/token", "see /var/home/someone/notes", "see ~/.config/gh/hosts.yml"} {
+			"see /var/home/someone/notes"} {
 			e := newGateEnv(t)
 			repo, head, base := publishRepository(t, e)
 			reports := t.TempDir()
@@ -344,6 +345,16 @@ func TestPreflightPublishScript(t *testing.T) {
 			if err == nil || !strings.Contains(out, "has a secret, a private path or an email address") || strings.Contains(e.read("calls"), "POST") {
 				t.Fatalf("%q: %v %s", text, err, out)
 			}
+		}
+	})
+	t.Run("a report that quotes a documented path", func(t *testing.T) {
+		e := newGateEnv(t)
+		repo, head, base := publishRepository(t, e)
+		reports := t.TempDir()
+		dir := writeResult(t, reports, head, base, "20261123T000000Z-0000000001", true, true)
+		os.WriteFile(filepath.Join(dir, "code.md"), []byte("docs/INSTALL.md names ~/.claude/skills and /root/.config.\nVERDICT: APPROVE\n"), 0600)
+		if out, err := publish(t, e, repo, reports); err != nil || !strings.Contains(e.read("comments.json"), "~/.claude/skills") {
+			t.Fatalf("%v %s", err, out)
 		}
 	})
 	t.Run("a result with another run name", func(t *testing.T) {
