@@ -1,9 +1,10 @@
 #!/bin/sh
 # Run each preflight lens once on the committed head, each in a fresh agent worker with no forge
 # credential, and keep the reports (PDR 008, Decision 5; WDR 004, Decision 8). A claude worker
-# reads only its worktree and runs no shell command; a codex worker runs in Codex's read-only
-# sandbox, which can still read outside the worktree, so the publish script checks each report
-# for secrets and private paths before it posts it.
+# has only the Read, Grep and Glob tools, loads no settings, memory or instruction files, and
+# reads only its worktree; Claude Code still gives it the account's email address. A codex
+# worker runs in Codex's read-only sandbox, which can read outside the worktree. So the publish
+# script checks each report for secrets, private paths and email addresses before it posts it.
 #
 # Usage: scripts/preflight-run.sh --family claude|codex [--base REF]
 #
@@ -14,6 +15,7 @@
 # Exit status 0: every lens approves. 1: a lens rejects. 2: a lens failed or the run could not
 # start.
 set -eu
+umask 077
 
 die() {
 	echo "preflight-run: $*" >&2
@@ -24,8 +26,16 @@ family=
 base=origin/develop
 while [ $# -gt 0 ]; do
 	case $1 in
-	--family) family=${2:-}; shift 2 || die "--family needs claude or codex" ;;
-	--base) base=${2:-}; shift 2 || die "--base needs a ref" ;;
+	--family)
+		[ $# -ge 2 ] || die "--family needs claude or codex"
+		family=$2
+		shift 2
+		;;
+	--base)
+		[ $# -ge 2 ] || die "--base needs a ref"
+		base=$2
+		shift 2
+		;;
 	*) die "usage: scripts/preflight-run.sh --family claude|codex [--base REF]" ;;
 	esac
 done
@@ -41,6 +51,10 @@ head=$(git rev-parse HEAD)
 base_sha=$(git rev-parse --verify "$base^{commit}") || die "unknown base $base"
 merge_base=$(git merge-base "$base_sha" "$head") || die "the head has no merge base with $base"
 [ "$merge_base" != "$head" ] || die "the head is already in $base; give the pull request's base branch"
+# A codex worker would read project configuration from the reviewed tree.
+if [ "$family" = codex ] && [ -n "$(git ls-tree -r --name-only "$head" -- .codex | grep -E '\.(toml|json)$' || true)" ]; then
+	die "the head tracks Codex configuration under .codex/; run the preflight with --family claude"
+fi
 policy_path=.koinon/preflight/lenses.md
 if git cat-file -e "$merge_base:$policy_path" 2>/dev/null; then
 	policy_source="the base ($merge_base)"
@@ -57,7 +71,7 @@ lenses=$(printf '%s\n' "$policy" | sed -n 's/^## \([a-z][a-z0-9-]*\)[[:space:]]*
 
 common=$(git rev-parse --path-format=absolute --git-common-dir)
 reports=${PREFLIGHT_REPORTS:-$(dirname "$common")/_preflight}
-run=$(date -u +%Y%m%dT%H%M%SZ)-$$
+run=$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%010d' "$$")
 out=$reports/$head/$run
 mkdir -p "$out"
 work=$(mktemp -d "${TMPDIR:-/tmp}/preflight.XXXXXX")
@@ -107,12 +121,13 @@ EOF
 				-u SSH_AUTH_SOCK -u KOINON_LAUNCH_ID -u KOINON_STATE_DIR -u KOINON_DAEMON_ADDRESS \
 				-u CLAUDECODE -u CLAUDE_CODE_SESSION_ID -u CLAUDE_CODE_ENTRYPOINT \
 				GH_CONFIG_DIR="$work/no-forge" GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false \
+				CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 \
 				sh -c '
 				case $1 in
 				claude)
 					claude -p --output-format json --no-session-persistence --strict-mcp-config \
-						--setting-sources local --permission-mode default \
-						--disallowedTools "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch" <"$2" >"$3"
+						--setting-sources "" --disable-slash-commands --tools "Read,Grep,Glob" \
+						--permission-mode default <"$2" >"$3"
 					;;
 				codex)
 					codex exec --ephemeral --ignore-user-config --sandbox read-only --skip-git-repo-check \

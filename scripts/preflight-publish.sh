@@ -42,13 +42,16 @@ expected=$(git merge-base "origin/$base_ref" "$head") || die "cannot find the me
 run=$(jq -r .run "$result")
 marker="<!-- koinon-preflight head=$head run=$run -->"
 
-# A report is posted in public: refuse one with a secret or a private path.
+# A report is posted in public: refuse one with a secret, a private path or an email address.
+# Tokens: GitHub, private keys, Anthropic and OpenAI (sk-), JSON web tokens, AWS, Slack, xAI and
+# Google keys.
+secrets='gh[pousr]_[A-Za-z0-9]{20,}|github_pat_|-----BEGIN [A-Z ]*PRIVATE KEY|sk-[A-Za-z0-9_-]{20,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}|AKIA[0-9A-Z]{16}|xox[abprs]-|xai-[A-Za-z0-9]{20,}|AIza[0-9A-Za-z_-]{35}'
+private='/home/[A-Za-z0-9_]|/Users/[A-Za-z0-9_]|[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}'
 for report in "$dir"/*.md; do
 	[ -e "$report" ] || continue
 	case $report in *.prompt.md) continue ;; esac
-	if grep -Eq 'gh[pousr]_[A-Za-z0-9]{20,}|github_pat_|-----BEGIN [A-Z ]*PRIVATE KEY|sk-ant-|AKIA[0-9A-Z]{16}|xox[abprs]-|/home/[A-Za-z0-9_]|/Users/[A-Za-z0-9_]' "$report" ||
-		grep -Fq "$HOME/" "$report"; then
-		die "$report has a secret or a private path; remove it from the report and run this command again"
+	if grep -Eq "$secrets|$private" "$report" || grep -Fq "$HOME/" "$report"; then
+		die "$report has a secret, a private path or an email address; remove it from the report and run this command again"
 	fi
 done
 
@@ -110,8 +113,13 @@ trap 'exit 130' INT TERM
 		echo "<details><summary>$lens report</summary>"
 		echo
 		if [ -f "$dir/$lens.md" ]; then
-			head -c 12000 "$dir/$lens.md"
-			[ "$(wc -c <"$dir/$lens.md")" -le 12000 ] || printf '\n\n(The report is longer; the full text is in the run folder.)\n'
+			if [ "$(wc -c <"$dir/$lens.md")" -le 12000 ]; then
+				cat "$dir/$lens.md"
+			else
+				# Whole lines only, so that no character is cut.
+				head -c 12000 "$dir/$lens.md" | sed '$d'
+				printf '\n\n(The report is longer; the full text is in the run folder.)\n'
+			fi
 		else
 			echo "No report."
 		fi

@@ -92,6 +92,7 @@ lens=$(printf '%s\n' "$prompt" | sed -n 's/^You are the \([a-z-]*\) lens.*/\1/p'
 {
 	echo "lens=$lens pwd=$(pwd) family=$(basename "$0") diff=$(test -s .preflight/change.diff && echo yes || echo no)"
 	echo "GH_TOKEN=${GH_TOKEN:-unset} GITHUB_TOKEN=${GITHUB_TOKEN:-unset} KOINON_LAUNCH_ID=${KOINON_LAUNCH_ID:-unset} GH_CONFIG_DIR=${GH_CONFIG_DIR:-unset}"
+	echo "memory-off=${CLAUDE_CODE_DISABLE_AUTO_MEMORY:-unset} instructions-off=${CLAUDE_CODE_DISABLE_CLAUDE_MDS:-unset} args=$*"
 } >> "$FAKE/workers"
 verdict=$(cat "$FAKE/verdict-$lens" 2>/dev/null || echo APPROVE)
 [ "$verdict" != EXIT ] || exit 3
@@ -194,6 +195,7 @@ func TestBoardVerdictScript(t *testing.T) {
 		{"approved text for another pull request", card("approved", 3, 3, "PR #421, head "+gateHead), gateHead, "does not name pull request #42", nil, false},
 		{"short head", card("approved", 3, 3, names), gateHead, "full 40-character commit hash", []string{"--as", "claude:synthetic", "42", "0123456", "MERGE-42"}, false},
 		{"no caller", card("approved", 3, 3, names), gateHead, "--as FAMILY:ID is required", []string{"42", gateHead, "MERGE-42"}, false},
+		{"--as without a value", card("approved", 3, 3, names), gateHead, "--as needs FAMILY:ID", []string{"--as"}, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			e := newGateEnv(t)
@@ -341,14 +343,15 @@ func TestPreflightPublishScript(t *testing.T) {
 		}
 	})
 	t.Run("a report with a secret or a private path", func(t *testing.T) {
-		for _, text := range []string{"token ghp_" + strings.Repeat("A", 36), "see /home/someone/.ssh/id_ed25519", "-----BEGIN OPENSSH PRIVATE KEY-----"} {
+		for _, text := range []string{"token ghp_" + strings.Repeat("A", 36), "see /home/someone/.ssh/id_ed25519", "-----BEGIN OPENSSH PRIVATE KEY-----",
+			"key sk-proj-" + strings.Repeat("a", 30), "token eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0", "the account is someone@example.com"} {
 			e := newGateEnv(t)
 			repo, head, base := publishRepository(t, e)
 			reports := t.TempDir()
 			dir := writeResult(t, reports, head, base, "20261123T000000Z-1", true, true)
 			os.WriteFile(filepath.Join(dir, "code.md"), []byte(text+"\nVERDICT: APPROVE\n"), 0600)
 			out, err := publish(t, e, repo, reports)
-			if err == nil || !strings.Contains(out, "has a secret or a private path") || strings.Contains(e.read("calls"), "POST") {
+			if err == nil || !strings.Contains(out, "has a secret, a private path or an email address") || strings.Contains(e.read("calls"), "POST") {
 				t.Fatalf("%q: %v %s", text, err, out)
 			}
 		}
@@ -455,7 +458,10 @@ func TestPreflightRunScript(t *testing.T) {
 				t.Fatalf("result %v", result)
 			}
 			workers := e.read("workers")
-			if strings.Count(workers, "lens=") != 2 || strings.Contains(workers, "diff=no") || strings.Contains(workers, "synthetic-forge-token") || strings.Contains(workers, "synthetic-launch") ||
+			if family == "claude" && (!strings.Contains(workers, `--tools Read,Grep,Glob`) || !strings.Contains(workers, "--setting-sources  --disable-slash-commands")) {
+				t.Fatalf("claude worker tools or settings:\n%s", workers)
+			}
+			if strings.Count(workers, "lens=") != 2 || strings.Contains(workers, "diff=no") || strings.Contains(workers, "memory-off=unset") || strings.Contains(workers, "instructions-off=unset") || strings.Contains(workers, "synthetic-forge-token") || strings.Contains(workers, "synthetic-launch") ||
 				strings.Contains(workers, "GH_CONFIG_DIR=unset") || strings.Contains(workers, "pwd="+repo+" ") || !strings.Contains(workers, "family="+family) {
 				t.Fatalf("workers:\n%s", workers)
 			}
@@ -505,6 +511,23 @@ func TestPreflightRunScript(t *testing.T) {
 		repo := gateRepository(t, e, true)
 		out, err := e.run(t, repo, "preflight-run.sh", []string{"PREFLIGHT_REPORTS=" + t.TempDir()}, "--family", "claude", "--base", "HEAD")
 		if err == nil || !strings.Contains(out, "the head is already in HEAD") || e.read("workers") != "" {
+			t.Fatalf("%v %s", err, out)
+		}
+	})
+	t.Run("a codex run of a head with Codex configuration", func(t *testing.T) {
+		e := newGateEnv(t)
+		repo := gateRepository(t, e, true)
+		os.MkdirAll(filepath.Join(repo, ".codex"), 0700)
+		os.WriteFile(filepath.Join(repo, ".codex", "config.toml"), []byte("[synthetic]\n"), 0600)
+		for _, args := range [][]string{{"add", "-A"}, {"commit", "-q", "-m", "codex config"}} {
+			cmd := exec.Command("git", append([]string{"-c", "user.name=synthetic", "-c", "user.email=synthetic@example.invalid", "-c", "commit.gpgsign=false", "-C", repo}, args...)...)
+			cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("%v %s", err, out)
+			}
+		}
+		out, err := e.run(t, repo, "preflight-run.sh", []string{"PREFLIGHT_REPORTS=" + t.TempDir()}, "--family", "codex", "--base", "base")
+		if err == nil || !strings.Contains(out, "tracks Codex configuration") || e.read("workers") != "" {
 			t.Fatalf("%v %s", err, out)
 		}
 	})

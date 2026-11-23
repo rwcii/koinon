@@ -66,8 +66,12 @@ git commit -S -s -m "Add a concise description"
 gh pr list --base develop --state open   # one open pull request at a time
 git fetch origin && git merge --no-edit origin/develop
 go test -race -timeout 30m ./...
+scripts/preflight-run.sh --family claude   # or codex: the four preflight lenses
 git push -u origin feature/my-change
 gh pr create --base develop
+scripts/preflight-publish.sh PR            # the result and the preflight status
+# After peer-review and refusal-review pass: a board card that names PR and its full head.
+scripts/board-verdict.sh --as FAMILY:ID PR HEAD REFERENCE   # after the maintainer's approval
 gh pr merge --auto --squash
 ```
 
@@ -151,7 +155,8 @@ agent-process prefixes other than the embedded `agents/skills/` source. `interna
 cases, and verifies those paths stay outside installation. All runtime and ordinary documentation changes run native CI.
 
 `scripts/setup-repo.sh` configures PR merge policy and required Go/native lifecycle checks
-through `gh`, and on `develop` the `decision-citations` check of the pull request's title, body
+through `gh`, and on `develop` the `peer-review`, `refusal-review`, `preflight` and
+`board-verdict` statuses and the `decision-citations` check of the pull request's title, body
 and commit messages. A pull request to `main` gets the check on its title and body only: its
 commits come from `develop`. It has no Python dependency. Changing the script does not update remote
 rulesets; they change only when the script runs with the repository's admin rights. Existing

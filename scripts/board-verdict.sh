@@ -19,8 +19,9 @@ die() {
 
 as=
 if [ "${1:-}" = --as ]; then
-	as=${2:-}
-	shift 2 || die "--as needs FAMILY:ID"
+	[ $# -ge 2 ] || die "--as needs FAMILY:ID"
+	as=$2
+	shift 2
 fi
 [ $# -eq 3 ] || die "usage: scripts/board-verdict.sh --as FAMILY:ID PR HEAD REFERENCE"
 [ -n "$as" ] || die "--as FAMILY:ID is required"

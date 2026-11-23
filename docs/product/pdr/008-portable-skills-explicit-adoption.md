@@ -396,18 +396,11 @@ no notice of their own.
   LICENSE holder. The install script for a computer with no Koinon changes Decision 2 and has
   its own verdict (#732, chunk 02).
 
-**Koinon adopts `preflight` (#795):**
-
-- **Decided by:** Robert Capps. **Date:** 2026-11-23, terminal.
-- **Context:** the merge gates of WDR 004, Decision 8 require a preflight with the maintainer's
-  lenses on each pull request into `develop`.
-- **Decision:** the lenses: "security, code, standards, refusal", and "I approve your non
-  blocking controls proposed", which include a required `preflight` status. Koinon adopts
-  `preflight` with `.koinon/skills/preflight.md`, the lens policy
-  `.koinon/preflight/lenses.md`, `scripts/preflight-run.sh` and `scripts/preflight-publish.sh`.
-  The skill text does not change.
-- **Reason and scope:** a fresh read of each change in four lenses before the independent
-  reviews. The other six procedures stay offered and not adopted.
+**Koinon adopts `preflight` (#795):** the maintainer's merge gates of 2026-11-23, recorded
+in WDR 004, Decision 8, require a preflight with four lenses on each pull request into
+`develop`. Koinon adopts `preflight` with `.koinon/skills/preflight.md`, the lens policy
+`.koinon/preflight/lenses.md`, `scripts/preflight-run.sh` and `scripts/preflight-publish.sh`.
+The skill text does not change. The other six procedures stay offered and not adopted.
 
 ### Alternatives Considered
 

@@ -515,9 +515,11 @@ For a project whose facts opt in, as Koinon's do:
 - **The agents' design, reviewed in the pull request (#795), not the maintainer's words:** the
   `preflight` skill asks for a fresh worker with no forge credential. A preflight report is
   posted in public, and the reviewed change can hold instructions for its reviewer, so the
-  workers also write nothing and use no network: a claude worker has no shell, edit or web
-  tools and reads only its worktree; a codex worker runs in Codex's read-only sandbox. The
-  publish script refuses a report with a secret or a private path, and a result run against
+  workers also write nothing and use no network: a claude worker has only the Read, Grep and
+  Glob tools, loads no settings, auto-memory or instruction files, and reads only its
+  worktree; a codex worker runs in Codex's read-only sandbox, which can read outside the
+  worktree. Claude Code gives a worker the account's email address, so the publish script
+  refuses a report with a secret, a private path or an email address, and a result run against
   another base than the pull request's, because the lens policy comes from that base.
 
 ### Alternatives Considered

@@ -21,7 +21,8 @@ head, with the change in .preflight/change.diff, no forge credential and no Koin
 scripts/preflight-publish.sh PR, with the author's gh login. It takes the newest result of
 the pull request's current head, and posts one comment and the preflight commit status on that
 head. It refuses when there is no result for that head, when the result was run against
-another base than the pull request's, and when a report has a secret or a private path.
+another base than the pull request's, and when a report has a secret, a private path or an
+email address.
 ## Lens policy
 .koinon/preflight/lenses.md at the base commit: security, code, standards and refusal. The
 change that adopts preflight runs with the head's policy, because its base has none.
@@ -29,9 +30,11 @@ change that adopts preflight runs with the head's policy, because its base has n
 origin/develop
 ## Route and image rules
 The worker is `claude -p` or `codex exec`, of the author's family, on this computer, with no
-MCP servers, no forge token and no Git credential prompt. A claude worker reads only its
-worktree and has no shell, edit or web tools. A codex worker runs in Codex's read-only sandbox,
-which can read outside the worktree; the publish command checks each report before it posts it.
+MCP servers, no forge token and no Git credential prompt. A claude worker has only the Read,
+Grep and Glob tools, loads no settings, auto-memory or instruction files, and reads only its
+worktree; Claude Code still gives it the account's email address. A codex worker runs in
+Codex's read-only sandbox, which can read outside the worktree, and is refused for a head that
+tracks Codex configuration. The publish command checks each report before it posts it.
 ## Report folder
 _preflight/HEAD/RUN/ in the main checkout, ignored by Git.
 ## Review procedure
