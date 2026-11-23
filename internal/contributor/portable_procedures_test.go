@@ -10,8 +10,8 @@ import (
 
 // offeredProcedures are the skills of PDR 008 Decision 5 (#732), each with the SHA-256 of the
 // text that the maintainer saw, with the changes that he approved or directed for Koinon. Koinon
-// offers them and adopts none, so it has no fact file for them. A later change of one of these
-// skills updates its value here in the same pull request.
+// adopts preflight (#795) and offers the others, with no fact file for them. A later change of
+// one of these skills updates its value here in the same pull request.
 var offeredProcedures = map[string]string{
 	"preflight":        "86920eb67711a18d49eb0b7deed64687c98a775f033aa47f4fc92d2934ea7a52",
 	"provenance":       "d113f3be224ae8304cfcd9a59b002debe372e7d740f383e343a17c932f45685c",

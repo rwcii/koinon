@@ -5,6 +5,17 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- Merge gates for Koinon's own pull requests (#795, WDR 004, Decision 8). Koinon adopts the
+  `preflight` skill with four lenses, security, code, standards and refusal:
+  `scripts/preflight-run.sh` runs each lens in a fresh read-only `claude -p` or `codex exec`
+  worker with no forge credential, and `scripts/preflight-publish.sh` posts one comment and the
+  `preflight` status on the pull request's head. After the reviews, the maintainer approves a
+  card that names the pull request and its head, and `scripts/board-verdict.sh` posts the
+  `board-verdict` status on that head. The `release` skill stops when the promotion pull request
+  is ready, and the maintainer merges into `main`. The `ship` and `release` skills take these
+  steps from the new optional facts "Merge approval" and "Promotion merge"; a project without
+  them keeps its steps. `scripts/setup-repo.sh` requires both statuses on `develop`.
+
 - The `sprint` skill gives each chunk `Depends on` and `Owns` columns and adds a parallel view
   to `sprint.md`: groups of chunks whose dependencies are in earlier groups and whose owned
   files, directories and records do not overlap, so that two or more pairs can build them at

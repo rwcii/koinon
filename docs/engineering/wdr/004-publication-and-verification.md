@@ -51,8 +51,9 @@ maintainer decision, so this record is a draft.
 6. Decision 5: Signed, human-authored commits
 7. Decision 6: Failed CI runs are accounted for before a release
 8. Decision 7: A docs gate before publication
-9. Conclusion
-10. Document History
+9. Decision 8: Preflight and the maintainer's approval before develop; the maintainer merges main
+10. Conclusion
+11. Document History
 
 ---
 
@@ -469,6 +470,72 @@ job checks the docs.
 
 ---
 
+## 9. Decision 8: Preflight and the maintainer's approval before develop; the maintainer merges main
+
+### Decision
+
+For a project whose facts opt in, as Koinon's do:
+
+- Before a pull request into `develop` opens, the author runs the `preflight` skill at the
+  frozen head with the lenses security, code, standards and refusal, each in a fresh read-only
+  worker with no forge credential (`scripts/preflight-run.sh`). After the pull request opens,
+  `scripts/preflight-publish.sh` posts one result comment and the `preflight` commit status on
+  that head.
+- After preflight, `peer-review` and `refusal-review` pass, the author puts a card on the
+  decision board that names the pull request and its full head. After the maintainer approves
+  it, `scripts/board-verdict.sh` reads the card, checks that the approval is for the card's
+  current revision and names that pull request and head, checks the pull request's head, and
+  posts the `board-verdict` commit status. A new head needs a new card or revision.
+- The `release` skill stops when the promotion pull request and its evidence are ready and
+  reports to the maintainer. The maintainer merges into `main`; the agent then pushes the tag
+  and checks the publish steps.
+- The skills take the gates from the optional facts "Merge approval" (`ship`, default "none")
+  and "Promotion merge" (`release`, default "the promotion policy"). A project without them
+  keeps its steps. Koinon's `.koinon/skills/ship.md` and `release.md` opt in, and Koinon adopts
+  `preflight` (PDR 008, Decision 5).
+- `scripts/setup-repo.sh` declares `preflight` and `board-verdict` as required statuses of the
+  `develop` ruleset. The maintainer applies the live ruleset after this change merges.
+
+- **Decided by:** Robert Capps. **Date:** 2026-11-23, terminal.
+- **Context:** the Orca integration spec (#795), section 8, restores approval gates: a board
+  verdict on the exact reviewed head before a merge to `develop`, and a human merge to `main`.
+  The agents work under the maintainer's GitHub account, so GitHub cannot tell an agent from
+  the maintainer. The options were skill rules only; a required status from a GitHub App that
+  only the fleet board holds; and a separate GitHub identity for the agents.
+- **Decision:** the preflight lenses: "security, code, standards, refusal". No separate
+  identity: "they do not. that was a DISASTER when we tried to implement it on unify." The
+  threat model: "An agent bypassing a gate and merging is not a threat model we're trying to
+  solve for at this point." Then "I approve your non blocking controls proposed": the required
+  `preflight` and `board-verdict` statuses, and a `release` skill that stops before the merge
+  to `main`.
+- **Reason and scope:** the gates are process rules that GitHub shows as statuses; they do not
+  stop an agent that goes around them. The ruleset change is a repository setting, applied with
+  the maintainer's direct go.
+
+### Alternatives Considered
+
+| Alternative | Description | Why Rejected |
+| ----------- | ----------- | ------------ |
+| A GitHub App status | Only the fleet board holds the App key that posts `board-verdict` | Guards against an agent that goes around the gate, which is not the threat model |
+| A separate agent identity | The agents work under their own GitHub account | "that was a DISASTER when we tried to implement it on unify" |
+| Skill rules only | The skills say what to do, with no status | GitHub shows nothing, and a merge without the approval is not visible on the pull request |
+
+### Rationale
+
+1. The maintainer approves each change into `develop` on the board, with its exact head.
+2. The statuses show on the pull request which gates passed, for that head.
+3. Each lens of the preflight sees the change in a fresh context, before the independent
+   reviews.
+
+### Enforcement
+
+The `develop` ruleset requires `preflight` and `board-verdict` after the maintainer applies
+`scripts/setup-repo.sh`. The scripts refuse a status for another head. Contributor tests
+(`internal/contributor/merge_gates_test.go`) run the scripts with fake `gh`, `koinon` and
+agent workers, and check that no skill tells an agent to merge into `main`.
+
+---
+
 ## Conclusion
 
 Koinon currently publishes through one squash pull request at a time into `develop`, on a head
@@ -477,8 +544,10 @@ merged with the latest `develop`, with the Linux and macOS checks and a commit-b
 last one, and each change and release passes the docs gate. GitHub rulesets enforce the branch,
 check and up-to-date rules; one open pull request, the merge of `develop` into a published
 branch, signing and DCO are practice. The pull request order, auto-merge, commit identity,
-naming, the failed-run account and the docs gate are the maintainer's choices; the rest waits
-for the maintainer's decision.
+naming, the failed-run account, the docs gate and the merge gates are the maintainer's choices;
+the rest waits for the maintainer's decision. Each pull request into `develop` has a preflight
+and the maintainer's board approval of its head, and the maintainer merges each release into
+`main`.
 
 ---
 
@@ -493,3 +562,4 @@ for the maintainer's decision.
 | 2026-11-06 | Decision 6: the rerun of CI jobs that no runner acquired (#630) |
 | 2026-11-23 | Decision 7: a docs gate in `preflight` and `ship` (#792) |
 | 2026-11-23 | Decision 7: the docs gate in `release` too |
+| 2026-11-23 | Decision 8: preflight, the board approval of each head, and the maintainer's merge into `main` (#795) |

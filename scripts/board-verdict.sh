@@ -1,0 +1,54 @@
+#!/bin/sh
+# Post the board-verdict commit status on a pull request head after the maintainer approved a
+# decision card that names that pull request and its exact head (WDR 004, Decision 8).
+#
+# Usage: scripts/board-verdict.sh --as FAMILY:ID PR HEAD REFERENCE
+#
+# --as names the calling Koinon session, as for other koinon commands. The script reads the
+# card with koinon decision get, and posts the status only when:
+#   - the card's current verdict is "approved", for the card's current revision;
+#   - the text that the maintainer approved names the pull request (#PR) and the full HEAD;
+#   - the pull request's head is HEAD.
+# It then reads the status back. A new head needs a new card or a new revision.
+set -eu
+
+die() {
+	echo "board-verdict: $*" >&2
+	exit 1
+}
+
+as=
+if [ "${1:-}" = --as ]; then
+	as=${2:-}
+	shift 2 || die "--as needs FAMILY:ID"
+fi
+[ $# -eq 3 ] || die "usage: scripts/board-verdict.sh --as FAMILY:ID PR HEAD REFERENCE"
+[ -n "$as" ] || die "--as FAMILY:ID is required"
+pr=$1
+head=$2
+reference=$3
+printf '%s\n' "$pr" | grep -Eq '^[1-9][0-9]*$' || die "PR must be a pull request number: $pr"
+printf '%s\n' "$head" | grep -Eq '^[0-9a-f]{40}$' || die "HEAD must be a full 40-character commit hash: $head"
+printf '%s\n' "$reference" | grep -Eq '^[A-Za-z0-9-]{1,32}$' || die "REFERENCE must be a card reference: $reference"
+command -v jq >/dev/null || die "jq is required"
+
+card=$(koinon decision get --as "$as" --reference "$reference") || die "cannot read card $reference: $card"
+[ "$(printf '%s' "$card" | jq -r '.ok')" = true ] || die "cannot read card $reference: $(printf '%s' "$card" | jq -c .)"
+verdict=$(printf '%s' "$card" | jq -r '.result.verdict.verdict // "none"')
+[ "$verdict" = approved ] || die "card $reference has no approval (verdict: $verdict)"
+revision=$(printf '%s' "$card" | jq -r '.result.revision')
+approved=$(printf '%s' "$card" | jq -r '.result.verdict.revision')
+[ "$revision" = "$approved" ] || die "card $reference is at revision $revision, but the approval is for revision $approved"
+snapshot=$(printf '%s' "$card" | jq -r '.result.verdict.snapshot | [.title, .where, .context, .recommendation] | map(. // "") | join("\n")')
+printf '%s\n' "$snapshot" | grep -q "$head" || die "the approved text of card $reference does not name head $head"
+printf '%s\n' "$snapshot" | grep -Eq "(#|/pull/)$pr([^0-9]|\$)" || die "the approved text of card $reference does not name pull request #$pr"
+
+current=$(gh pr view "$pr" --json headRefOid --jq .headRefOid) || die "cannot read pull request #$pr"
+[ "$current" = "$head" ] || die "pull request #$pr is at $current, not $head; a new head needs a new card"
+
+gh api -X POST "repos/{owner}/{repo}/statuses/$head" -f state=success -f context=board-verdict \
+	-f description="Card $reference approved at revision $approved" >/dev/null || die "the status post failed; read the head's statuses before a retry"
+state=$(gh api "repos/{owner}/{repo}/commits/$head/status" --jq '[.statuses[] | select(.context == "board-verdict")][0].state') ||
+	die "the status was posted, but the read-back failed"
+[ "$state" = success ] || die "board-verdict on $head reads back as '$state'"
+echo "board-verdict: success on $head (pull request #$pr, card $reference, revision $approved)"

@@ -378,10 +378,11 @@ esac
 			}
 		}
 		required := []string{"go (ubuntu-latest)", "go (macos-latest)", "go-lifecycle (ubuntu-latest, systemd)", "go-lifecycle (macos-latest, launchd)"}
-		// develop also requires the reviewer's sign-offs on the head and the pull request
-		// text check (#536); main takes develop heads.
+		// develop also requires the reviewer's sign-offs on the head, the pull request text
+		// check (#536), the author's preflight and the maintainer's board approval (WDR 004,
+		// Decision 8); main takes develop heads.
 		if branch == "develop" {
-			required = append(required, "peer-review", "refusal-review", "decision-citations")
+			required = append(required, "peer-review", "refusal-review", "decision-citations", "preflight", "board-verdict")
 		}
 		for _, name := range required {
 			if !checks[name] {

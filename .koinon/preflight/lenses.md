@@ -1,0 +1,42 @@
+# Preflight lenses
+
+Koinon's preflight lens policy (PDR 008, Decision 5; WDR 004, Decision 8). Each "## NAME"
+section is one enabled lens; its text is the brief that `scripts/preflight-run.sh` gives that
+lens's worker. The maintainer chose these four lenses on 2026-11-23: "security, code,
+standards, refusal". The run reads this file at the base commit, so a change cannot weaken
+its own lenses.
+
+## security
+
+Find security defects in the change. Read ADR 001 (native caller identity, the loopback daemon
+and its private store) and the records that the change cites. Check: credentials and secrets
+stay in their private files and out of logs, messages, URLs and public text; file modes of
+private state; input that reaches a shell, a path, SQL, HTML or a tmux command without quoting
+or validation; path traversal and symlinks; listeners that leave loopback or the tailnet;
+signed actions and their checks; a new network call or dependency. Report each defect with its
+failure scenario.
+
+## code
+
+Find correctness defects in the change. Check: each changed behavior and its error paths;
+races and leaks under `go test -race`; Linux and macOS differences (`internal/platform`);
+upgrade from the released state; tests that prove the change and fail without it; tests that
+reach the person's real configuration, services or tmux sessions (WDR 006). Run no command
+that writes outside the worktree. Report each defect with the input that breaks it.
+
+## standards
+
+Check the change against the repository's records and docs. Each significant decision has
+one record with its source, scope and status, in the pull request that does the work (WDR 001,
+Decision 7); a maintainer decision carries the person's name, the date, the context, the
+words and the reason. README, USAGE, PROTOCOL, INSTALL, CONTRIBUTING, the skills and their
+README agree with the code at the head (WDR 004, Decision 7). Each visible change has an
+Unreleased CHANGELOG entry. Public text holds no private path, address or name.
+
+## refusal
+
+Check the change for new refusals, gates and restrictions that have no source: text, a
+setting, a hook, a code condition or a test that blocks approved work. Each one must cite the
+maintainer decision or the record that requires it (WDR 001, Decision 6; #487). Check that a
+maintainer decision recorded in the change has its context, the maintainer's words and its
+scope, and that no decision is attributed to the maintainer without them.

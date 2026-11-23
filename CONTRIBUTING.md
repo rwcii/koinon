@@ -30,7 +30,16 @@ In short:
   conversations and `success` commit statuses named `peer-review` and `refusal-review` on the
   head commit, which the reviewer records with each sign-off (WDR 004, Decision 3; WDR 003,
   Decision 3; WDR 001, Decision 6).
-- Pull requests into `develop` set squash auto-merge (WDR 004, Decision 4).
+- Before a pull request into `develop` opens, its author runs the `preflight` skill: four lenses
+  (security, code, standards, refusal), each in a fresh read-only worker, with
+  `scripts/preflight-run.sh --family FAMILY`; after it opens, `scripts/preflight-publish.sh PR`
+  posts the result and the `preflight` status on the head. After the reviews pass, the author
+  puts a card on the decision board that names the pull request and its full head; after the
+  maintainer approves it, `scripts/board-verdict.sh --as FAMILY:ID PR HEAD REFERENCE` posts
+  the `board-verdict` status (WDR 004, Decision 8). `scripts/setup-repo.sh` makes both statuses
+  required on `develop`.
+- Pull requests into `develop` set squash auto-merge (WDR 004, Decision 4), after
+  `board-verdict` reads back as success.
 - Merged working branches are deleted automatically; long-lived branches are protected.
 - Your clone prunes on fetch, so `git branch -r` reports the branches the remote still holds.
 
@@ -62,8 +71,9 @@ gh pr create --base develop
 gh pr merge --auto --squash
 ```
 
-The `release` skill promotes `develop` to `main` with the account of failed CI runs (WDR 004,
-Decision 6). The `ship` and `release` skills run a docs gate: the docs and agent files in
+The `release` skill prepares the promotion of `develop` to `main` with the account of failed CI
+runs (WDR 004, Decision 6); the maintainer merges it, and the agent then pushes the tag and
+checks the publish steps (WDR 004, Decision 8). The `ship` and `release` skills run a docs gate: the docs and agent files in
 `.koinon/skills/ship.md` agree with the code at the head (WDR 004, Decision 7).
 
 ## Commit conventions

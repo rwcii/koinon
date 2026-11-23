@@ -3,7 +3,7 @@ pdr: "008"
 title: "Portable Skills and Explicit Adoption"
 status: draft
 created: "2026-10-12"
-updated: "2026-11-17"
+updated: "2026-11-23"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -356,8 +356,9 @@ work: `preflight`, `provenance`, `refusal-audit`, `standards-review`, `record`,
 `sprint-closeout` and `standards-audit` (#732). Their steps are generic; each project's values
 come from the fact headings that each skill declares, in `.koinon/skills/NAME.md` of that
 project, as for the other skills (Decision 1). `koinon install` and the daemon write their
-`koinon-NAME` entries as for every catalog skill (Decision 2). Koinon offers these seven and
-adopts none of them for its own work; it has no fact file for them. LICENSE names "Robert Capps
+`koinon-NAME` entries as for every catalog skill (Decision 2). Koinon offers these seven. It
+adopts `preflight` for its own work (below) and none of the other six, so it has no fact file
+for them. LICENSE names "Robert Capps
 and Stratovera, LLC" as the copyright holder of Koinon, these skills included; the skills carry
 no notice of their own.
 
@@ -395,6 +396,19 @@ no notice of their own.
   LICENSE holder. The install script for a computer with no Koinon changes Decision 2 and has
   its own verdict (#732, chunk 02).
 
+**Koinon adopts `preflight` (#795):**
+
+- **Decided by:** Robert Capps. **Date:** 2026-11-23, terminal.
+- **Context:** the merge gates of WDR 004, Decision 8 require a preflight with the maintainer's
+  lenses on each pull request into `develop`.
+- **Decision:** the lenses: "security, code, standards, refusal", and "I approve your non
+  blocking controls proposed", which include a required `preflight` status. Koinon adopts
+  `preflight` with `.koinon/skills/preflight.md`, the lens policy
+  `.koinon/preflight/lenses.md`, `scripts/preflight-run.sh` and `scripts/preflight-publish.sh`.
+  The skill text does not change.
+- **Reason and scope:** a fresh read of each change in four lenses before the independent
+  reviews. The other six procedures stay offered and not adopted.
+
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
@@ -430,4 +444,5 @@ drift defect are ordinary corrections; they add no product decision.
 | 2026-10-23 | Decisions 1 and 2: an entry for every catalog skill, also for OpenCode and agy when their configuration directory exists (#461) |
 | 2026-10-25 | Requirements and Decisions 1–4: removed the unsourced approval step, the fact-file and catalog caveats and the "grant no permission" text; the verified-root report and the install's bare-name and symbolic-link handling are stated as code facts (#487) |
 | 2026-11-17 | Decision 5: seven procedures that an adopting project brought, offered in the catalog; LICENSE names Robert Capps and Stratovera, LLC (#732) |
+| 2026-11-23 | Decision 5: Koinon adopts `preflight` for its own work (#795) |
 | 2026-11-17 | Decision 2: a script installs the full skill text of one pinned release on a computer with no Koinon (#732) |
