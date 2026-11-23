@@ -3,6 +3,7 @@ package contributor
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -13,9 +14,10 @@ import (
 
 // A sprint plan's chunk table gives each chunk's "Depends on" and "Owns", and its "Parallel
 // view" lists groups of chunks that can run at the same time (#795, WDR 002, Decision 7).
-// checkSprintPlan returns each fault of that view: a chunk in no group or in two groups, a
-// group with an unknown chunk, a dependency that is not in an earlier group, and two chunks
-// of one group that own an item in common.
+// checkSprintPlan returns each fault of that view: a chunk with two rows or no owned item, a
+// group number below 1 or with two rows, a chunk in no group or in two groups, a group with an
+// unknown chunk, a dependency that is not in an earlier group, and two chunks of one group
+// that own an item in common.
 
 type sprintChunk struct {
 	deps  []string
@@ -23,17 +25,22 @@ type sprintChunk struct {
 	group int
 }
 
-// ownedItem is one comma-separated entry of an Owns cell: the paths in its backticks, the
-// decision records that it names, or, when it has neither, its text.
+// ownedItem is one comma-separated entry of an Owns cell: the paths in its backticks and the
+// decision records that it names, or, when it has neither, its text. A record is held as the
+// path of its file without the title, such as docs/engineering/wdr/002, so that the record's
+// name, its file and its series directory overlap.
 type ownedItem struct {
-	paths   []string
-	records []string
-	name    string
+	paths []string
+	name  string
 }
+
+// recordSeries maps a record kind to the directory of its series.
+var recordSeries = map[string]string{"ADR": "docs/architecture/adr", "PDR": "docs/product/pdr", "WDR": "docs/engineering/wdr"}
 
 var (
 	chunkNumber  = regexp.MustCompile(`^\[?(\d{2})\b`)
 	recordName   = regexp.MustCompile(`\b(ADR|PDR|WDR) ?(\d+)\b`)
+	recordFile   = regexp.MustCompile(`^(docs/(?:architecture/adr|product/pdr|engineering/wdr)/\d{3})-[^/]*$`)
 	backticked   = regexp.MustCompile("`([^`]+)`")
 	parallelHead = regexp.MustCompile(`(?m)^#{2,3} Parallel view\s*$`)
 )
@@ -99,15 +106,19 @@ func splitOwned(cell string) []string {
 func parseOwned(text string) ownedItem {
 	var item ownedItem
 	for _, m := range backticked.FindAllStringSubmatch(text, -1) {
-		if p := strings.TrimSuffix(m[1], "/"); strings.ContainsAny(p, "/.") {
-			item.paths = append(item.paths, filepath.ToSlash(filepath.Clean(p)))
+		if strings.ContainsAny(m[1], "/.") {
+			p := path.Clean(strings.TrimPrefix(m[1], "./"))
+			if f := recordFile.FindStringSubmatch(p); f != nil {
+				p = f[1]
+			}
+			item.paths = append(item.paths, p)
 		}
 	}
 	for _, m := range recordName.FindAllStringSubmatch(backticked.ReplaceAllString(text, ""), -1) {
 		n, _ := strconv.Atoi(m[2])
-		item.records = append(item.records, fmt.Sprintf("%s %03d", m[1], n))
+		item.paths = append(item.paths, fmt.Sprintf("%s/%03d", recordSeries[m[1]], n))
 	}
-	if len(item.paths) == 0 && len(item.records) == 0 {
+	if len(item.paths) == 0 {
 		item.name = strings.ToLower(strings.Join(strings.Fields(text), " "))
 	}
 	return item
@@ -124,13 +135,6 @@ func overlap(a, b ownedItem) string {
 		for _, q := range b.paths {
 			if holds(p, q) || holds(q, p) {
 				return p + " and " + q
-			}
-		}
-	}
-	for _, r := range a.records {
-		for _, s := range b.records {
-			if r == s {
-				return r
 			}
 		}
 	}
@@ -170,6 +174,10 @@ func checkSprintPlan(text string) []string {
 			faults = append(faults, "chunk cell without a number: "+row[ci])
 			continue
 		}
+		if chunks[m[1]] != nil {
+			faults = append(faults, "chunk "+m[1]+" has two rows")
+			continue
+		}
 		c := &sprintChunk{}
 		if dep := strings.TrimSpace(row[di]); !strings.EqualFold(dep, "none") {
 			for _, d := range strings.Split(dep, ",") {
@@ -179,10 +187,16 @@ func checkSprintPlan(text string) []string {
 		for _, item := range splitOwned(row[oi]) {
 			c.owns = append(c.owns, parseOwned(item))
 		}
+		if len(c.owns) == 0 {
+			faults = append(faults, "chunk "+m[1]+" owns nothing")
+		}
 		chunks[m[1]] = c
 		order = append(order, m[1])
 	}
 
+	if len(chunks) == 0 {
+		return append(faults, "no chunk rows in the chunk table")
+	}
 	groups := tableRows(lines[viewLine+1:])
 	if len(groups) == 0 {
 		return append(faults, "no group table under the Parallel view")
@@ -199,10 +213,15 @@ func checkSprintPlan(text string) []string {
 			continue
 		}
 		g, err := strconv.Atoi(row[gi])
-		if err != nil {
-			faults = append(faults, "group without a number: "+row[gi])
+		if err != nil || g < 1 {
+			faults = append(faults, "group without a number from 1: "+row[gi])
 			continue
 		}
+		if _, seen := members[g]; seen {
+			faults = append(faults, fmt.Sprintf("group %d has two rows", g))
+			continue
+		}
+		members[g] = nil
 		groupOrder = append(groupOrder, g)
 		for _, n := range strings.Split(row[gc], ",") {
 			n = strings.TrimSpace(n)
@@ -278,17 +297,6 @@ func TestSprintPlansHaveValidParallelViews(t *testing.T) {
 		t.Fatal("no sprint plan with a Parallel view; the Orca integration plan has one")
 	}
 
-	// The Orca plan with chunk 03 moved into group 1 must fail, so the check reads that plan.
-	orca := read(t, "docs/sprints/2026-11-23-orca-integration/sprint.md")
-	for old, new := range map[string]string{"| 1 | 01, 02, 04, 05 |": "| 1 | 01, 02, 03, 04, 05 |", "| 2 | 03, 06 |": "| 2 | 06 |"} {
-		if !strings.Contains(orca, old) {
-			t.Fatalf("the Orca plan has no %q", old)
-		}
-		orca = strings.Replace(orca, old, new, 1)
-	}
-	if faults := strings.Join(checkSprintPlan(orca), "\n"); !strings.Contains(faults, "chunk 03 in group 1 depends on chunk 01 in group 1") {
-		t.Fatalf("moved chunk 03 gave %q", faults)
-	}
 }
 
 const goodPlan = `# Plan
@@ -322,14 +330,22 @@ func TestSprintPlanCheckControls(t *testing.T) {
 		name, plan, want string
 	}{
 		{"chunk in two groups", replace("| 1 | 01, 02 |", "| 1 | 01, 02, 03 |"), "chunk 03 is in groups 1 and 2"},
-		{"dependency in the same group", replace("| 2 | 03 |", "| 1 | 03 |"), "chunk 03 in group 1 depends on chunk 01 in group 1"},
+		{"dependency in the same group", rep(replace("| 1 | 01, 02 |", "| 1 | 01, 02, 03 |"), "| 2 | 03 | needs 01 and 02 |\n", ""), "chunk 03 in group 1 depends on chunk 01 in group 1"},
 		{"dependency in a later group", rep(replace("| 1 | 01, 02 |", "| 1 | 01 |"), "| 2 | 03 | needs 01 and 02 |", "| 2 | 03 | x |\n| 3 | 02 | y |"), "chunk 03 in group 2 depends on chunk 02 in group 3"},
 		{"chunk in no group", replace("| 2 | 03 | needs 01 and 02 |\n", ""), "chunk 03 is in no group"},
 		{"unknown chunk", replace("| 2 | 03 |", "| 2 | 03, 07 |"), "unknown chunk 07"},
 		{"unknown dependency", replace("| 01, 02 |", "| 01, 09 |"), "depends on unknown chunk 09"},
 		{"same file", replace("`internal/a/`,", "`internal/a/`, `cmd/main.go`,"), "chunks 01 and 02 both own cmd/main.go and cmd/main.go"},
 		{"directory and a file in it", replace("`internal/b/b.go`", "`internal/a/x/y.go`"), "both own internal/a and internal/a/x/y.go"},
-		{"same record", replace(", PDR 011 |", ", WDR 2 |"), "both own WDR 002"},
+		{"same record", replace(", PDR 011 |", ", WDR 2 |"), "both own docs/engineering/wdr/002"},
+		{"record and its file", replace(", PDR 011 |", ", `docs/engineering/wdr/002-authority.md` |"), "both own docs/engineering/wdr/002"},
+		{"record and its series directory", replace(", PDR 011 |", ", `docs/engineering/wdr/` |"), "both own docs/engineering/wdr/002 and docs/engineering/wdr"},
+		{"top-level directory", replace("`internal/a/`,", "`internal/`,"), "both own internal and internal/b/b.go"},
+		{"two rows for one chunk", replace("| [03 Three]", "| [02 Again](chunks/02-again.md) | b | b | none | `x/y.go` |\n| [03 Three]"), "chunk 02 has two rows"},
+		{"empty owns", replace("| none | `internal/b/b.go`, the `x` entry of `cmd/main.go`, PDR 011 |", "| none |  |"), "chunk 02 owns nothing"},
+		{"owns none", replace("| none | `internal/b/b.go`, the `x` entry of `cmd/main.go`, PDR 011 |", "| none | none |"), "chunk 02 owns nothing"},
+		{"group below 1", replace("| 2 | 03 |", "| -1 | 03 |"), "group without a number from 1: -1"},
+		{"two rows for one group", replace("| 2 | 03 |", "| 1 | 03 |"), "group 1 has two rows"},
 		{"same named item", rep(replace("`internal/a/`, WDR 002 |", "`internal/a/`, USAGE \"Run\" |"), ", PDR 011 |", ", usage  \"Run\" |"), "both own usage \"run\""},
 		{"no parallel view", replace("## Parallel view", "## Order"), "no Parallel view heading"},
 	} {

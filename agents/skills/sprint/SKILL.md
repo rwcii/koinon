@@ -27,9 +27,9 @@ as the changelog, below the table as not owned. Under a "## Parallel view" headi
 with the columns Group and Chunks: group 1 holds the chunks with no dependency, and each later
 group holds chunks whose dependencies are in earlier groups. Two chunks of one group own no item
 in common; two items are common when they are the same path, when one is a directory that holds
-the other, or when they name the same record. Each chunk is in one group. A coordinator
-dispatches a chunk when its dependencies have merged and no chunk in progress owns an item in
-common with it (WDR 002, Decision 7). Commit the plan
+the other, or when they name the same record, by its name or by its file. Each chunk is in one
+group. A coordinator dispatches a chunk when its dependencies have merged and no chunk in
+progress owns an item in common with it (WDR 002, Decision 7). Commit the plan
 under project policy, and have the other agent family review that hash with peer-review. Record
 each finding and its disposition in review.md; changed scope or tests get a bounded review.
 Build the chunks with ship and the project's Build checks, in dependency order. Correct the plan

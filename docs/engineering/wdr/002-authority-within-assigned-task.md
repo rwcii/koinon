@@ -333,7 +333,7 @@ Now the release evidence and its independent review show that the release instal
   plan hash is unchanged." The `sprint` skill writes the chunk table with the columns Depends on
   and Owns, and a "Parallel view" with numbered groups. Two owned items overlap when they are
   the same path, when one is a directory that holds the other, or when they name the same
-  record. Shared files that every chunk adds lines to are named as not owned. A contributor
+  record, by its name or by its file. Shared files that every chunk adds lines to are named as not owned. A contributor
   test checks each plan with a parallel view
   (`internal/contributor/sprint_plan_test.go`).
 - **Reason and scope:** two or more pairs can build the independent chunks of one plan at the
