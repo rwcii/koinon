@@ -37,7 +37,7 @@ scripts/preflight-publish.sh PR. A new head needs a new run (WDR 004, Decision 8
 ## Merge approval
 A board approval for each pull request into develop (WDR 004, Decision 8). After peer-review
 and refusal-review pass on the frozen head, put a card on the decision board whose Where field
-names the target rwcii/koinon#N@FULLHEAD, and whose context gives the preflight result and
+is exactly rwcii/koinon#N@FULLHEAD, and whose context gives the preflight result and
 each open preflight finding with what you did about it. After the maintainer approves it, run
 scripts/board-verdict.sh --as FAMILY:ID PR HEAD REFERENCE, which posts the board-verdict status
 on that head.

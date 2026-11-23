@@ -7,8 +7,8 @@
 # --as names the calling Koinon session, as for other koinon commands. The script reads the
 # card with koinon decision get, and posts the status only when:
 #   - the card's current verdict is "approved", for the card's current revision;
-#   - the Where field that the maintainer approved names the target OWNER/REPO#PR@HEAD, with
-#     this repository, the pull request and the full HEAD (other card text can name other
+#   - the Where field that the maintainer approved is exactly the target OWNER/REPO#PR@HEAD,
+#     with this repository, the pull request and the full HEAD (other card text can name other
 #     heads and pull requests);
 #   - the pull request's head is HEAD.
 # It then reads the status back. A new head needs a new card or a new revision.
@@ -45,8 +45,8 @@ approved=$(printf '%s' "$card" | jq -r '.result.verdict.revision')
 repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner) || die "cannot read the repository name"
 target="$repo#$pr@$head"
 where=$(printf '%s' "$card" | jq -r '.result.verdict.snapshot.where // ""')
-printf '%s\n' "$where" | grep -Fq -- "$target" ||
-	die "the approved Where field of card $reference does not name the target $target"
+[ "$where" = "$target" ] ||
+	die "the approved Where field of card $reference is not the target $target"
 
 current=$(gh pr view "$pr" --json headRefOid --jq .headRefOid) || die "cannot read pull request #$pr"
 [ "$current" = "$head" ] || die "pull request #$pr is at $current, not $head; a new head needs a new card"

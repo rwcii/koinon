@@ -63,7 +63,7 @@ private tmux servers (WDR 006).
   frozen head with no forge credential; the publish step posts one result comment and the
   `preflight` status on that head. PDR 008, Decision 5 changes for Koinon's own adoption.
 - `ship`: after the reviews pass, the author puts a card on the board that names the pull
-  request and its exact head as the target `OWNER/REPO#PR@HEAD` in its Where field; after the
+  request and its exact head as its Where field, exactly `OWNER/REPO#PR@HEAD`; after the
   approval, it posts `board-verdict` on that head with the card reference; a new head needs a
   new card. A test of the posting tool refuses a verdict whose head differs.
 - `release`: stops when the promotion pull request and its evidence are ready, reports to

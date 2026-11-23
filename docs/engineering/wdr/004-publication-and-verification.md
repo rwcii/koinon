@@ -489,13 +489,13 @@ worker and publish details are the agents' design, below):
 - The `preflight` status is `success` only when all four lenses approve, and `failure` on a
   REJECT or a failed lens. It informs the maintainer and is not a required check.
 - After `peer-review` and `refusal-review` pass, the author puts a card on the decision board
-  whose Where field names the target `OWNER/REPO#PR@HEAD`, with the full head, and whose
+  whose Where field is exactly the target `OWNER/REPO#PR@HEAD`, with the full head, and whose
   context gives the preflight result and each open preflight finding with what the author did
   about it. After the maintainer approves it, `scripts/board-verdict.sh` reads the card, checks
-  that the approval is for the card's current revision and that its approved Where field names
-  the target of this repository, pull request and head, checks the pull request's head, and
-  posts the `board-verdict` commit status. A new head needs a new card or revision. The
-  required status holds the merge, so the author can set auto-merge before it posts.
+  that the approval is for the card's current revision and that its approved Where field is the
+  target of this repository, pull request and head, checks the pull request's head, and posts
+  the `board-verdict` commit status. A new head needs a new card or revision. The required
+  status holds the merge, so the author can set auto-merge before it posts.
 - The `release` skill stops when the promotion pull request and its evidence are ready and
   reports to the maintainer. The maintainer merges into `main`; the agent then pushes the tag
   and checks the publish steps.

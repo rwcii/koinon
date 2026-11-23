@@ -32,12 +32,12 @@ In short:
   Decision 3; WDR 001, Decision 6).
 - Before a pull request into `develop` opens, its author runs the `preflight` skill: four lenses
   (security, code, standards, refusal), each in a fresh worker that writes nothing, with
-  `scripts/preflight-run.sh`; after it opens, `scripts/preflight-publish.sh PR` posts the
-  result and the `preflight` status on the head. After the reviews pass, the author
-  puts a card on the decision board whose Where field names `OWNER/REPO#PR@HEAD`; after the
-  maintainer approves it, `scripts/board-verdict.sh --as FAMILY:ID PR HEAD REFERENCE` posts
-  the `board-verdict` status (WDR 004, Decision 8). `scripts/setup-repo.sh` makes
-  `board-verdict` required on `develop`; `preflight` shows its result and is not required.
+  `scripts/preflight-run.sh`; after it opens, `scripts/preflight-publish.sh PR` posts the result
+  and the `preflight` status on the head. After the reviews pass, the author puts a card on the
+  decision board whose Where field is exactly `OWNER/REPO#PR@HEAD`; after the maintainer
+  approves it, `scripts/board-verdict.sh --as FAMILY:ID PR HEAD REFERENCE` posts the
+  `board-verdict` status (WDR 004, Decision 8). `scripts/setup-repo.sh` makes `board-verdict`
+  required on `develop`; `preflight` shows its result and is not required.
 - Pull requests into `develop` set squash auto-merge (WDR 004, Decision 4); the required
   `board-verdict` status holds the merge until the maintainer's approval.
 - Merged working branches are deleted automatically; long-lived branches are protected.

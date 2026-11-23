@@ -12,7 +12,7 @@ into a dated release section when promoted to `main`.
   `scripts/preflight-publish.sh` posts one comment and the `preflight` status on the pull
   request's head, after it checks the result's base and each report for secrets, private paths
   and email addresses, with each report in a fenced block. After the reviews, the maintainer
-  approves a card whose Where field names the target `OWNER/REPO#PR@HEAD`, and
+  approves a card whose Where field is exactly the target `OWNER/REPO#PR@HEAD`, and
   `scripts/board-verdict.sh` posts the `board-verdict` status on that head. The `release` skill
   stops when the promotion pull request is ready, and the maintainer merges into `main`. The
   `ship` and `release` skills take these steps from the new optional facts "Merge approval" and
