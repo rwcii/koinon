@@ -63,7 +63,7 @@ gh pr merge --auto --squash
 ```
 
 The `release` skill promotes `develop` to `main` with the account of failed CI runs (WDR 004,
-Decision 6). The `ship` skill runs a docs gate: the docs and agent files in
+Decision 6). The `ship` and `release` skills run a docs gate: the docs and agent files in
 `.koinon/skills/ship.md` agree with the code at the head (WDR 004, Decision 7).
 
 ## Commit conventions

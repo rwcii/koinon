@@ -424,22 +424,25 @@ frozen and before the other checks: the author lists the user-visible changes ag
 base, reads each listed file at the head (first the parts that describe a changed item, then
 the rest), corrects each statement that the code contradicts, describes each new user-visible
 feature, makes the versions, release names and skill lists agree with the code, and commits the
-corrections in the same change. The optional repository fact "Docs and agent files" names the
-files; its default is the README, the user docs, the agent instruction files and the project's
-skills. Koinon's `.koinon/skills/ship.md` names Koinon's own files.
+corrections in the same change. The `release` skill runs the same gate on the candidate, with
+the released baseline as its base, and merges its corrections before the promotion. The
+optional repository fact "Docs and agent files" names the files; its default is the README, the
+user docs, the agent instruction files and the project's skills. Koinon's
+`.koinon/skills/ship.md` and `.koinon/skills/release.md` name Koinon's own files.
 
 - Decided by: Robert Capps, 2026-11-23, in a Claude Code terminal session: "can you validate
   that the main readme and other in-repo docs are consistent with the current repo. the main
   readme is out of sync with current features. a few more fixes, the preflight and ship should
   include a gate to validate that the project docs and agents files are all up to date with the
-  release version of the code".
+  release version of the code". The first change put the gate in `preflight` and `ship` only;
+  to the question whether the `release` skill should run the docs gate too, Robert Capps,
+  2026-11-23: "yes, add the docs gate to release too".
 - Context: the README did not describe rooms, the decision board, context cycles, the skills
   catalog or signed answers, and cited a closed issue and a deprecated decision (#791). No
   step of `check`, `preflight`, `ship` or `release` compared the docs with the code.
 - Reason and scope: a docs fix in the same change keeps the docs and the code in step, so the
-  docs on develop match the code that the next release publishes. The gate is in `preflight`
-  and `ship`, the two skills that the maintainer named; the `release` skill has no separate
-  docs gate. The gate is a step of the author; it does not replace the independent reviews. A
+  docs on develop match the code that the next release publishes; the release gate checks the
+  whole candidate against the version that it publishes. The gate is a step of the author; it does not replace the independent reviews. A
   historical document that says so is out of scope.
 - Review when: a deterministic check can compare a doc with the code, for example the skill
   lists with the catalog.
@@ -457,10 +460,11 @@ skills. Koinon's `.koinon/skills/ship.md` names Koinon's own files.
 
 1. The author of a change knows which docs it affects.
 2. A read of every listed file at each change finds what an earlier change missed.
+3. The release gate finds what the changes since the released baseline missed together.
 
 ### Enforcement
 
-Practice only: the `preflight` and `ship` skills and their review evidence. No CI
+Practice only: the `preflight`, `ship` and `release` skills and their review evidence. No CI
 job checks the docs.
 
 ---
@@ -470,7 +474,7 @@ job checks the docs.
 Koinon currently publishes through one squash pull request at a time into `develop`, on a head
 merged with the latest `develop`, with the Linux and macOS checks and a commit-bound
 `peer-review` status required, and auto-merge set; a release lists the failed CI runs since the
-last one, and each change passes the docs gate. GitHub rulesets enforce the branch,
+last one, and each change and release passes the docs gate. GitHub rulesets enforce the branch,
 check and up-to-date rules; one open pull request, the merge of `develop` into a published
 branch, signing and DCO are practice. The pull request order, auto-merge, commit identity,
 naming, the failed-run account and the docs gate are the maintainer's choices; the rest waits
@@ -488,3 +492,4 @@ for the maintainer's decision.
 | 2026-10-26 | #493: Decision 3 cites the maintainer's verdict that keeps the required `peer-review` and `refusal-review` statuses (493-5 in WDR 001, Decision 6); Decision 1 cites the verdict that keeps the `pre-commit` block (493-6) |
 | 2026-11-06 | Decision 6: the rerun of CI jobs that no runner acquired (#630) |
 | 2026-11-23 | Decision 7: a docs gate in `preflight` and `ship` (#792) |
+| 2026-11-23 | Decision 7: the docs gate in `release` too |

@@ -9,7 +9,8 @@ into a dated release section when promoted to `main`.
   head is frozen and before the other checks, the author reads the README, the user docs, the
   agent instruction files and the skills at the head, compares them with the code, and
   corrects them in the same change. The new optional repository fact "Docs and agent files"
-  names the files.
+  names the files. The `release` skill runs the same gate on the candidate, with the released
+  baseline as its base, before the promotion.
 
 - The README describes rooms, the decision board, context cycles, the skills catalog and
   signed answers, and the docs name the MCP tools and checks that they left out (#791).
