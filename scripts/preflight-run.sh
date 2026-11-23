@@ -1,17 +1,21 @@
 #!/bin/sh
 # Run each preflight lens once on the committed head, each in a fresh agent worker with no forge
-# credential, and keep the reports (PDR 008, Decision 5; WDR 004, Decision 8). A claude worker
-# has only the Read, Grep and Glob tools, loads no settings, memory or instruction files, and
-# reads only its worktree; Claude Code still gives it the account's email address. A codex
-# worker runs in Codex's read-only sandbox, which can read outside the worktree. So the publish
-# script checks each report for secrets, private paths and email addresses before it posts it.
+# credential, and keep the reports (PDR 008, Decision 5; WDR 004, Decision 8).
 #
-# Usage: scripts/preflight-run.sh --family claude|codex [--base REF]
+# Usage: scripts/preflight-run.sh [--base REF]
 #
-# The lens policy is .koinon/preflight/lenses.md at the base commit: each "## NAME" section
-# is one enabled lens and its brief. The base default is origin/develop. Each worker runs in a
-# detached worktree of the head, outside this checkout. The reports go to
-# _preflight/HEAD/RUN/ in the main checkout, which Git ignores, or to $PREFLIGHT_REPORTS.
+# The worker is `claude -p` for an author of any family. It has only the Read, Grep and Glob
+# tools, loads no settings, auto-memory or instruction files, reads only its worktree and gets
+# no forge or Koinon variable; Claude Code still gives it the account's email address, which the
+# publish script refuses in a report. Codex's read-only sandbox can read outside the worktree,
+# so a codex worker is not used.
+#
+# The lens policy is .koinon/preflight/lenses.md at the merge base with REF: each "## NAME"
+# section is one enabled lens and its brief. The change that adopts the preflight brings the
+# first policy, so a base without one gives the head's. The base default is origin/develop. Each
+# worker runs in a detached worktree of the head, outside this checkout, with the change in
+# .preflight/change.diff. The reports go to _preflight/HEAD/RUN/ in the main checkout, which Git
+# ignores, or to $PREFLIGHT_REPORTS.
 # Exit status 0: every lens approves. 1: a lens rejects. 2: a lens failed or the run could not
 # start.
 set -eu
@@ -22,45 +26,30 @@ die() {
 	exit 2
 }
 
-family=
 base=origin/develop
 while [ $# -gt 0 ]; do
 	case $1 in
-	--family)
-		[ $# -ge 2 ] || die "--family needs claude or codex"
-		family=$2
-		shift 2
-		;;
 	--base)
 		[ $# -ge 2 ] || die "--base needs a ref"
 		base=$2
 		shift 2
 		;;
-	*) die "usage: scripts/preflight-run.sh --family claude|codex [--base REF]" ;;
+	*) die "usage: scripts/preflight-run.sh [--base REF]" ;;
 	esac
 done
-case $family in
-claude | codex) ;;
-*) die "--family must be claude or codex" ;;
-esac
 command -v jq >/dev/null || die "jq is required"
-command -v "$family" >/dev/null || die "$family is not on PATH"
+command -v claude >/dev/null || die "claude is not on PATH"
 
 [ -z "$(git status --porcelain --untracked-files=no)" ] || die "commit your change first: the run reviews commits, not the working tree"
 head=$(git rev-parse HEAD)
 base_sha=$(git rev-parse --verify "$base^{commit}") || die "unknown base $base"
 merge_base=$(git merge-base "$base_sha" "$head") || die "the head has no merge base with $base"
 [ "$merge_base" != "$head" ] || die "the head is already in $base; give the pull request's base branch"
-# A codex worker would read project configuration from the reviewed tree.
-if [ "$family" = codex ] && [ -n "$(git ls-tree -r --name-only "$head" -- .codex | grep -E '\.(toml|json)$' || true)" ]; then
-	die "the head tracks Codex configuration under .codex/; run the preflight with --family claude"
-fi
 policy_path=.koinon/preflight/lenses.md
 if git cat-file -e "$merge_base:$policy_path" 2>/dev/null; then
 	policy_source="the base ($merge_base)"
 	policy=$(git show "$merge_base:$policy_path")
 elif git cat-file -e "$head:$policy_path" 2>/dev/null; then
-	# The change that adopts preflight brings the first lens policy.
 	policy_source="the head; the base has no lens policy (first adoption)"
 	policy=$(git show "$head:$policy_path")
 else
@@ -69,12 +58,16 @@ fi
 lenses=$(printf '%s\n' "$policy" | sed -n 's/^## \([a-z][a-z0-9-]*\)[[:space:]]*$/\1/p')
 [ -n "$lenses" ] || die "the lens policy has no '## NAME' section"
 
-common=$(git rev-parse --path-format=absolute --git-common-dir)
-reports=${PREFLIGHT_REPORTS:-$(dirname "$common")/_preflight}
+reports=${PREFLIGHT_REPORTS:-}
+if [ -z "$reports" ]; then
+	common=$(git rev-parse --path-format=absolute --git-common-dir)
+	reports=$(dirname "$common")/_preflight
+fi
 run=$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%010d' "$$")
-out=$reports/$head/$run
-mkdir -p "$out"
+mkdir -p "$reports/$head/$run"
+out=$(cd "$reports/$head/$run" && pwd -P)
 work=$(mktemp -d "${TMPDIR:-/tmp}/preflight.XXXXXX")
+work=$(cd "$work" && pwd -P)
 cleanup() {
 	git worktree remove --force "$work/head" >/dev/null 2>&1 || true
 	rm -rf "$work"
@@ -83,9 +76,9 @@ trap cleanup EXIT
 trap 'exit 130' INT TERM
 git worktree add --quiet --detach "$work/head" "$head" || die "cannot make the frozen worktree"
 mkdir "$work/no-forge" "$work/head/.preflight"
-# The workers read the change from these files, so a claude worker needs no shell command.
-git diff "$merge_base...$head" >"$work/head/.preflight/change.diff"
-git log --format='%H %s' "$merge_base..$head" >"$work/head/.preflight/commits.txt"
+# The worker reads the change from these files. The person's diff settings do not shape them.
+git diff --no-ext-diff --no-color --no-textconv --src-prefix=a/ --dst-prefix=b/ "$merge_base...$head" >"$work/head/.preflight/change.diff"
+git log --no-color --format='%H %s' "$merge_base..$head" >"$work/head/.preflight/commits.txt"
 
 echo "preflight-run: head $head, base $base ($merge_base), lens policy from $policy_source"
 echo "preflight-run: reports in $out"
@@ -113,7 +106,6 @@ EOF
 	report=$out/$lens.md
 	usage=$out/$lens.usage.json
 	raw=$out/$lens.raw
-	# No forge credential reaches a worker, and no worker joins Koinon.
 	set +e
 	(
 		cd "$work/head" &&
@@ -122,31 +114,18 @@ EOF
 				-u CLAUDECODE -u CLAUDE_CODE_SESSION_ID -u CLAUDE_CODE_ENTRYPOINT \
 				GH_CONFIG_DIR="$work/no-forge" GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=/bin/false \
 				CLAUDE_CODE_DISABLE_AUTO_MEMORY=1 CLAUDE_CODE_DISABLE_CLAUDE_MDS=1 \
-				sh -c '
-				case $1 in
-				claude)
-					claude -p --output-format json --no-session-persistence --strict-mcp-config \
-						--setting-sources "" --disable-slash-commands --tools "Read,Grep,Glob" \
-						--permission-mode default <"$2" >"$3"
-					;;
-				codex)
-					codex exec --ephemeral --ignore-user-config --sandbox read-only --skip-git-repo-check \
-						-C . --json -o "$3.last" - <"$2" >"$3"
-					;;
-				esac' worker "$family" "$prompt" "$raw"
+				claude -p --output-format json --no-session-persistence --strict-mcp-config \
+				--setting-sources "" --disable-slash-commands --tools "Read,Grep,Glob" \
+				--permission-mode default <"$prompt" >"$raw"
 	)
 	worker=$?
 	set -e
 	reason=
 	if [ "$worker" -ne 0 ]; then
-		reason="the $family worker exited with status $worker"
-	elif [ "$family" = claude ]; then
+		reason="the claude worker exited with status $worker"
+	else
 		jq -r '.result // empty' "$raw" >"$report" 2>/dev/null || reason="the claude worker's answer is not JSON"
 		jq '{event_key: (.session_id // "unknown"), usage: (.usage // "unknown"), cost_usd: (.total_cost_usd // "unknown")}' \
-			"$raw" >"$usage" 2>/dev/null || echo '{"usage": "unknown"}' >"$usage"
-	else
-		cp "$raw.last" "$report" 2>/dev/null || reason="the codex worker wrote no last message"
-		jq -s '{event_key: ([.[] | .thread_id? // empty][0] // "unknown"), usage: ([.[] | select(.type == "turn.completed") | .usage][-1] // "unknown")}' \
 			"$raw" >"$usage" 2>/dev/null || echo '{"usage": "unknown"}' >"$usage"
 	fi
 	verdict=failed
@@ -175,8 +154,8 @@ EOF
 done
 
 printf '%s' "$results" | jq -s --arg head "$head" --arg base "$base" --arg merge_base "$merge_base" --arg run "$run" \
-	--arg family "$family" --arg policy "$policy_source" --argjson status "$status" \
-	'{head: $head, base: $base, merge_base: $merge_base, run: $run, family: $family, policy: $policy,
+	--arg policy "$policy_source" --argjson status "$status" \
+	'{head: $head, base: $base, merge_base: $merge_base, run: $run, family: "claude", policy: $policy,
 	  approved: ($status == 0), lenses: .}' >"$out/result.json"
 echo "preflight-run: result $out/result.json"
 exit "$status"
