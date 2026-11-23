@@ -3063,6 +3063,37 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     (`signer`) and the dashboard (`by USER (CLIENT)`) show, also after the key's removal; an
     agent's history shows neither. The audit record of a signed action ends with
     `by USER (CLIENT) key KEY_ID`.
+  - **Version 2 and signed answers** (#696). An envelope with `v` `koinon-maintainer-2` has the
+    same fields, values and checks as version 1, and its signature covers `koinon-maintainer-2`, a
+    newline and the RFC 8785 bytes. A version 1 envelope keeps its unsigned answers. Version 1
+    and version 2 share the receipts: the same `request` in the other version is
+    `request_conflict`, and a version 2 `outcome` reads a version 1 receipt. Each answer to a
+    version 2 envelope that the computer could parse is one signed object with exactly `v`
+    (`koinon-answer-2`), `signer` (`target` or `node`), `pin` (the signer's pin), `public_key`
+    (the padded standard base64 of the signer's link key as DER SubjectPublicKeyInfo, whose hex
+    SHA-256 is `pin`), `request` (the hex SHA-256 of the envelope's signed bytes), `status` (the
+    answer's HTTP status, 200 to 599), `answer` (the exact JSON text of the version 1 answer) and
+    `sig`: the padded standard base64 Ed25519 signature, with the link key, of
+    `koinon-answer-2`, a newline and the RFC 8785 bytes of the object without `sig`. The computer
+    whose pin is the envelope's `target` signs as `target`: reads, writes, refusals of the
+    envelope, `outcome`, `changes`, and `session` on the Remote listener, whose `answer` is the
+    flat token object. The node signs as `node` only its own claims, each with `ok` false:
+    `computer_offline`, `outcome_unknown`, `signature_refused` with reason `target`,
+    `invalid_request`, `too_large`, and the other computer's link refusals. The node takes from
+    the link, for a version 2 envelope, only the target's signed object with the reply's
+    `status`, or the unsigned `signature_refused` with reason `version` of a computer of an
+    earlier release, and returns either unchanged. Unsigned stay: the local session route and
+    the first line of `koinon mcp --maintainer --signed`; `maintainer_token_expired`,
+    `too_many_calls`, and a body that is not an envelope that parses as version 2. The Serve
+    route answers the signed object as its body with `status` as the HTTP status; the `signed`
+    tool answers it as its text, for a refusal too, without `isError`; the link carries it in
+    `maintainer-ok`. The 1 MiB answer bound counts the signed object as the link frame carries
+    it, escapes included. A client accepts an answer only when the object has this form, a
+    `target` answer has the envelope's `target` as `pin`, a `node` answer has the node's pin and
+    is one of its claims, `public_key` hashes to `pin`, `request` is its envelope's digest,
+    `sig` checks, and the `ok` of `answer` agrees with `status`; it then uses `status` and
+    `answer` only (`signed.VerifyAnswer`). The test vectors are in
+    `docs/sprints/2026-11-22-signed-answers/contract.md`, section 5.
 - **Request protection.** Every loopback dashboard request must name a literal loopback IP with a port in
   `Host` (`127.0.0.1:PORT` or `[::1]:PORT`; `localhost` and other names are refused). PORT may
   differ from the listener's, as through an SSH tunnel from another local port (ADR 001,

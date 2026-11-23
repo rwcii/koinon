@@ -9,7 +9,9 @@ Documentation and records; Checks and evidence).
 A client that signs a version 2 envelope gets an answer that the target signed with its link
 key, or a claim that the node signed with its own. It can check each one against the pins that
 it enrolled. Version 1 works as before. Go and Koinon Voice check the same vectors. The live
-check with a Koinon Voice build is recorded.
+check with a Koinon Voice build is recorded. Robert Capps decided on 2026-11-23 to run it first
+with a Go v2 test client and the Voice part after koinon-voice#41 (#789;
+`../verification.md`).
 
 ## Work
 

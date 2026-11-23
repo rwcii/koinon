@@ -131,7 +131,7 @@ func TestParseRefusals(t *testing.T) {
 		"null":          strings.Replace(string(good), `"after":0`, `"after":null`, 1),
 		"array":         strings.Replace(string(good), `"after":0`, `"after":[0]`, 1),
 		"big integer":   strings.Replace(string(good), `"after":0`, `"after":9007199254740992`, 1),
-		"version":       strings.Replace(string(good), Version, "koinon-maintainer-2", 1),
+		"version":       strings.Replace(string(good), Version, "koinon-maintainer-3", 1),
 		"short request": strings.Replace(string(good), "request-0000000001", "short", 1),
 		"two objects":   string(good) + "{}",
 		"too large":     strings.Replace(string(good), `"after":0`, `"after":0,"pad":"`+strings.Repeat("a", MaxEnvelopeBytes)+`"`, 1),
