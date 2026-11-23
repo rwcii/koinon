@@ -34,11 +34,11 @@ private tmux servers (WDR 006).
   tmux session is `<family>-<repo>` is corrected there: the session name includes the role.
 - `pair` says that the observer makes its own detached worktree of the frozen checkpoint,
   outside the driver's worktree, and removes it after the review.
-- Live check: on a computer with Orca, one Claude and one Codex member launched through
+- Live check (gates the sprint's completion, not this chunk's merge): on a computer with Orca, one Claude and one Codex member launched through
   `orca terminal create ... --command "koinon <family> --directory DIR --role ROLE"` register,
   show their panes in Orca, receive a Koinon message and a wake, and `coordinate` reads their
-  panes. The result goes into `verification.md`. If no computer has Orca when the chunk is
-  ready, the check goes into a tracked issue and the chunk merges with the synthetic tests.
+  panes. The result goes into `verification.md`. The chunk can merge with its synthetic tests
+  before that; the sprint is not complete until the live check passes (`sprint.md`).
 
 ## `coordinate` as the Captain (chunk 03)
 
@@ -69,18 +69,26 @@ private tmux servers (WDR 006).
 - `release`: stops when the promotion pull request and its evidence are ready, reports to
   the maintainer, and after the maintainer's merge pushes the tag and checks the publish.
   No skill text tells an agent to merge into `main`; a contributor test checks that.
-- The `develop` ruleset requires `preflight` and `board-verdict`, applied after the
-  maintainer's go in this chunk's pull request; `scripts/setup-repo.sh` declares it.
-- WDR 004 records the gates with the maintainer's words; WDR 002, Decision 6 and the
-  `sprint-closeout` policy check name the change.
+- The gates are opt-in project policy: new optional facts "Merge approval" (ship) and
+  "Promotion merge" (release), whose defaults keep today's steps; Koinon's facts opt in. A
+  project without them is not changed.
+- Rollout: the chunk's own pull request is the first use of `preflight` and `board-verdict`.
+  The `develop` ruleset requires them after the merge, with the maintainer's go, read back
+  with the rulesets API; until then they are posted, not required.
+- WDR 004 records the gates with the maintainer's words.
 
 ## Fleet Decisions (chunk 05)
 
 - The fleet role: `koinon fleet enable` on a separate install or an existing node, an admin
-  password set at that step (at least 12 characters), and a new Ed25519 client key stored
-  encrypted with a key derived from the admin password (a memory-hard KDF with its parameters
-  stored beside it); the clear key is never written. `koinon fleet enroll` writes the enroll
-  statement for each node's `koinon maintainer key add`.
+  password set at that step (the same length rule as the maintainer secret,
+  `internal/core/maintainer_secret.go`), and a new Ed25519 client key stored encrypted with a
+  key derived from the admin password (a memory-hard KDF with its parameters stored beside it);
+  the clear key is never written. `koinon fleet enroll` writes the enroll statement for each
+  node's `koinon maintainer key add`.
+- Reads: as the maintainer decides on the read authentication (decision board, pending when
+  this plan was written); the plan's recommendation is a second key with scope `read`, stored
+  like the node's private keys, used for every read; a read-scoped key is refused for every
+  write. The page loads, refreshes after a stale revision, and filters with reads only.
 - The top navigation shows **Fleet** when the role is on, with Fleet Decisions: the layout of
   the Decisions page, each row with its node, and a node filter (all, or one node). The page
   reads each paired node's board live with signed `board_list` and `decision_get`; a node that
@@ -89,7 +97,15 @@ private tmux servers (WDR 006).
   only, sends a version 2 signed `decision_verdict` for that node with the card's revision and
   snapshot digest, verifies the signed answer (`signed.VerifyAnswer`), and writes the board's
   audit record. The node records `by USER (fleet-board)` and its own audit record.
-- Tests: a wrong admin password unlocks nothing and sends nothing; a verdict on a stale
+- A node that does not answer: `computer_offline` before the send means nothing ran, and the
+  page says the node is unreachable and the card still waits there; nothing is queued (the
+  card waits on its node, as the approved design says). `outcome_unknown` after the send: the
+  page shows the outcome as unknown and checks it with a signed `outcome` read when the node
+  answers again; the same envelope sent again gives the first answer.
+- Tests: a wrong admin password unlocks nothing and sends nothing; the read path signs
+  reads only, and a write with the read key is refused; a node that goes away before the
+  answer shows `outcome_unknown`, and the outcome read after it reconnects shows the recorded
+  verdict; a repeated action gives the first answer; a verdict on a stale
   revision is refused and the page reads again; an unsigned, mis-signed or wrongly targeted
   envelope is refused by the node; a node secret alone cannot make a fleet action; a node that
   does not answer is unreachable; the key file holds no clear key. Two live nodes on Linux and
@@ -104,6 +120,9 @@ private tmux servers (WDR 006).
   node with the key's user and client.
 - Fleet Sessions: the layout of the Sessions page, each row with its node, a node filter, and
   the session actions; each action asks for the admin password and is signed for one node.
+  The board writes its own audit record for each action. A node that does not answer is
+  handled as in Fleet Decisions: unreachable before the send, unknown outcome after it, with
+  the outcome read when the node answers again.
 - Tests for each operation: success, stale revision, unknown session, a key without access,
   version 1 refused, the repeat gives the first answer, and the board's verification of the
   signed answer. PROTOCOL.md documents the operations.

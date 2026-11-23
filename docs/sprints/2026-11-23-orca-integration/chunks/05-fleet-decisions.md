@@ -17,7 +17,12 @@ the admin password and is signed by the fleet board's own key for one node and r
    check with `signed.VerifyAnswer`).
 2. `cmd/koinon/fleet.go`: `koinon fleet enable` (asks for the admin password twice, makes the
    key), `koinon fleet enroll` (writes the enroll statement for a node), `koinon fleet status`,
-   `koinon fleet disable` (removes the key after a confirmation).
+   `koinon fleet disable` (removes the keys).
+2a. Reads: the read authentication that the maintainer decides (pending card; recommendation:
+   a second key with scope `read`, and a key scope in `internal/core/maintainer_keys.go` that
+   refuses writes for it).
+2b. Unreachable node: unreachable before the send, unknown outcome after it, the outcome read
+   when the node answers again; nothing queued.
 3. Dashboard: the **Fleet** item in the navigation when the role is on; Fleet Decisions with
    the Decisions page layout, each row's node, a node filter, unreachable nodes shown as such;
    the node's own cards read locally; the verdict form asks for the admin password.

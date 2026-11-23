@@ -21,8 +21,8 @@ observer reproduces findings.
    launcher, not the agent.
 3. `agents/skills/pair/SKILL.md`: the observer's scratch copy is a detached worktree of the
    frozen checkpoint outside the driver's worktree, made and removed by the observer.
-4. The live check on a computer with Orca, into `../verification.md`, or a tracked issue if
-   no computer has Orca when the chunk is ready.
+4. The live check on a computer with Orca, into `../verification.md`. It gates the sprint's
+   completion, not this chunk's merge (`../sprint.md`).
 5. Records: PDR 001 (participant addresses) records the role rule for pairs; WDR 003 (pairing)
    records the scratch copy; CHANGELOG.
 

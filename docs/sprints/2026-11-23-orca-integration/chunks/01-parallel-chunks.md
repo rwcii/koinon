@@ -20,7 +20,9 @@ breaks either rule.
 2. `internal/contributor/sprint_plan_test.go`: parse each `docs/sprints/*/sprint.md` that has
    a "Parallel view" heading; fail on a chunk whose dependency is in the same or a later
    group, on two chunks of one group with a common owned item, and on a chunk that is in no
-   group. Synthetic control plans for each fault.
+   group. Two owned items overlap when they are the same path, when one is a directory that
+   holds the other, or when they name the same record. Synthetic control plans for each fault
+   and each kind of overlap (same file, directory and file under it, same record).
 3. Regenerate the OpenCode wrappers if the description changes; update the hash pins that the
    contributor tests keep, if any.
 4. Records and docs: WDR 002 (the sprint procedure source) records the format; the skills

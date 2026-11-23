@@ -26,11 +26,27 @@ the merge to `main`; the maintainer merges.
    changes its promotion path to match.
 4. `scripts/setup-repo.sh` declares `preflight` and `board-verdict` as required statuses on
    `develop`. The live ruleset changes only after the maintainer's go in this PR.
-5. Records and docs: WDR 004 (the gates, with the maintainer's words); WDR 002, Decision 6;
-   CONTRIBUTING; the skills README; CHANGELOG.
+5. Portable scope: the gates are project policy. `ship` gets the optional fact "Merge
+   approval" (default "none") and `release` the optional fact "Promotion merge" (default "the
+   promotion policy"); the board card, the `board-verdict` status and the stop before `main`
+   apply only when the facts say so. Koinon's `.koinon/skills/ship.md` and `release.md` opt in.
+6. Rollout: this chunk's own pull request runs the new preflight and posts `preflight` with
+   the scripts on its branch, and gets a board card and `board-verdict` on its head, as the
+   first use. The ruleset change comes after the merge, with the maintainer's go: the
+   maintainer runs `scripts/setup-repo.sh` or approves its run, and the result is read back
+   with `gh api repos/rwcii/koinon/rulesets`. Until then, the statuses are posted but not
+   required, and the skills still follow the rule.
+7. Records and docs: WDR 004 (the gates, with the maintainer's words); CONTRIBUTING; the skills
+   README; CHANGELOG.
 
 ## Tests
 
-Shell syntax checks for the new scripts; tests with a fake `gh` for the publish and verdict
-scripts (head mismatch, missing approval, declined card); a contributor test that no skill
-text tells an agent to merge into `main`.
+- Shell syntax checks for the new scripts.
+- Tests with a fake `gh` and a fake card store: the verdict script posts `board-verdict` for an
+  approval of the exact head, and refuses a different head, a missing approval and a declined
+  card; the publish script posts for the exact head and refuses another head.
+- A contributor test that no skill text tells an agent to merge into `main`, and that a facts
+  file without "Merge approval" and "Promotion merge" keeps today's ship and release steps.
+- The release path: a dry run against a fake `gh` stops before the merge, then, after a
+  simulated merge, pushes the tag and checks the publish runs; the first real release
+  (v0.13.4) is the live check, in `verification.md`.

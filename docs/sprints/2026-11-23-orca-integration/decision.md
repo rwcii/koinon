@@ -144,9 +144,11 @@ computers. Today:
    reports a work item with repeated attempts and no new checkpoint, compares each team check
    with the sprint's decision and definition of done, and records an escalated disagreement on
    the work item.
-4. A pull request into `develop` needs `preflight` and `board-verdict` on its exact head in
-   addition to the current checks; `ship` posts `board-verdict` only after it reads an approval
-   of a card that names that head; `release` stops before the merge to `main`.
+4. For a project whose facts opt in, as Koinon's do: a pull request into `develop` gets
+   `preflight` and `board-verdict` on its exact head, and the `develop` ruleset requires them
+   after the maintainer applies it; `ship` posts `board-verdict` only after it reads an
+   approval of a card that names that head; `release` stops before the merge to `main`. A
+   project without those facts keeps its current steps.
 5. The Fleet pages show the open cards and the sessions of every connected node, with a node
    filter; an unreachable node shows as unreachable; a verdict or session action needs the
    admin password, is signed by the fleet board's key for one node and revision, and is

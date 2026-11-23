@@ -16,7 +16,8 @@ page's actions on any of them, each signed by the fleet board for one node and r
    audit record with the key's user and client; forwarded over the link like the other
    signed operations.
 2. Fleet Sessions page: the Sessions page layout, each row's node, a node filter, unreachable
-   nodes shown as such, the actions with the admin password.
+   nodes shown as such, the actions with the admin password, the board's own audit record
+   for each action, and the unreachable and unknown-outcome handling of chunk 05.
 3. Records and docs: PDR 011; PROTOCOL (the operations); USAGE; CHANGELOG.
 
 ## Tests
