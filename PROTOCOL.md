@@ -2272,7 +2272,8 @@ project inspection. Recommendations select only verified missing/outdated skills
 by available features, with no decline, collision or decision-inspection limitation.
 
 Machine `library_decision` accepts item ID, adopted/declined choice, evidence text,
-catalog/item digests, typed pre-edit/result target digests and compared revision. The client
+catalog/item digests, typed pre-edit/result target digests and compared revision; an adoption
+needs at least one result target digest. The client
 fills native family/root metadata and calls `POST /v1/library/decision` internally;
 `POST /v1/library/decision/read` returns current state. `POST /v1/library/context` supplies
 the registered directory/common-directory context internally and is not a model tool.
@@ -2665,8 +2666,8 @@ directory. `library_list` (`after`, `limit`) and `library_read` (`item_id`) call
 routes, using native caller identity and accepting no target path or family override.
 `library_state` (`item_ids`, `scope`, `directory`) and `library_decision` (required `item_id`,
 `decision` `adopted` or `declined`, `evidence`, `catalog_digest`, `item_digest` and
-`if_revision`; optional `pre_edit` and `result` target digest arrays, as the machine
-`library_decision` paragraph describes) combine catalog,
+`if_revision`; optional `pre_edit` target digests; `result` target digests, required and not
+empty for `adopted` and optional for `declined`) combine catalog,
 decisions and bounded reads in that same native client.
 `room_list` (`after`, `limit`), `room_members` (`room_id`, `after`, `limit`), `room_post`
 (`room_id`, `body`, `key`, `deadline`) and `room_read` (`room_id`, `after`, `limit`) call the
