@@ -6,8 +6,8 @@ into a dated release section when promoted to `main`.
 ## Unreleased
 
 - A new catalog skill, `coordinate`, gives the coordinator of a running team its loop (#784): one
-  watch over the members' panes for permission prompts, kept in private state with no second
-  watch, an answer to each prompt after a check against the member's approved work, with a
+  watch over the members' panes for prompts, dialogs and error notices, kept in private state
+  with no second watch, an answer to each prompt after a check against the member's approved work, with a
   short Koinon message to the member, and a team check at an interval. `peer-tmux` lists the
   observed Codex dialogs; `spin-down` and `recover-team` have the stop and restart of a family
   whose login is gone and that has no handoff. `koinon install` writes `koinon-coordinate`.
