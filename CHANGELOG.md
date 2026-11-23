@@ -16,7 +16,8 @@ into a dated release section when promoted to `main`.
   `board-verdict` status on that head. The `release` skill stops when the promotion pull request
   is ready, and the maintainer merges into `main`. The `ship` and `release` skills take these
   steps from the new optional facts "Merge approval" and "Promotion merge"; a project without
-  them keeps its steps. `scripts/setup-repo.sh` requires both statuses on `develop`.
+  them keeps its steps. `scripts/setup-repo.sh` requires `board-verdict` on `develop`;
+  `preflight` shows its result and is not required.
 
 - docs/USAGE.md has "Run Koinon members from Orca": the `orca terminal create` command form,
   `--role` with the pair for each member, the label of linked worktrees, the tmux session by

@@ -5,9 +5,10 @@ Cites `../decision.md` (Merge gates, recorded in WDR 004, Decision 8; acceptance
 
 ## Outcome
 
-A pull request into `develop` needs a passing `preflight` with the security, code, standards
-and refusal lenses, and a `board-verdict` on its exact head. The `release` skill stops before
-the merge to `main`; the maintainer merges.
+A pull request into `develop` gets a `preflight` with the security, code, standards and refusal
+lenses, whose result informs the maintainer, and needs a `board-verdict` on its exact head
+(`preflight` not required: WDR 004, Decision 8, changed on 2026-11-23). The `release` skill
+stops before the merge to `main`; the maintainer merges.
 
 ## Work
 
@@ -24,7 +25,7 @@ the merge to `main`; the maintainer merges.
 3. `release`: stop when the promotion PR and its evidence are ready; report; after the
    maintainer's merge, push the tag and check the publish steps. `.koinon/skills/release.md`
    changes its promotion path to match.
-4. `scripts/setup-repo.sh` declares `preflight` and `board-verdict` as required statuses on
+4. `scripts/setup-repo.sh` declares `board-verdict` as a required status on
    `develop`. The live ruleset changes only after the maintainer's go in this PR.
 5. Portable scope: the gates are project policy. `ship` gets the optional fact "Merge
    approval" (default "none") and `release` the optional fact "Promotion merge" (default "the

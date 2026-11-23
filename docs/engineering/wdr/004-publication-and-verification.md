@@ -486,8 +486,11 @@ worker and publish details are the agents' design, below):
   because its base has none. After the pull request opens,
   `scripts/preflight-publish.sh` posts one result comment and the `preflight` commit status on
   that head.
-- After preflight, `peer-review` and `refusal-review` pass, the author puts a card on the
-  decision board that names the pull request and its full head. After the maintainer approves
+- The `preflight` status is `success` only when all four lenses approve, and `failure` on a
+  REJECT or a failed lens. It informs the maintainer and is not a required check.
+- After `peer-review` and `refusal-review` pass, the author puts a card on the decision board
+  that names the pull request, its full head, the preflight result and each open preflight
+  finding with what the author did about it. After the maintainer approves
   it, `scripts/board-verdict.sh` reads the card, checks that the approval is for the card's
   current revision and names that pull request and head, checks the pull request's head, and
   posts the `board-verdict` commit status. A new head needs a new card or revision.
@@ -498,8 +501,8 @@ worker and publish details are the agents' design, below):
   and "Promotion merge" (`release`, default "the promotion policy"). A project without them
   keeps its steps. Koinon's `.koinon/skills/ship.md` and `release.md` opt in, and Koinon adopts
   `preflight` (PDR 008, Decision 5).
-- `scripts/setup-repo.sh` declares `preflight` and `board-verdict` as required statuses of the
-  `develop` ruleset. The maintainer applies the live ruleset after this change merges.
+- `scripts/setup-repo.sh` declares `board-verdict` as a required status of the `develop`
+  ruleset. The maintainer applies the live ruleset after this change merges.
 
 - **Decided by:** Robert Capps. **Date:** 2026-11-23, terminal.
 - **Context:** the Orca integration spec (#795), section 8, restores approval gates: a board
@@ -536,6 +539,20 @@ worker and publish details are the agents' design, below):
   - The first-adoption exception: the change that adopts preflight has a base with no lens
     policy, so its run takes the head's policy and says so in its result.
 
+- **Changed on 2026-11-23, decision board (Robert Capps): `preflight` is not a required
+  status.**
+  - Context: the approval above made `preflight` a required status. GitHub merges only when
+    each required status is `success`, so one lens REJECT blocked the merge until a new run had
+    four approvals; chunk 04's own preflight needed six runs. A first proposal posted `success`
+    when every lens ran, also with a REJECT. The maintainer: "why would we care that it ran and
+    not that it failed?"
+  - Decision: the `preflight` status shows the true result (`failure` on a REJECT), and is not
+    required. The required `board-verdict` carries the maintainer's approval, and the card
+    shows the preflight result and its open findings.
+  - Reason and scope: a failed preflight must show as failed; the maintainer's board approval
+    is the gate. GitHub alone does not stop a merge with a red `preflight`, which the threat
+    model above accepts.
+
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
@@ -543,6 +560,8 @@ worker and publish details are the agents' design, below):
 | A GitHub App status | Only the fleet board holds the App key that posts `board-verdict` | Guards against an agent that goes around the gate, which is not the threat model |
 | A worker of the author's family | A Codex author runs `codex exec` in its read-only sandbox | That sandbox can read files outside the worktree, and the report is posted in public (agents' design) |
 | A separate agent identity | The agents work under their own GitHub account | "that was a DISASTER when we tried to implement it on unify" |
+| A required `preflight` | GitHub blocks a merge while `preflight` is `failure` | Each pull request loops until four lenses approve (changed on 2026-11-23, above) |
+| A `preflight` that reports only that it ran | `success` when every lens ran, also with a REJECT | "why would we care that it ran and not that it failed?" |
 | Skill rules only | The skills say what to do, with no status | GitHub shows nothing, and a merge without the approval is not visible on the pull request |
 
 ### Rationale
@@ -554,10 +573,11 @@ worker and publish details are the agents' design, below):
 
 ### Enforcement
 
-The `develop` ruleset requires `preflight` and `board-verdict` after the maintainer applies
-`scripts/setup-repo.sh`. The scripts refuse a status for another head. Contributor tests
-(`internal/contributor/merge_gates_test.go`) run the scripts with fake `gh`, `koinon` and
-agent workers, and check that no skill tells an agent to merge into `main`.
+The `develop` ruleset requires `board-verdict` after the maintainer applies
+`scripts/setup-repo.sh`; `preflight` shows its result and is not required. The scripts refuse a
+status for another head. Contributor tests (`internal/contributor/merge_gates_test.go`) run the
+scripts with fake `gh`, `koinon` and agent workers, and check that no skill tells an agent to
+merge into `main`.
 
 ---
 
@@ -570,8 +590,9 @@ last one, and each change and release passes the docs gate. GitHub rulesets enfo
 check and up-to-date rules; one open pull request, the merge of `develop` into a published
 branch, signing and DCO are practice. The pull request order, auto-merge, commit identity,
 naming, the failed-run account, the docs gate and the merge gates are the maintainer's choices,
-apart from the parts that Decision 8 marks as the agents' design; the rest waits for the maintainer's decision. Each pull request into `develop` has a preflight
-and the maintainer's board approval of its head, and the maintainer merges each release into
+apart from the parts that Decision 8 marks as the agents' design; the rest waits for the
+maintainer's decision. Each pull request into `develop` has a preflight, whose result informs
+the maintainer's board approval of its head, and the maintainer merges each release into
 `main`.
 
 ---

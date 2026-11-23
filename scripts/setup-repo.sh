@@ -25,7 +25,7 @@ gh api --method PATCH "repos/$repo" \
 for branch in develop main; do
   method=squash
   strict=true
-  review=', {"context": "peer-review"}, {"context": "refusal-review"}, {"context": "decision-citations"}, {"context": "preflight"}, {"context": "board-verdict"}'
+  review=', {"context": "peer-review"}, {"context": "refusal-review"}, {"context": "decision-citations"}, {"context": "board-verdict"}'
   if [[ "$branch" == main ]]; then method=merge; strict=false; review=''; fi
   payload="$(cat <<JSON
 {

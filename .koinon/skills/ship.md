@@ -35,9 +35,10 @@ Before the pull request opens, run the preflight skill at the frozen head with
 .koinon/skills/preflight.md; after it opens, post the result with
 scripts/preflight-publish.sh PR. A new head needs a new run (WDR 004, Decision 8).
 ## Merge approval
-A board approval for each pull request into develop (WDR 004, Decision 8). After preflight,
-peer-review and refusal-review pass on the frozen head, put a card on the decision board that
-names the pull request (#N) and its full head. After the maintainer approves it, run
+A board approval for each pull request into develop (WDR 004, Decision 8). After peer-review
+and refusal-review pass on the frozen head, put a card on the decision board that names the
+pull request (#N), its full head, the preflight result and each open preflight finding with
+what you did about it. After the maintainer approves it, run
 scripts/board-verdict.sh --as FAMILY:ID PR HEAD REFERENCE, which posts the board-verdict status
 on that head. Set auto-merge after that status reads back as success.
 ## Docs and agent files

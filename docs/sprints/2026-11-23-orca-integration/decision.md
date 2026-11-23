@@ -130,6 +130,23 @@ computers. Today:
 Recorded in [WDR 004, Decision 8](../../engineering/wdr/004-publication-and-verification.md),
 which holds the rule: the maintainer's words of 2026-11-23 and the agents' design.
 
+### Chunk 04: the end of the preflight fix loop
+
+- **Decided by:** Robert Capps. **Date:** 2026-11-23, decision board.
+- **Context:** five preflight runs rejected chunk 04 (heads 6389bd3, f4f580f, 5a3cbb1, da2bb66
+  and 2d9c61c). Each fresh run found new points, mostly wording and attribution, not faults of
+  the earlier fixes; a run costs about $2 and 30 minutes. The maintainer: "5th fix round? that
+  sounds like you are in a fix loop". The options were to run again until all four lenses
+  approve, to skip the preflight publish for this pull request, or to stop after the sixth run.
+- **Decision:** stop after the sixth run. Fix only its findings of wrong script or test
+  behavior, with no seventh run; publish the sixth run's result as it is, and list each open
+  finding in the pull request. The Codex peer-review and refusal-review and the maintainer's
+  card on the exact head decide the merge; accepted review findings get one fix commit and one
+  bounded Codex recheck, not a new preflight.
+- **Reason and scope:** the loop did not converge, and the reviews and the card are the gates
+  that decide the merge. This applies to chunk 04's pull request, whose base has no required
+  `preflight` status yet.
+
 ### The observer's scratch copy (spec sections 6 and 9.1)
 
 - **Decided by:** Robert Capps. **Date:** 2026-11-23, terminal, "yes" to the recommendation.
