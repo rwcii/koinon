@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -19,7 +20,8 @@ import (
 // fakeForge answers the scripts' gh calls. "gh pr view" prints $FAKE/head. A status POST is
 // appended to $FAKE/statuses.jsonl, and the combined status lists them newest first. The issue
 // comments are in $FAKE/comments.json; a comment POST appends to it. Every call is logged in
-// $FAKE/calls. A file $FAKE/fail-status makes a status POST fail.
+// $FAKE/calls. A file $FAKE/fail-status makes a status POST fail. A number N in
+// $FAKE/status-lag makes the next N status reads miss the newest status, as GitHub can.
 const fakeForge = `#!/bin/sh
 set -eu
 echo "$*" >> "$FAKE/calls"
@@ -61,6 +63,12 @@ case "$method $endpoint" in
 	echo '{"login": "synthetic-author"}' | jq -r "$filter"
 	;;
 "GET "*/commits/*/status)
+	lag=$(cat "$FAKE/status-lag" 2>/dev/null || echo 0)
+	if [ "$lag" -gt 0 ]; then
+		echo $((lag - 1)) > "$FAKE/status-lag"
+		jq -s '{statuses: (reverse | .[1:])}' "$FAKE/statuses.jsonl" | jq -r "$filter"
+		exit 0
+	fi
 	jq -s '{statuses: reverse}' "$FAKE/statuses.jsonl" | jq -r "$filter"
 	;;
 "GET "*/issues/*/comments)
@@ -154,7 +162,8 @@ func (e gateEnv) run(t *testing.T, dir, script string, env []string, args ...str
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "PATH="+e.bin+string(os.PathListSeparator)+os.Getenv("PATH"), "FAKE="+e.fake,
 		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull, "GH_TOKEN=synthetic-forge-token",
-		"GITHUB_TOKEN=synthetic-forge-token", "KOINON_LAUNCH_ID=synthetic-launch", "TMPDIR="+t.TempDir())
+		"GITHUB_TOKEN=synthetic-forge-token", "KOINON_LAUNCH_ID=synthetic-launch", "TMPDIR="+t.TempDir(),
+		"STATUS_READBACK_DELAY=0")
 	cmd.Env = append(cmd.Env, env...)
 	out, err := cmd.CombinedOutput()
 	return string(out), err
@@ -213,6 +222,19 @@ func TestBoardVerdictScript(t *testing.T) {
 				t.Fatalf("status not on the head: %q", statuses)
 			}
 		})
+	}
+	// A status that GitHub shows late is read again: 4 late reads pass, 5 fail (#801).
+	for _, lag := range []int{4, 5} {
+		e := newGateEnv(t)
+		e.write(t, "card.json", card("approved", 3, 3, names))
+		e.write(t, "head", gateHead+"\n")
+		e.write(t, "status-lag", strconv.Itoa(lag))
+		out, err := e.run(t, t.TempDir(), "board-verdict.sh", nil, "--as", "claude:synthetic", "42", gateHead, "MERGE-42")
+		reads := strings.Count(e.read("calls"), "/status --jq")
+		if lag == 4 && (err != nil || reads != 5 || !strings.Contains(out, "board-verdict: success")) ||
+			lag == 5 && (err == nil || reads != 5 || !strings.Contains(out, "after 5 reads")) {
+			t.Fatalf("lag %d: %v, %d reads, output:\n%s", lag, err, reads, out)
+		}
 	}
 	// A failed status post is reported, not taken as success.
 	e := newGateEnv(t)
@@ -409,6 +431,21 @@ func TestPreflightPublishScript(t *testing.T) {
 		out, err := publish(t, e, repo, reports)
 		if err != nil || strings.Contains(statusOf(e), "forged") || strings.Count(e.read("comments.json"), "koinon-preflight") != 2 {
 			t.Fatalf("%v %s\n%s", err, out, e.read("statuses.jsonl"))
+		}
+	})
+	t.Run("a status that GitHub shows late is read again", func(t *testing.T) {
+		for _, lag := range []int{4, 5} {
+			e := newGateEnv(t)
+			repo, head, base := publishRepository(t, e)
+			reports := t.TempDir()
+			writeResult(t, reports, head, base, "20261123T000000Z-0000000001", true, false)
+			e.write(t, "status-lag", strconv.Itoa(lag))
+			out, err := publish(t, e, repo, reports)
+			reads := strings.Count(e.read("calls"), "/status --jq")
+			if lag == 4 && (err != nil || reads != 5 || !strings.Contains(out, "success on "+head)) ||
+				lag == 5 && (err == nil || reads != 5 || !strings.Contains(out, "not success after 5 reads")) {
+				t.Fatalf("lag %d: %v, %d reads, output:\n%s", lag, err, reads, out)
+			}
 		}
 	})
 	t.Run("a comment without its status gets the status", func(t *testing.T) {

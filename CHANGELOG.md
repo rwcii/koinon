@@ -17,7 +17,8 @@ into a dated release section when promoted to `main`.
   stops when the promotion pull request is ready, and the maintainer merges into `main`. The
   `ship` and `release` skills take these steps from the new optional facts "Merge approval" and
   "Promotion merge"; a project without them keeps its steps. `scripts/setup-repo.sh` requires
-  `preflight` and `board-verdict` on `develop`.
+  `preflight` and `board-verdict` on `develop`. Both scripts read the posted status back up to
+  5 times, 2 seconds apart, because GitHub can show a new status a few seconds late (#801).
 
 - docs/USAGE.md has "Run Koinon members from Orca": the `orca terminal create` command form,
   `--role` with the pair for each member, the label of linked worktrees, the tmux session by

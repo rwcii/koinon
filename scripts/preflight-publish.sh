@@ -7,7 +7,8 @@
 # It reads the result that scripts/preflight-run.sh wrote for the pull request's current head,
 # and refuses when there is none. When a comment for that result is already on the pull
 # request, it prints its link and posts nothing. A value that the result does not have shows as
-# "unknown".
+# "unknown". It reads the posted status back, up to 5 times, STATUS_READBACK_DELAY seconds
+# apart (2 by default), because GitHub can show a new status a few seconds late.
 set -eu
 
 die() {
@@ -94,9 +95,19 @@ post_status() {
 	gh api -X POST "repos/{owner}/{repo}/statuses/$head" -f state="$state" -f context=preflight \
 		-f target_url="$1" -f description="Preflight $title, run $run" >/dev/null ||
 		die "the comment is at $1, but the status post failed; run this command again"
-	read_back=$(gh api "repos/{owner}/{repo}/commits/$head/status" --jq '[.statuses[] | select(.context == "preflight")][0].state') ||
-		die "posted; the read-back failed"
-	[ "$read_back" = "$state" ] || die "preflight on $head reads back as '$read_back', not $state"
+	# GitHub can show a new status a few seconds after the post: read it back up to 5 times.
+	tries=0
+	while :; do
+		tries=$((tries + 1))
+		if read_back=$(gh api "repos/{owner}/{repo}/commits/$head/status" --jq '[.statuses[] | select(.context == "preflight")][0].state'); then
+			[ "$read_back" != "$state" ] || break
+			failure="preflight on $head reads back as '$read_back', not $state"
+		else
+			failure="posted; the read-back failed"
+		fi
+		[ "$tries" -lt 5 ] || die "$failure after $tries reads"
+		sleep "${STATUS_READBACK_DELAY:-2}"
+	done
 	echo "preflight-publish: $state on $head: $1"
 }
 if [ -n "$existing" ]; then
