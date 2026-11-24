@@ -3,7 +3,7 @@ wdr: "004"
 title: "Publication and Verification"
 status: draft
 created: "2026-10-12"
-updated: "2026-11-23"
+updated: "2026-11-24"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -267,7 +267,9 @@ check: Robert Capps, 2026-10-26, kept it (493-5 in WDR 001, Decision 6,
 `docs/sprints/`, `.claude/`, `.agents/` or `.codex/`, the jobs still report but skip the
 service steps. The `develop` ruleset requires `go (ubuntu-latest)`, `go (macos-latest)`,
 `go-lifecycle (ubuntu-latest, systemd)`, `go-lifecycle (macos-latest, launchd)`,
-`peer-review` and `refusal-review` (WDR 001, Decision 6); `main` requires the first four. `release.yml` builds the four binaries and
+`peer-review` and `refusal-review` (WDR 001, Decision 6), `decision-citations` (#536), and,
+after the maintainer applies `scripts/setup-repo.sh`, `preflight` and `board-verdict`
+(Decision 8); `main` requires the first four. `release.yml` builds the four binaries and
 checksums for a version tag.
 
 ---
@@ -476,8 +478,9 @@ job checks the docs.
 
 ### Decision
 
-For a project whose facts opt in, as Koinon's do (the opt-in facts, the revision check and the
-worker and publish details are the agents' design, below):
+For a project whose facts opt in, as Koinon's do (the opt-in facts, the revision check, the
+card's Where target and content, and the worker and publish details are the agents' design,
+below):
 
 - Before a pull request into `develop` opens, the author runs the `preflight` skill at the
   frozen head with the lenses security, code, standards and refusal, each in a fresh claude
@@ -531,6 +534,11 @@ worker and publish details are the agents' design, below):
     so a project without them keeps its steps (the plan review's refusal finding).
   - The revision check: `board-verdict.sh` takes only an approval of the card's current
     revision, so a new head needs a new card or revision.
+  - The card's Where target: the approved Where field must be exactly `OWNER/REPO#PR@HEAD`, so
+    an approval names one repository, pull request and head; a Where field with more text is
+    refused (the Codex peer review of #795).
+  - The card's content: its context gives the preflight result and each open preflight finding
+    with what the author did about it (the author's rule).
   - The workers: the `preflight` skill asks for a fresh worker with no forge credential. A
     report is posted in public, and the reviewed change can hold instructions for its reviewer,
     so the workers also write nothing and use no network. The worker is `claude -p` for an
@@ -542,10 +550,11 @@ worker and publish details are the agents' design, below):
     worker's options. The author reads each report before publishing it. A `codex exec` worker
     is not used, because Codex's read-only sandbox can read files outside the worktree.
   - The publish checks: Claude Code gives a worker the account's email address, so the publish
-    script refuses a report with a secret, a path in a named person's home directory or the
-    running user's home, or an email-shaped string, synthetic ones included; the author then
-    edits the report. It posts each report as a fenced block, and refuses a result run against
-    another base than the pull request's, because the lens policy comes from that base.
+    script refuses a report with a secret, any path under `/home`, `/var/home` or `/Users`
+    (placeholder paths included) or under the running user's home, or an email-shaped string,
+    synthetic ones included; the author then edits the report. It posts each report as a fenced
+    block, and refuses a result run against another base than the pull request's, because the
+    lens policy comes from that base.
   - The first-adoption exception: the change that adopts preflight has a base with no lens
     policy, so its run takes the head's policy and says so in its result.
 
@@ -616,3 +625,4 @@ maintainer's board approval of its head, and the maintainer merges each release 
 | 2026-11-23 | Decision 7: a docs gate in `preflight` and `ship` (#792) |
 | 2026-11-23 | Decision 7: the docs gate in `release` too |
 | 2026-11-23 | Decision 8: preflight, the board approval of each head, and the maintainer's merge into `main` (#795) |
+| 2026-11-24 | Decision 8: a passing preflight is required; the chunk 04 fix-loop decision is superseded; the card's Where target and content are the agents' design (#795) |

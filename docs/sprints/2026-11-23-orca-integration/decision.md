@@ -132,7 +132,9 @@ which holds the rule: the maintainer's words of 2026-11-23 and the agents' desig
 
 ### Chunk 04: the end of the preflight fix loop
 
-- **Decided by:** Robert Capps. **Date:** 2026-11-23, decision board.
+- **Decided by:** Robert Capps. **Date:** 2026-11-23, decision board: the recommendation below
+  approved with no note. The board recorded that approval from the dashboard; the maintainer
+  has not confirmed it since #800, a note recorded on the wrong card.
 - **Context:** five preflight runs rejected chunk 04 (heads 6389bd3, f4f580f, 5a3cbb1, da2bb66
   and 2d9c61c). Each fresh run found new points, mostly wording and attribution, not faults of
   the earlier fixes; a run costs about $2 and 30 minutes. The maintainer: "5th fix round? that
@@ -147,8 +149,9 @@ which holds the rule: the maintainer's words of 2026-11-23 and the agents' desig
   that decide the merge. This applies to chunk 04's pull request, whose base has no required
   `preflight` status yet.
 - **Superseded on 2026-11-24 (terminal, Robert Capps):** "preflight is required, passing is
-  required." Chunk 04's pull request also needs a passing preflight at its final head (WDR 004,
-  Decision 8).
+  required." The words were said about the gate in general, in reply to the text "preflight
+  shows its true result and is not required"; the author applies them to chunk 04's pull
+  request too, which needs a passing preflight at its final head (WDR 004, Decision 8).
 
 ### The observer's scratch copy (spec sections 6 and 9.1)
 
