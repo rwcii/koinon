@@ -1,8 +1,9 @@
 # Orca integration (#795) — chunks
 
 Each chunk cites `decision.md` and `definition-of-done.md`, and merges complete through ship
-into develop. Claude drives, Codex observes. One open pull request at a time. Target release:
-v0.13.4. Scope review in `review.md`.
+into develop. Claude drives, Codex observes. One open pull request at a time. Release split
+(`decision.md`, Release number): v0.13.4 holds chunks 01, 02 and 04; chunks 03, 05 and 06 go
+into the next release. Scope review in `review.md`.
 
 | Chunk | Complete outcome | Definition of done | Depends on | Owns |
 | --- | --- | --- | --- | --- |
@@ -28,7 +29,8 @@ With one open pull request at a time, the chunks merge in the order 01, 02, 04, 
 The groups say which chunks two pairs can build at the same time on separate branches, as
 chunk 01 describes.
 
-The sprint is complete, and #795 closes, when chunk 06 merges, every live check in
+v0.13.4 is released with chunks 01, 02 and 04 through the new merge gates. The sprint is
+complete, and #795 closes, when chunks 03 (#806), 05 and 06 merge, every live check in
 `verification.md` has passed (chunk 02's check in a real Orca terminal, chunk 05's check on two
-nodes), and v0.13.4 is released. A chunk can merge with its synthetic tests before its live
-check; the open live check then stays a listed item of #795.
+nodes), and the release that holds them is out. A chunk can merge with its synthetic tests
+before its live check; the open live check then stays a listed item of #795.
