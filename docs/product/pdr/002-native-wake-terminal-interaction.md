@@ -332,7 +332,7 @@ A cycled agent resumes with its participant address, claims and handoff.
   polling (a product change with its own design, which can follow later).
 - **Review when:** the daemon reports members' prompts itself.
 
-- **Added on 2026-11-23: the coordinator dispatches and tracks a sprint (#795).**
+- **Added on 2026-11-24: the coordinator dispatches and tracks a sprint (#795).**
   - **Decided by:** Robert Capps. **Date:** 2026-11-23, the Orca integration spec that the
     maintainer gave for #795, section 5, kept in the sprint's decision.
   - **Context:** the spec adds a Captain role to `coordinate`: "Dispatch: assign ready chunks
@@ -349,13 +349,18 @@ A cycled agent resumes with its participant address, claims and handoff.
     escalated disagreement on the item.
   - **Reason and scope:** the spec's; the steps change no runtime behavior.
   - **The agents' design, reviewed in the sprint plan and the pull request (#795), not the
-    maintainer's words:** a chunk's item is the one whose references name the chunk file, and
-    chunks that run at the same time each have their own; a loop is two or more starts,
-    releases, reports or rejections since the last checkpoint, read from the claim generation
-    and the work events of the memory deltas, and it goes to the board as a card, as drift
-    does; the driver writes the disagreement as the item's blocker with `work_update`, because
-    a work report releases the claim and waits for a verdict (PDR 004, Decision 2), and the
-    coordinator checks it and reads the card at each team check.
+    maintainer's words:** each dispatched chunk has its own item, found by a title that starts
+    with the issue and the chunk number (the driver's updates replace an item's references, so
+    they cannot name the chunk); a loop is two or more `started`, `released`, `reported` or
+    `rejected` events since the last checkpoint, read from the work events of the memory deltas
+    (the claim generation is one counter for the whole repository, so it does not count one
+    item's starts), and it goes to the board as a card; drift is also work on an item that
+    another chunk in progress owns (WDR 002, Decision 7), and it goes to the board as a card;
+    the driver writes the disagreement as the item's blocker with `work_update` and lifecycle
+    `blocked`, and sends them again on each update until the verdict, because Koinon keeps a
+    blocker only while the item is `blocked` and a work report releases the claim and waits for
+    a verdict (PDR 004, Decision 2); the coordinator checks the blocker and reads the card at
+    each team check, and tells the driver when the blocker is gone.
 
 ---
 

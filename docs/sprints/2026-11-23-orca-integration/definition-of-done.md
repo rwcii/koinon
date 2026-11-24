@@ -52,9 +52,10 @@ private tmux servers (WDR 006).
   sprint's `decision.md` and `definition-of-done.md`, and reports work outside them before
   it grows.
 - Disagreement record: a pair's disagreement that goes to the maintainer is written on the
-  work item (the driver's `work_update` blocker with the two positions and the card
-  reference), and the coordinator tracks it there. A work report would release the claim and
-  wait for a verdict (PDR 004, Decision 2).
+  work item (the driver's `work_update` with lifecycle `blocked` and a blocker with the two
+  positions and the card reference, sent again on each update until the verdict), and the
+  coordinator tracks it there. A work report would release the claim and wait for a verdict
+  (PDR 004, Decision 2), and Koinon keeps a blocker only while the item is `blocked`.
 - Contributor tests check the skill text for each step and its source.
 - PDR 002, Decision 5 records the additions.
 

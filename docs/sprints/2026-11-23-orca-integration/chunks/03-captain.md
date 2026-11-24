@@ -21,9 +21,11 @@ disagreements on their work items.
    - Goal and drift: compare each active work item with `decision.md` and
      `definition-of-done.md`; report work outside them as a card before it grows.
    - Disagreement record: when a pair escalates a disagreement, the driver writes it on the
-     item with `work_update` (the blocker gives both positions and the card reference), and
-     the coordinator tracks it there. Corrected in chunk 03: a work report releases the claim
-     and waits for a verdict (PDR 004, Decision 2).
+     item with `work_update` (lifecycle `blocked`, and a blocker that gives both positions and
+     the card reference, sent again on each update until the verdict), and the coordinator
+     tracks it there. Corrected in chunk 03: a work report releases the claim and waits for a
+     verdict (PDR 004, Decision 2), and Koinon keeps a blocker only while the item is
+     `blocked`.
 2. Contributor tests for the new steps' text, as for the existing coordinate steps.
 3. Records and docs: PDR 002, Decision 5; PDR 004 (work results) for work items as the
    source of truth of dispatched chunks; the skills README; CHANGELOG.

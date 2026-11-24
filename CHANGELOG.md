@@ -6,10 +6,11 @@ into a dated release section when promoted to `main`.
 ## Unreleased
 
 - The `coordinate` skill dispatches and tracks a sprint (#795, PDR 002, Decision 5): it gives
-  each ready chunk of the parallel view one work item and proposes the pair, reports to the
-  board an item with two or more attempts and no new checkpoint, compares each active item
-  with the sprint's decision and definition of done and reports drift, and tracks a pair's
-  escalated disagreement, which the driver writes as the item's blocker.
+  each ready chunk of the parallel view one work item, found by its title, and proposes the
+  pair's driver; reports to the board an item with two or more starts, releases, reports or
+  rejections and no new checkpoint; compares each active item with the sprint's decision and
+  definition of done and reports drift; and tracks a pair's escalated disagreement, which the
+  driver keeps as the item's blocker, with lifecycle `blocked`, until the verdict.
 
 - Merge gates for Koinon's own pull requests (#795, WDR 004, Decision 8). Koinon adopts the
   `preflight` skill with four lenses, security, code, standards and refusal:

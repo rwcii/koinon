@@ -80,10 +80,11 @@ func TestSkillTextHasNoLimitPhrases(t *testing.T) {
 	steps := map[string][]string{
 		"coordinate": {"keep it; do not start a second one.", "send the key only when it still shows the same command or diff",
 			// The Captain steps of PDR 002 Decision 5 (#795).
-			"never create a second\n   item for a chunk that has one.",
-			"Two or more of these attempts since the last checkpoint, with no new checkpoint and no\n   passing check on the pull request's head, are a loop.",
+			"never create a second item for a chunk that has one",
+			"attempts, with no new checkpoint and no passing check on the pull request's head, are a",
 			"compare each active item and its pull request with\n   the sprint's `decision.md` and `definition-of-done.md`.",
-			"the\n   driver writes it on the chunk's work item with `work_update`"},
+			"the\n   driver writes it on the chunk's work item with `work_update`, with lifecycle `blocked`",
+			"the\n   driver sends the same lifecycle and blocker on each update until the verdict."},
 		"check":        {"When a required check\nfails, fix the cause and run the check again."},
 		"handoff":      {"`_handoff/` directory of the main checkout", "When the output is `not ready`, stop: tell the maintainer which check failed, with the output,\nand write no handoff.", "Report the path of the new file."},
 		"koinon-guide": {"report the command and its output to the maintainer."},
