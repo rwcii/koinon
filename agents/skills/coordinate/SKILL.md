@@ -94,27 +94,33 @@ with `work_list`, page by page to its end.
    family and role, with `work_propose`, then send both members a Koinon message with the work
    ID and the chunk file. A sprint that one pair builds in order with no coordinator can reuse
    the issue's item (`sprint`).
-2. **Loop awareness.** At each team check, read each of the sprint's items that is active,
-   blocked or reported with `work_get`, and its work events in the `memory_sync` deltas (each
-   delta entry gives the work ID and the event kind). Count the item's `started`, `released`,
-   `reported` and `rejected` events since its checkpoint last changed. Two or more of these
-   attempts, with no new checkpoint and no passing check on the pull request's head, are a
-   loop. Put a card on the board for the maintainer with the item, each attempt, what failed
-   in it and the evidence: summarize it, and keep raw pane captures in your private state.
-   Tell the pair. Record the checkpoint text and the event cursor of each check in your
+2. **Loop awareness.** At each team check, for each of the sprint's items that is active,
+   blocked or reported, count its failed attempts since the last head of its pull request on
+   which every required check passed, or since its first start when no head passed: each
+   `rejected` event of the item in the `memory_sync` deltas (each delta entry gives the work
+   ID and the event kind), and each later head whose CI, preflight or review failed or asked
+   for changes. Starts, releases and their checkpoint
+   text are not attempts: Koinon sets a checkpoint at each start and release, and a pair hands
+   over with a release and a start at the same commit. Two or more failed attempts are a loop
+   (PDR 002, Decision 5). Put a card on the board for the maintainer with the item, each
+   attempt, what failed in it and the evidence: summarize it, and keep raw pane captures in
+   your private state. Tell the pair. Record the heads and events that you counted in your
    private state.
 3. **Goal and drift.** At each team check, compare each active item and its pull request with
    the sprint's `decision.md` and `definition-of-done.md`. Work that neither names, or work on
-   an item that another chunk in progress owns, is drift: put a card on the board with the
+   an item that another chunk in progress owns, is drift (PDR 002, Decision 5; WDR 002,
+   Decision 7): put a card on the board with the
    item, the work outside the sprint and the text that it departs from, before the work grows.
 4. **Disagreement record.** When a pair takes a disagreement to the maintainer (`pair`), the
    driver writes it on the chunk's work item with `work_update`, with lifecycle `blocked` and
-   a blocker that gives both positions and the card reference. Koinon keeps a blocker only
-   while the lifecycle is `blocked`, and an update without it clears the blocker, so the
-   driver sends the same lifecycle and blocker on each update until the verdict. At each team
-   check, read the item and the card with `decision_get`; when the item is not `blocked` with
-   that blocker while the card waits, tell the driver to write it again. After the verdict,
-   tell the pair; the driver's next update clears the blocker.
+   a blocker that gives both positions and the card reference. A work report would release
+   the claim and wait for a verdict (PDR 004, Decision 2). Koinon keeps a blocker only while
+   the lifecycle is `blocked`, and an update without it clears the blocker, so the driver
+   sends the same lifecycle and blocker on each update until the verdict. When the pair's
+   card reaches the board, tell the driver these steps. At each team check, read the item and
+   the card with `decision_get`; when the item is not `blocked` with that blocker while the
+   card waits, tell the driver to write it again. After the verdict, tell the pair; the
+   driver's next update clears the blocker.
 
 ## 5. Dialogs and input text
 

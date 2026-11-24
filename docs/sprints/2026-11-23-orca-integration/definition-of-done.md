@@ -45,9 +45,12 @@ private tmux servers (WDR 006).
 - Dispatch: for a ready chunk (parallel view, dependencies merged), the coordinator creates
   or updates its one work item with the chunk's outcome and owned items, assigns it to the
   pair, and never creates a second work item for a chunk that has one.
-- Loop awareness: at each team check, a work item whose events show two or more attempts (a
-  start, a release or a report) since its last checkpoint, with no new checkpoint and no
-  passing check, is reported to the maintainer with what failed, as a board card.
+- Loop awareness: at each team check, a work item with two or more failed attempts (a
+  `rejected` event, or a head of its pull request whose CI, preflight or review failed or
+  asked for changes) since the last head on which every required check passed, or since its
+  first start, is reported to the maintainer with what failed, as a board card. Starts and
+  releases are not attempts: Koinon sets a checkpoint at each of them, and a pair hands over
+  with both at one commit.
 - Goal and drift: at each team check, the coordinator compares each active work item with the
   sprint's `decision.md` and `definition-of-done.md`, and reports work outside them before
   it grows.
@@ -57,6 +60,8 @@ private tmux servers (WDR 006).
   coordinator tracks it there. A work report would release the claim and wait for a verdict
   (PDR 004, Decision 2), and Koinon keeps a blocker only while the item is `blocked`.
 - Contributor tests check the skill text for each step and its source.
+- `sprint` reuses the issue's item only for chunks that one pair builds in order; a
+  dispatched chunk has its own item.
 - PDR 002, Decision 5 records the additions.
 
 ## Merge gates (chunk 04)

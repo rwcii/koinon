@@ -169,7 +169,13 @@ which holds the rule: the maintainer's words of 2026-11-23 and the agents' desig
 - `sprint` declares each chunk's dependencies and file and interface ownership, and a parallel
   view (spec section 4). Peer review of the plan stays.
 - `coordinate` adds dispatch, loop awareness, goal and drift checks and a disagreement record
-  (spec section 5).
+  (spec section 5). The spec's words: "To fill the Captain role in the Orca Bot workflow,
+  add: Dispatch: assign ready chunks to pairs by creating or updating their work items, per
+  section 4. Loop awareness: detect repeated attempts on a work item without new checkpoints
+  or passing checks; record what failed and escalate. Goal tracking and drift: at each team
+  check, compare progress against the sprint's `decision.md` and `definition-of-done.md`, and
+  surface deviation before scope expands. Disagreement record: record pair disagreements
+  escalated to the maintainer on the work item, so the Captain can track them."
 - `pair` is unchanged: one shared branch and worktree that the driver owns (spec section 6).
 - Orca runs `koinon <family>` as the terminal command, always with `--role` that names the pair
   (spec section 7). Pane access does not cross the mesh: each computer runs its own

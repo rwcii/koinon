@@ -33,8 +33,9 @@ progress owns an item in common with it (WDR 002, Decision 7). Commit the plan
 under project policy, and have the other agent family review that hash with peer-review. Record
 each finding and its disposition in review.md; changed scope or tests get a bounded review.
 Build the chunks with ship and the project's Build checks, in dependency order. Correct the plan
-when evidence disproves it (WDR 001, Decision 2). Reuse the issue's work item across chunks, and
-release it at a driver handoff. Finish when every criterion and its evidence are in place.
+when evidence disproves it (WDR 001, Decision 2). Reuse the issue's work item across chunks that one
+pair builds in order, and release it at a driver handoff; a coordinator gives each chunk that it
+dispatches its own item (`coordinate`). Finish when every criterion and its evidence are in place.
 
 ## Repository facts
 

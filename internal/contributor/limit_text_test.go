@@ -51,7 +51,8 @@ func TestAgentTextHasNoLimitPhrases(t *testing.T) {
 // The shared skills, their authoring file and index, the project's fact files and the OpenCode
 // wrappers say what to do (#487 PR B). The rules that the maintainer gave in words stay as
 // steps: the handoff location, one open PR, auto-merge, the commit identity and the
-// refusal-review gate.
+// refusal-review gate. The steps map below also pins steps that their records require, with
+// their sources.
 func TestSkillTextHasNoLimitPhrases(t *testing.T) {
 	for _, dir := range []string{"agents/skills", ".koinon/skills", ".opencode/commands"} {
 		err := filepath.WalkDir(filepath.Join(root(t), dir), func(path string, entry os.DirEntry, err error) error {
@@ -80,11 +81,13 @@ func TestSkillTextHasNoLimitPhrases(t *testing.T) {
 	steps := map[string][]string{
 		"coordinate": {"keep it; do not start a second one.", "send the key only when it still shows the same command or diff",
 			// The Captain steps of PDR 002 Decision 5 (#795).
-			"never create a second item for a chunk that has one",
-			"attempts, with no new checkpoint and no passing check on the pull request's head, are a",
+			"(the parallel view, WDR 002, Decision 7)", "never create a second item for a chunk that has one",
+			"Two or more failed attempts are a loop\n   (PDR 002, Decision 5).",
 			"compare each active item and its pull request with\n   the sprint's `decision.md` and `definition-of-done.md`.",
+			"is drift (PDR 002, Decision 5; WDR 002,\n   Decision 7)",
 			"the\n   driver writes it on the chunk's work item with `work_update`, with lifecycle `blocked`",
-			"the\n   driver sends the same lifecycle and blocker on each update until the verdict."},
+			"A work report would release\n   the claim and wait for a verdict (PDR 004, Decision 2).",
+			"the driver\n   sends the same lifecycle and blocker on each update until the verdict."},
 		"check":        {"When a required check\nfails, fix the cause and run the check again."},
 		"handoff":      {"`_handoff/` directory of the main checkout", "When the output is `not ready`, stop: tell the maintainer which check failed, with the output,\nand write no handoff.", "Report the path of the new file."},
 		"koinon-guide": {"report the command and its output to the maintainer."},
@@ -102,7 +105,8 @@ func TestSkillTextHasNoLimitPhrases(t *testing.T) {
 		"ship":           {"Follow\nthe project's PR limit", "with auto-merge when the policy uses it.", "with no automated attribution."},
 		"spin-down":      {"Stop each named, verified session through a\nsupported interface."},
 		"spin-up":        {"Launch through the supported interfaces."},
-		"sprint":         {"Build the chunks with ship and the project's Build checks, in dependency order."},
+		"sprint": {"Build the chunks with ship and the project's Build checks, in dependency order.",
+			"a coordinator gives each chunk that it\ndispatches its own item (`coordinate`)."},
 		// The procedures of PDR 008 Decision 5 (#732).
 		"preflight":        {"A preflight is an author check, not an independent review."},
 		"provenance":       {"Every command in this skill is a project fact."},

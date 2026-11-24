@@ -15,9 +15,12 @@ disagreements on their work items.
    - Dispatch: read the parallel view; for each chunk whose dependencies have merged and whose
      owned items no running chunk owns, create or update its one work item (`work_create` or
      `work_edit`, with the chunk's outcome, owned items and the pair), then tell the pair.
-   - Loop awareness: at each team check, read each active work item's events; two or more
-     starts, releases or reports since the last checkpoint with no new checkpoint and no
-     passing check go to the maintainer as a board card with what failed.
+   - Loop awareness: at each team check, two or more failed attempts on a work item (a
+     `rejected` event, or a pull request head whose CI, preflight or review failed or asked
+     for changes) since the last head on which every required check passed go to the
+     maintainer as a board card with what failed. Corrected in chunk 03: starts and releases
+     are not attempts, because Koinon sets a checkpoint at each of them and a pair hands over
+     with both at one commit.
    - Goal and drift: compare each active work item with `decision.md` and
      `definition-of-done.md`; report work outside them as a card before it grows.
    - Disagreement record: when a pair escalates a disagreement, the driver writes it on the

@@ -334,33 +334,42 @@ A cycled agent resumes with its participant address, claims and handoff.
 
 - **Added on 2026-11-24: the coordinator dispatches and tracks a sprint (#795).**
   - **Decided by:** Robert Capps. **Date:** 2026-11-23, the Orca integration spec that the
-    maintainer gave for #795, section 5, kept in the sprint's decision.
-  - **Context:** the spec adds a Captain role to `coordinate`: "Dispatch: assign ready chunks
-    to pairs by creating or updating their work items"; "Loop awareness: detect repeated
-    attempts on a work item without new checkpoints or passing checks; record what failed and
-    escalate."; "Goal tracking and drift: at each team check, compare progress against the
-    sprint's `decision.md` and `definition-of-done.md`, and surface deviation before scope
-    expands."; "Disagreement record: record pair disagreements escalated to the maintainer on
-    the work item, so the Captain can track them." Its section 1 makes the work items the
+    maintainer gave for #795, section 5; its words are quoted in the sprint's `decision.md`
+    ("Decided in the spec and kept").
+  - **Context:** the question was what the coordinator adds to fill the Captain role of the
+    Orca workflow, in which pairs build a sprint's chunks at the same time. The spec answers
+    it for `coordinate` and names no other option. Its section 1 makes the work items the
     source of truth for assignment, ownership, checkpoints and completion evidence.
-  - **Decision:** `coordinate` has a step that dispatches each ready chunk of the parallel
-    view (WDR 002, Decision 7) through its one work item, finds a loop on an item, compares
-    each active item with the sprint's decision and definition of done, and tracks a pair's
-    escalated disagreement on the item.
-  - **Reason and scope:** the spec's; the steps change no runtime behavior.
+  - **Decision:** the spec's words: "Dispatch: assign ready chunks to pairs by creating or
+    updating their work items"; "Loop awareness: detect repeated attempts on a work item
+    without new checkpoints or passing checks; record what failed and escalate."; "Goal
+    tracking and drift: at each team check, compare progress against the sprint's
+    `decision.md` and `definition-of-done.md`, and surface deviation before scope expands.";
+    "Disagreement record: record pair disagreements escalated to the maintainer on the work
+    item, so the Captain can track them." `coordinate` has a step for each: it dispatches each
+    ready chunk of the parallel view (WDR 002, Decision 7) through its one work item, finds a
+    loop on an item, compares each active item with the sprint's decision and definition of
+    done, and tracks a pair's escalated disagreement on the item.
+  - **Reason and scope:** the spec's reasons: the coordinator tracks disagreements, records
+    what failed and escalates it, and surfaces drift before the scope grows, with the work
+    items as the one record of the work. The steps change no runtime behavior.
   - **The agents' design, reviewed in the sprint plan and the pull request (#795), not the
     maintainer's words:** each dispatched chunk has its own item, found by a title that starts
     with the issue and the chunk number (the driver's updates replace an item's references, so
-    they cannot name the chunk); a loop is two or more `started`, `released`, `reported` or
-    `rejected` events since the last checkpoint, read from the work events of the memory deltas
-    (the claim generation is one counter for the whole repository, so it does not count one
-    item's starts), and it goes to the board as a card; drift is also work on an item that
-    another chunk in progress owns (WDR 002, Decision 7), and it goes to the board as a card;
-    the driver writes the disagreement as the item's blocker with `work_update` and lifecycle
-    `blocked`, and sends them again on each update until the verdict, because Koinon keeps a
-    blocker only while the item is `blocked` and a work report releases the claim and waits for
-    a verdict (PDR 004, Decision 2); the coordinator checks the blocker and reads the card at
-    each team check, and tells the driver when the blocker is gone.
+    they cannot name the chunk), and `sprint` reuses the issue's item only for chunks that one
+    pair builds in order; a loop is two or more failed attempts since the last head of the
+    pull request on which every required check passed, where an attempt is a `rejected` work
+    event or a head whose CI, preflight or review failed or asked for changes (starts and
+    releases are not attempts, because Koinon sets a checkpoint at each of them, and the claim
+    generation is one counter for the whole repository), and it goes to the board as a card;
+    drift is also work on an item that another chunk in progress owns (WDR 002, Decision 7),
+    and it goes to the board as a card; the driver writes the disagreement as the item's
+    blocker with `work_update` and lifecycle `blocked`, and sends them again on each update
+    until the verdict, because Koinon keeps a blocker only while the item is `blocked` and a
+    work report releases the claim and waits for a verdict (PDR 004, Decision 2); `pair` is
+    unchanged, so the coordinator tells the driver these steps when the card reaches the
+    board, checks the blocker and reads the card at each team check, and tells the driver when
+    the blocker is gone.
 
 ---
 
