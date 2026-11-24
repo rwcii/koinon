@@ -397,11 +397,10 @@ no notice of their own.
   its own verdict (#732, chunk 02).
 
 **Koinon adopts `preflight` (#795):** the maintainer's merge gates of 2026-11-23, recorded in
-WDR 004, Decision 8, call for a preflight with four lenses on each pull request into `develop`,
-whose result informs the maintainer's board approval. Koinon adopts `preflight` with
-`.koinon/skills/preflight.md`, the lens policy `.koinon/preflight/lenses.md`,
-`scripts/preflight-run.sh` and `scripts/preflight-publish.sh`. The skill text does not change.
-The other six procedures stay offered and not adopted.
+WDR 004, Decision 8, require a passing preflight with four lenses on each pull request into
+`develop`. Koinon adopts `preflight` with `.koinon/skills/preflight.md`, the lens policy
+`.koinon/preflight/lenses.md`, `scripts/preflight-run.sh` and `scripts/preflight-publish.sh`.
+The skill text does not change. The other six procedures stay offered and not adopted.
 
 ### Alternatives Considered
 

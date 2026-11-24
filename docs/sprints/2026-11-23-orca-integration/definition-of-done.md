@@ -73,9 +73,8 @@ private tmux servers (WDR 006).
   "Promotion merge" (release), whose defaults keep today's steps; Koinon's facts opt in. A
   project without them is not changed.
 - Rollout: the chunk's own pull request is the first use of `preflight` and `board-verdict`.
-  The `develop` ruleset requires `board-verdict` after the merge, with the maintainer's go,
-  read back with the rulesets API; `preflight` informs and is not required (WDR 004, Decision
-  8, changed on 2026-11-23).
+  The `develop` ruleset requires both, with a passing preflight, after the merge, with the
+  maintainer's go, read back with the rulesets API.
 - WDR 004 records the gates with the maintainer's words.
 
 ## Fleet Decisions (chunk 05)

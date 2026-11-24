@@ -17,16 +17,16 @@ gh api --method PATCH "repos/$repo" \
 # Update our named rulesets in place; never delete another rule or weaken protection
 # temporarily. Required checks match the Go and native lifecycle matrices. develop also
 # requires the reviewer's peer-review and refusal-review commit statuses on the head, the
-# decision-citations check of the pull request's text (#536) and the board-verdict status of the
-# maintainer's approval (WDR 004, Decision 8; the author's preflight status informs and is not
-# required), and up-to-date
+# decision-citations check of the pull request's text (#536), the author's passing preflight
+# status and the board-verdict status of the maintainer's approval (WDR 004, Decision 8), and
+# up-to-date
 # branches. main does not: it receives only merge commits of
 # develop heads that passed the required checks, and its earlier merge commits never reach
 # develop, so an up-to-date rule would hold every release as behind.
 for branch in develop main; do
   method=squash
   strict=true
-  review=', {"context": "peer-review"}, {"context": "refusal-review"}, {"context": "decision-citations"}, {"context": "board-verdict"}'
+  review=', {"context": "peer-review"}, {"context": "refusal-review"}, {"context": "decision-citations"}, {"context": "preflight"}, {"context": "board-verdict"}'
   if [[ "$branch" == main ]]; then method=merge; strict=false; review=''; fi
   payload="$(cat <<JSON
 {
@@ -61,5 +61,5 @@ JSON
     echo "Ruleset configuration failed; check account support and permissions: $result" >&2
     exit 1
   fi
-  echo "$branch: PR + $method, Go and native lifecycle checks${review:+, peer-review, refusal-review, decision-citations, board-verdict}, no force-push or deletion"
+  echo "$branch: PR + $method, Go and native lifecycle checks${review:+, peer-review, refusal-review, decision-citations, preflight, board-verdict}, no force-push or deletion"
 done

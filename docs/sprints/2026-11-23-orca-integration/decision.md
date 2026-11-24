@@ -146,6 +146,9 @@ which holds the rule: the maintainer's words of 2026-11-23 and the agents' desig
 - **Reason and scope:** the loop did not converge, and the reviews and the card are the gates
   that decide the merge. This applies to chunk 04's pull request, whose base has no required
   `preflight` status yet.
+- **Superseded on 2026-11-24 (terminal, Robert Capps):** "preflight is required, passing is
+  required." Chunk 04's pull request also needs a passing preflight at its final head (WDR 004,
+  Decision 8).
 
 ### The observer's scratch copy (spec sections 6 and 9.1)
 

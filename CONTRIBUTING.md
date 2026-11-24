@@ -36,10 +36,10 @@ In short:
   and the `preflight` status on the head. After the reviews pass, the author puts a card on the
   decision board whose Where field is exactly `OWNER/REPO#PR@HEAD`; after the maintainer
   approves it, `scripts/board-verdict.sh --as FAMILY:ID PR HEAD REFERENCE` posts the
-  `board-verdict` status (WDR 004, Decision 8). `scripts/setup-repo.sh` makes `board-verdict`
-  required on `develop`; `preflight` shows its result and is not required.
+  `board-verdict` status (WDR 004, Decision 8). `scripts/setup-repo.sh` makes `preflight` and
+  `board-verdict` required on `develop`: a pull request needs a passing preflight.
 - Pull requests into `develop` set squash auto-merge (WDR 004, Decision 4); the required
-  `board-verdict` status holds the merge until the maintainer's approval.
+  `preflight` and `board-verdict` statuses hold the merge until both pass.
 - Merged working branches are deleted automatically; long-lived branches are protected.
 - Your clone prunes on fetch, so `git branch -r` reports the branches the remote still holds.
 

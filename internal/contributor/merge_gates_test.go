@@ -619,7 +619,7 @@ func TestMergeGatesAreOptInFacts(t *testing.T) {
 		}
 	}
 	for name, want := range map[string]string{".koinon/skills/ship.md": "## Merge approval\nA board approval", ".koinon/skills/release.md": "## Promotion merge\nThe maintainer merges",
-		"scripts/setup-repo.sh": `{"context": "decision-citations"}, {"context": "board-verdict"}'`} {
+		"scripts/setup-repo.sh": `{"context": "decision-citations"}, {"context": "preflight"}, {"context": "board-verdict"}'`} {
 		if !strings.Contains(read(t, name), want) {
 			t.Errorf("%s lacks %q", name, want)
 		}
