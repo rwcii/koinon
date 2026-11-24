@@ -5,6 +5,15 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-11-24 — Merge gates, parallel sprint chunks, Orca launch, and signed answers
+
+This release adds merge gates for Koinon's own pull requests (`preflight` and `board-verdict`
+on `develop`, and a `release` that stops before the merge into `main`), sprint plans whose
+chunks two or more pairs can build at the same time, Koinon members started from Orca, a
+docs gate, the `coordinate` skill, room post answers that list each member, and answers that
+a maintainer client can check came from the computer that it asked (#795, #792, #784, #695,
+#696). The store stays at schema 40.
+
 - Merge gates for Koinon's own pull requests (#795, WDR 004, Decision 8). Koinon adopts the
   `preflight` skill with four lenses, security, code, standards and refusal:
   `scripts/preflight-run.sh` runs each lens in a fresh `claude -p` worker with no forge
@@ -67,6 +76,20 @@ into a dated release section when promoted to `main`.
   unseen. Version 1 envelopes work as before, with unsigned answers. A signed session for a
   paired computer's pin is now `invalid_request` on the session route too, as on the action
   route, in place of `signature_refused` with reason `target`.
+
+Upgrade from v0.13.3 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and writes the new `koinon-coordinate` skill entry. The store stays
+at schema 40, so v0.13.3 can still read it. The restart ends current local dashboard logins:
+log in again with the Koinon password, or run `koinon dashboard` for a one-time link. A remote
+sign-in keeps the rest of its fixed 48-hour window. Run `koinon install --plan` to check. A
+running `koinon mcp` server runs the new release without a session restart.
+
+Upgrade notes:
+
+- A host without a service manager, such as a container, runs the daemon in the background:
+  after `brew upgrade koinon`, run `koinon install` there to start it on the new binary.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
 
 ## 2026-11-20 — Wakes for narrow Codex panes, and a macOS upgrade that starts the daemon
 
