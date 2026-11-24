@@ -442,3 +442,4 @@ drift defect are ordinary corrections; they add no product decision.
 | 2026-11-17 | Decision 2: a script installs the full skill text of one pinned release on a computer with no Koinon (#732) |
 | 2026-11-23 | Decision 5: Koinon adopts `preflight` for its own work (#795) |
 | 2026-11-24 | Decision 5: the merge gates' date, after the change of 2026-11-24 to WDR 004, Decision 8 (#795) |
+| 2026-11-24 | Decision 5: five lenses; the preflight skill's Standard lenses section, after the change of 2026-11-24 to WDR 004, Decision 8 (#812) |

@@ -574,21 +574,23 @@ below):
     `develop`.
 
 - **Changed on 2026-11-24: the wording lens (#812).**
-  - **Decided by:** Robert Capps. **Date:** 2026-11-24, in another project's terminal, relayed
-    by that project's agent, then in Koinon's terminal and on the decision board.
+  - **Decided by:** Robert Capps. **Date:** 2026-11-24. The request was given in another
+    project's terminal and relayed by that project's agent; the separate lens was given in
+    Koinon's terminal; the approval and its note were given on the decision board.
   - **Context:** agents chose the most alarming accurate-looking words for approved work, such
     as "profile", "tracking" and "fingerprint" where "visitor ID", "visit" and "site data" are
-    just as accurate. The maintainer: "this kind of case needs to find its way into the
-    refusal review. this behavior is an example of latent language choice that causes alarm,
-    mistrust, or outright refusal. ... this check needs to be worked into the preflight check on
-    all PRs to develop." The options were a new finding kind in the refusal review and its
-    preflight lens, or a separate preflight lens.
-  - **Decision:** a separate lens: "I feel like this should be separate from the refusal
-    review, but still part of the preflight review. this is focused on user facing content, or
-    usable accessible data (cookies would be a good example of this). refusal review is really
-    focused on code comments, README files, agent files, and other repo documentation." The
-    board card for a fifth preflight lens, `wording`, shipped in the `preflight` skill as a
-    standard lens, was approved with the note "add this to the v0.13.4 release".
+    just as accurate. The maintainer, in the other project's terminal: "this kind of case
+    needs to find its way into the refusal review. this behavior is an example of latent
+    language choice that causes alarm, mistrust, or outright refusal. ... this check needs to
+    be worked into the preflight check on all PRs to develop." The options were a new finding
+    kind in the refusal review and its preflight lens, or a separate preflight lens.
+  - **Decision:** a separate lens, in Koinon's terminal: "I feel like this should be separate
+    from the refusal review, but still part of the preflight review. this is focused on user
+    facing content, or usable accessible data (cookies would be a good example of this).
+    refusal review is really focused on code comments, README files, agent files, and other
+    repo documentation." On the decision board, the card for a fifth preflight lens,
+    `wording`, shipped in the `preflight` skill as a standard lens, was approved with the note
+    "add this to the v0.13.4 release".
   - **Reason and scope:** the approved card's text, written by the author from the request
     as that project's agent relayed it, not the maintainer's words. Reason: "alarming wording
     in user-facing content primes the reader, a person or an agent, toward mistrust, extra
