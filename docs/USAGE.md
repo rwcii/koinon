@@ -992,18 +992,17 @@ key must be added on each computer that runs the actions.
 An envelope of version `koinon-maintainer-2` gets its answer signed (#696): the computer that
 ran the action signs its answer with its link key, as one `koinon-answer-2` object, on the
 loopback action route, the Remote routes, the `signed` tool and the link; the local session
-route answers unsigned. An enrollment statement stays version `koinon-maintainer-1`. A
-computer that passes an action on signs only
-its own claims, such as `computer_offline` or `outcome_unknown`, with its own key. The client
-checks each answer against the digest of the envelope that it sent, the target computer's pin
-and the pin of the computer that it asked, so no computer can change another computer's answer
-unseen. Some answers stay unsigned: the local session route and the first line of `koinon mcp
---maintainer --signed`, `maintainer_token_expired`, `too_many_calls`, a body that does not parse
-as a version 2 envelope, and the `signature_refused` with reason `version` of a computer of an
-earlier release. An answer that does not pass the check is "answer not verified": for a write,
-the outcome stays unknown until a verified signed `outcome`, and an unsigned answer never
-confirms that a write did not run. A version 1 envelope works as before, with an unsigned
-answer. PROTOCOL.md has the
+route answers unsigned. An enrollment statement stays version `koinon-maintainer-1`. A computer
+that passes an action on signs only its own claims, such as `computer_offline` or
+`outcome_unknown`, with its own key. The client checks each answer against the digest of the
+envelope that it sent, the target computer's pin and the pin of the computer that it asked, so
+no computer can change another computer's answer unseen. Some answers stay unsigned: the local
+session route and the first line of `koinon mcp --maintainer --signed`,
+`maintainer_token_expired`, `too_many_calls`, a body that does not parse as a version 2
+envelope, and the `signature_refused` with reason `version` of a computer of an earlier release.
+An answer that does not pass the check is "answer not verified": for a write, the outcome stays
+unknown until a verified signed `outcome`, and an unsigned answer never confirms that a write
+did not run. A version 1 envelope works as before, with an unsigned answer. PROTOCOL.md has the
 envelopes, the answer and the operations.
 
 Administrative actions require CSRF protection and are

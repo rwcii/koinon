@@ -3098,11 +3098,11 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     the first line of `koinon mcp --maintainer --signed`; `maintainer_token_expired`,
     `too_many_calls`, and a body that is not an envelope that parses as version 2. The action
     route `POST /v1/maintainer/signed`, on the loopback API and on Remote, and the `session`
-    route on Remote answer the signed object as their body with `status` as the HTTP status;
-    the `signed` tool answers it as its text, for a refusal too, without `isError`; the link
-    carries it in `maintainer-ok`. The 1 MiB answer bound counts the signed object as the link frame carries
-    it, escapes included. A client accepts an answer only when the object has this form, a
-    `target` answer has the envelope's `target` as `pin`, a `node` answer has the node's pin and
+    route on Remote answer the signed object as their body with `status` as the HTTP status; the
+    `signed` tool answers it as its text, for a refusal too, without `isError`; the link carries
+    it in `maintainer-ok`. The 1 MiB answer bound counts the signed object as the link frame
+    carries it, escapes included. A client accepts an answer only when the object has this form,
+    a `target` answer has the envelope's `target` as `pin`, a `node` answer has the node's pin and
     is one of its claims, `public_key` hashes to `pin`, `request` is its envelope's digest,
     `sig` checks, and the `ok` of `answer` agrees with `status`; it then uses `status` and
     `answer` only (`signed.VerifyAnswer`). The test vectors are in

@@ -71,11 +71,12 @@ a maintainer client can check came from the computer that it asked (#795, #792, 
 - A maintainer client can now check that each answer came from the computer that it asked
   (#696). An envelope of version `koinon-maintainer-2` gets every answer signed with that
   computer's link key, as one `koinon-answer-2` object, on the loopback and Remote action
-  routes, the Remote session route, the `signed` MCP tool and the link; a node that passes an action on signs only its own claims, such as
-  `computer_offline`, with its own key. A node can no longer change another computer's answer
-  unseen. Version 1 envelopes work as before, with unsigned answers. A signed session for a
-  paired computer's pin is now `invalid_request` on the session route too, as on the action
-  route, in place of `signature_refused` with reason `target`.
+  routes, the Remote session route, the `signed` MCP tool and the link; a node that passes an
+  action on signs only its own claims, such as `computer_offline`, with its own key. A node can
+  no longer change another computer's answer unseen. Version 1 envelopes work as before, with
+  unsigned answers. A signed session for a paired computer's pin is now `invalid_request` on the
+  session route too, as on the action route, in place of `signature_refused` with reason
+  `target`.
 
 Upgrade from v0.13.3 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
 restarts on the new binary and writes the new `koinon-coordinate` skill entry. The store stays
