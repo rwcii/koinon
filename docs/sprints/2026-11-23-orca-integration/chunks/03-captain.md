@@ -31,7 +31,9 @@ disagreements on their work items.
      `blocked`.
 2. Contributor tests for the new steps' text, as for the existing coordinate steps.
 3. Records and docs: PDR 002, Decision 5; PDR 004 (work results) for work items as the
-   source of truth of dispatched chunks; the skills README; CHANGELOG.
+   source of truth of dispatched chunks; the skills README; CHANGELOG. Added in chunk 03: the
+   `sprint` skill reuses the issue's item only for chunks that one pair builds in order, and
+   the sprint's Acceptance 3 gets a dated correction note for the loop rule.
 
 ## Tests
 

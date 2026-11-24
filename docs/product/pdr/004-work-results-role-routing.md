@@ -273,7 +273,8 @@ An agent that was reset or missed a wake lists what waits for it and acts on eac
 another consumer, and catch-up discovery. The plan proposes concrete mechanisms for each. The
 maintainer decided the verdict rule (Decision 3) and approved the plan's mechanisms at Gate B.
 A coordinator dispatches a sprint's chunks through these work items, one item for each chunk,
-and reads their claims, checkpoints and events for loops (PDR 002, Decision 5).
+and counts their `rejected` events and failed pull request heads for loops (PDR 002,
+Decision 5).
 
 ---
 

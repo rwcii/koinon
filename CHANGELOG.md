@@ -7,7 +7,7 @@ into a dated release section when promoted to `main`.
 
 - The `coordinate` skill dispatches and tracks a sprint (#795, PDR 002, Decision 5): it gives
   each ready chunk of the parallel view one work item, found by its title, and proposes the
-  pair's driver; reports to the board an item with two or more failed attempts (a rejected
+  pair's driver, who proposes itself again at a driver swap; reports to the board an item with two or more failed attempts (a rejected
   report, or a pull request head whose CI, preflight or review failed) since its last head
   that passed every required check; compares each active item with the sprint's decision and
   definition of done and reports drift; and tracks a pair's escalated disagreement, which the

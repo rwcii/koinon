@@ -44,8 +44,10 @@ private tmux servers (WDR 006).
 
 - Dispatch: for a ready chunk (parallel view, dependencies merged), the coordinator creates
   or updates its one work item with the chunk's outcome and owned items, assigns it to the
-  pair, and never creates a second work item for a chunk that has one.
-- Loop awareness: at each team check, a work item with two or more failed attempts (a
+  pair, and never creates a second work item for a chunk that has one that is not finished.
+  At a driver swap, the new driver proposes its own family and role before it starts.
+- Loop awareness: at each team check, a work item that is not finished, with two or more
+  failed attempts (a
   `rejected` event, or a head of its pull request whose CI, preflight or review failed or
   asked for changes) since the last head on which every required check passed, or since its
   first start, is reported to the maintainer with what failed, as a board card. Starts and

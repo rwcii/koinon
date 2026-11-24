@@ -83,34 +83,37 @@ chunk, its checkpoints and its evidence (PDR 002, Decision 5; PDR 004). Read the
 with `work_list`, page by page to its end.
 
 1. **Dispatch.** A chunk is ready when each chunk in its Depends on column has merged and no
-   chunk in progress owns an item in common with it (the parallel view, WDR 002, Decision 7).
-   Each dispatched chunk has its own work item, whose title starts with the issue and the
-   chunk number, for example `#795 chunk 03:`; find it by that title in the list. When the
-   chunk has one, use it, and never create a second item for a chunk that has one; when its
-   scope changed, revise it with `work_edit`, or ask its holder to while it is claimed. When it
-   has none, create it with `work_create`: the title as above, the criteria are the chunk's
-   outcome and its section of `definition-of-done.md`, the non-goals name the items that
-   other chunks own, and the references name the chunk file. Propose the pair's driver, by its
-   family and role, with `work_propose`, then send both members a Koinon message with the work
-   ID and the chunk file. A sprint that one pair builds in order with no coordinator can reuse
-   the issue's item (`sprint`).
-2. **Loop awareness.** At each team check, for each of the sprint's items that is active,
-   blocked or reported, count its failed attempts since the last head of its pull request on
-   which every required check passed, or since its first start when no head passed: each
-   `rejected` event of the item in the `memory_sync` deltas (each delta entry gives the work
-   ID and the event kind), and each later head whose CI, preflight or review failed or asked
-   for changes. Starts, releases and their checkpoint
-   text are not attempts: Koinon sets a checkpoint at each start and release, and a pair hands
-   over with a release and a start at the same commit. Two or more failed attempts are a loop
-   (PDR 002, Decision 5). Put a card on the board for the maintainer with the item, each
-   attempt, what failed in it and the evidence: summarize it, and keep raw pane captures in
-   your private state. Tell the pair. Record the heads and events that you counted in your
-   private state.
+   chunk in progress owns a path, interface or record in common with it (the parallel view,
+   WDR 002, Decision 7). Each dispatched chunk has its own work item, whose title starts with
+   the issue and the chunk number, for example `#ISSUE chunk NN:`; find it by that title in
+   the list. When the chunk has an item that is not finished, use it, and never create a
+   second item for a chunk that has one; when its scope changed, revise it with `work_edit`,
+   or ask its holder to while it is claimed. When it has none, or only a finished one while
+   the chunk has not merged, create one with `work_create`: the title as above, the criteria
+   are the chunk's outcome and its section of `definition-of-done.md`, the non-goals name the
+   paths, interfaces and records that other chunks own, and the references name the chunk
+   file and any finished item of the chunk. Propose the pair's driver, by its family and role,
+   with `work_propose`. Then send both members a Koinon message with the work ID, the chunk
+   file and this step: at a driver swap, the new driver proposes its own family and role with
+   `work_propose` before its `work_start`, because a start checks the proposed role (PDR 004,
+   Decision 1). A sprint that one pair builds in order with no coordinator can reuse the
+   issue's item (`sprint`).
+2. **Loop awareness.** At each team check, for each of the sprint's items that is not
+   finished, count its failed attempts since the last head of its pull request on which every
+   required check passed, or since its first start when no head passed: each `rejected` event
+   of the item in the `memory_sync` deltas (each delta entry gives the work ID and the event
+   kind), and each later head whose CI, preflight or review failed or asked for changes.
+   Starts, releases and their checkpoint text are not attempts: Koinon sets a checkpoint at
+   each start and release, and a pair hands over with a release and a start at the same
+   commit. Two or more failed attempts are a loop (PDR 002, Decision 5). Put a card on the
+   board for the maintainer with the item, each attempt, what failed in it and the evidence:
+   summarize it, and keep raw pane captures in your private state. Tell the pair. Record the
+   heads and events that you counted in your private state.
 3. **Goal and drift.** At each team check, compare each active item and its pull request with
    the sprint's `decision.md` and `definition-of-done.md`. Work that neither names, or work on
-   an item that another chunk in progress owns, is drift (PDR 002, Decision 5; WDR 002,
-   Decision 7): put a card on the board with the
-   item, the work outside the sprint and the text that it departs from, before the work grows.
+   a path, interface or record that another chunk in progress owns, is drift (PDR 002,
+   Decision 5; WDR 002, Decision 7): put a card on the board with the item, the work outside
+   the sprint and the text that it departs from, before the work grows.
 4. **Disagreement record.** When a pair takes a disagreement to the maintainer (`pair`), the
    driver writes it on the chunk's work item with `work_update`, with lifecycle `blocked` and
    a blocker that gives both positions and the card reference. A work report would release

@@ -81,11 +81,12 @@ func TestSkillTextHasNoLimitPhrases(t *testing.T) {
 	steps := map[string][]string{
 		"coordinate": {"keep it; do not start a second one.", "send the key only when it still shows the same command or diff",
 			// The Captain steps of PDR 002 Decision 5 (#795).
-			"(the parallel view, WDR 002, Decision 7)", "never create a second item for a chunk that has one",
-			"Two or more failed attempts are a loop\n   (PDR 002, Decision 5).",
+			"(the parallel view,\n   WDR 002, Decision 7)", "never create a\n   second item for a chunk that has one",
+			"Two or more failed attempts are a loop (PDR 002, Decision 5).",
 			"compare each active item and its pull request with\n   the sprint's `decision.md` and `definition-of-done.md`.",
-			"is drift (PDR 002, Decision 5; WDR 002,\n   Decision 7)",
+			"is drift (PDR 002,\n   Decision 5; WDR 002, Decision 7)",
 			"the\n   driver writes it on the chunk's work item with `work_update`, with lifecycle `blocked`",
+			"the new driver proposes its own family and role with\n   `work_propose` before its `work_start`",
 			"A work report would release\n   the claim and wait for a verdict (PDR 004, Decision 2).",
 			"the driver\n   sends the same lifecycle and blocker on each update until the verdict."},
 		"check":        {"When a required check\nfails, fix the cause and run the check again."},

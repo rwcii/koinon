@@ -353,23 +353,28 @@ A cycled agent resumes with its participant address, claims and handoff.
   - **Reason and scope:** the spec's reasons: the coordinator tracks disagreements, records
     what failed and escalates it, and surfaces drift before the scope grows, with the work
     items as the one record of the work. The steps change no runtime behavior.
-  - **The agents' design, reviewed in the sprint plan and the pull request (#795), not the
-    maintainer's words:** each dispatched chunk has its own item, found by a title that starts
-    with the issue and the chunk number (the driver's updates replace an item's references, so
-    they cannot name the chunk), and `sprint` reuses the issue's item only for chunks that one
-    pair builds in order; a loop is two or more failed attempts since the last head of the
-    pull request on which every required check passed, where an attempt is a `rejected` work
-    event or a head whose CI, preflight or review failed or asked for changes (starts and
-    releases are not attempts, because Koinon sets a checkpoint at each of them, and the claim
-    generation is one counter for the whole repository), and it goes to the board as a card;
-    drift is also work on an item that another chunk in progress owns (WDR 002, Decision 7),
-    and it goes to the board as a card; the driver writes the disagreement as the item's
-    blocker with `work_update` and lifecycle `blocked`, and sends them again on each update
-    until the verdict, because Koinon keeps a blocker only while the item is `blocked` and a
-    work report releases the claim and waits for a verdict (PDR 004, Decision 2); `pair` is
-    unchanged, so the coordinator tells the driver these steps when the card reaches the
-    board, checks the blocker and reads the card at each team check, and tells the driver when
-    the blocker is gone.
+  - **The agents' design, reviewed in the pull request (#795), not the maintainer's words:**
+    - Each dispatched chunk has its own item, found by a title that starts with the issue and
+      the chunk number. References cannot name the chunk: a report, a verdict, a finish, or an
+      update that sends references replaces them. A chunk whose item is finished before the
+      chunk merges gets a new item that names the finished one. `sprint` reuses the issue's
+      item only for chunks that one pair builds in order.
+    - The coordinator proposes the driver's family and role; at a driver swap the new driver
+      proposes its own, because a start checks the proposed role (PDR 004, Decision 1).
+    - A loop is two or more failed attempts on an item that is not finished, since the last
+      head of the pull request on which every required check passed: a `rejected` work event,
+      or a head whose CI, preflight or review failed or asked for changes. Starts and releases
+      are not attempts, because Koinon sets a checkpoint at each of them; the claim generation
+      is one counter for the whole repository. Status: proposed; this changes the spec's words
+      "without new checkpoints", and it waits for the maintainer's decision.
+    - Drift is also work on a path, interface or record that another chunk in progress owns
+      (WDR 002, Decision 7). A loop and drift each go to the board as a card.
+    - The driver writes the disagreement as the item's blocker with `work_update` and
+      lifecycle `blocked`, and sends them again on each update until the verdict: Koinon
+      keeps a blocker only while the item is `blocked`, and a work report releases the claim
+      and waits for a verdict (PDR 004, Decision 2). `pair` is unchanged, so the coordinator
+      tells the driver these steps when the card reaches the board, checks the blocker and
+      the card at each team check, and tells the driver when the blocker is gone.
 
 ---
 
