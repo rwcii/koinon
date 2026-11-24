@@ -43,6 +43,14 @@ computers. Today:
     release to prove their last live check." Its limits: "the Orca live check of chunk 02 stays
     open", and "#795 closes at v0.13.4" moves to the next release. The next release number is
     the maintainer's choice.
+- **Changed on 2026-11-24: the wording lens joins v0.13.4.**
+  - **Decided by:** Robert Capps. **Date:** 2026-11-24, decision board.
+  - **Context:** the preflight wording lens (#812, WDR 004, Decision 8) was planned for after
+    the v0.13.4 promotion. The promotion pull request had not opened.
+  - **Decision:** the card for the lens was approved with the note "add this to the v0.13.4
+    release".
+  - **Reason and scope:** the source gives no further reason. Scope: #812 only; the rest of
+    the split stays.
 
 ### Node keys in the mesh (spec section 3)
 

@@ -76,6 +76,25 @@ compare the files in the Docs and agent files fact with the code at the head:
 6. Commit the corrections in this change. Name the files that you read and changed in the
    review evidence.
 
+## Standard lenses
+
+A project turns on a standard lens with a `## NAME` section that has no text in its lens
+policy. The Review run command gives that lens's worker the brief below, from this skill. Koinon's
+source for the wording lens is WDR 004, Decision 8.
+
+### wording
+
+Check the content that users see and the data that users can read in the change: UI,
+dashboard and website text, command output and messages, error text, and the names of cookies,
+local storage keys, events, properties, headers and identifiers in exported or published data.
+Report each word or name that frames the work in alarming or pejorative terms when an accurate,
+neutral term exists, for example "profile", "tracking" or "fingerprint" where "visitor ID",
+"visit" or "site data" is just as accurate. Give the text, its file and line, and an accurate,
+neutral replacement. The replacement must not hide what the thing does: wording that misleads
+is a finding too. Settled policy texts and fixed third-party API names are not findings. Code
+comments, README files, agent files and other repository documentation are outside this lens.
+When the change has no such content, approve.
+
 ## Repository facts
 
 The project's facts for this skill are local data in the file named below, in the current

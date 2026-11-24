@@ -30,8 +30,8 @@ In short:
   conversations and `success` commit statuses named `peer-review` and `refusal-review` on the
   head commit, which the reviewer records with each sign-off (WDR 004, Decision 3; WDR 003,
   Decision 3; WDR 001, Decision 6).
-- Before a pull request into `develop` opens, its author runs the `preflight` skill: four lenses
-  (security, code, standards, refusal), each in a fresh worker that writes nothing, with
+- Before a pull request into `develop` opens, its author runs the `preflight` skill: five lenses
+  (security, code, standards, refusal, wording), each in a fresh worker that writes nothing, with
   `scripts/preflight-run.sh`; after it opens, `scripts/preflight-publish.sh PR` posts the result
   and the `preflight` status on the head. After the reviews pass, the author puts a card on the
   decision board whose Where field is exactly `OWNER/REPO#PR@HEAD`; after the maintainer

@@ -282,7 +282,7 @@ tmux servers. Go contributor tests check shared skills, retirement and CI covera
 Go workflow alone drives real services on disposable Ubuntu/macOS runners, including upgrade
 from the pinned main release obtained through `git archive`; it reads committed fixtures and
 needs no deleted fixture generator. The full Go matrix always runs, even for agent-only changes.
-Each pull request into develop gets a preflight of four lenses and the maintainer's board
+Each pull request into develop gets a preflight of five lenses and the maintainer's board
 approval of its exact head, as the `preflight` and `board-verdict` statuses; the `develop`
 ruleset requires both, with a passing preflight, after the maintainer applies
 `scripts/setup-repo.sh` (WDR 004, Decision 8). The

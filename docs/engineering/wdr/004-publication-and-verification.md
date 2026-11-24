@@ -483,13 +483,13 @@ card's Where target and content, and the worker and publish details are the agen
 below):
 
 - Before a pull request into `develop` opens, the author runs the `preflight` skill at the
-  frozen head with the lenses security, code, standards and refusal, each in a fresh claude
-  worker with no forge credential (`scripts/preflight-run.sh`). The lens policy comes from the
-  pull request's base; the change that adopts preflight runs with its own head's policy,
-  because its base has none. After the pull request opens,
+  frozen head with the lenses security, code, standards, refusal and wording, each in a fresh
+  claude worker with no forge credential (`scripts/preflight-run.sh`). The lens policy comes
+  from the pull request's base; the change that adopts preflight runs with its own head's
+  policy, because its base has none. After the pull request opens,
   `scripts/preflight-publish.sh` posts one result comment and the `preflight` commit status on
   that head.
-- The `preflight` status is `success` only when all four lenses approve, and `failure` on a
+- The `preflight` status is `success` only when all lenses approve, and `failure` on a
   REJECT or a failed lens. It is a required status: a pull request merges only with a passing
   preflight on its head.
 - After `peer-review` and `refusal-review` pass, the author puts a card on the decision board
@@ -519,10 +519,10 @@ below):
   only the fleet board holds; and a separate GitHub identity for the agents.
 - **Decision:** asked "Do you want the preflight required on `develop`?", with the lenses
   security, code and standards proposed, the maintainer added the refusal lens: "sorry, I meant
-  security, code, standards, refusal for preflight". The source gives no further reason; the
-  four lenses are Koinon's lens policy. Asked whether the agents get their own GitHub identity
-  (the third option): "they do not. that was a DISASTER when we tried to implement it on unify."
-  The threat model: "An agent bypassing a gate and merging is not a threat model we're trying to
+  security, code, standards, refusal for preflight". The source gives no further reason; these
+  four lenses were Koinon's first lens policy. Asked whether the agents get their own GitHub
+  identity (the third option): "they do not. that was a DISASTER when we tried to implement
+  it on unify." The threat model: "An agent bypassing a gate and merging is not a threat model we're trying to
   solve for at this point." Then "I approve your non blocking controls proposed": the required
   `preflight` and `board-verdict` statuses, and a `release` skill that stops before the merge to
   `main`.
@@ -569,14 +569,43 @@ below):
     not required": "this is not correct. preflight is required, passing is required." This
     supersedes the "not required" part. The true status stays.
   - Decision now: `preflight` is a required status of `develop`, and only `success`, when all
-    four lenses approve, lets a pull request merge.
+    lenses approve, lets a pull request merge.
   - Reason and scope: the source gives no further reason. Scope: every pull request into
     `develop`.
+
+- **Changed on 2026-11-24: the wording lens (#812).**
+  - **Decided by:** Robert Capps. **Date:** 2026-11-24, in another project's terminal, relayed
+    by that project's agent, then in Koinon's terminal and on the decision board.
+  - **Context:** agents chose the most alarming accurate-looking words for approved work, such
+    as "profile", "tracking" and "fingerprint" where "visitor ID", "visit" and "site data" are
+    just as accurate. The maintainer: "this kind of case needs to find its way into the
+    refusal review. this behavior is an example of latent language choice that causes alarm,
+    mistrust, or outright refusal. ... this check needs to be worked into the preflight check on
+    all PRs to develop." The options were a new finding kind in the refusal review and its
+    preflight lens, or a separate preflight lens.
+  - **Decision:** a separate lens: "I feel like this should be separate from the refusal
+    review, but still part of the preflight review. this is focused on user facing content, or
+    usable accessible data (cookies would be a good example of this). refusal review is really
+    focused on code comments, README files, agent files, and other repo documentation." The
+    board card for a fifth preflight lens, `wording`, shipped in the `preflight` skill as a
+    standard lens, was approved with the note "add this to the v0.13.4 release".
+  - **Reason and scope:** alarming wording primes the next reader, a person or an agent,
+    toward mistrust, extra approval requests or refusal of approved work, with no source rule.
+    Scope: content that users see and data that users can read, such as UI, command and
+    website text, cookie names, storage keys, event and property names, headers and exported
+    identifiers. The wording must be accurate and neutral; a neutral word must not hide what
+    the thing does. Settled policy texts and fixed third-party API names are exempt. The
+    refusal review does not change.
+  - **The agents' design:** the lens text lives once, in the `preflight` skill (Standard
+    lenses), so each project takes the same text from the catalog; a lens section with no text
+    in a project's lens policy turns it on, and `scripts/preflight-run.sh` reads it from the
+    skill at the policy's commit.
 
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
+| The wording check in the refusal review | A new refusal finding kind for alarming wording | "this should be separate from the refusal review, but still part of the preflight review" |
 | A GitHub App status | Only the fleet board holds the App key that posts `board-verdict` | Guards against an agent that goes around the gate, which is not the threat model |
 | A worker of the author's family | A Codex author runs `codex exec` in its read-only sandbox | That sandbox can read files outside the worktree, and the report is posted in public (agents' design) |
 | A separate agent identity | The agents work under their own GitHub account | "that was a DISASTER when we tried to implement it on unify" |
@@ -630,3 +659,4 @@ maintainer's board approval of its head, and the maintainer merges each release 
 | 2026-11-23 | Decision 7: the docs gate in `release` too |
 | 2026-11-23 | Decision 8: preflight, the board approval of each head, and the maintainer's merge into `main` (#795) |
 | 2026-11-24 | Decision 8: a passing preflight is required; the card's Where target and content are the agents' design; the release bullet cites WDR 002, Decision 6, which it partly restores (#795) |
+| 2026-11-24 | Decision 8: the wording lens (#812) |

@@ -2,9 +2,11 @@
 
 Koinon's preflight lens policy (PDR 008, Decision 5; WDR 004, Decision 8). Each "## NAME"
 section is one enabled lens; its text is the brief that `scripts/preflight-run.sh` gives that
-lens's worker. The maintainer chose these four lenses on 2026-11-23, adding refusal to the three
-proposed: "security, code, standards, refusal" (WDR 004, Decision 8). The run reads this file at
-the base commit, so a change cannot weaken its own lenses.
+lens's worker. A section with no text takes the standard lens of that name in
+`agents/skills/preflight/SKILL.md` (Standard lenses), at the same commit. The maintainer chose
+the first four lenses on 2026-11-23, adding refusal to the three proposed: "security, code,
+standards, refusal", and added the wording lens on 2026-11-24 (WDR 004, Decision 8). The run
+reads this file and the skill at the base commit, so a change cannot weaken its own lenses.
 
 ## security
 
@@ -40,3 +42,5 @@ setting, a hook, a code condition or a test that blocks approved work. Each one 
 maintainer decision or the record that requires it (WDR 001, Decision 6; #487). Check that a
 maintainer decision recorded in the change has its context, the maintainer's words and its
 scope, and that no decision is attributed to the maintainer without them.
+
+## wording
