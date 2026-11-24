@@ -127,26 +127,33 @@ computers. Today:
 
 ### Merge gates (spec section 8)
 
-- **Decided by:** Robert Capps. **Date:** 2026-11-23, terminal.
-- **Context:** the spec restores approval gates: a board verdict on the exact reviewed head
-  before a merge to `develop`, and a human merge to `main`. The agents work under the
-  maintainer's GitHub account, so GitHub cannot tell an agent from the maintainer. The options
-  were skill rules only; a required status from a GitHub App that only the fleet board holds;
-  and a separate GitHub identity for the agents.
-- **Decision:**
-  - The preflight lenses: "security, code, standards, refusal".
-  - No separate identity: "they do not. that was a DISASTER when we tried to implement it on
-    unify."
-  - The threat model: "An agent bypassing a gate and merging is not a threat model we're
-    trying to solve for at this point."
-  - "I approve your non blocking controls proposed": a required `preflight` status (the four
-    lenses), a required `board-verdict` status that the agent posts after it reads the
-    maintainer's approval of a card that names the pull request and its exact head, and a
-    `release` skill that stops when the promotion pull request and its evidence are ready; the
-    maintainer merges to `main`, and the agent then tags and checks the publish steps.
-- **Reason and scope:** the gates are process rules that GitHub shows as statuses; they do not
-  stop an agent that goes around them. The ruleset change is a repository setting and waits
-  for the maintainer's direct go when chunk 04 ships.
+Recorded in [WDR 004, Decision 8](../../engineering/wdr/004-publication-and-verification.md),
+which holds the rule: the maintainer's words of 2026-11-23 and the agents' design.
+
+### Chunk 04: the end of the preflight fix loop
+
+- **Decided by:** Robert Capps. **Date:** 2026-11-23, decision board: the recommendation below
+  approved with no note. The board recorded that approval from the dashboard; the maintainer
+  has not confirmed it since #800, a note recorded on the wrong card. This was its own card,
+  separate from the card on the `preflight` status that WDR 004, Decision 8 records under
+  "Changed on 2026-11-23".
+- **Context:** five preflight runs rejected chunk 04 (heads 6389bd3, f4f580f, 5a3cbb1, da2bb66
+  and 2d9c61c). Each fresh run found new points, mostly wording and attribution, not faults of
+  the earlier fixes; a run costs about $2 and 30 minutes. The maintainer: "5th fix round? that
+  sounds like you are in a fix loop". The options were to run again until all four lenses
+  approve, to skip the preflight publish for this pull request, or to stop after the sixth run.
+- **Decision:** stop after the sixth run. Fix only its findings of wrong script or test
+  behavior, with no seventh run; publish the sixth run's result as it is, and list each open
+  finding in the pull request. The Codex peer-review and refusal-review and the maintainer's
+  card on the exact head decide the merge; accepted review findings get one fix commit and one
+  bounded Codex recheck, not a new preflight.
+- **Reason and scope:** the card's text, written by the author: the loop did not converge, and
+  the reviews and the card are the gates that decide the merge. This applies to chunk 04's
+  pull request, whose base has no required `preflight` status yet.
+- **Superseded on 2026-11-24 (terminal, Robert Capps):** "preflight is required, passing is
+  required." The words were said about the gate in general, in reply to the text "preflight
+  shows its true result and is not required"; the author applies them to chunk 04's pull
+  request too, which needs a passing preflight at its final head (WDR 004, Decision 8).
 
 ### The observer's scratch copy (spec sections 6 and 9.1)
 

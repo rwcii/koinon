@@ -3,7 +3,7 @@ pdr: "008"
 title: "Portable Skills and Explicit Adoption"
 status: draft
 created: "2026-10-12"
-updated: "2026-11-17"
+updated: "2026-11-24"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -356,8 +356,9 @@ work: `preflight`, `provenance`, `refusal-audit`, `standards-review`, `record`,
 `sprint-closeout` and `standards-audit` (#732). Their steps are generic; each project's values
 come from the fact headings that each skill declares, in `.koinon/skills/NAME.md` of that
 project, as for the other skills (Decision 1). `koinon install` and the daemon write their
-`koinon-NAME` entries as for every catalog skill (Decision 2). Koinon offers these seven and
-adopts none of them for its own work; it has no fact file for them. LICENSE names "Robert Capps
+`koinon-NAME` entries as for every catalog skill (Decision 2). Koinon offers these seven. It
+adopts `preflight` for its own work (below) and none of the other six, so it has no fact file
+for them. LICENSE names "Robert Capps
 and Stratovera, LLC" as the copyright holder of Koinon, these skills included; the skills carry
 no notice of their own.
 
@@ -395,6 +396,13 @@ no notice of their own.
   LICENSE holder. The install script for a computer with no Koinon changes Decision 2 and has
   its own verdict (#732, chunk 02).
 
+**Koinon adopts `preflight` (#795):** the maintainer's merge gates, recorded in WDR 004,
+Decision 8 (2026-11-23, changed 2026-11-24), require a passing preflight with four lenses on
+each pull request into `develop`. Koinon adopts `preflight` with `.koinon/skills/preflight.md`,
+the lens policy `.koinon/preflight/lenses.md`, `scripts/preflight-run.sh` and
+`scripts/preflight-publish.sh`. The skill text does not change. The other six procedures stay
+offered and not adopted.
+
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
@@ -431,3 +439,5 @@ drift defect are ordinary corrections; they add no product decision.
 | 2026-10-25 | Requirements and Decisions 1–4: removed the unsourced approval step, the fact-file and catalog caveats and the "grant no permission" text; the verified-root report and the install's bare-name and symbolic-link handling are stated as code facts (#487) |
 | 2026-11-17 | Decision 5: seven procedures that an adopting project brought, offered in the catalog; LICENSE names Robert Capps and Stratovera, LLC (#732) |
 | 2026-11-17 | Decision 2: a script installs the full skill text of one pinned release on a computer with no Koinon (#732) |
+| 2026-11-23 | Decision 5: Koinon adopts `preflight` for its own work (#795) |
+| 2026-11-24 | Decision 5: the merge gates' date, after the change of 2026-11-24 to WDR 004, Decision 8 (#795) |

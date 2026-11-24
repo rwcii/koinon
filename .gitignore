@@ -22,3 +22,6 @@ _handoff/
 .opencode/bun.lock
 .opencode/bun.lockb
 .opencode/.gitignore
+
+# Preflight reports (scripts/preflight-run.sh).
+_preflight/

@@ -9,6 +9,8 @@ ship
 - CONTRIBUTING.md
 - .github/workflows/tests.yml
 - .github/workflows/native-go-lifecycle.yml
+- docs/engineering/wdr/004-publication-and-verification.md
+- scripts/board-verdict.sh
 
 ## Work target
 feature/*, fix/* or chore/* branch from develop, in an isolated worktree; squash PR into develop.
@@ -28,6 +30,17 @@ sets the refusal-review status on that hash (WDR 001, Decision 6). The ruleset m
 required CI passed and conversations resolved. Use squash auto-merge for every PR into develop.
 Read back the merge and issue state. Promotion to main uses the release skill. Close each issue
 when it is fully delivered.
+## Extra checks
+Before the pull request opens, run the preflight skill at the frozen head with
+.koinon/skills/preflight.md; after it opens, post the result with
+scripts/preflight-publish.sh PR. A new head needs a new run (WDR 004, Decision 8).
+## Merge approval
+A board approval for each pull request into develop (WDR 004, Decision 8). After peer-review
+and refusal-review pass on the frozen head, put a card on the decision board whose Where field
+is exactly rwcii/koinon#N@FULLHEAD, and whose context gives the preflight result and
+each open preflight finding with what you did about it. After the maintainer approves it, run
+scripts/board-verdict.sh --as FAMILY:ID PR HEAD REFERENCE, which posts the board-verdict status
+on that head.
 ## Docs and agent files
 README.md, PROTOCOL.md, CONTRIBUTING.md, AGENTS.md, CLAUDE.md, CHANGELOG.md (Unreleased),
 docs/USAGE.md, docs/INSTALL.md, docs/REMOTE-DASHBOARD.md, docs/PERMISSIONS.md,
