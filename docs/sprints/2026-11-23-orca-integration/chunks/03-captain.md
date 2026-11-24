@@ -20,8 +20,10 @@ disagreements on their work items.
      passing check go to the maintainer as a board card with what failed.
    - Goal and drift: compare each active work item with `decision.md` and
      `definition-of-done.md`; report work outside them as a card before it grows.
-   - Disagreement record: when a pair escalates a disagreement, write a work report on the
-     item with both positions and the card reference, and track it there.
+   - Disagreement record: when a pair escalates a disagreement, the driver writes it on the
+     item with `work_update` (the blocker gives both positions and the card reference), and
+     the coordinator tracks it there. Corrected in chunk 03: a work report releases the claim
+     and waits for a verdict (PDR 004, Decision 2).
 2. Contributor tests for the new steps' text, as for the existing coordinate steps.
 3. Records and docs: PDR 002, Decision 5; PDR 004 (work results) for work items as the
    source of truth of dispatched chunks; the skills README; CHANGELOG.

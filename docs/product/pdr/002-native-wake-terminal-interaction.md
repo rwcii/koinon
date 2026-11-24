@@ -3,7 +3,7 @@ pdr: "002"
 title: "Native Wake and Terminal Interaction"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-25"
+updated: "2026-11-24"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -332,6 +332,31 @@ A cycled agent resumes with its participant address, claims and handoff.
   polling (a product change with its own design, which can follow later).
 - **Review when:** the daemon reports members' prompts itself.
 
+- **Added on 2026-11-23: the coordinator dispatches and tracks a sprint (#795).**
+  - **Decided by:** Robert Capps. **Date:** 2026-11-23, the Orca integration spec that the
+    maintainer gave for #795, section 5, kept in the sprint's decision.
+  - **Context:** the spec adds a Captain role to `coordinate`: "Dispatch: assign ready chunks
+    to pairs by creating or updating their work items"; "Loop awareness: detect repeated
+    attempts on a work item without new checkpoints or passing checks; record what failed and
+    escalate."; "Goal tracking and drift: at each team check, compare progress against the
+    sprint's `decision.md` and `definition-of-done.md`, and surface deviation before scope
+    expands."; "Disagreement record: record pair disagreements escalated to the maintainer on
+    the work item, so the Captain can track them." Its section 1 makes the work items the
+    source of truth for assignment, ownership, checkpoints and completion evidence.
+  - **Decision:** `coordinate` has a step that dispatches each ready chunk of the parallel
+    view (WDR 002, Decision 7) through its one work item, finds a loop on an item, compares
+    each active item with the sprint's decision and definition of done, and tracks a pair's
+    escalated disagreement on the item.
+  - **Reason and scope:** the spec's; the steps change no runtime behavior.
+  - **The agents' design, reviewed in the sprint plan and the pull request (#795), not the
+    maintainer's words:** a chunk's item is the one whose references name the chunk file, and
+    chunks that run at the same time each have their own; a loop is two or more starts,
+    releases, reports or rejections since the last checkpoint, read from the claim generation
+    and the work events of the memory deltas, and it goes to the board as a card, as drift
+    does; the driver writes the disagreement as the item's blocker with `work_update`, because
+    a work report releases the claim and waits for a verdict (PDR 004, Decision 2), and the
+    coordinator checks it and reads the card at each team check.
+
 ---
 
 ## 7. Statements this record does not adopt
@@ -367,3 +392,4 @@ or practice that the maintainer has not decided, so this record is a draft.
 | 2026-10-23 | Decision 1: each `codex queue` failure has its own code, a non-zero exit is not counted as a notice, and failures are logged (#466) |
 | 2026-10-25 | Decisions 2 and 3: removed the "within the task" qualifiers on terminal input (#487) |
 | 2026-11-22 | Decision 5: the `coordinate` skill, approved by Robert Capps on 2026-11-21 (#784) |
+| 2026-11-24 | Decision 5: dispatch, loop awareness, goal and drift, and the disagreement record (#795) |

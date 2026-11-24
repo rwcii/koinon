@@ -5,6 +5,12 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The `coordinate` skill dispatches and tracks a sprint (#795, PDR 002, Decision 5): it gives
+  each ready chunk of the parallel view one work item and proposes the pair, reports to the
+  board an item with two or more attempts and no new checkpoint, compares each active item
+  with the sprint's decision and definition of done and reports drift, and tracks a pair's
+  escalated disagreement, which the driver writes as the item's blocker.
+
 - docs/USAGE.md has "Run Koinon members from Orca": the `orca terminal create` command form,
   `--role` with the pair for each member, the label of linked worktrees, the tmux session by
   `TMUX`, and the observer's scratch copy (#795). Launcher tests start two pairs in two

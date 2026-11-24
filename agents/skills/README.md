@@ -22,7 +22,7 @@ slash-command wrappers that load these same skills. Rules for writing a skill ar
 | [spin-up](spin-up/SKILL.md) | Prepare and carry out a team launch, including first-run prompts. |
 | [spin-down](spin-down/SKILL.md) | Collect each session's handoff and complete the team stop plan. |
 | [recover-team](recover-team/SKILL.md) | Reconcile team state and carry out a restart plan. |
-| [coordinate](coordinate/SKILL.md) | Coordinate a running team: watch the members' panes for permission prompts, answer them, and check the team at an interval. |
+| [coordinate](coordinate/SKILL.md) | Coordinate a running team: watch the members' panes for permission prompts, answer them, check the team at an interval, and dispatch and track a sprint's chunks through work items. |
 | [koinon-guide](koinon-guide/SKILL.md) | Read installed runtime guidance and catalog recommendations. |
 | [preflight](preflight/SKILL.md) | Run the project's enabled review lenses locally before a pull request, and post one result bound to the head. |
 | [provenance](provenance/SKILL.md) | Record each commit's AI-development usage as a Git note, and recount the branch before the merge. |

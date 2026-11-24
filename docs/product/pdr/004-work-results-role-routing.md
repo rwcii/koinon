@@ -3,7 +3,7 @@ pdr: "004"
 title: "Coordinated Work Results and Role Routing"
 status: modified
 created: "2026-10-12"
-updated: "2026-10-27"
+updated: "2026-11-24"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -272,6 +272,8 @@ An agent that was reset or missed a wake lists what waits for it and acts on eac
 #140 requests role routing without claim inheritance, a reported result with a verdict by
 another consumer, and catch-up discovery. The plan proposes concrete mechanisms for each. The
 maintainer decided the verdict rule (Decision 3) and approved the plan's mechanisms at Gate B.
+A coordinator dispatches a sprint's chunks through these work items, one item for each chunk,
+and reads their claims, checkpoints and events for loops (PDR 002, Decision 5).
 
 ---
 
@@ -287,3 +289,4 @@ maintainer decided the verdict rule (Decision 3) and approved the plan's mechani
 | 2026-10-12 | Built production work discovery and coalesced notices under the approved chunk 03 plan |
 | 2026-10-25 | Decision 2 and the requirements: removed the unsourced "grants no authority" and "grants approval or permission" text; status modified (#487) |
 | 2026-10-27 | Decision 2: a create at the item limit removes the oldest finished item, approved on the decision board (WORK-LIMIT-529) (#529) |
+| 2026-11-24 | Conclusion: a coordinator dispatches a sprint's chunks through work items (PDR 002, Decision 5; #795) |
