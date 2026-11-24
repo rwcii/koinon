@@ -502,7 +502,8 @@ below):
   status holds the merge, so the author can set auto-merge before it posts.
 - The `release` skill stops when the promotion pull request and its evidence are ready and
   reports to the maintainer. The maintainer merges into `main`; the agent then pushes the tag
-  and checks the publish steps.
+  and checks the publish steps. This partly restores the maintainer's gate on each release that
+  WDR 002, Decision 6 recorded before #487, and changes that Decision for Koinon.
 - The skills take the gates from the optional facts "Merge approval" (`ship`, default "none")
   and "Promotion merge" (`release`, default "the promotion policy"). A project without them
   keeps its steps. Koinon's `.koinon/skills/ship.md` and `release.md` opt in, and Koinon adopts
@@ -628,4 +629,4 @@ maintainer's board approval of its head, and the maintainer merges each release 
 | 2026-11-23 | Decision 7: a docs gate in `preflight` and `ship` (#792) |
 | 2026-11-23 | Decision 7: the docs gate in `release` too |
 | 2026-11-23 | Decision 8: preflight, the board approval of each head, and the maintainer's merge into `main` (#795) |
-| 2026-11-24 | Decision 8: a passing preflight is required; the card's Where target and content are the agents' design (#795) |
+| 2026-11-24 | Decision 8: a passing preflight is required; the card's Where target and content are the agents' design; the release bullet cites WDR 002, Decision 6, which it partly restores (#795) |

@@ -134,7 +134,9 @@ which holds the rule: the maintainer's words of 2026-11-23 and the agents' desig
 
 - **Decided by:** Robert Capps. **Date:** 2026-11-23, decision board: the recommendation below
   approved with no note. The board recorded that approval from the dashboard; the maintainer
-  has not confirmed it since #800, a note recorded on the wrong card.
+  has not confirmed it since #800, a note recorded on the wrong card. This was its own card,
+  separate from the card on the `preflight` status that WDR 004, Decision 8 records under
+  "Changed on 2026-11-23".
 - **Context:** five preflight runs rejected chunk 04 (heads 6389bd3, f4f580f, 5a3cbb1, da2bb66
   and 2d9c61c). Each fresh run found new points, mostly wording and attribution, not faults of
   the earlier fixes; a run costs about $2 and 30 minutes. The maintainer: "5th fix round? that
@@ -145,9 +147,9 @@ which holds the rule: the maintainer's words of 2026-11-23 and the agents' desig
   finding in the pull request. The Codex peer-review and refusal-review and the maintainer's
   card on the exact head decide the merge; accepted review findings get one fix commit and one
   bounded Codex recheck, not a new preflight.
-- **Reason and scope:** the loop did not converge, and the reviews and the card are the gates
-  that decide the merge. This applies to chunk 04's pull request, whose base has no required
-  `preflight` status yet.
+- **Reason and scope:** the card's text, written by the author: the loop did not converge, and
+  the reviews and the card are the gates that decide the merge. This applies to chunk 04's
+  pull request, whose base has no required `preflight` status yet.
 - **Superseded on 2026-11-24 (terminal, Robert Capps):** "preflight is required, passing is
   required." The words were said about the gate in general, in reply to the text "preflight
   shows its true result and is not required"; the author applies them to chunk 04's pull
