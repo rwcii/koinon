@@ -359,18 +359,10 @@ A cycled agent resumes with its participant address, claims and handoff.
       finish, or an update that sends references replaces them. A chunk is in progress from
       its dispatch until it merges, so an item accepted before the merge stays the chunk's
       item; a chunk whose only items were withdrawn before it merged gets a new item that
-      names them. `sprint` reuses the issue's
-      item only for chunks that one pair builds in order.
+      names them. `sprint` reuses the issue's item only for chunks that one pair builds in
+      order.
     - The coordinator proposes the driver's family and role; at a driver swap the new driver
       proposes its own, because a start checks the proposed role (PDR 004, Decision 1).
-    - A loop is two or more failed attempts on an item that is not finished, since the last
-      head of the pull request on which every required check passed, or since the item's
-      first start when no head passed. A failed attempt is a `rejected` work event, or a head
-      whose CI, preflight or review failed or asked for changes. This is the one statement of
-      the rule; the skill, the sprint and the changelog cite it. Starts and releases
-      are not attempts, because Koinon sets a checkpoint at each of them; the claim generation
-      is one counter for the whole repository. Status: proposed; this changes the spec's words
-      "without new checkpoints", and it waits for the maintainer's decision.
     - Drift is also work on a path, interface or record that another chunk in progress owns
       (WDR 002, Decision 7). A loop and drift each go to the board as a card.
     - The driver writes the disagreement as the item's blocker with `work_update` and
@@ -379,6 +371,30 @@ A cycled agent resumes with its participant address, claims and handoff.
       and waits for a verdict (PDR 004, Decision 2). `pair` is unchanged, so the coordinator
       tells the driver these steps when the card reaches the board, checks the blocker and
       the card at each team check, and tells the driver when the blocker is gone.
+
+
+- **Changed on 2026-11-24: the loop rule (#795).**
+  - **Decided by:** Robert Capps. **Date:** 2026-11-24, decision board, approved with no note.
+  - **Context:** this changes the spec's words "detect repeated attempts on a work item without
+    new checkpoints or passing checks". Koinon sets a checkpoint at each work start and each
+    release, and a verdict clears it, so a test on new checkpoints misses a real loop or
+    reports a normal pair handover (a release and a start at one commit). The chunk 04 fix
+    loop made a new head in each round and was a loop all the same. The options were the
+    spec's words, a count of `rejected` work reports only, and a count of failed attempts.
+  - **Decision:** a loop is two or more failed attempts on an item that is not finished, since
+    the last head of its pull request on which every required check passed, or since the
+    item's first start when no head passed. A failed attempt is a `rejected` work event, or a
+    head whose CI, preflight or review failed or asked for changes. Starts, releases and
+    checkpoint text are not attempts. A loop goes to the board as a card with what failed.
+    This is the one statement of the rule; the skill, the sprint and the changelog cite it.
+  - **Reason and scope:** the recommendation that was approved: the spec's checkpoint test
+    cannot work with Koinon's checkpoints, and this rule catches a loop in which each fix round
+    makes a new head that fails again. Limit: a CI failure that a rerun fixes counts until a
+    head passes. Scope: the `coordinate` skill.
+  - **Alternatives considered:** the spec's words (they miss real loops or report pair
+    handovers); `rejected` work reports only (they miss preflight and CI failures, which were
+    the chunk 04 loop). The claim generation is not used: it is one counter for the whole
+    repository.
 
 ---
 
@@ -415,4 +431,4 @@ or practice that the maintainer has not decided, so this record is a draft.
 | 2026-10-23 | Decision 1: each `codex queue` failure has its own code, a non-zero exit is not counted as a notice, and failures are logged (#466) |
 | 2026-10-25 | Decisions 2 and 3: removed the "within the task" qualifiers on terminal input (#487) |
 | 2026-11-22 | Decision 5: the `coordinate` skill, approved by Robert Capps on 2026-11-21 (#784) |
-| 2026-11-24 | Decision 5: dispatch, loop awareness, goal and drift, and the disagreement record (#795) |
+| 2026-11-24 | Decision 5: dispatch, loop awareness, goal and drift, and the disagreement record; the loop rule, approved by Robert Capps on 2026-11-24 (#795) |
