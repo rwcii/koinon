@@ -523,9 +523,9 @@ below):
   four lenses were Koinon's first lens policy. Asked whether the agents get their own GitHub
   identity (the third option): "they do not. that was a DISASTER when we tried to implement
   it on unify." The threat model: "An agent bypassing a gate and merging is not a threat
-  model we're trying to solve for at this point." Then "I approve your non blocking controls proposed": the required
-  `preflight` and `board-verdict` statuses, and a `release` skill that stops before the merge to
-  `main`.
+  model we're trying to solve for at this point." Then "I approve your non blocking controls
+  proposed": the required `preflight` and `board-verdict` statuses, and a `release` skill that
+  stops before the merge to `main`.
 - **Reason and scope:** the gates are process rules that GitHub shows as statuses; they do not
   stop an agent that goes around them. The ruleset change is a repository setting, applied with
   the maintainer's direct go.
