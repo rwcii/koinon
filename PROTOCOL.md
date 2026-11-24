@@ -3075,7 +3075,9 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     `by USER (CLIENT) key KEY_ID`.
   - **Version 2 and signed answers** (#696). An envelope with `v` `koinon-maintainer-2` has the
     same fields, values and checks as version 1, and its signature covers `koinon-maintainer-2`, a
-    newline and the RFC 8785 bytes. A version 1 envelope keeps its unsigned answers. Version 1
+    newline and the RFC 8785 bytes. An enrollment statement (`op` `enroll`) stays
+    `koinon-maintainer-1`; a version 2 one is `signature_refused` with reason `version`. A
+    version 1 envelope keeps its unsigned answers. Version 1
     and version 2 share the receipts: the same `request` in the other version is
     `request_conflict`, and a version 2 `outcome` reads a version 1 receipt. Each answer to a
     version 2 envelope that the computer could parse is one signed object with exactly `v`
@@ -3094,12 +3096,13 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     `status`, or the unsigned `signature_refused` with reason `version` of a computer of an
     earlier release, and returns either unchanged. Unsigned stay: the local session route and
     the first line of `koinon mcp --maintainer --signed`; `maintainer_token_expired`,
-    `too_many_calls`, and a body that is not an envelope that parses as version 2. The Serve
-    route answers the signed object as its body with `status` as the HTTP status; the `signed`
-    tool answers it as its text, for a refusal too, without `isError`; the link carries it in
-    `maintainer-ok`. The 1 MiB answer bound counts the signed object as the link frame carries
-    it, escapes included. A client accepts an answer only when the object has this form, a
-    `target` answer has the envelope's `target` as `pin`, a `node` answer has the node's pin and
+    `too_many_calls`, and a body that is not an envelope that parses as version 2. The action
+    route `POST /v1/maintainer/signed`, on the loopback API and on Remote, and the `session`
+    route on Remote answer the signed object as their body with `status` as the HTTP status; the
+    `signed` tool answers it as its text, for a refusal too, without `isError`; the link carries
+    it in `maintainer-ok`. The 1 MiB answer bound counts the signed object as the link frame
+    carries it, escapes included. A client accepts an answer only when the object has this form,
+    a `target` answer has the envelope's `target` as `pin`, a `node` answer has the node's pin and
     is one of its claims, `public_key` hashes to `pin`, `request` is its envelope's digest,
     `sig` checks, and the `ok` of `answer` agrees with `status`; it then uses `status` and
     `answer` only (`signed.VerifyAnswer`). The test vectors are in
