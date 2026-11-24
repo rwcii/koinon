@@ -350,20 +350,24 @@ A cycled agent resumes with its participant address, claims and handoff.
     ready chunk of the parallel view (WDR 002, Decision 7) through its one work item, finds a
     loop on an item, compares each active item with the sprint's decision and definition of
     done, and tracks a pair's escalated disagreement on the item.
-  - **Reason and scope:** the spec's reasons: the coordinator tracks disagreements, records
-    what failed and escalates it, and surfaces drift before the scope grows, with the work
-    items as the one record of the work. The steps change no runtime behavior.
+  - **Reason and scope:** the spec's reasons are in its words: "so the Captain can track
+    them" and "before scope expands". The steps change no runtime behavior.
   - **The agents' design, reviewed in the pull request (#795), not the maintainer's words:**
-    - Each dispatched chunk has its own item, found by a title that starts with the issue and
-      the chunk number. References cannot name the chunk: a report, a verdict, a finish, or an
-      update that sends references replaces them. A chunk whose item is finished before the
-      chunk merges gets a new item that names the finished one. `sprint` reuses the issue's
+    - Each dispatched chunk has its own item, found by the work ID that the coordinator
+      records, or by a title that starts with the issue and the chunk number, a prefix that
+      every title revision keeps. References cannot name the chunk: a report, a verdict, a
+      finish, or an update that sends references replaces them. A chunk is in progress from
+      its dispatch until it merges, so an item accepted before the merge stays the chunk's
+      item; a chunk whose only items were withdrawn before it merged gets a new item that
+      names them. `sprint` reuses the issue's
       item only for chunks that one pair builds in order.
     - The coordinator proposes the driver's family and role; at a driver swap the new driver
       proposes its own, because a start checks the proposed role (PDR 004, Decision 1).
     - A loop is two or more failed attempts on an item that is not finished, since the last
-      head of the pull request on which every required check passed: a `rejected` work event,
-      or a head whose CI, preflight or review failed or asked for changes. Starts and releases
+      head of the pull request on which every required check passed, or since the item's
+      first start when no head passed. A failed attempt is a `rejected` work event, or a head
+      whose CI, preflight or review failed or asked for changes. This is the one statement of
+      the rule; the skill, the sprint and the changelog cite it. Starts and releases
       are not attempts, because Koinon sets a checkpoint at each of them; the claim generation
       is one counter for the whole repository. Status: proposed; this changes the spec's words
       "without new checkpoints", and it waits for the maintainer's decision.

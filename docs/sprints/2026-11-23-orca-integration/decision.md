@@ -199,9 +199,8 @@ which holds the rule: the maintainer's words of 2026-11-23 and the agents' desig
    reports a work item with repeated attempts and no new checkpoint, compares each team check
    with the sprint's decision and definition of done, and records an escalated disagreement on
    the work item. Correction of 2026-11-24 (chunk 03), proposed to the maintainer: Koinon sets
-   a checkpoint at each start and release, so a loop is two or more failed attempts (a
-   rejected report, or a pull request head whose CI, preflight or review failed) since the last
-   head that passed every required check (PDR 002, Decision 5).
+   a checkpoint at each start and release, so a loop counts failed attempts, not checkpoints
+   (PDR 002, Decision 5).
 4. For a project whose facts opt in, as Koinon's do: a pull request into `develop` gets
    `preflight` and `board-verdict` on its exact head, and the `develop` ruleset requires them
    after the maintainer applies it; `ship` posts `board-verdict` only after it reads an

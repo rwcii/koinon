@@ -44,15 +44,12 @@ private tmux servers (WDR 006).
 
 - Dispatch: for a ready chunk (parallel view, dependencies merged), the coordinator creates
   or updates its one work item with the chunk's outcome and owned items, assigns it to the
-  pair, and never creates a second work item for a chunk that has one that is not finished.
+  pair, and never creates a second work item for a chunk that has one that is not finished
+  or that was accepted.
   At a driver swap, the new driver proposes its own family and role before it starts.
-- Loop awareness: at each team check, a work item that is not finished, with two or more
-  failed attempts (a
-  `rejected` event, or a head of its pull request whose CI, preflight or review failed or
-  asked for changes) since the last head on which every required check passed, or since its
-  first start, is reported to the maintainer with what failed, as a board card. Starts and
-  releases are not attempts: Koinon sets a checkpoint at each of them, and a pair hands over
-  with both at one commit.
+- Loop awareness: at each team check, a work item with a loop, as PDR 002, Decision 5
+  defines it (failed attempts, not checkpoints), is reported to the maintainer with what
+  failed, as a board card.
 - Goal and drift: at each team check, the coordinator compares each active work item with the
   sprint's `decision.md` and `definition-of-done.md`, and reports work outside them before
   it grows.

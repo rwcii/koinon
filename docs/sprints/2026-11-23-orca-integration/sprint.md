@@ -20,9 +20,10 @@ v0.13.4. Scope review in `review.md`.
 | 1 | 01, 02, 04, 05 | No dependencies; their owned items do not overlap |
 | 2 | 03, 06 | 03 needs 01's chunk format; 06 needs 05's fleet role and key |
 
-Shared files are not owned: CHANGELOG.md, README.md, docs/USAGE.md, PROTOCOL.md, CONTRIBUTING.md
-and the skills README. Each chunk adds its own lines or section there, and a chunk merges
-develop before its head is frozen. An owned directory owns every file under it.
+Shared files are not owned: CHANGELOG.md, README.md, docs/USAGE.md, PROTOCOL.md, CONTRIBUTING.md,
+the skills README, `internal/contributor/limit_text_test.go` (each chunk adds its skill steps)
+and the generated `.opencode/commands/`. Each chunk adds its own lines or section there, and a
+chunk merges develop before its head is frozen. An owned directory owns every file under it.
 
 With one open pull request at a time, the chunks merge in the order 01, 02, 04, 03, 05, 06.
 The groups say which chunks two pairs can build at the same time on separate branches, as
