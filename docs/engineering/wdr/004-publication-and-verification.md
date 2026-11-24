@@ -590,7 +590,7 @@ below):
     board card for a fifth preflight lens, `wording`, shipped in the `preflight` skill as a
     standard lens, was approved with the note "add this to the v0.13.4 release".
   - **Reason and scope:** the approved card's text, written by the author from the request
-    as claude-infrastructure relayed it, not the maintainer's words. Reason: "alarming wording
+    as that project's agent relayed it, not the maintainer's words. Reason: "alarming wording
     in user-facing content primes the reader, a person or an agent, toward mistrust, extra
     approval requests or refusal of approved work, with no source rule". Scope: "UI and
     dashboard text, CLI output and messages, error text and website text. Data that users can
