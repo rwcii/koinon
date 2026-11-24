@@ -686,6 +686,9 @@ func TestPreflightRunScript(t *testing.T) {
 			t.Fatalf("wording prompt:\n%s", prompt)
 		}
 		security, _ := filepath.Glob(filepath.Join(reports, "*", "*", "security.prompt.md"))
+		if len(security) != 1 {
+			t.Fatalf("security prompts %v", security)
+		}
 		if b, _ := os.ReadFile(security[0]); !strings.Contains(string(b), "Check security.") || strings.Contains(string(b), "Synthetic standard") {
 			t.Fatalf("security prompt:\n%s", b)
 		}

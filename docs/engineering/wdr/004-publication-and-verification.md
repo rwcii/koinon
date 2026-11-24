@@ -602,7 +602,8 @@ below):
   - **The agents' design:** the lens text lives once, in the `preflight` skill (Standard
     lenses), so each project takes the same text from the catalog; a lens section with no text
     in a project's lens policy turns it on, and `scripts/preflight-run.sh` reads it from the
-    skill at the policy's commit.
+    skill at the policy's commit. A lens with neither text nor a standard lens stops the run
+    before any worker starts, so no lens approves with an empty brief.
 
 ### Alternatives Considered
 
