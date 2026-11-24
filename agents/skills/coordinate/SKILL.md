@@ -102,7 +102,7 @@ and list the repository's work items with `work_list`, page by page to its end.
    pair. Record the values of each check in your private state.
 3. **Goal and drift.** At each team check, compare each active item and its pull request with
    the sprint's `decision.md` and `definition-of-done.md`. Work that neither names, or work on
-   an item that another chunk owns, is drift: put a card on the board with the item, the work
+   an item that another chunk in progress owns, is drift: put a card on the board with the item, the work
    outside the sprint and the text that it departs from, before the work grows.
 4. **Disagreement record.** When a pair takes a disagreement to the maintainer (`pair`), the
    driver writes it on the chunk's work item with `work_update`: the blocker gives both
