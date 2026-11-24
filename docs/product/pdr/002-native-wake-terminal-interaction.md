@@ -372,25 +372,30 @@ A cycled agent resumes with its participant address, claims and handoff.
       tells the driver these steps when the card reaches the board, checks the blocker and
       the card at each team check, and tells the driver when the blocker is gone.
 
-
 - **Changed on 2026-11-24: the loop rule (#795).**
-  - **Decided by:** Robert Capps. **Date:** 2026-11-24, decision board, approved with no note.
+  - **Decided by:** Robert Capps. **Date:** 2026-11-24, decision board: he approved, with no
+    note, a card titled "CHANGES THE SPEC'S LOOP WORDS FOR CHUNK 03: count failed attempts
+    (rejections and failed pull request heads), not 'attempts without new checkpoints'".
   - **Context:** this changes the spec's words "detect repeated attempts on a work item without
     new checkpoints or passing checks". Koinon sets a checkpoint at each work start and each
     release, and a verdict clears it, so a test on new checkpoints misses a real loop or
     reports a normal pair handover (a release and a start at one commit). The chunk 04 fix
     loop made a new head in each round and was a loop all the same. The options were the
     spec's words, a count of `rejected` work reports only, and a count of failed attempts.
-  - **Decision:** a loop is two or more failed attempts on an item that is not finished, since
-    the last head of its pull request on which every required check passed, or since the
-    item's first start when no head passed. A failed attempt is a `rejected` work event, or a
-    head whose CI, preflight or review failed or asked for changes. Starts, releases and
-    checkpoint text are not attempts. A loop goes to the board as a card with what failed.
-    This is the one statement of the rule; the skill, the sprint and the changelog cite it.
-  - **Reason and scope:** the recommendation that was approved: the spec's checkpoint test
-    cannot work with Koinon's checkpoints, and this rule catches a loop in which each fix round
-    makes a new head that fails again. Limit: a CI failure that a rerun fixes counts until a
-    head passes. Scope: the `coordinate` skill.
+  - **Decision:** the approved card's text: "approve 'two or more failed attempts since the
+    last passing head' as the loop rule"; "1. A failed attempt is a `rejected` work report, or
+    a head of the chunk's pull request whose CI, preflight or review failed or asked for
+    changes. 2. The coordinator counts them since the last head on which every required check
+    passed, or since the item's first start. Two or more are a loop: a card goes to the board
+    with what failed. 3. Starts, releases and checkpoint text do not count." The skill carries
+    the rule as its loop step, for an item that is not finished; the sprint, the changelog and
+    PDR 004 cite this record.
+  - **Reason and scope:** the approved card's text: "the spec's checkpoint test cannot work
+    with Koinon's checkpoints"; "This rule catches the chunk 04 kind of loop, where each fix
+    round made a new head that failed again." Its limit: "a CI failure that a rerun fixes
+    counts until a head passes." Scope: the `coordinate` skill. A further limit, found after
+    the approval: an item accepted before its pull request merges is finished, so the loop
+    step no longer counts its failed heads.
   - **Alternatives considered:** the spec's words (they miss real loops or report pair
     handovers); `rejected` work reports only (they miss preflight and CI failures, which were
     the chunk 04 loop). The claim generation is not used: it is one counter for the whole
@@ -431,4 +436,4 @@ or practice that the maintainer has not decided, so this record is a draft.
 | 2026-10-23 | Decision 1: each `codex queue` failure has its own code, a non-zero exit is not counted as a notice, and failures are logged (#466) |
 | 2026-10-25 | Decisions 2 and 3: removed the "within the task" qualifiers on terminal input (#487) |
 | 2026-11-22 | Decision 5: the `coordinate` skill, approved by Robert Capps on 2026-11-21 (#784) |
-| 2026-11-24 | Decision 5: dispatch, loop awareness, goal and drift, and the disagreement record; the loop rule, approved by Robert Capps on 2026-11-24 (#795) |
+| 2026-11-24 | Decision 5: dispatch, loop awareness, goal and drift, and the disagreement record; the loop rule, approved by Robert Capps on the decision board on 2026-11-24, with the card's text (#795) |

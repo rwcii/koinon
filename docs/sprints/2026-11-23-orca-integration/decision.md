@@ -198,9 +198,11 @@ which holds the rule: the maintainer's words of 2026-11-23 and the agents' desig
 3. `coordinate` dispatches a ready chunk by creating or updating exactly one work item for it,
    reports a work item with repeated attempts and no new checkpoint, compares each team check
    with the sprint's decision and definition of done, and records an escalated disagreement on
-   the work item. Correction of 2026-11-24 (chunk 03), decided by Robert Capps: Koinon sets
-   a checkpoint at each start and release, so a loop counts failed attempts, not checkpoints
-   (PDR 002, Decision 5).
+   the work item. Corrections of 2026-11-24 (chunk 03): Koinon sets a checkpoint at each
+   start and release, so a loop counts failed attempts, not checkpoints; Robert Capps approved
+   this on the decision board, and PDR 002, Decision 5 holds the approved text. "Exactly one"
+   means one item that is not withdrawn: a chunk whose only items were withdrawn before it
+   merged gets a new item (the agents' design, PDR 002, Decision 5).
 4. For a project whose facts opt in, as Koinon's do: a pull request into `develop` gets
    `preflight` and `board-verdict` on its exact head, and the `develop` ruleset requires them
    after the maintainer applies it; `ship` posts `board-verdict` only after it reads an
