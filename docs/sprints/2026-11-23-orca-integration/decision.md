@@ -27,6 +27,22 @@ computers. Today:
 - **Decided by:** Robert Capps. **Date:** 2026-11-23, terminal.
 - **Context:** the spec names v0.13.3, which was released on 2026-11-20.
 - **Decision:** "13.4 is the right place": these changes go into v0.13.4.
+- **Changed on 2026-11-24: the v0.13.4 release split.**
+  - **Decided by:** Robert Capps. **Date:** 2026-11-24, decision board: approved, with no note,
+    a card titled "CHANGES THE v0.13.4 SCOPE: release v0.13.4 after #807 with chunks 01, 02 and
+    04; move chunks 05 and 06 to the next release with chunk 03?".
+  - **Context:** chunks 01, 02 and 04 had merged into develop. Chunk 03 had moved to the next
+    release after its eighth preflight run failed (#806). Chunks 05 and 06, the largest, had
+    not started, and chunk 05 needs a live check on two nodes. The options were this split, or
+    v0.13.4 for all six chunks, with nothing released until chunk 06 merges.
+  - **Decision:** the approved card's text: "Release v0.13.4 after #807 merges, with chunks
+    01, 02 and 04; move chunks 05 and 06 to the next release."; "The version number stays
+    v0.13.4".
+  - **Reason and scope:** the approved card's text: "chunks 01, 02 and 04 are done and give
+    usable value now (parallel plans, Orca launch, merge gates). The merge gates need one real
+    release to prove their last live check." Its limits: "the Orca live check of chunk 02 stays
+    open", and "#795 closes at v0.13.4" moves to the next release. The next release number is
+    the maintainer's choice.
 
 ### Node keys in the mesh (spec section 3)
 
