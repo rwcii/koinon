@@ -569,7 +569,8 @@ below):
     supersedes the "not required" part. The true status stays.
   - Decision now: `preflight` is a required status of `develop`, and only `success`, when all
     four lenses approve, lets a pull request merge.
-  - Reason and scope: a failed check must show as failed and must hold the merge.
+  - Reason and scope: the source gives no further reason. Scope: every pull request into
+    `develop`.
 
 ### Alternatives Considered
 
@@ -627,4 +628,4 @@ maintainer's board approval of its head, and the maintainer merges each release 
 | 2026-11-23 | Decision 7: a docs gate in `preflight` and `ship` (#792) |
 | 2026-11-23 | Decision 7: the docs gate in `release` too |
 | 2026-11-23 | Decision 8: preflight, the board approval of each head, and the maintainer's merge into `main` (#795) |
-| 2026-11-24 | Decision 8: a passing preflight is required; the chunk 04 fix-loop decision is superseded; the card's Where target and content are the agents' design (#795) |
+| 2026-11-24 | Decision 8: a passing preflight is required; the card's Where target and content are the agents' design (#795) |

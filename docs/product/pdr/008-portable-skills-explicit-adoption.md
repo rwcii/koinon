@@ -3,7 +3,7 @@ pdr: "008"
 title: "Portable Skills and Explicit Adoption"
 status: draft
 created: "2026-10-12"
-updated: "2026-11-23"
+updated: "2026-11-24"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -396,11 +396,12 @@ no notice of their own.
   LICENSE holder. The install script for a computer with no Koinon changes Decision 2 and has
   its own verdict (#732, chunk 02).
 
-**Koinon adopts `preflight` (#795):** the maintainer's merge gates of 2026-11-23, recorded in
-WDR 004, Decision 8, require a passing preflight with four lenses on each pull request into
-`develop`. Koinon adopts `preflight` with `.koinon/skills/preflight.md`, the lens policy
-`.koinon/preflight/lenses.md`, `scripts/preflight-run.sh` and `scripts/preflight-publish.sh`.
-The skill text does not change. The other six procedures stay offered and not adopted.
+**Koinon adopts `preflight` (#795):** the maintainer's merge gates, recorded in WDR 004,
+Decision 8 (2026-11-23, changed 2026-11-24), require a passing preflight with four lenses on
+each pull request into `develop`. Koinon adopts `preflight` with `.koinon/skills/preflight.md`,
+the lens policy `.koinon/preflight/lenses.md`, `scripts/preflight-run.sh` and
+`scripts/preflight-publish.sh`. The skill text does not change. The other six procedures stay
+offered and not adopted.
 
 ### Alternatives Considered
 
@@ -439,3 +440,4 @@ drift defect are ordinary corrections; they add no product decision.
 | 2026-11-17 | Decision 5: seven procedures that an adopting project brought, offered in the catalog; LICENSE names Robert Capps and Stratovera, LLC (#732) |
 | 2026-11-17 | Decision 2: a script installs the full skill text of one pinned release on a computer with no Koinon (#732) |
 | 2026-11-23 | Decision 5: Koinon adopts `preflight` for its own work (#795) |
+| 2026-11-24 | Decision 5: the merge gates' date, after the change of 2026-11-24 to WDR 004, Decision 8 (#795) |
