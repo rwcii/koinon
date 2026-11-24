@@ -18,10 +18,13 @@ import (
 // agent workers.
 
 // fakeForge answers the scripts' gh calls. "gh pr view" prints $FAKE/head. A status POST is
-// appended to $FAKE/statuses.jsonl, and the combined status lists them newest first. The issue
+// appended to $FAKE/statuses.jsonl with the next ID and printed, and the combined status lists
+// them newest first. The issue
 // comments are in $FAKE/comments.json; a comment POST appends to it. Every call is logged in
 // $FAKE/calls. A file $FAKE/fail-status makes a status POST fail. A number N in
-// $FAKE/status-lag makes the next N status reads miss the newest status, as GitHub can.
+// $FAKE/status-lag makes the next N status reads miss the newest status, as GitHub can, and
+// in $FAKE/status-read-fail makes the next N status reads fail. A file $FAKE/status-no-id makes
+// a status POST print no status.
 const fakeForge = `#!/bin/sh
 set -eu
 echo "$*" >> "$FAKE/calls"
@@ -56,13 +59,21 @@ field() { printf '%s\n' "$fields" | sed -n "s/^$1=//p"; }
 case "$method $endpoint" in
 "POST "*/statuses/*)
 	[ ! -e "$FAKE/fail-status" ] || { echo "HTTP 502: synthetic failure" >&2; exit 1; }
-	jq -cn --arg s "$(field state)" --arg c "$(field context)" --arg u "$(field target_url)" --arg sha "${endpoint##*/}" \
-		'{state: $s, context: $c, target_url: $u, sha: $sha}' >> "$FAKE/statuses.jsonl"
+	[ ! -e "$FAKE/status-no-id" ] || exit 0
+	id=$(($(wc -l < "$FAKE/statuses.jsonl") + 1))
+	jq -cn --arg s "$(field state)" --arg c "$(field context)" --arg u "$(field target_url)" --arg sha "${endpoint##*/}" --argjson id "$id" \
+		'{state: $s, context: $c, target_url: $u, sha: $sha, id: $id}' | tee -a "$FAKE/statuses.jsonl" | jq -r "$filter"
 	;;
 "GET user")
 	echo '{"login": "synthetic-author"}' | jq -r "$filter"
 	;;
 "GET "*/commits/*/status)
+	fails=$(cat "$FAKE/status-read-fail" 2>/dev/null || echo 0)
+	if [ "$fails" -gt 0 ]; then
+		echo $((fails - 1)) > "$FAKE/status-read-fail"
+		echo "HTTP 502: synthetic read failure" >&2
+		exit 1
+	fi
 	lag=$(cat "$FAKE/status-lag" 2>/dev/null || echo 0)
 	if [ "$lag" -gt 0 ]; then
 		echo $((lag - 1)) > "$FAKE/status-lag"
@@ -223,17 +234,32 @@ func TestBoardVerdictScript(t *testing.T) {
 			}
 		})
 	}
-	// A status that GitHub shows late is read again: 4 late reads pass, 5 fail (#801).
+	// A status that GitHub shows late is read again, also when an older board-verdict success
+	// is visible: 4 late reads pass, 5 fail (#801).
 	for _, lag := range []int{4, 5} {
 		e := newGateEnv(t)
 		e.write(t, "card.json", card("approved", 3, 3, names))
 		e.write(t, "head", gateHead+"\n")
+		e.write(t, "statuses.jsonl", `{"state":"success","context":"board-verdict","target_url":"","sha":"`+gateHead+`","id":1}`+"\n")
 		e.write(t, "status-lag", strconv.Itoa(lag))
 		out, err := e.run(t, t.TempDir(), "board-verdict.sh", nil, "--as", "claude:synthetic", "42", gateHead, "MERGE-42")
 		reads := strings.Count(e.read("calls"), "/status --jq")
 		if lag == 4 && (err != nil || reads != 5 || !strings.Contains(out, "board-verdict: success")) ||
-			lag == 5 && (err == nil || reads != 5 || !strings.Contains(out, "after 5 reads")) {
+			lag == 5 && (err == nil || reads != 5 || !strings.Contains(out, "'1 success', not status 2 with success after 5 reads")) {
 			t.Fatalf("lag %d: %v, %d reads, output:\n%s", lag, err, reads, out)
+		}
+	}
+	// Two failed reads, then the status: success after 3 reads. A post with no status ID fails.
+	for _, mode := range []string{"status-read-fail", "status-no-id"} {
+		e := newGateEnv(t)
+		e.write(t, "card.json", card("approved", 3, 3, names))
+		e.write(t, "head", gateHead+"\n")
+		e.write(t, mode, "2")
+		out, err := e.run(t, t.TempDir(), "board-verdict.sh", nil, "--as", "claude:synthetic", "42", gateHead, "MERGE-42")
+		reads := strings.Count(e.read("calls"), "/status --jq")
+		if mode == "status-read-fail" && (err != nil || reads != 3 || !strings.Contains(out, "board-verdict: success")) ||
+			mode == "status-no-id" && (err == nil || reads != 0 || !strings.Contains(out, "returned no status ID")) {
+			t.Fatalf("%s: %v, %d reads, output:\n%s", mode, err, reads, out)
 		}
 	}
 	// A failed status post is reported, not taken as success.
@@ -434,17 +460,34 @@ func TestPreflightPublishScript(t *testing.T) {
 		}
 	})
 	t.Run("a status that GitHub shows late is read again", func(t *testing.T) {
+		// An older preflight success of an earlier report is visible until the new one shows.
 		for _, lag := range []int{4, 5} {
 			e := newGateEnv(t)
 			repo, head, base := publishRepository(t, e)
 			reports := t.TempDir()
 			writeResult(t, reports, head, base, "20261123T000000Z-0000000001", true, false)
+			e.write(t, "statuses.jsonl", `{"state":"success","context":"preflight","target_url":"https://example.invalid/old","sha":"`+head+`","id":1}`+"\n")
 			e.write(t, "status-lag", strconv.Itoa(lag))
 			out, err := publish(t, e, repo, reports)
 			reads := strings.Count(e.read("calls"), "/status --jq")
 			if lag == 4 && (err != nil || reads != 5 || !strings.Contains(out, "success on "+head)) ||
-				lag == 5 && (err == nil || reads != 5 || !strings.Contains(out, "not success after 5 reads")) {
+				lag == 5 && (err == nil || reads != 5 || !strings.Contains(out, "not status 2 with success after 5 reads")) {
 				t.Fatalf("lag %d: %v, %d reads, output:\n%s", lag, err, reads, out)
+			}
+		}
+	})
+	t.Run("a failed read is read again, and a post with no status ID fails", func(t *testing.T) {
+		for _, mode := range []string{"status-read-fail", "status-no-id"} {
+			e := newGateEnv(t)
+			repo, head, base := publishRepository(t, e)
+			reports := t.TempDir()
+			writeResult(t, reports, head, base, "20261123T000000Z-0000000001", true, false)
+			e.write(t, mode, "2")
+			out, err := publish(t, e, repo, reports)
+			reads := strings.Count(e.read("calls"), "/status --jq")
+			if mode == "status-read-fail" && (err != nil || reads != 3 || !strings.Contains(out, "success on "+head)) ||
+				mode == "status-no-id" && (err == nil || reads != 0 || !strings.Contains(out, "returned no status ID")) {
+				t.Fatalf("%s: %v, %d reads, output:\n%s", mode, err, reads, out)
 			}
 		}
 	})
