@@ -210,8 +210,9 @@ belong to.
 
 Open a room on the Rooms page to post as maintainer and to read its posts. Each post lists
 its recipients: delivered copies with their delivery state and whether the recipient
-acknowledged them, skipped members with the reason (`retired`, `ended`, `lapsed`,
-`no_liveness_evidence`, `unheld` or `conflicting`), and copies that retention has deleted,
+acknowledged them, skipped members with the reason in words (session ended, registration
+lapsed, no liveness evidence, address not held, holder in conflict; `retired` and the earlier
+`inactive` show as stored), and copies that retention has deleted,
 shown as not retained. Viewing the room acknowledges nothing. A maintainer post
 reaches every active member. Rooms are real time: a member that is not active when the post
 is made never gets it later and is not woken for it (#695). The maintainer's post answer,
@@ -990,7 +991,9 @@ key must be added on each computer that runs the actions.
 
 An envelope of version `koinon-maintainer-2` gets its answer signed (#696): the computer that
 ran the action signs its answer with its link key, as one `koinon-answer-2` object, on the
-Remote routes, the `signed` tool and the link. A computer that passes an action on signs only
+loopback action route, the Remote routes, the `signed` tool and the link; the local session
+route answers unsigned. An enrollment statement stays version `koinon-maintainer-1`. A
+computer that passes an action on signs only
 its own claims, such as `computer_offline` or `outcome_unknown`, with its own key. The client
 checks each answer against the digest of the envelope that it sent, the target computer's pin
 and the pin of the computer that it asked, so no computer can change another computer's answer
