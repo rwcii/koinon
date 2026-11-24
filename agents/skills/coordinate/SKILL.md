@@ -88,18 +88,21 @@ with `work_list`, page by page to its end.
    Each dispatched chunk has its own work item, whose title starts with the issue and the chunk
    number, for example `#ISSUE chunk NN:`; every title revision keeps that prefix. Record each
    chunk's work ID in your private state, and find the item by that ID, or by the title in the
-   list. When the chunk has an item that is not finished, or one that finished with the outcome
-   `completed`, use it, and never create a second item for a chunk that has one; when its scope
-   changed, revise it with `work_edit`, or ask its holder to while it is claimed. Create one
-   with `work_create` only when the chunk has no item, or only items that finished with the
-   outcome `withdrawn`, and has not merged: the title as above, the criteria are the chunk's
-   outcome and its section of `definition-of-done.md`, the non-goals name the paths, interfaces
-   and records that other chunks own, and the references name the chunk file and each earlier
-   item of the chunk. Propose the pair's driver, by its family and role, with `work_propose`.
-   Then send both members a Koinon message with the work ID, the chunk file and this step: at a
-   driver swap, the new driver proposes its own family and role with `work_propose` before its
-   `work_start`, because a start checks the proposed role (PDR 004, Decision 1). A sprint that
-   one pair builds in order with no coordinator can reuse the issue's item (`sprint`).
+   list. When the chunk has an item that is not finished, use it, and never create a second
+   item while the chunk has one that is not finished; when its scope changed, revise it with
+   `work_edit`, or ask its holder to while it is claimed. Koinon refuses every change to a
+   finished item, accepted (`completed`) or `withdrawn`. Create an item with `work_create` when
+   a ready chunk has no item that is not finished, and when a chunk in progress has more work
+   and each of its items is finished: for example, its CI, preflight or review failed after an
+   accept, or its driver swaps. The title is as above, the criteria are the chunk's outcome and
+   its section of `definition-of-done.md`, the non-goals name the paths, interfaces and records
+   that other chunks own, and the references name the chunk file and each earlier item of the
+   chunk. Propose the pair's driver, by its family and role, with `work_propose`. Then send both
+   members a Koinon message with the work ID, the chunk file and these two steps: a
+   `work_reject` that sends a title keeps the `#ISSUE chunk NN:` prefix; at a driver swap, the
+   new driver proposes its own family and role with `work_propose` before its `work_start`,
+   because a start checks the proposed role (PDR 004, Decision 1). A sprint that one pair builds
+   in order with no coordinator can reuse the issue's item (`sprint`).
 2. **Loop awareness.** At each team check, for each of the sprint's items that is not
    finished, count its failed attempts since the last head of its pull request on which every
    required check passed, or since its first start when no head passed: each `rejected` event

@@ -355,12 +355,11 @@ A cycled agent resumes with its participant address, claims and handoff.
   - **The agents' design, reviewed in the pull request (#795), not the maintainer's words:**
     - Each dispatched chunk has its own item, found by the work ID that the coordinator
       records, or by a title that starts with the issue and the chunk number, a prefix that
-      every title revision keeps. References cannot name the chunk: a report, a verdict, a
-      finish, or an update that sends references replaces them. A chunk is in progress from
-      its dispatch until it merges, so an item accepted before the merge stays the chunk's
-      item; a chunk whose only items were withdrawn before it merged gets a new item that
-      names them. `sprint` reuses the issue's item only for chunks that one pair builds in
-      order.
+      every title revision keeps, also a rejection that sends a title. References cannot name
+      the chunk: a report, a verdict, a finish, or an update that sends references replaces
+      them. A chunk is in progress from its dispatch until it merges; its item rule changed on
+      2026-11-24 (below). `sprint` reuses the issue's item only for chunks that one pair builds
+      in order.
     - The coordinator proposes the driver's family and role; at a driver swap the new driver
       proposes its own, because a start checks the proposed role (PDR 004, Decision 1).
     - Drift is also work on a path, interface or record that another chunk in progress owns
@@ -373,7 +372,7 @@ A cycled agent resumes with its participant address, claims and handoff.
       the card at each team check, and tells the driver when the blocker is gone.
 
 - **Changed on 2026-11-24: the loop rule (#795).**
-  - **Decided by:** Robert Capps. **Date:** 2026-11-24, decision board: he approved, with no
+  - **Decided by:** Robert Capps. **Date:** 2026-11-24, decision board: approved, with no
     note, a card titled "CHANGES THE SPEC'S LOOP WORDS FOR CHUNK 03: count failed attempts
     (rejections and failed pull request heads), not 'attempts without new checkpoints'".
   - **Context:** this changes the spec's words "detect repeated attempts on a work item without
@@ -393,13 +392,34 @@ A cycled agent resumes with its participant address, claims and handoff.
   - **Reason and scope:** the approved card's text: "the spec's checkpoint test cannot work
     with Koinon's checkpoints"; "This rule catches the chunk 04 kind of loop, where each fix
     round made a new head that failed again." Its limit: "a CI failure that a rerun fixes
-    counts until a head passes." Scope: the `coordinate` skill. A further limit, found after
-    the approval: an item accepted before its pull request merges is finished, so the loop
-    step no longer counts its failed heads.
+    counts until a head passes." Scope: the `coordinate` skill.
   - **Alternatives considered:** the spec's words (they miss real loops or report pair
     handovers); `rejected` work reports only (they miss preflight and CI failures, which were
     the chunk 04 loop). The claim generation is not used: it is one counter for the whole
     repository.
+
+- **Changed on 2026-11-24: a chunk's item after an accept (#795).**
+  - **Decided by:** Robert Capps. **Date:** 2026-11-24, decision board: approved, with no
+    note, a card titled "Chunk 03 STOP, preflight run 6 failed: allow one fix of two code
+    findings in the dispatch step (an accepted item is terminal)?".
+  - **Context:** the agents' design said that an item accepted before the merge stays the
+    chunk's item. Koinon refuses every change to a finished item ("finished work is terminal",
+    `internal/core/work.go`), and an accept finishes the item. So after an accept, a failed CI
+    run or a driver swap had no item to use, and the loop step stopped counting the chunk. A
+    rejection that sends a title also replaces the title that the lookup uses. The options
+    were a new item after an accept, or no accept before the merge.
+  - **Decision:** the approved card's text: "use the chunk's item only while it is not
+    finished. When the chunk has not merged and each of its items is finished (`completed` or
+    `withdrawn`), create a new item. Its references name each earlier item."; "the message to
+    both members says that a `work_reject` that sends a title keeps the `#ISSUE chunk NN:`
+    prefix."
+  - **Reason and scope:** the approved card's text: "the step tells agents to write to an item
+    that Koinon refuses to change"; "The fix makes the step agree with the engine. With the
+    fix, the loop step counts the new open item again." Scope: the `coordinate` skill; the
+    loop rule above does not change.
+  - **Alternatives considered:** no accept of a chunk's report before its pull request merges
+    (it keeps one item for each chunk, but it changes when a verdict is given, outside this
+    chunk).
 
 ---
 
@@ -436,4 +456,4 @@ or practice that the maintainer has not decided, so this record is a draft.
 | 2026-10-23 | Decision 1: each `codex queue` failure has its own code, a non-zero exit is not counted as a notice, and failures are logged (#466) |
 | 2026-10-25 | Decisions 2 and 3: removed the "within the task" qualifiers on terminal input (#487) |
 | 2026-11-22 | Decision 5: the `coordinate` skill, approved by Robert Capps on 2026-11-21 (#784) |
-| 2026-11-24 | Decision 5: dispatch, loop awareness, goal and drift, and the disagreement record; the loop rule, approved by Robert Capps on the decision board on 2026-11-24, with the card's text (#795) |
+| 2026-11-24 | Decision 5: dispatch, loop awareness, goal and drift, and the disagreement record; the loop rule, approved by Robert Capps on the decision board on 2026-11-24, with the card's text; a new item for a chunk after an accept, approved on the board on 2026-11-24 (#795) |

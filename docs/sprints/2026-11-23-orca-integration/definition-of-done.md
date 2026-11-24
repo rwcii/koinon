@@ -44,8 +44,9 @@ private tmux servers (WDR 006).
 
 - Dispatch: for a ready chunk (parallel view, dependencies merged), the coordinator creates
   or updates its one work item with the chunk's outcome and owned items, assigns it to the
-  pair, and never creates a second work item for a chunk that has one that is not finished
-  or that was accepted.
+  pair, and never creates a second work item for a chunk that has one that is not finished.
+  A chunk that has not merged and whose items all finished (accepted or withdrawn) gets a new
+  item that names the earlier ones, because Koinon refuses changes to a finished item.
   At a driver swap, the new driver proposes its own family and role before it starts.
 - Loop awareness: at each team check, a work item with a loop, as PDR 002, Decision 5
   defines it (failed attempts, not checkpoints), is reported to the maintainer with what
