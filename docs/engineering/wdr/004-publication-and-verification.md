@@ -522,8 +522,8 @@ below):
   security, code, standards, refusal for preflight". The source gives no further reason; these
   four lenses were Koinon's first lens policy. Asked whether the agents get their own GitHub
   identity (the third option): "they do not. that was a DISASTER when we tried to implement
-  it on unify." The threat model: "An agent bypassing a gate and merging is not a threat model we're trying to
-  solve for at this point." Then "I approve your non blocking controls proposed": the required
+  it on unify." The threat model: "An agent bypassing a gate and merging is not a threat
+  model we're trying to solve for at this point." Then "I approve your non blocking controls proposed": the required
   `preflight` and `board-verdict` statuses, and a `release` skill that stops before the merge to
   `main`.
 - **Reason and scope:** the gates are process rules that GitHub shows as statuses; they do not
@@ -589,13 +589,16 @@ below):
     focused on code comments, README files, agent files, and other repo documentation." The
     board card for a fifth preflight lens, `wording`, shipped in the `preflight` skill as a
     standard lens, was approved with the note "add this to the v0.13.4 release".
-  - **Reason and scope:** alarming wording primes the next reader, a person or an agent,
-    toward mistrust, extra approval requests or refusal of approved work, with no source rule.
-    Scope: content that users see and data that users can read, such as UI, command and
-    website text, cookie names, storage keys, event and property names, headers and exported
-    identifiers. The wording must be accurate and neutral; a neutral word must not hide what
-    the thing does. Settled policy texts and fixed third-party API names are exempt. The
-    refusal review does not change.
+  - **Reason and scope:** the approved card's text, written by the author from the request
+    as claude-infrastructure relayed it, not the maintainer's words. Reason: "alarming wording
+    in user-facing content primes the reader, a person or an agent, toward mistrust, extra
+    approval requests or refusal of approved work, with no source rule". Scope: "UI and
+    dashboard text, CLI output and messages, error text and website text. Data that users can
+    read: cookie names, local storage keys, event and property names, headers, and
+    identifiers in exported or published data." Test: "the wording is accurate and neutral. A
+    neutral word must not hide what the thing does. A replacement that misleads is a finding
+    too." Exempt: "settled policy texts and fixed third-party API names". "Refusal review does
+    not change."
   - **The agents' design:** the lens text lives once, in the `preflight` skill (Standard
     lenses), so each project takes the same text from the catalog; a lens section with no text
     in a project's lens policy turns it on, and `scripts/preflight-run.sh` reads it from the

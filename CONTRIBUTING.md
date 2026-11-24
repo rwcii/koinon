@@ -66,7 +66,7 @@ git commit -S -s -m "Add a concise description"
 gh pr list --base develop --state open   # one open pull request at a time
 git fetch origin && git merge --no-edit origin/develop
 go test -race -timeout 30m ./...
-scripts/preflight-run.sh                   # the four preflight lenses
+scripts/preflight-run.sh                   # the preflight lenses
 git push -u origin feature/my-change
 gh pr create --base develop
 scripts/preflight-publish.sh PR            # the result and the preflight status

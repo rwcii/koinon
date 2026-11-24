@@ -64,7 +64,8 @@ lenses=$(printf '%s\n' "$policy" | sed -n 's/^## \([a-z][a-z0-9-]*\)[[:space:]]*
 [ -n "$lenses" ] || die "the lens policy has no '## NAME' section"
 skill_path=agents/skills/preflight/SKILL.md
 # brief_of LENS prints the lens's brief: its section's text, or, when the section has no text,
-# the standard lens of that name in the preflight skill at the policy's commit.
+# the standard lens of that name in the preflight skill at the policy's commit (WDR 004,
+# Decision 8, the wording lens, the agents' design). A lens with neither stops the run.
 brief_of() {
 	text=$(printf '%s\n' "$policy" | awk -v lens="$1" '
 		/^## / { on = ($2 == lens); next }

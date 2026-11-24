@@ -543,7 +543,7 @@ func gateRepository(t *testing.T, e gateEnv, policyAtBase bool) string {
 
 // standardLensRepository makes a repository whose base policy turns on the wording lens with a
 // section that has no text, and whose base preflight skill holds that standard lens when
-// withSkill is true.
+// withSkill is true. Its head weakens the skill's brief, which the run must not use.
 func standardLensRepository(t *testing.T, withSkill bool) string {
 	t.Helper()
 	repo := filepath.Join(t.TempDir(), "repo")
@@ -577,7 +577,15 @@ func standardLensRepository(t *testing.T, withSkill bool) string {
 	git("add", "-A")
 	git("commit", "-q", "-m", "base")
 	git("branch", "base")
-	os.WriteFile(filepath.Join(repo, "file"), []byte("head\n"), 0600)
+	head := map[string]string{"file": "head\n"}
+	if withSkill {
+		head["agents/skills/preflight/SKILL.md"] = "# Preflight\n\n## Standard lenses\n\n### wording\n\nHead brief.\n"
+	}
+	for name, body := range head {
+		if err := os.WriteFile(filepath.Join(repo, name), []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	git("add", "-A")
 	git("commit", "-q", "-m", "head")
 	return repo
@@ -673,7 +681,7 @@ func TestPreflightRunScript(t *testing.T) {
 			t.Fatalf("prompts %v", prompts)
 		}
 		b, _ := os.ReadFile(prompts[0])
-		if prompt := string(b); !strings.Contains(prompt, "Synthetic standard wording brief.") ||
+		if prompt := string(b); !strings.Contains(prompt, "Synthetic standard wording brief.") || strings.Contains(prompt, "Head brief.") ||
 			strings.Contains(prompt, "Other brief.") || strings.Contains(prompt, "Not a brief.") {
 			t.Fatalf("wording prompt:\n%s", prompt)
 		}
