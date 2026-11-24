@@ -15,6 +15,9 @@ disagreements on their work items.
    - Dispatch: read the parallel view; for each chunk whose dependencies have merged and whose
      owned items no running chunk owns, create or update its one work item (`work_create` or
      `work_edit`, with the chunk's outcome, owned items and the pair), then tell the pair.
+     Corrected in chunk 03: Koinon refuses changes to a finished item, so a chunk whose items
+     all finished (accepted or withdrawn) before it merged gets a new item that names them, and
+     a rejection that sends a title keeps the `#ISSUE chunk NN:` prefix (PDR 002, Decision 5).
    - Loop awareness: at each team check, a work item with a loop goes to the maintainer as a
      board card with what failed. Corrected in chunk 03: a loop counts failed attempts, not
      checkpoints, because Koinon sets a checkpoint at each start and release (PDR 002,
@@ -31,7 +34,8 @@ disagreements on their work items.
 3. Records and docs: PDR 002, Decision 5; PDR 004 (work results) for work items as the
    source of truth of dispatched chunks; the skills README; CHANGELOG. Added in chunk 03: the
    `sprint` skill reuses the issue's item only for chunks that one pair builds in order, and
-   the sprint's Acceptance 3 gets a dated correction note for the loop rule.
+   the sprint's Acceptance 3 gets dated correction notes for the loop rule and for "exactly
+   one" work item.
 
 ## Tests
 

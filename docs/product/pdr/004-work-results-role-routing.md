@@ -272,9 +272,9 @@ An agent that was reset or missed a wake lists what waits for it and acts on eac
 #140 requests role routing without claim inheritance, a reported result with a verdict by
 another consumer, and catch-up discovery. The plan proposes concrete mechanisms for each. The
 maintainer decided the verdict rule (Decision 3) and approved the plan's mechanisms at Gate B.
-A coordinator dispatches a sprint's chunks through these work items, one item for each chunk,
-and counts their `rejected` events and failed pull request heads for loops (PDR 002,
-Decision 5).
+A coordinator dispatches a sprint's chunks through these work items, one unfinished item for
+each chunk at a time, and counts their `rejected` events and failed pull request heads for
+loops (PDR 002, Decision 5).
 
 ---
 
