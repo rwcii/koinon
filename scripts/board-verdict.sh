@@ -11,7 +11,10 @@
 #     with this repository, the pull request and the full HEAD (other card text can name other
 #     heads and pull requests);
 #   - the pull request's head is HEAD.
-# It then reads the status back. A new head needs a new card or a new revision.
+# It then reads the status back, up to 5 times, STATUS_READBACK_DELAY seconds apart (2 by
+# default), until the newest board-verdict status is the one it posted, by its status ID,
+# because GitHub can show a new status a few seconds late. A new head needs a new card or a
+# new revision.
 set -eu
 
 die() {
@@ -51,9 +54,23 @@ where=$(printf '%s' "$card" | jq -r '.result.verdict.snapshot.where // ""')
 current=$(gh pr view "$pr" --json headRefOid --jq .headRefOid) || die "cannot read pull request #$pr"
 [ "$current" = "$head" ] || die "pull request #$pr is at $current, not $head; a new head needs a new card"
 
-gh api -X POST "repos/{owner}/{repo}/statuses/$head" -f state=success -f context=board-verdict \
-	-f description="Card $reference approved at revision $approved" >/dev/null || die "the status post failed; read the head's statuses before a retry"
-state=$(gh api "repos/{owner}/{repo}/commits/$head/status" --jq '[.statuses[] | select(.context == "board-verdict")][0].state') ||
-	die "the status was posted, but the read-back failed"
-[ "$state" = success ] || die "board-verdict on $head reads back as '$state'"
+status_id=$(gh api -X POST "repos/{owner}/{repo}/statuses/$head" -f state=success -f context=board-verdict \
+	-f description="Card $reference approved at revision $approved" --jq .id) || die "the status post failed; read the head's statuses before a retry"
+printf '%s\n' "$status_id" | grep -Eq '^[1-9][0-9]*$' ||
+	die "the status post returned no status ID; read the head's statuses before a retry"
+# GitHub can show a new status a few seconds after the post: read it back up to 5 times,
+# until the newest board-verdict status is the one just posted (an older one can also be a
+# success).
+tries=0
+while :; do
+	tries=$((tries + 1))
+	if state=$(gh api "repos/{owner}/{repo}/commits/$head/status" --jq '[.statuses[] | select(.context == "board-verdict")][0] | "\(.id) \(.state)"'); then
+		[ "$state" != "$status_id success" ] || break
+		failure="board-verdict on $head reads back as '$state', not status $status_id with success"
+	else
+		failure="the status was posted, but the read-back failed"
+	fi
+	[ "$tries" -lt 5 ] || die "$failure after $tries reads"
+	sleep "${STATUS_READBACK_DELAY:-2}"
+done
 echo "board-verdict: success on $head (pull request #$pr, card $reference, revision $approved)"

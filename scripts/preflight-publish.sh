@@ -7,7 +7,9 @@
 # It reads the result that scripts/preflight-run.sh wrote for the pull request's current head,
 # and refuses when there is none. When a comment for that result is already on the pull
 # request, it prints its link and posts nothing. A value that the result does not have shows as
-# "unknown".
+# "unknown". It reads the posted status back, up to 5 times, STATUS_READBACK_DELAY seconds
+# apart (2 by default), until the newest preflight status is the one it posted, by its status
+# ID, because GitHub can show a new status a few seconds late.
 set -eu
 
 die() {
@@ -91,12 +93,26 @@ fenced() {
 	fi
 }
 post_status() {
-	gh api -X POST "repos/{owner}/{repo}/statuses/$head" -f state="$state" -f context=preflight \
-		-f target_url="$1" -f description="Preflight $title, run $run" >/dev/null ||
+	status_id=$(gh api -X POST "repos/{owner}/{repo}/statuses/$head" -f state="$state" -f context=preflight \
+		-f target_url="$1" -f description="Preflight $title, run $run" --jq .id) ||
 		die "the comment is at $1, but the status post failed; run this command again"
-	read_back=$(gh api "repos/{owner}/{repo}/commits/$head/status" --jq '[.statuses[] | select(.context == "preflight")][0].state') ||
-		die "posted; the read-back failed"
-	[ "$read_back" = "$state" ] || die "preflight on $head reads back as '$read_back', not $state"
+	printf '%s\n' "$status_id" | grep -Eq '^[1-9][0-9]*$' ||
+		die "the comment is at $1, but the status post returned no status ID; read the head's statuses"
+	# GitHub can show a new status a few seconds after the post: read it back up to 5 times,
+	# until the newest preflight status is the one just posted (an older one can have the
+	# same state).
+	tries=0
+	while :; do
+		tries=$((tries + 1))
+		if read_back=$(gh api "repos/{owner}/{repo}/commits/$head/status" --jq '[.statuses[] | select(.context == "preflight")][0] | "\(.id) \(.state)"'); then
+			[ "$read_back" != "$status_id $state" ] || break
+			failure="preflight on $head reads back as '$read_back', not status $status_id with $state"
+		else
+			failure="posted; the read-back failed"
+		fi
+		[ "$tries" -lt 5 ] || die "$failure after $tries reads"
+		sleep "${STATUS_READBACK_DELAY:-2}"
+	done
 	echo "preflight-publish: $state on $head: $1"
 }
 if [ -n "$existing" ]; then
