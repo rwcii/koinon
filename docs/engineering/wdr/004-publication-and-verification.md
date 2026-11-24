@@ -558,14 +558,16 @@ below):
   - The first-adoption exception: the change that adopts preflight has a base with no lens
     policy, so its run takes the head's policy and says so in its result.
 
-- **Confirmed on 2026-11-24, terminal (Robert Capps): a passing `preflight` is required.**
-  - Context: a board card of 2026-11-23 proposed to keep the `preflight` status true
-    (`failure` on a REJECT) and to drop it from the required checks. Its first revision would
-    have posted `success` for a run with a REJECT; the maintainer's feedback: "why would we care
-    that it ran and not that it failed?" The second revision was approved for its true status,
-    but its "not required" part was not the maintainer's intent: "preflight is required,
-    passing is required."
-  - Decision: `preflight` stays a required status of `develop`, and only `success`, when all
+- **Changed on 2026-11-23, decision board (Robert Capps), and superseded on 2026-11-24.**
+  - 2026-11-23: the board recorded the maintainer's approval of a card that kept the
+    `preflight` status true (`failure` on a REJECT) and dropped `preflight` from the required
+    checks of `develop`. Its first revision would have posted `success` for a run with a
+    REJECT; the maintainer's feedback on it: "why would we care that it ran and not that it
+    failed?" The second revision, with both parts, was approved with no note.
+  - 2026-11-24, terminal: the maintainer, on the text "preflight shows its true result and is
+    not required": "this is not correct. preflight is required, passing is required." This
+    supersedes the "not required" part. The true status stays.
+  - Decision now: `preflight` is a required status of `develop`, and only `success`, when all
     four lenses approve, lets a pull request merge.
   - Reason and scope: a failed check must show as failed and must hold the merge.
 
