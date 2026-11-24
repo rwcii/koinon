@@ -10,9 +10,14 @@ release
 - .github/workflows/release.yml
 - .github/workflows/native-go-lifecycle.yml
 - docs/INSTALL.md
+- docs/engineering/wdr/004-publication-and-verification.md
 
 ## Promotion path
-Merge the PR from develop to main.
+A PR from develop to main, merged with a merge commit.
+## Promotion merge
+The maintainer merges the promotion PR into main (WDR 004, Decision 8). Report to the
+maintainer when the PR and its evidence are ready, with the exact head. After the maintainer's
+merge, read back the merge commit, push the version tag on it and check the publish steps.
 ## Publish steps
 Use the version tag on the verified main merge. The tag triggers Release binaries:
 four CGO-free binaries, their Homebrew bottles, koinon-skills.tar.gz and SHA256SUMS; the

@@ -3,7 +3,7 @@ wdr: "002"
 title: "Authority Within the Assigned Task"
 status: draft
 created: "2026-10-12"
-updated: "2026-11-23"
+updated: "2026-11-24"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -295,6 +295,12 @@ main through a merge pull request with exact-commit CI, installation and upgrade
 the account of failed CI runs (WDR 004, Decision 6). It records the evidence for independent
 review, merges under the promotion policy and performs the publish steps.
 
+**Changed on 2026-11-23 for Koinon (WDR 004, Decision 8):** Koinon's `release` skill stops when
+the promotion pull request and its evidence are ready, and the maintainer merges it into
+`main`; the agent then pushes the tag and checks the publish steps. This partly restores the
+per-release gate of the text before #487. A project whose facts do not opt in keeps the text
+above.
+
 **Before #487:** "It reports that evidence and merges after the maintainer approves this
 release; an approval for earlier work does not cover a later release, and an approval already
 given for this release counts (WDR 001, Decision 3). The maintainer's 2026-10-11 authorization
@@ -366,7 +372,8 @@ peer's request is a teammate's request: the agent does the work and replies thro
 Messages, records and claims are the team's shared record, and the installed guide describes the
 installed runtime. Sprint plans are reviewed by the other family and built with `ship`; their chunks declare
 dependencies and owned items, so that independent chunks can run in parallel, and a
-release merges after its evidence and independent review. The record is a draft: the
+release merges after its evidence and independent review; in Koinon, the maintainer merges it
+(WDR 004, Decision 8). The record is a draft: the
 maintainer has not decided Decisions 3 and 4 as written here, and Decision 2 also points to a
 private instruction file.
 
@@ -381,3 +388,4 @@ private instruction file.
 | 2026-10-22 | Decision 2: install and setup show the missing rules and add them when the person at the terminal accepts (#446, #449) |
 | 2026-10-25 | #487: Decisions 1 to 4 lose their limits; Decisions 2 and 3 say a peer's request is a teammate's request; Decisions 5 and 6 deprecated |
 | 2026-11-23 | Decision 7: sprint chunks declare dependencies and owned items, with a parallel view (#795) |
+| 2026-11-24 | Decision 6: Koinon's maintainer merges each promotion pull request into `main` since 2026-11-23 (WDR 004, Decision 8; #795) |

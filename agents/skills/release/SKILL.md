@@ -9,8 +9,8 @@ Koinon's procedure source is [WDR 004](https://github.com/rwcii/koinon/blob/deve
 (WDR 002, Decision 1). Apply them with the adopting project's instructions, and use
 `agents/skills/AGENTS.md` when you edit a canonical skill.
 
-Read the Promotion path, Publish steps, Release checks, and Docs and agent files facts and the
-project policy. Find the
+Read the Promotion path, Promotion merge, Publish steps, Release checks, and Docs and agent
+files facts and the project policy. Find the
 exact candidate and the current released baseline. Prepare dated release notes and the project's
 installation and upgrade evidence in isolated fixtures, in the project's test environment, with
 retained state and unrelated artifacts kept as they are. Run the docs gate of the `ship` skill
@@ -19,7 +19,10 @@ promotion. Run the project's checks and the CI of
 the exact candidate; reuse verified results for identical content. Account for failed CI runs in
 the release scope that the Release checks define. Prepare the promotion PR and record the
 evidence for independent review. Verify the exact head and merge it under the declared promotion
-policy. Read back the result, then perform the declared publish steps. Confirm the published
+policy. When the Promotion merge fact names the maintainer, that merge is the maintainer's:
+report to the maintainer that the promotion PR and its evidence are ready, with the exact head,
+and continue after the maintainer's merge. Read back the result, then perform the declared
+publish steps. Confirm the published
 version, the artifacts and the supported installation and upgrade outcome. When the candidate
 changes, run its affected checks again. When a publish step has an uncertain result, read the
 published state and complete the missing parts.
@@ -59,6 +62,11 @@ the file. The parser reads the file as plain text, up to 64 KiB.
       "heading": "Extra proof",
       "required": false,
       "default": "project policy"
+    },
+    {
+      "heading": "Promotion merge",
+      "required": false,
+      "default": "the promotion policy"
     }
   ]
 }

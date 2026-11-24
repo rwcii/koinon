@@ -65,9 +65,9 @@ private tmux servers (WDR 006).
   frozen head with no forge credential; the publish step posts one result comment and the
   `preflight` status on that head. PDR 008, Decision 5 changes for Koinon's own adoption.
 - `ship`: after the reviews pass, the author puts a card on the board that names the pull
-  request and its exact head; after the approval, it posts `board-verdict` on that head with
-  the card reference; a new head needs a new card. A test of the posting tool refuses a
-  verdict whose head differs.
+  request and its exact head as its Where field, exactly `OWNER/REPO#PR@HEAD`; after the
+  approval, it posts `board-verdict` on that head with the card reference; a new head needs a
+  new card. A test of the posting tool refuses a verdict whose head differs.
 - `release`: stops when the promotion pull request and its evidence are ready, reports to
   the maintainer, and after the maintainer's merge pushes the tag and checks the publish.
   No skill text tells an agent to merge into `main`; a contributor test checks that.
@@ -75,8 +75,8 @@ private tmux servers (WDR 006).
   "Promotion merge" (release), whose defaults keep today's steps; Koinon's facts opt in. A
   project without them is not changed.
 - Rollout: the chunk's own pull request is the first use of `preflight` and `board-verdict`.
-  The `develop` ruleset requires them after the merge, with the maintainer's go, read back
-  with the rulesets API; until then they are posted, not required.
+  The `develop` ruleset requires both, with a passing preflight, after the merge, with the
+  maintainer's go, read back with the rulesets API.
 - WDR 004 records the gates with the maintainer's words.
 
 ## Fleet Decisions (chunk 05)

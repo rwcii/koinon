@@ -9,20 +9,24 @@ Koinon's procedure source is [WDR 004](https://github.com/rwcii/koinon/blob/deve
 (WDR 002, Decision 1). Apply them with the adopting project's instructions, and use
 `agents/skills/AGENTS.md` when you edit a canonical skill.
 
-Load the Work target, Commit policy, Required checks, PR and merge policy, and Docs and agent
-files facts. Work on the
+Load the Work target, Commit policy, Required checks, Extra checks, PR and merge policy, Merge
+approval, and Docs and agent files facts. Work on the
 assigned branch in an isolated checkout, and hold the assigned work claim when the project's
 runtime supplies one: read its checkpoint before writing, report progress and renew its lease.
 Commit under the declared policy, with no automated attribution. Bring the branch current with
 its work target, keeping published history. Run the docs gate below, then the check skill and its
-required gates. Follow
+required gates. Run the steps of the Extra checks fact at the points that it names. Follow
 the project's PR limit, and coordinate the publication turn through the installed runtime.
 Record each board decision that the change carries out in the ADR, PDR, WDR or sprint document
 that holds the rule, in the form that the verdict read gives: decided by (the person's name),
 date, context, decision, reason and scope, and review when. Koinon writes no record file. A
 facts file can still hold the retired Decision record heading; Koinon ignores it.
 Publish one complete increment; a follow-up goes on its own branch. Freeze the exact head and get
-the peer-review verdict and the other review gates that the project declares. For fixes, carry
+the peer-review verdict and the other review gates that the project declares. When the Merge
+approval fact names a board approval, put a card on the project's decision board after those
+reviews pass: it names the pull request and its full head, with the review evidence. After the
+maintainer approves the card, run the fact's status command for that pull request, head and
+card. A new head needs a new card or a new revision of the card. For fixes, carry
 forward unchanged review and verify the accepted findings and the behavior they affect; collect
 the failures and fix them together. Merge with exact-head CI and the review gates passed, under
 the declared merge policy, with auto-merge when the policy uses it. Read back the merge and
@@ -84,6 +88,11 @@ the file. The parser reads the file as plain text, up to 64 KiB.
     },
     {
       "heading": "Extra checks",
+      "required": false,
+      "default": "none"
+    },
+    {
+      "heading": "Merge approval",
       "required": false,
       "default": "none"
     }

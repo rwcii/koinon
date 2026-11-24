@@ -1,13 +1,13 @@
 # Chunk 04 — Merge gates
 
-Cites `../decision.md` (Merge gates; acceptance 4) and `../definition-of-done.md` (Merge
-gates).
+Cites `../decision.md` (Merge gates, recorded in WDR 004, Decision 8; acceptance 4) and
+`../definition-of-done.md` (Merge gates).
 
 ## Outcome
 
-A pull request into `develop` needs a passing `preflight` with the security, code, standards
-and refusal lenses, and a `board-verdict` on its exact head. The `release` skill stops before
-the merge to `main`; the maintainer merges.
+A pull request into `develop` needs a passing `preflight` with the security, code, standards and
+refusal lenses, and a `board-verdict` on its exact head (both required: WDR 004, Decision 8).
+The `release` skill stops before the merge to `main`; the maintainer merges.
 
 ## Work
 
@@ -47,6 +47,8 @@ the merge to `main`; the maintainer merges.
   card; the publish script posts for the exact head and refuses another head.
 - A contributor test that no skill text tells an agent to merge into `main`, and that a facts
   file without "Merge approval" and "Promotion merge" keeps today's ship and release steps.
-- The release path: a dry run against a fake `gh` stops before the merge, then, after a
-  simulated merge, pushes the tag and checks the publish runs; the first real release
-  (v0.13.4) is the live check, in `verification.md`.
+- The release path: the release steps are skill text, with no script, so the contributor
+  test checks the text (the stop for the maintainer's merge when "Promotion merge" names the
+  maintainer, and no merge into `main`); a dry run against a fake `gh` has no script to run.
+  The first real release (v0.13.4) is the live check, in `verification.md`. (Corrected while
+  the chunk was built.)
