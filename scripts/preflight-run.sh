@@ -10,8 +10,8 @@
 # variable. It reads only its worktree: in the default permission mode, with no settings that
 # allow more, Claude Code asks before a read outside the working directory, and a -p run has
 # nobody to answer, so the read is denied; usage.json counts the denials; Claude Code still
-# gives it the account's email address, so the project's publish step must refuse a report
-# with an email address, a private path or a secret before it posts one. Codex's
+# gives it the account's email address, so the author reads each report and removes an email
+# address, a private path or a secret before the publish step posts it. Codex's
 # read-only sandbox can read outside the worktree, so a codex worker is not used.
 #
 # The lens policy is .koinon/preflight/lenses.md at the merge base with REF: each "## NAME"

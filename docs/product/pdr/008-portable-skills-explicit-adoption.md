@@ -418,12 +418,13 @@ procedures stay offered and not adopted.
   command `koinon preflight brief NAME` prints a standard lens brief from the skill in the
   installed binary, with no daemon or session. The runner reads the brief from the repository's
   `agents/skills/preflight/SKILL.md` at the policy's commit when that file exists, as in Koinon,
-  and otherwise from that command. The lens text stays in one place, the skill. The preflight
-  review of the change added: the runner falls back to that command also when the repository's
-  skill copy has no such lens, writes a `.gitignore` of `*` in its report folder, and names no
-  Koinon path in its messages; the `preflight` skill asks the author to remove an email address, a
-  private path or a secret from each report before the publish step posts it, because the worker
-  can see the account's email address.
+  and otherwise from that command. The lens text stays in one place, the skill.
+- **The agents' design, added by the preflight review after the approval, not on the card:** the
+  runner falls back to that command also when the repository's skill copy has no such lens, writes
+  a `.gitignore` of `*` in its report folder, and names no Koinon path in its messages; the
+  `preflight` skill asks the author to remove an email address, a private path or a secret from
+  each report before the publish step posts it, because the worker can see the account's email
+  address.
 - **Reason and scope:** a project turns on a standard lens with one section and no lookup of
   its own. Scope: the runner and the brief command; `scripts/preflight-publish.sh` stays in
   Koinon's checkout.

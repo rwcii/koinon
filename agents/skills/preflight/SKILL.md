@@ -62,7 +62,7 @@ The comment shows a value that is not available as `unknown`. Never show it as z
 
 A lens worker can see the account's email address, and the comment is public. Read each
 report before the command posts it, and remove an email address, a private path or a secret
-from it. Koinon's publish command also checks for them (WDR 004, Decision 8).
+from it. Koinon's source for this step is PDR 008, Decision 5 (#814, the agents' design).
 
 ## Docs gate
 
