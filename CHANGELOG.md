@@ -5,6 +5,15 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- The docs match the code at the head: README describes the dashboard's network address
+  (`--dashboard-address`, port 8443, the certificate fingerprint); INSTALL lists the full
+  `--plan` order (no user service manager, the status lines) and the Grok status line that
+  uninstall restores; PROTOCOL describes the `same_host` move of an Enable, the cycle adapter
+  of each family, the launch `role`, the `attention` and `settings` views and the form limits
+  of the bulk and work actions; CONTRIBUTING and WDR 004 name the required
+  `decision-citations` check; PDR 002 and PDR 007 say that the managed cycle and the decision
+  board are built.
+
 ## 2026-11-24 — Merge gates, parallel sprint chunks, Orca launch, and signed answers
 
 This release adds merge gates for Koinon's own pull requests (`preflight` and `board-verdict`
