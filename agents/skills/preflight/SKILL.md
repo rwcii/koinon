@@ -60,6 +60,10 @@ the Usage import step. When that fact is "none", report the usage files as not i
 
 The comment shows a value that is not available as `unknown`. Never show it as zero.
 
+A lens worker can see the account's email address, and the comment is public. Read each
+report before the command posts it, and remove an email address, a private path or a secret
+from it. Koinon's publish command also checks for them (WDR 004, Decision 8).
+
 ## Docs gate
 
 Koinon's procedure source for this gate is WDR 004, Decision 7. Before you run the lenses,

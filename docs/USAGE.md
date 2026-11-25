@@ -130,14 +130,17 @@ Declined and edited items remain visible. Read-only state changes no memory curs
 
 ### Preflight runner and standard lenses
 
-The catalog's setup item `setup.preflight-runner` is Koinon's preflight runner. An adopting
-project writes it to `scripts/koinon-preflight-run.sh` and runs it with
-`sh scripts/koinon-preflight-run.sh [--base REF]` as the `preflight` skill's Review run
-command. It reads the lens policy `.koinon/preflight/lenses.md` at the merge base, needs `git`,
-`jq` and the `claude` CLI, and writes local reports only. A `## NAME` section with no text turns
-on the standard lens NAME of the `preflight` skill. The runner takes its brief from
-`agents/skills/preflight/SKILL.md` at the same commit when the repository has that file, and
-otherwise from the installed release:
+The catalog's setup item `setup.preflight-runner` is Koinon's preflight runner. An adopting project
+writes it to `scripts/koinon-preflight-run.sh`, records the adoption as a project receipt (above),
+and runs it with `sh scripts/koinon-preflight-run.sh --base BRANCH`, the pull request's base
+branch, as the `preflight` skill's Review run command; the base defaults to `origin/develop`. It
+reads the lens policy `.koinon/preflight/lenses.md` at the merge base, needs `git`, `jq` and the
+`claude` CLI, and writes local reports only, to `_preflight/` in the main checkout, where a
+`.gitignore` of `*` keeps them out of Git. A lens worker can see the account's email address, so
+the project's publish step reads each report and removes an email address, a private path or a
+secret before it posts one. A `## NAME` section with no text turns on the standard lens NAME of the
+`preflight` skill. The runner takes its brief from `agents/skills/preflight/SKILL.md` at the same
+commit when the repository's copy has that lens, and otherwise from the installed release:
 
 ```sh
 koinon preflight brief wording
@@ -145,7 +148,7 @@ koinon preflight brief wording
 
 The command prints the brief from the skill in the installed binary, needs no daemon and no
 session, and answers `not_found` for an unknown lens. After an upgrade, `library_state` shows
-the project's runner copy as outdated when the release changed it.
+a recorded, unedited runner copy as outdated when the release changed it.
 
 ## Messages and participants
 

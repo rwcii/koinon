@@ -44,8 +44,10 @@ The store stays at schema 40.
   installed binary, with no daemon or session, and answers `not_found` for an unknown lens. The
   catalog ships the preflight runner as the setup item `setup.preflight-runner`, which an
   adopting project writes to `scripts/koinon-preflight-run.sh`; in a repository without
-  `agents/skills/preflight/SKILL.md`, the runner takes a standard lens brief from that command
-  (#814, PDR 008, Decision 5).
+  `agents/skills/preflight/SKILL.md`, or whose copy lacks the lens, the runner takes a standard
+  lens brief from that command. The runner writes a `.gitignore` of `*` in its report folder, and
+  the `preflight` skill asks the author to remove an email address, a private path or a secret
+  from each report before it is posted (#814, PDR 008, Decision 5).
 
 - docs/USAGE.md has "Run Koinon members from Orca": the `orca terminal create` command form,
   `--role` with the pair for each member, the label of linked worktrees, the tmux session by

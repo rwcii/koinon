@@ -2,26 +2,29 @@
 # Run each preflight lens once on the committed head, each in a fresh agent worker with no forge
 # credential, and keep the reports (PDR 008, Decision 5; WDR 004, Decision 8).
 #
-# Usage: scripts/preflight-run.sh [--base REF]
+# Usage: sh preflight-run.sh [--base REF], from the repository; the catalog item installs it as
+# scripts/koinon-preflight-run.sh.
 #
 # The worker is `claude -p` for an author of any family. It has only the Read, Grep and Glob
 # tools, loads no settings, auto-memory or instruction files and gets no forge or Koinon
 # variable. It reads only its worktree: in the default permission mode, with no settings that
 # allow more, Claude Code asks before a read outside the working directory, and a -p run has
 # nobody to answer, so the read is denied; usage.json counts the denials; Claude Code still
-# gives it the account's email address, which the publish script refuses in a report. Codex's
+# gives it the account's email address, so the project's publish step must refuse a report
+# with an email address, a private path or a secret before it posts one. Codex's
 # read-only sandbox can read outside the worktree, so a codex worker is not used.
 #
 # The lens policy is .koinon/preflight/lenses.md at the merge base with REF: each "## NAME"
 # section is one enabled lens and its brief; a section with no text takes the brief of the
 # standard lens of that name in agents/skills/preflight/SKILL.md at the same commit (Standard
-# lenses), or, in a repository without that file, from `koinon preflight brief NAME` of the
-# installed release. The catalog ships this script to adopting projects as the setup item
+# lenses), or, when the repository's copy has no such lens or no copy, from
+# `koinon preflight brief NAME` of the installed release. The catalog ships this script to adopting projects as the setup item
 # preflight-runner (#814). The change that adopts the preflight brings the
-# first policy, so a base without one gives the head's. The base default is origin/develop. Each
-# worker runs in a detached worktree of the head, outside this checkout, with the change in
-# .preflight/change.diff. The reports go to _preflight/HEAD/RUN/ in the main checkout, which Git
-# ignores, or to $PREFLIGHT_REPORTS.
+# first policy, so a base without one gives the head's. The base default is origin/develop; give
+# the pull request's base branch with --base. Each worker runs in a detached worktree of the
+# head, outside this checkout, with the change in .preflight/change.diff. The reports go to
+# _preflight/HEAD/RUN/ in the main checkout, or to $PREFLIGHT_REPORTS; the run writes a
+# .gitignore of "*" in that folder, so Git ignores the reports.
 # Exit status 0: every lens approves. 1: a lens rejects. 2: a lens failed or the run could not
 # start.
 set -eu
@@ -40,7 +43,7 @@ while [ $# -gt 0 ]; do
 		base=$2
 		shift 2
 		;;
-	*) die "usage: scripts/preflight-run.sh [--base REF]" ;;
+	*) die "usage: $(basename "$0") [--base REF]" ;;
 	esac
 done
 command -v jq >/dev/null || die "jq is required"
@@ -66,9 +69,9 @@ lenses=$(printf '%s\n' "$policy" | sed -n 's/^## \([a-z][a-z0-9-]*\)[[:space:]]*
 [ -n "$lenses" ] || die "the lens policy has no '## NAME' section"
 skill_path=agents/skills/preflight/SKILL.md
 # brief_of LENS prints the lens's brief: its section's text, or, when the section has no text,
-# the standard lens of that name in the preflight skill at the policy's commit, or from the
-# installed release when the repository has no preflight skill (WDR 004, Decision 8, the
-# wording lens, the agents' design; #814). A lens with none of these stops the run.
+# the standard lens of that name in the repository's preflight skill at the policy's commit,
+# or, when that copy has none, from the installed release (WDR 004, Decision 8, the wording
+# lens, the agents' design; #814). A lens with none of these stops the run.
 brief_of() {
 	text=$(printf '%s\n' "$policy" | awk -v lens="$1" '
 		/^## / { on = ($2 == lens); next }
@@ -79,7 +82,8 @@ brief_of() {
 				/^## / { std = ($0 ~ /^## Standard lenses[[:space:]]*$/); on = 0; next }
 				std && /^### / { on = ($2 == lens); next }
 				on { print }')
-		elif command -v koinon >/dev/null; then
+		fi
+		if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ] && command -v koinon >/dev/null; then
 			text=$(koinon preflight brief "$1" 2>/dev/null) || text=
 		fi
 	fi
@@ -87,7 +91,7 @@ brief_of() {
 }
 for lens in $lenses; do
 	[ -n "$(brief_of "$lens" | tr -d '[:space:]')" ] ||
-		die "the lens $lens has no text in $policy_path, and neither $skill_path nor the installed koinon has a standard lens $lens"
+		die "the lens $lens has no text in $policy_path, and no standard lens $lens in $skill_path at $policy_commit or from koinon preflight brief"
 done
 
 reports=${PREFLIGHT_REPORTS:-}
@@ -97,6 +101,7 @@ if [ -z "$reports" ]; then
 fi
 run=$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%010d' "$$")
 mkdir -p "$reports/$head/$run"
+[ -e "$reports/.gitignore" ] || printf '*\n' >"$reports/.gitignore"
 out=$(cd "$reports/$head/$run" && pwd -P)
 work=$(mktemp -d "${TMPDIR:-/tmp}/preflight.XXXXXX")
 work=$(cd "$work" && pwd -P)

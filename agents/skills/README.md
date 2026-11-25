@@ -99,11 +99,12 @@ To add a skill, create `agents/skills/<name>/SKILL.md`, add a row to the table a
 
 ## Embedded library and project facts
 
-The Go package here embeds `*/SKILL.md` and the shared `AGENTS.md`; the binary builds its
-catalog directly from those bytes. `koinon version` reports `catalog_digest` without
-reading a checkout. Setup link/command descriptors derive from the shared layout/metadata;
-the permissions recommendation embeds `docs/PERMISSIONS.md` from its own source directory.
-The catalog holds the skills and the shared authoring file; root instructions, sprint plans,
+The Go package here embeds `*/SKILL.md` and the shared `AGENTS.md`; the binary builds its catalog
+directly from those bytes. `koinon version` reports `catalog_digest` without reading a checkout.
+Setup link/command descriptors derive from the shared layout/metadata; the permissions
+recommendation embeds `docs/PERMISSIONS.md` from its own source directory, and the setup item
+`setup.preflight-runner` embeds `scripts/preflight-run.sh` from `scripts/`. The catalog holds the
+skills, the shared authoring file and these setup items; root instructions, sprint plans,
 repository fact values and handoffs stay in the checkout. The library tools read the catalog and
 record adoption state.
 

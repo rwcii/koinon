@@ -93,16 +93,16 @@ handoff and pickup skills, and its own `koinon-pickup` entry, are PDR 006.
 
 The skills Koinon uses are the same files it offers. The binary embeds `agents/skills/*/SKILL.md`
 and the shared `AGENTS.md` and builds the catalog from those bytes; `koinon version` reports
-`catalog_digest`. The current source includes 21 skills: `refusal-review` was added after the
-initial 13, and seven procedures that adopting projects brought (Decision 5), and setup items for
-shared instructions, discovery links, OpenCode wrappers, a guidance reference, permission
-recommendations and the preflight runner. `spin-up` handles first-run permission prompts and alerts
-in the new session's verified terminal. Skills read project facts (branches, checks, release steps)
-from `.koinon/skills/NAME.md`; each skill declares required and optional facts with defaults.
-`check`, `ship` and `release` have required facts, and of the Decision 5 skills `preflight`,
-`provenance`, `standards-review`, `record`, `sprint-closeout` and `standards-audit`. When a
-required fact is missing, the agent derives it from the project's evidence and records it in the
-file. Fact files live in the project; the binary does not embed them.
+`catalog_digest`. The current source includes 22 skills: `refusal-review` and `coordinate` were
+added after the initial 13, and seven procedures that adopting projects brought (Decision 5), and
+setup items for shared instructions, discovery links, OpenCode wrappers, a guidance reference,
+permission recommendations and the preflight runner. `spin-up` handles first-run permission prompts
+and alerts in the new session's verified terminal. Skills read project facts (branches, checks,
+release steps) from `.koinon/skills/NAME.md`; each skill declares required and optional facts with
+defaults. `check`, `ship` and `release` have required facts, and of the Decision 5 skills
+`preflight`, `provenance`, `standards-review`, `record`, `sprint-closeout` and `standards-audit`.
+When a required fact is missing, the agent derives it from the project's evidence and records it in
+the file. Fact files live in the project; the binary does not embed them.
 
 Koinon-owned entries are not catalog items: `koinon-pickup`, the managed context cycle's
 pickup entry (PDR 006, Decision 4), and the team skill entries (Decision 2). `koinon install` and the daemon at each start install it
@@ -418,7 +418,12 @@ procedures stay offered and not adopted.
   command `koinon preflight brief NAME` prints a standard lens brief from the skill in the
   installed binary, with no daemon or session. The runner reads the brief from the repository's
   `agents/skills/preflight/SKILL.md` at the policy's commit when that file exists, as in Koinon,
-  and otherwise from that command. The lens text stays in one place, the skill.
+  and otherwise from that command. The lens text stays in one place, the skill. The preflight
+  review of the change added: the runner falls back to that command also when the repository's
+  skill copy has no such lens, writes a `.gitignore` of `*` in its report folder, and names no
+  Koinon path in its messages; the `preflight` skill asks the author to remove an email address, a
+  private path or a secret from each report before the publish step posts it, because the worker
+  can see the account's email address.
 - **Reason and scope:** a project turns on a standard lens with one section and no lookup of
   its own. Scope: the runner and the brief command; `scripts/preflight-publish.sh` stays in
   Koinon's checkout.
@@ -427,7 +432,7 @@ procedures stay offered and not adopted.
 
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
-| Merge some of the seven into existing skills | For example `refusal-audit` into `refusal-review` | It changes text that the maintainer saw; the catalog has room (27 of 32 items) |
+| Merge some of the seven into existing skills | For example `refusal-audit` into `refusal-review` | It changes text that the maintainer saw; the catalog has room (28 of 32 items) |
 | Wrappers in the adopting project | Skills under the project's own prefix | A second installer and a second copy of each procedure |
 | Only `koinon preflight brief` (#814) | The command without the runner item | Each project still writes the lookup in its own runner |
 | A `koinon preflight run` command (#814) | The whole runner ported to Go | No project copy, but about a day of work for v0.13.4 |
