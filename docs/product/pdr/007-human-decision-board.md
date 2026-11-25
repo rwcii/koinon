@@ -427,4 +427,4 @@ blocks, which the maintainer copies into a terminal, hold printable ASCII only. 
 | 2026-11-07 | Decision 1: the card form at each write, and `form_notes` in the replies (#635, CARD-FORM-AT-WRITE-635) |
 | 2026-11-09 | Decision 1: the card labels Fix loop and On track (#638, CARD-LOOP-SCOPE) |
 | 2026-11-18 | Decision 4: remote recipients on a paired computer get notices and read and acknowledge at the card's computer (#746; PDR 011, Decision 2, amendment BOARD-LINK-746) |
-| 2026-11-25 | Executive summary: the board is built (#353, #358, #360) |
+| 2026-11-25 | Executive summary: the board is built (#353, #358, #360) (#822) |

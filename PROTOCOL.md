@@ -3262,7 +3262,8 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   `koinon-speak`, removing a sentence only at the utterance's end.
 - **Actions.** Each action is a `POST` under `/dashboard/actions/` with the request protection
   above, and answers `303` to the view it changed with a fixed `notice` code, so a reload never
-  repeats it. Each action has a base limit of URL-encoded input: 4,096 bytes; for `send` and
+  repeats it. Each action has a base limit of URL-encoded input: 4,096 bytes, unless its entry
+  below gives another, as for `memory-record` and the decision actions; for `send` and
   the dashboard's `room-post` 3 × 65,536 + 4,096 bytes, with a decoded body of 1–65,536 bytes of
   UTF-8; for `bulk` 100 × 3 × 515 + 4,096 bytes; and for `work-create`, `work-edit` and
   `work-finish` 3 × 3 × 8,192 + 4,096 bytes. Each action form also carries its encoded `back`

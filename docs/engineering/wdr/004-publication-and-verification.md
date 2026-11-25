@@ -667,4 +667,4 @@ maintainer's board approval of its head, and the maintainer merges each release 
 | 2026-11-23 | Decision 8: preflight, the board approval of each head, and the maintainer's merge into `main` (#795) |
 | 2026-11-24 | Decision 8: a passing preflight is required; the card's Where target and content are the agents' design; the release bullet cites WDR 002, Decision 6, which it partly restores (#795) |
 | 2026-11-24 | Decision 8: the wording lens (#812) |
-| 2026-11-25 | Decision 3 and the Conclusion: the required `decision-citations` check and `refusal-review` status, and the lifecycle exemption without `agents/` (`docs/sprints/2026-10-11-skills-library/chunks/01-catalog.md`: skill changes no longer skip the native lifecycle proof), as `scripts/setup-repo.sh` and the workflows have them |
+| 2026-11-25 | Decision 3 and the Conclusion: the required `decision-citations` check and `refusal-review` status, and the lifecycle exemption without `agents/` (`docs/sprints/2026-10-11-skills-library/chunks/01-catalog.md`: skill changes no longer skip the native lifecycle proof), as `scripts/setup-repo.sh` and the workflows have them (#822) |

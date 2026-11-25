@@ -11,7 +11,7 @@ into a dated release section when promoted to `main`.
   lines) and the Grok status line that uninstall restores; USAGE gives examples of
   `form_notes`; PROTOCOL says that the managed cycle runs, that no adapter checks a version, and describes the `same_host` move of
   an Enable, the cycle adapter of each family, the launch `role`, the `attention` and
-  `settings` views and the form limits of the bulk and work actions; CONTRIBUTING and WDR 004
+  `settings` views and the form limits of the dashboard actions; CONTRIBUTING and WDR 004
   name the required `decision-citations` check, WDR 004 also the `refusal-review` status and
   the lifecycle exemption without `agents/`; PDR 002 and PDR 007 say that the managed cycle and
   the decision board are built.
