@@ -8,9 +8,10 @@
 # Koinon
 
 Koinon connects local Claude Code, Codex, Antigravity, OpenCode, Grok Build and DeepSeek sessions through
-one Go daemon. A single binary provides messaging, shared repository memory, advisory work
-claims, launchers and a dashboard. Linux and macOS builds use no cgo. Fresh installation needs
-no Python. The Python runtime has been retired from this checkout; import and upgrade from
+one Go daemon. A single binary provides messaging, rooms, a decision board for the maintainer,
+shared repository memory, advisory work claims, managed context cycles, a catalog of team skills,
+launchers, a dashboard, and links between your own computers. Linux and macOS builds use no cgo.
+Fresh installation needs no Python. The Python runtime has been retired from this checkout; import and upgrade from
 the pinned previous release remain supported.
 
 ## How it works
@@ -30,9 +31,10 @@ flowchart LR
     MCP -->|loopback API, private secret| Daemon[koinon serve]
     CLI -->|loopback API, private secret| Daemon
     Browser[Maintainer's browser] -->|maintainer secret or one-time login link| Daemon
-    Daemon --> State[(state.sqlite3: sessions, inboxes,<br/>memory, work items, audit log)]
+    Daemon --> State[(state.sqlite3: sessions, inboxes, rooms,<br/>decision cards, memory, work items, audit log)]
     Daemon -.->|content-free wake notice| Wake[Wake adapters]
     Wake -.-> sessions
+    Daemon <-->|TLS link with pinned keys,<br/>through Tailscale Serve| Other[koinon serve on<br/>your other computers]
 ```
 
 One daemon per user, `koinon serve`, owns all state in one SQLite database. Each agent session
@@ -125,7 +127,8 @@ that use Koinon tools need Koinon.
    `claude-repo-review` with `--role review`; a second agent of the same family and role gets
    `claude-repo-2`, and so on. `--tmux-session NAME` starts a detached tmux session with that
    name and prints its name and pane.
-   `koinon claude --bg` starts a Claude Code background job instead.
+   `koinon claude --bg` starts a Claude Code background job instead. To start members from
+   Orca, see [Run Koinon members from Orca](docs/USAGE.md#run-koinon-members-from-orca).
 3. **Direct starts register as plain peers.** After setup, a directly started `claude`,
    `codex`, `agy`, `opencode` or `grok` registers at its first Koinon tool call using its native
    identity. It can send, read and acknowledge its peer-name inbox and use repository memory
@@ -152,9 +155,47 @@ message: when it asks for work, the recipient does the work and replies through 
 A dashboard post from the built-in `maintainer` session is the maintainer's own instruction and
 approval ([PDR 005](docs/product/pdr/005-room-conversations-human-origin.md), Decision 3).
 
-DeepSeek uses explicit registration and command access; its synthetic wake tests pass, but
-its live receiving-session proof remains deferred under [#199](https://github.com/rwcii/koinon/issues/199).
+DeepSeek uses explicit registration and command access, because its MCP support is not
+verified; the live wake of an idle DeepSeek session passed (#199).
 The `delivery` tool reports a sent message's delivery state and the recipient's acknowledgement.
+
+## Rooms and the decision board
+
+A room is a named group of sessions. The maintainer makes rooms on the dashboard's **Rooms**
+page and posts to them; members post with `room_post` and read with `room_read`. Rooms are real
+time: a member that is not active when a post is made does not get it later, and the
+maintainer's post answer lists each member as `sent` or `not_sent` with the reason (#695).
+
+Agents put the items that need the maintainer on the decision board with `decision_create`: a
+**decision** asks for a verdict, a **task** asks the maintainer to do work, and an **fyi** gives
+information. The dashboard's **Decisions** page shows the cards, the active agents and the
+archive. Each verdict is the maintainer's instruction to the agents that the card names: each
+one gets a notice, reads the card with `decision_get` and acknowledges the verdict with
+`decision_ack`; `decision_pending` lists the verdicts that it has not acknowledged. `koinon
+decision export` writes the board to a file. See [rooms](docs/USAGE.md#rooms),
+[decisions](docs/USAGE.md#decisions), [PDR
+005](docs/product/pdr/005-room-conversations-human-origin.md) and [PDR
+007](docs/product/pdr/007-human-decision-board.md).
+
+## Context cycles and team skills
+
+Koinon reads each session's context use. When a session that the maintainer enabled reaches its
+threshold, Koinon runs its family's mode: a **handoff cycle** (the agent writes a handoff,
+Koinon clears its context or starts a new session, and the agent resumes with `koinon-pickup`),
+Codex **native compaction**, or **observe** only. Set the mode and threshold for each family on
+the dashboard's Settings page or with `koinon context set`, and enable a session on the Sessions
+page or with `koinon context enable` ([usage](docs/USAGE.md), [PDR
+006](docs/product/pdr/006-context-monitoring-managed-handoffs.md)).
+
+The binary holds a catalog of portable skills (`library_list`, `library_read`,
+`koinon library`). `koinon install`, and the daemon at each start, write each one as
+`koinon-NAME` for Claude Code and Codex, and for OpenCode, Antigravity and Grok Build when
+they are on the computer: for example
+`koinon-spin-up`, `koinon-coordinate` and `koinon-spin-down` start, run and stop a team, and
+`koinon-handoff`, `koinon-pickup`, `koinon-check`, `koinon-ship`, `koinon-sprint` and
+`koinon-release` carry the work from a plan to a release. Each skill reads the project's own
+facts from `.koinon/skills/NAME.md`. The [skills README](agents/skills/README.md) lists them all
+([PDR 008](docs/product/pdr/008-portable-skills-explicit-adoption.md)).
 
 ## Memory, work and dashboard
 
@@ -198,7 +239,9 @@ See [connect your computers](docs/REMOTE-DASHBOARD.md#connect-your-computers).
 A maintainer client can act with its own Ed25519 key in place of the secret (#693). Add its
 key once on each computer with `koinon maintainer key add --statement FILE`; the client then
 signs each action for one computer, and a computer passes an action signed for a paired
-computer over the link. Each verdict shows the key's user and client. See
+computer over the link. Each verdict shows the key's user and client. With envelope version
+`koinon-maintainer-2`, the computer that ran the action signs its answer with its link key,
+so the client can check that no other computer changed it (#696). See
 [signed actions with a client key](docs/USAGE.md#signed-actions-with-a-client-key).
 
 ## Security and storage
@@ -229,6 +272,7 @@ release.
 
 ```sh
 go vet ./...
+gofmt -l .                        # must print nothing
 go test -race -timeout 30m ./...
 git diff --check
 ```
@@ -238,8 +282,13 @@ tmux servers. Go contributor tests check shared skills, retirement and CI covera
 Go workflow alone drives real services on disposable Ubuntu/macOS runners, including upgrade
 from the pinned main release obtained through `git archive`; it reads committed fixtures and
 needs no deleted fixture generator. The full Go matrix always runs, even for agent-only changes.
-Release promotion is described in [WDR 002](docs/engineering/wdr/002-authority-within-assigned-task.md),
-Decision 6. See [CHANGELOG.md](CHANGELOG.md).
+Each pull request into develop gets a preflight of five lenses and the maintainer's board
+approval of its exact head, as the `preflight` and `board-verdict` statuses; the `develop`
+ruleset requires both, with a passing preflight, after the maintainer applies
+`scripts/setup-repo.sh` (WDR 004, Decision 8). The
+[release skill](agents/skills/release/SKILL.md) prepares the promotion of develop to main with
+the checks of [WDR 004](docs/engineering/wdr/004-publication-and-verification.md), Decision 6,
+and the maintainer merges it (Decision 8). See [CHANGELOG.md](CHANGELOG.md).
 
 Historical Python design/evidence documents are explicitly marked and retained for provenance.
 They do not describe active commands. Independent reuse and forks are encouraged under the

@@ -10,9 +10,14 @@ release
 - .github/workflows/release.yml
 - .github/workflows/native-go-lifecycle.yml
 - docs/INSTALL.md
+- docs/engineering/wdr/004-publication-and-verification.md
 
 ## Promotion path
-Merge the PR from develop to main.
+A PR from develop to main, merged with a merge commit.
+## Promotion merge
+The maintainer merges the promotion PR into main (WDR 004, Decision 8). Report to the
+maintainer when the PR and its evidence are ready, with the exact head. After the maintainer's
+merge, read back the merge commit, push the version tag on it and check the publish steps.
 ## Publish steps
 Use the version tag on the verified main merge. The tag triggers Release binaries:
 four CGO-free binaries, their Homebrew bottles, koinon-skills.tar.gz and SHA256SUMS; the
@@ -29,3 +34,10 @@ exact-head CI with the repository Actions runs API (`created>=` the commit time,
 split the time range when a query reaches 1,000 results). For a run with `run_attempt` above 1,
 read each attempt 1..N from its attempts endpoint. List each failed run and attempt in the
 promotion PR evidence with its cause, fix or open issue.
+## Docs and agent files
+README.md, PROTOCOL.md, CONTRIBUTING.md, AGENTS.md, CLAUDE.md, CHANGELOG.md (Unreleased),
+docs/USAGE.md, docs/INSTALL.md, docs/REMOTE-DASHBOARD.md, docs/PERMISSIONS.md,
+docs/WORK-ITEMS-COMMANDS.md, agents/skills/README.md, agents/skills/AGENTS.md, each
+agents/skills/*/SKILL.md, the guide text in internal/setup/guide.go (`koinon guide --agent
+FAMILY`), the command usage text in cmd/koinon/main.go, and the ADR, PDR and WDR README
+indexes. The historical documents that say so are out of scope.

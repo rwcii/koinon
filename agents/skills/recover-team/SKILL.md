@@ -21,6 +21,15 @@ operation, verify the actual registration, participant holder, pickup and readin
 existing leases and checkpoints. Reconcile an uncertain result before a retry, and record the
 completed stages in the private manifest.
 
+To restart a family that `spin-down` stopped with "no handoff": after its login works again,
+resume each member's same native thread with its saved sandbox, role and directory. A resumed
+thread registers at its first Koinon tool call. At its idle prompt, send each member a first turn
+with the `peer-tmux` steps: call a Koinon tool, read its inbox, check its saved thread's work
+against the live repository, and reply with its participant address, its readiness and its next
+action. This turn takes the place of the pickup, which reads the newest handoff. Then reconcile
+its open jobs, work claims and pull requests with the live state, and check its participant
+address and its reply.
+
 ## Repository facts
 
 The project's facts for this skill are local data in the file named below, in the current

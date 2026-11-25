@@ -338,6 +338,10 @@ sent; a definite refusal of the card's computer
 keeps its code; any other failure after the write began is `link_uncertain`, and an
 acknowledgement may have been stored: a retry is safe and reports it in `already`.
 
+The table lists the core routes. The sections of each feature describe its own routes: context
+and cycles, rooms, decisions, work items and checkouts, cleanup and maintenance, the library,
+and maintainer keys.
+
 | Route | Operation |
 | --- | --- |
 | `GET /v1/status` | Daemon readiness, the release `version`, `pid`, listeners, schema, session counts, storage, content-free wake health and `maintainer_secret_set`. |
@@ -2268,7 +2272,8 @@ project inspection. Recommendations select only verified missing/outdated skills
 by available features, with no decline, collision or decision-inspection limitation.
 
 Machine `library_decision` accepts item ID, adopted/declined choice, evidence text,
-catalog/item digests, typed pre-edit/result target digests and compared revision. The client
+catalog/item digests, typed pre-edit/result target digests and compared revision; an adoption
+needs at least one result target digest. The client
 fills native family/root metadata and calls `POST /v1/library/decision` internally;
 `POST /v1/library/decision/read` returns current state. `POST /v1/library/context` supplies
 the registered directory/common-directory context internally and is not a model tool.
@@ -2357,7 +2362,9 @@ else its peer name), a typed `origin` and its body (1–65,536 bytes of UTF-8). 
 `member`, and no request field or body text sets it. One ordinary write stores the post,
 snapshots the current members, and for each member except the poster's own memberships
 stores either an inbox copy with a delivery row (`queued`) or a delivery row `skipped` with
-the reason `inactive`, `unheld` or `conflicting`. A participant's copy goes to the
+its reason: for a member session the liveness reason that a refused send gives (`retired`,
+`ended`, `lapsed` or `no_liveness_evidence`), for a participant `unheld` or `conflicting`.
+Nothing that was skipped is delivered later (#695). A participant's copy goes to the
 participant's inbox. The write also stores the poster's retry record and, for a dashboard post, the audit record. It commits completely or not at all;
 wakes follow through the existing queue and are content-free. A copy is an ordinary inbox
 message from the poster with the full body and `room: {room_id, event: "post", seq, origin}`.
@@ -2647,7 +2654,7 @@ fact: a `.koinon/skills/ship.md` that holds it stays valid, and Koinon ignores i
 `koinon mcp` is a stdio MCP server: newline-delimited JSON-RPC 2.0 with `initialize` (protocol
 versions `2025-06-18`, `2025-03-26` and `2024-11-05`; another requested version gets
 `2025-06-18`), `ping`, `tools/list` and `tools/call`. Other methods get error -32601; a message
-longer than 1 MiB gets -32700. Its tools are `peers`, `send` (`to`, `body`), `inbox` (`after`,
+longer than 1 MiB gets -32700. Its tools are `peers`, `peer_status` (`peer`), `send` (`to`, `body`, optional `reply_to`), `inbox` (`after`,
 `participant_after`, `limit`), `ack` (`through`, `participant_through`) and `delivery` (`message_id`), and `memory_status`, `memory_sync`,
 `memory_ack`, `memory_record` and `memory_recall` with the fields of the memory routes, and
 `work_create`, `work_get`, `work_list`, `work_propose`, `work_edit`, `work_start`, `work_update`,
@@ -2657,8 +2664,10 @@ and `work_checkout_request` (also optional `note`) call the checkout routes. Rel
 directories resolve against the MCP working directory and must share its Git common
 directory. `library_list` (`after`, `limit`) and `library_read` (`item_id`) call the catalog
 routes, using native caller identity and accepting no target path or family override.
-`library_state` (`item_ids`, `scope`, `directory`) and `library_decision` (item, choice,
-evidence, catalog/item digests, pre-edit/result arrays and `if_revision`) combine catalog,
+`library_state` (`item_ids`, `scope`, `directory`) and `library_decision` (required `item_id`,
+`decision` `adopted` or `declined`, `evidence`, `catalog_digest`, `item_digest` and
+`if_revision`; optional `pre_edit` target digests; `result` target digests, required and not
+empty for `adopted` and optional for `declined`) combine catalog,
 decisions and bounded reads in that same native client.
 `room_list` (`after`, `limit`), `room_members` (`room_id`, `after`, `limit`), `room_post`
 (`room_id`, `body`, `key`, `deadline`) and `room_read` (`room_id`, `after`, `limit`) call the
@@ -2666,6 +2675,9 @@ room routes.
 `decision_create`, `decision_edit`, `decision_list`, `decision_get`, `decision_history`,
 `decision_pending`, `decision_ack`, `decision_close`, `decision_withdraw` and `decision_restore` take the fields of the
 decision routes, refuse any other argument by name and call those routes.
+`context_cycle_status`, `context_cycle_ready` and `context_cycle_pickup` call the cycle routes,
+and `context_show`, `context_set`, `context_enable` and `context_threshold` the context routes
+(both described above).
 They take no model-supplied consumer or caller identity. A tool
 error is a result with `isError` and a JSON text `{"ok": false, "code": ...}`: the daemon's code,
 `daemon_unavailable`, `identity_unavailable`, `grok_leader_mode`, `invalid_arguments` or `unknown_tool`, with the
@@ -2833,7 +2845,10 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     `recipient_inactive`).
   - `room-list` (each room's `room_id`, `name`, `revision`, `created_at` and `members`);
     `room-read` (`room_id`, `after`, `limit`) of any room; `room-post` (`room_id`, `body`,
-    `key`, `deadline`), whose receipt has `room_id`, `seq`, `queued` and `skipped`;
+    `key`, `deadline`), whose receipt has `room_id`, `seq`, `queued`, `skipped` and
+    `recipients`: for each member of the roster at the post except the poster, in roster
+    order, its `name` and `state` `sent` (a copy is in its inbox), or `not_sent` with its
+    `reason` (#695). A receipt stored before this list existed has no `recipients`;
     `room-create` (`name`, `key`); `room-add` (`room_id`, `peer`); `room-remove` (`room_id`,
     `ordinal`): the dashboard's room actions with their refusals (`room_not_found`,
     `peer_not_found`, `room_member_not_found`, `idempotency_conflict` and the room limits).
@@ -2965,7 +2980,9 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     (`room`, `after`, `limit`), `peers`, `peer_status` (`peer`); the writes `decision_verdict`
     (`reference`, `revision`, `snapshot`, `verdict`, `note`), `ack` (`through`), `send` (`to`,
     `body`, `reply_to`) and `room_post` (`room`, `body`); and `outcome`, `computers` and
-    `changes`. An unknown argument or one of the wrong type is `invalid_request`.
+    `changes`. `room_post` answers the `room-post` receipt with its `recipients`; a refused
+    `send` (`peer_not_found`, `alias_unheld`, `recipient_inactive` with `details.reason`) keeps
+    its code and details in its receipt, so the repeat and `outcome` give them (#695). An unknown argument or one of the wrong type is `invalid_request`.
     `snapshot` is the hex SHA-256 of the RFC 8785 bytes of `{"reference", "revision", "kind",
     "title", "where", "context", "recommendation", "agent_text", "commands"}` as `decision_get`
     shows them (`commands` the shown commands, `[]` when none); another snapshot is
@@ -3056,6 +3073,40 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     (`signer`) and the dashboard (`by USER (CLIENT)`) show, also after the key's removal; an
     agent's history shows neither. The audit record of a signed action ends with
     `by USER (CLIENT) key KEY_ID`.
+  - **Version 2 and signed answers** (#696). An envelope with `v` `koinon-maintainer-2` has the
+    same fields, values and checks as version 1, and its signature covers `koinon-maintainer-2`, a
+    newline and the RFC 8785 bytes. An enrollment statement (`op` `enroll`) stays
+    `koinon-maintainer-1`; a version 2 one is `signature_refused` with reason `version`. A
+    version 1 envelope keeps its unsigned answers. Version 1
+    and version 2 share the receipts: the same `request` in the other version is
+    `request_conflict`, and a version 2 `outcome` reads a version 1 receipt. Each answer to a
+    version 2 envelope that the computer could parse is one signed object with exactly `v`
+    (`koinon-answer-2`), `signer` (`target` or `node`), `pin` (the signer's pin), `public_key`
+    (the padded standard base64 of the signer's link key as DER SubjectPublicKeyInfo, whose hex
+    SHA-256 is `pin`), `request` (the hex SHA-256 of the envelope's signed bytes), `status` (the
+    answer's HTTP status, 200 to 599), `answer` (the exact JSON text of the version 1 answer) and
+    `sig`: the padded standard base64 Ed25519 signature, with the link key, of
+    `koinon-answer-2`, a newline and the RFC 8785 bytes of the object without `sig`. The computer
+    whose pin is the envelope's `target` signs as `target`: reads, writes, refusals of the
+    envelope, `outcome`, `changes`, and `session` on the Remote listener, whose `answer` is the
+    flat token object. The node signs as `node` only its own claims, each with `ok` false:
+    `computer_offline`, `outcome_unknown`, `signature_refused` with reason `target`,
+    `invalid_request`, `too_large`, and the other computer's link refusals. The node takes from
+    the link, for a version 2 envelope, only the target's signed object with the reply's
+    `status`, or the unsigned `signature_refused` with reason `version` of a computer of an
+    earlier release, and returns either unchanged. Unsigned stay: the local session route and
+    the first line of `koinon mcp --maintainer --signed`; `maintainer_token_expired`,
+    `too_many_calls`, and a body that is not an envelope that parses as version 2. The action
+    route `POST /v1/maintainer/signed`, on the loopback API and on Remote, and the `session`
+    route on Remote answer the signed object as their body with `status` as the HTTP status; the
+    `signed` tool answers it as its text, for a refusal too, without `isError`; the link carries
+    it in `maintainer-ok`. The 1 MiB answer bound counts the signed object as the link frame
+    carries it, escapes included. A client accepts an answer only when the object has this form,
+    a `target` answer has the envelope's `target` as `pin`, a `node` answer has the node's pin and
+    is one of its claims, `public_key` hashes to `pin`, `request` is its envelope's digest,
+    `sig` checks, and the `ok` of `answer` agrees with `status`; it then uses `status` and
+    `answer` only (`signed.VerifyAnswer`). The test vectors are in
+    `docs/sprints/2026-11-22-signed-answers/contract.md`, section 5.
 - **Request protection.** Every loopback dashboard request must name a literal loopback IP with a port in
   `Host` (`127.0.0.1:PORT` or `[::1]:PORT`; `localhost` and other names are refused). PORT may
   differ from the listener's, as through an SSH tunnel from another local port (ADR 001,

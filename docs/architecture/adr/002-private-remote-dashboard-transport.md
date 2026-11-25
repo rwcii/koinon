@@ -405,7 +405,16 @@ or control operation. Implementation: `internal/core/link_messages.go`,
   `/v1/maintainer/signed`, the same handlers as the loopback API, behind the pinned Host check,
   with the session's token as the bearer (#693 chunk 3, `remoteDashboardHandler` in
   `internal/core/dashboard_remote.go`).
-- **Review when:** as PDR 011, Decision 6.
+- **Signed answers (#696):** decided by Robert Capps on 2026-11-21 (PDR 011, Decision 7). An
+  envelope of version `koinon-maintainer-2` gets answers signed with the link key of the
+  computer that ran it (`koinon-answer-2`, over the envelope's digest, the signer's pin and the
+  whole answer), and a client checks them against the pins that it enrolled; the node signs
+  only its own claims, such as `computer_offline`, with its own link key. A node can no longer
+  change a target's answer without breaking its signature; it can still hold one back or claim
+  that a computer is off. Version 1 keeps its unsigned answers. Shipped in
+  `internal/signed/answer.go`, `signedReply` in `internal/core/signed_actions.go` and
+  `validReply` in `internal/core/signed_forward.go`.
+- **Review when:** as PDR 011, Decisions 6 and 7.
 
 ### Alternatives Considered
 
@@ -490,5 +499,6 @@ Serve mapping and records recoverable lifecycle transitions.
 | 2026-11-13 | Decision 4: the link carries agent direct messages, queued at the sender (#670 chunk 03). |
 | 2026-11-14 | Decision 4, amendment LINK-GROUP-JOIN (Robert Capps, #683): the inviting computer introduces a new computer to its other paired computers. |
 | 2026-11-15 | Decision 4, amendment LINK-693-SIGNED (Robert Capps, #693): signed maintainer actions; chunk 1 ships keys, checks, receipts and the signed session on a node's own pin. |
+| 2026-11-22 | Decision 4, amendment LINK-693-SIGNED: signed answers for envelope version 2 (Robert Capps, PDR 011 Decision 7, #696). |
 | 2026-11-12 | Record Andrew's v2 implementation authorization, fixed 48-hour policy, durable sessions and explicit recovery scope. |
 | 2026-11-13 | Decision 5: Robert Capps takes the v2 policy choices as his and puts v2 in v0.11.0 (REL-SCOPE-673). |

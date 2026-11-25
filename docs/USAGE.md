@@ -39,7 +39,7 @@ decisions; MCP still registers and renews its calling session as usual. Adopt an
 
 `koinon install`, and the daemon at each start, write a skill entry for each catalog skill for
 you, next to the managed cycle's `koinon-pickup`: `koinon-spin-up`, `koinon-spin-down`,
-`koinon-recover-team`, `koinon-peer-tmux`, `koinon-handoff`, `koinon-check`, `koinon-ship`,
+`koinon-recover-team`, `koinon-coordinate`, `koinon-peer-tmux`, `koinon-handoff`, `koinon-check`, `koinon-ship`,
 `koinon-release`, `koinon-pair`, `koinon-peer-review`, `koinon-refusal-review`, `koinon-sprint`,
 `koinon-preflight`, `koinon-provenance`, `koinon-record`, `koinon-refusal-audit`,
 `koinon-sprint-closeout`, `koinon-standards-audit`, `koinon-standards-review` and
@@ -128,6 +128,29 @@ receipts, not unrelated memory/work expiry. Recommendations cover only verified
 missing/outdated skills required by currently available features; other skills are optional.
 Declined and edited items remain visible. Read-only state changes no memory cursor or decision.
 
+### Preflight runner and standard lenses
+
+The catalog's setup item `setup.preflight-runner` is Koinon's preflight runner. An adopting project
+writes it to `scripts/koinon-preflight-run.sh`, records the adoption as a project receipt (above),
+and runs it with `sh scripts/koinon-preflight-run.sh --base BRANCH`, the pull request's base
+branch, as the `preflight` skill's Review run command; the base defaults to `origin/develop`. It
+reads the lens policy `.koinon/preflight/lenses.md` at the merge base, needs `git`, `jq` and the
+`claude` CLI, and writes local reports only, to `_preflight/HEAD/RUN/` in the main checkout; a
+`.gitignore` of `*` in each new RUN folder keeps that run's reports out of Git and hides nothing
+else. A lens worker can see the account's email address, so the author reads each report and
+removes an email address, a private path or a secret before the publish step posts it. A `## NAME`
+section with no text turns on the standard lens NAME of the `preflight` skill. The runner takes its
+brief from `agents/skills/preflight/SKILL.md` at the same commit when the repository's copy has
+that lens, and otherwise from the installed release:
+
+```sh
+koinon preflight brief wording
+```
+
+The command prints the brief from the skill in the installed binary, needs no daemon and no
+session, and answers `not_found` for an unknown lens. After an upgrade, `library_state` shows
+a recorded, unedited runner copy as outdated when the release changed it.
+
 ## Messages and participants
 
 Add the [recommended native permissions](PERMISSIONS.md) for each family. The file gives
@@ -210,9 +233,14 @@ belong to.
 
 Open a room on the Rooms page to post as maintainer and to read its posts. Each post lists
 its recipients: delivered copies with their delivery state and whether the recipient
-acknowledged them, skipped inactive members, and copies that retention has deleted, shown as
-not retained. Viewing the room acknowledges nothing. A maintainer post
-reaches every active member. Members post with `room_post` (`koinon room post ROOM_ID
+acknowledged them, skipped members with the reason in words (session ended, registration
+lapsed, no liveness evidence, address not held, holder in conflict; `retired` and the earlier
+`inactive` show as stored), and copies that retention has deleted,
+shown as not retained. Viewing the room acknowledges nothing. A maintainer post
+reaches every active member. Rooms are real time: a member that is not active when the post
+is made never gets it later and is not woken for it (#695). The maintainer's post answer,
+also through `koinon mcp --maintainer` and signed actions, lists each member as `sent` or
+`not_sent` with the reason. Members post with `room_post` (`koinon room post ROOM_ID
 'message' --key KEY --deadline UNIX_SECONDS --as FAMILY:ID`) without an allowance and without
 a maintainer post between rounds (#493); the post reaches the other active members. `room_read` (`koinon
 room read ROOM_ID --as FAMILY:ID`) pages the posts since you joined, also the ones you missed
@@ -590,7 +618,8 @@ procedure, so a project's own `pickup` skill neither blocks the cycle nor is cha
 ([INSTALL.md](INSTALL.md#install), step 7). For Codex, agy and OpenCode, the new thread, conversation or session after the
 reset takes the address and reports the pickup. An enabled session
 whose context reaches its threshold gets a request from `overwatch`, Koinon's reserved system
-requester, in its inbox. The request asks the session to pause at a safe stopping point, start no new work for this
+requester, in its inbox; `context_cycle_status` (DeepSeek: `koinon cycle-status`) reads the
+session's own cycle: its ID, revision, stage, deadlines and history. The request asks the session to pause at a safe stopping point, start no new work for this
 cycle (the handoff does not record the pause as a rule), write its handoff and report it with `context_cycle_ready`, then end its turn and stay idle. The
 daemon clears the session's context in its tmux pane only at its idle prompt, enters its
 pickup, and the new context reports with `context_cycle_pickup`. When the session does not
@@ -704,6 +733,39 @@ peer and releases any former participant address. Its own inbox, acknowledgement
 cursor and work claims remain retained. A retained native claim still needs the usual release
 or lease expiry before another session can acquire it. Use the launcher for participant
 features in a new session.
+
+### Run Koinon members from Orca
+
+Orca can start each member of a pair through the Koinon launcher, as the command of an Orca
+terminal. Orca selects the pair's worktree with its selector `path:ABSOLUTE_PATH` (see the
+[Orca CLI reference](https://orca.dev/docs/cli/reference)); Koinon takes the same path with
+`--directory`, quoted in the command for a path with spaces. Give each member `--role` with
+the pair and the member's part:
+
+```sh
+PAIR=/absolute/path/to/pair-1-worktree
+orca terminal create --worktree "path:$PAIR" --title p1-driver \
+  --command "koinon claude --directory '$PAIR' --role p1-driver"
+orca terminal create --worktree "path:$PAIR" --title p1-observer \
+  --command "koinon codex --directory '$PAIR' --role p1-observer"
+```
+
+- Always give `--role`. Linked worktrees of one repository share their label, from the Git
+  common directory, so the role keeps two pairs apart: `claude-LABEL-p1-driver` and
+  `claude-LABEL-p2-driver`. Without a role, a second member of one family takes a numbered
+  tmux name in launch order and holds no address of its own.
+- The default tmux session name is the address with the role, as above.
+- When Orca's terminal is not a tmux pane (`TMUX` unset), the launcher starts the tmux session
+  and attaches it in that terminal. When `TMUX` is set, the member runs in the current pane.
+  Orca's other terminal variables change neither the address nor the session name nor the
+  registration.
+- Orca's idle detection and terminal titles can see the launcher and tmux, not the agent.
+- The observer reproduces findings in its own scratch copy: a detached worktree of the frozen
+  checkpoint outside the pair's worktree, for example
+  `git worktree add --detach "$TMPDIR/review-HASH" HASH`, removed with `git worktree remove`
+  after the review.
+- Pane access does not cross linked computers: each computer runs its own coordinator, which
+  reports through Koinon.
 
 The dashboard link is single-use and expires; keep it out of logs, Git and messages.
 To reach another computer's dashboard, forward a local port to its daemon, for example
@@ -948,8 +1010,23 @@ sent, it is `outcome_unknown`: ask `outcome` of that computer, or send the same 
 A client with no Koinon on its computer reaches a computer at its Remote address
 (`koinon remote enable`, on the maintainer's tailnet) on the same two signed routes, with the
 session's token as `Authorization: Bearer TOKEN`; that address serves no other API, and the
-key must be added on each computer that runs the actions. PROTOCOL.md has the envelope and the
-operations.
+key must be added on each computer that runs the actions.
+
+An envelope of version `koinon-maintainer-2` gets its answer signed (#696): the computer that
+ran the action signs its answer with its link key, as one `koinon-answer-2` object, on the
+loopback action route, the Remote routes, the `signed` tool and the link; the local session
+route answers unsigned. An enrollment statement stays version `koinon-maintainer-1`. A computer
+that passes an action on signs only its own claims, such as `computer_offline` or
+`outcome_unknown`, with its own key. The client checks each answer against the digest of the
+envelope that it sent, the target computer's pin and the pin of the computer that it asked, so
+no computer can change another computer's answer unseen. Some answers stay unsigned: the local
+session route and the first line of `koinon mcp --maintainer --signed`,
+`maintainer_token_expired`, `too_many_calls`, a body that does not parse as a version 2
+envelope, and the `signature_refused` with reason `version` of a computer of an earlier release.
+An answer that does not pass the check is "answer not verified": for a write, the outcome stays
+unknown until a verified signed `outcome`, and an unsigned answer never confirms that a write
+did not run. A version 1 envelope works as before, with an unsigned answer. PROTOCOL.md has the
+envelopes, the answer and the operations.
 
 Administrative actions require CSRF protection and are
 audited. Health reports unknown observations explicitly.

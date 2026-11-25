@@ -1,0 +1,48 @@
+target_pin: c4b2956e00f048ac8ac94746e6699cebebfdf682181a0011c8e3feea5ab7c091
+target_spki_b64: MCowBQYDK2VwAyEA5/FioQvsVZr+oZXk3OhLaVaNXSywlj60RsBoXisX8vA=
+node_pin: 60ed0b151e1f088d443a953a5ccaebe7377b0df8b5ccd2228f0d49eb08ae9bc5
+node_spki_b64: MCowBQYDK2VwAyEArcFAEfgtHFbZVqpPnXPYhYNhpgYEhSXg0Ixjjcdd2Mc=
+
+envelope room_post
+canonical: {"args":{"body":"a synthetic post","room":"0123456789abcdef0123456789abcdef"},"auth":"60f6757e18de87bfa4918aa9b764b50b36cbddf982d9e4bebe226ffc51836f6e","created":1794699000,"key":"SHA256:ZbYGc9btiEvwHCwiLYKtoHQPKawzVdapJcgfF/R6J7g","op":"room_post","request":"vec-request-000002","target":"c4b2956e00f048ac8ac94746e6699cebebfdf682181a0011c8e3feea5ab7c091","v":"koinon-maintainer-2"}
+sig_b64: krYr9KjRLjQ6wZCMOlHtmAbYVjuY7RhInbEcnbZLShAKZAPEpnv//XL24RXaOCKUIQUr/+X1seuH6R/f1v0IBw==
+request_digest: 100511c6f18a67f5894a17816913ad4120d4d49919a2f1589381df8a9803430e
+
+answer room_post (target)
+canonical: {"answer":"{\"ok\":true,\"result\":{\"room_id\":\"0123456789abcdef0123456789abcdef\",\"seq\":12,\"queued\":1,\"skipped\":2,\"recipients\":[{\"name\":\"agent-a\",\"state\":\"sent\"},{\"name\":\"agent-b\",\"state\":\"not_sent\",\"reason\":\"ended\"},{\"name\":\"review-lead\",\"state\":\"not_sent\",\"reason\":\"unheld\"}]}}","pin":"c4b2956e00f048ac8ac94746e6699cebebfdf682181a0011c8e3feea5ab7c091","public_key":"MCowBQYDK2VwAyEA5/FioQvsVZr+oZXk3OhLaVaNXSywlj60RsBoXisX8vA=","request":"100511c6f18a67f5894a17816913ad4120d4d49919a2f1589381df8a9803430e","signer":"target","status":200,"v":"koinon-answer-2"}
+sig_b64: M8eld1dxIE5M2mswvlQjd6vndkOsVERT5NlOxrEidfEGnQ2rfrt/cZOhXyHI1e93lwXh5M6WmnpTi1f1oHFaCA==
+
+envelope outcome
+canonical: {"args":{"created":1794699000,"request":"vec-request-000002"},"auth":"60f6757e18de87bfa4918aa9b764b50b36cbddf982d9e4bebe226ffc51836f6e","created":1794699060,"key":"SHA256:ZbYGc9btiEvwHCwiLYKtoHQPKawzVdapJcgfF/R6J7g","op":"outcome","request":"vec-request-000003","target":"c4b2956e00f048ac8ac94746e6699cebebfdf682181a0011c8e3feea5ab7c091","v":"koinon-maintainer-2"}
+sig_b64: m9a7mhmyGMsXoGRVtON9GqV1eWNWSw5/Do4IODF4tt0M1WFz/B6FFn2MojvncJ1WPkRN4EO+/iBNA6/i6GrtDQ==
+request_digest: eb1ceeb983d60e1da20e177429942a380dfb11c01d92b8181b55c1702b7f013a
+
+answer outcome (target)
+canonical: {"answer":"{\"ok\":true,\"result\":{\"state\":\"recorded\",\"result\":{\"room_id\":\"0123456789abcdef0123456789abcdef\",\"seq\":12,\"queued\":1,\"skipped\":2,\"recipients\":[{\"name\":\"agent-a\",\"state\":\"sent\"},{\"name\":\"agent-b\",\"state\":\"not_sent\",\"reason\":\"ended\"},{\"name\":\"review-lead\",\"state\":\"not_sent\",\"reason\":\"unheld\"}]}}}","pin":"c4b2956e00f048ac8ac94746e6699cebebfdf682181a0011c8e3feea5ab7c091","public_key":"MCowBQYDK2VwAyEA5/FioQvsVZr+oZXk3OhLaVaNXSywlj60RsBoXisX8vA=","request":"eb1ceeb983d60e1da20e177429942a380dfb11c01d92b8181b55c1702b7f013a","signer":"target","status":200,"v":"koinon-answer-2"}
+sig_b64: IzUnPbO2NR83W4syipbGSwcQQuUro8tEkBjgzNBoIEkbxlOdadHifWYWnJSuXbFQEh+H8uKGVJZxFuC8rhQaDA==
+
+envelope send
+canonical: {"args":{"body":"a synthetic message","to":"agent-b"},"auth":"60f6757e18de87bfa4918aa9b764b50b36cbddf982d9e4bebe226ffc51836f6e","created":1794699000,"key":"SHA256:ZbYGc9btiEvwHCwiLYKtoHQPKawzVdapJcgfF/R6J7g","op":"send","request":"vec-request-000004","target":"c4b2956e00f048ac8ac94746e6699cebebfdf682181a0011c8e3feea5ab7c091","v":"koinon-maintainer-2"}
+sig_b64: dZEDmZRTg2oyrmd7YR+9LmC3L1I4Qy5FA9uY/9Ifam/cCvwrGkSsD0FFJmUgPFFKXlHzVudk5PEm69R23QNaAw==
+request_digest: 4248c56e90d38545c8c2a11aa7ddf3130cf55f28496d36ef0a73743553133e9b
+
+answer send refused (target)
+canonical: {"answer":"{\"ok\":false,\"code\":\"recipient_inactive\",\"error\":\"the recipient session is expired or retired\",\"details\":{\"reason\":\"ended\"}}","pin":"c4b2956e00f048ac8ac94746e6699cebebfdf682181a0011c8e3feea5ab7c091","public_key":"MCowBQYDK2VwAyEA5/FioQvsVZr+oZXk3OhLaVaNXSywlj60RsBoXisX8vA=","request":"4248c56e90d38545c8c2a11aa7ddf3130cf55f28496d36ef0a73743553133e9b","signer":"target","status":409,"v":"koinon-answer-2"}
+sig_b64: nOt9jwyTdnk7Bb7a3u/sfBTk7lm9SA4A5NX5x+Ayo+bKVULuZlTyJzSqC9w6WLGsIdNDzSDTSuMztCrp9tqZBA==
+
+envelope session
+canonical: {"args":{"client":"koinon-voice"},"auth":"60f6757e18de87bfa4918aa9b764b50b36cbddf982d9e4bebe226ffc51836f6e","created":1794699000,"key":"SHA256:ZbYGc9btiEvwHCwiLYKtoHQPKawzVdapJcgfF/R6J7g","op":"session","request":"vec-request-000005","target":"60ed0b151e1f088d443a953a5ccaebe7377b0df8b5ccd2228f0d49eb08ae9bc5","v":"koinon-maintainer-2"}
+sig_b64: WQpbwJF1SS/qaxFOdO7/0CuKrboqtEmn1p58eg0AX+nOxXZu8JS1/wmC7BsO06nOB3bjitp9Cu043N1e42SaCw==
+request_digest: 984f20d526d25165e10330fc689df72f9fe48b101447290fb82b3fd0c16ea728
+
+answer session (node as target)
+canonical: {"answer":"{\"ok\":true,\"token\":\"synthetic-token-000001\",\"client\":\"key:koinon-voice\",\"idle_seconds\":86400,\"absolute_seconds\":604800}","pin":"60ed0b151e1f088d443a953a5ccaebe7377b0df8b5ccd2228f0d49eb08ae9bc5","public_key":"MCowBQYDK2VwAyEArcFAEfgtHFbZVqpPnXPYhYNhpgYEhSXg0Ixjjcdd2Mc=","request":"984f20d526d25165e10330fc689df72f9fe48b101447290fb82b3fd0c16ea728","signer":"target","status":200,"v":"koinon-answer-2"}
+sig_b64: 57WB+2tEcv/rl0OXO0tIdknrNJLoSf8Q3xZWwej86vxu1NU7kLIJKsawhmQAqva2rX3uribpRZylrR5H5cu1BQ==
+
+answer computer_offline (node claim, for room_post)
+canonical: {"answer":"{\"ok\":false,\"code\":\"computer_offline\",\"error\":\"the node could not reach that computer and sent nothing; the action did not run\",\"details\":{\"target\":\"c4b2956e00f048ac8ac94746e6699cebebfdf682181a0011c8e3feea5ab7c091\",\"last_seen\":1794696623}}","pin":"60ed0b151e1f088d443a953a5ccaebe7377b0df8b5ccd2228f0d49eb08ae9bc5","public_key":"MCowBQYDK2VwAyEArcFAEfgtHFbZVqpPnXPYhYNhpgYEhSXg0Ixjjcdd2Mc=","request":"100511c6f18a67f5894a17816913ad4120d4d49919a2f1589381df8a9803430e","signer":"node","status":409,"v":"koinon-answer-2"}
+sig_b64: D+V3ABvL/jVVcABJ3hstFcag6JtCt5CLsau85f6hQzXRacQbbKh5YkV444RoyBc1+UFAx3wTQ9gK4QtOC03GAA==
+
+answer outcome_unknown (node claim, for room_post)
+canonical: {"answer":"{\"ok\":false,\"code\":\"outcome_unknown\",\"error\":\"the node sent the action and its answer did not come back; read its outcome\",\"details\":{\"target\":\"c4b2956e00f048ac8ac94746e6699cebebfdf682181a0011c8e3feea5ab7c091\",\"request\":\"vec-request-000002\"}}","pin":"60ed0b151e1f088d443a953a5ccaebe7377b0df8b5ccd2228f0d49eb08ae9bc5","public_key":"MCowBQYDK2VwAyEArcFAEfgtHFbZVqpPnXPYhYNhpgYEhSXg0Ixjjcdd2Mc=","request":"100511c6f18a67f5894a17816913ad4120d4d49919a2f1589381df8a9803430e","signer":"node","status":409,"v":"koinon-answer-2"}
+sig_b64: 6TnLjMFTP115nmcKckpLOiP2uYxqYYmiXJtDRH7FyHBFiW5QX3DmlI1jqTmrxk7LYkAs+1xlRAef7oVl1Bq7Dw==

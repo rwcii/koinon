@@ -30,13 +30,23 @@ In short:
   conversations and `success` commit statuses named `peer-review` and `refusal-review` on the
   head commit, which the reviewer records with each sign-off (WDR 004, Decision 3; WDR 003,
   Decision 3; WDR 001, Decision 6).
-- Pull requests into `develop` set squash auto-merge (WDR 004, Decision 4).
+- Before a pull request into `develop` opens, its author runs the `preflight` skill: five lenses
+  (security, code, standards, refusal, wording), each in a fresh worker that writes nothing, with
+  `scripts/preflight-run.sh`; after it opens, `scripts/preflight-publish.sh PR` posts the result
+  and the `preflight` status on the head. After the reviews pass, the author puts a card on the
+  decision board whose Where field is exactly `OWNER/REPO#PR@HEAD`; after the maintainer
+  approves it, `scripts/board-verdict.sh --as FAMILY:ID PR HEAD REFERENCE` posts the
+  `board-verdict` status (WDR 004, Decision 8). `scripts/setup-repo.sh` makes `preflight` and
+  `board-verdict` required on `develop`: a pull request needs a passing preflight.
+- Pull requests into `develop` set squash auto-merge (WDR 004, Decision 4); the required
+  `preflight` and `board-verdict` statuses hold the merge until both pass.
 - Merged working branches are deleted automatically; long-lived branches are protected.
 - Your clone prunes on fetch, so `git branch -r` reports the branches the remote still holds.
 
-Run `scripts/setup-repo.sh` to apply the local guards and GitHub settings. The `commit-msg`
-hook refuses a commit message that cites a decision board verdict by its ID; name the card
-reference instead (WDR 001, Decision 7). Server-side
+Run `scripts/setup-repo.sh` to apply the local guards and GitHub settings. The `pre-commit`
+hook refuses a commit on `main` or `develop`. The `commit-msg` hook refuses a commit message
+that cites a decision board verdict by its ID; cite the repository record that holds the
+decision instead (WDR 001, Decision 7). Server-side
 rulesets depend on the account's support for private-repository protection; the script
 reports any unavailable enforcement explicitly. This follows the branch policy in
 [rwcii/engineering-standards](https://github.com/rwcii/engineering-standards) and the
@@ -56,12 +66,20 @@ git commit -S -s -m "Add a concise description"
 gh pr list --base develop --state open   # one open pull request at a time
 git fetch origin && git merge --no-edit origin/develop
 go test -race -timeout 30m ./...
+scripts/preflight-run.sh                   # the preflight lenses
 git push -u origin feature/my-change
 gh pr create --base develop
+scripts/preflight-publish.sh PR            # the result and the preflight status
+# After peer-review and refusal-review pass: a board card that names PR and its full head.
+scripts/board-verdict.sh --as FAMILY:ID PR HEAD REFERENCE   # after the maintainer's approval
 gh pr merge --auto --squash
 ```
 
-The `release` skill promotes `develop` to `main` (WDR 002, Decision 6).
+The `release` skill prepares the promotion of `develop` to `main` with the account of failed CI
+runs (WDR 004, Decision 6); the maintainer merges it, and the agent then pushes the tag and
+checks the publish steps (WDR 004, Decision 8). The `ship` and `release` skills run a docs
+gate: the docs and agent files in `.koinon/skills/ship.md` agree with the code at the head
+(WDR 004, Decision 7).
 
 ## Commit conventions
 
@@ -77,13 +95,16 @@ is preserved; signed-off contributions are required from adoption of this policy
 ## Local checks and scope
 
 Run `go vet ./...`, `gofmt -l .` (it must print nothing), `go test -race -timeout 30m ./...`
-and `git diff --check`. Runtime and
+and `git diff --check origin/develop...HEAD`. Runtime and
 installation changes also need the four `CGO_ENABLED=0` builds for linux/amd64, linux/arm64, darwin/amd64
-and darwin/arm64. Go tests live beside packages; operating-system differences belong in
+and darwin/arm64, and a local compile and vet of the native-tagged tests
+(`go vet -tags native ./internal/nativetest/`). Go tests live beside packages; operating-system differences belong in
 `internal/platform`. For changed shell tooling, run `bash -n scripts/setup-repo.sh`,
 `sh -n .githooks/pre-commit`, `sh -n .githooks/commit-msg`, `sh -n scripts/decision-citations.sh`,
 `sh -n scripts/rerun-unacquired.sh`, `sh -n scripts/install-skills.sh`,
-`bash -n scripts/homebrew-bottles.sh` and `bash -n scripts/homebrew-formula.sh`.
+`sh -n scripts/preflight-run.sh`, `sh -n scripts/preflight-publish.sh`,
+`sh -n scripts/board-verdict.sh`, `bash -n scripts/homebrew-bottles.sh` and
+`bash -n scripts/homebrew-formula.sh`.
 
 Tests use synthetic peers and temporary state/configuration, ephemeral loopback ports and
 private tmux servers, so they do not reach the person's services, terminals or agent
@@ -121,7 +142,9 @@ Each agent writes its session handoffs to the Git-ignored `_handoff/<agent>/` of
 checkout with the [handoff](agents/skills/handoff/SKILL.md) skill; Git ignores them
 ([WDR 005](docs/engineering/wdr/005-private-handoffs-and-continuity.md)).
 Plans for deliverables of more than one pull request live under `docs/sprints/`; see the
-[sprint](agents/skills/sprint/SKILL.md) skill.
+[sprint](agents/skills/sprint/SKILL.md) skill. A plan with a parallel view gives each chunk its
+dependencies and owned items, and `internal/contributor/sprint_plan_test.go` checks the groups
+(WDR 002, Decision 7).
 
 Installation ships one binary with the canonical skills embedded as catalog data. It writes
 Koinon's `koinon-` skill entries, `koinon-pickup` for the managed context cycle among them, in
@@ -133,7 +156,8 @@ agent-process prefixes other than the embedded `agents/skills/` source. `interna
 cases, and verifies those paths stay outside installation. All runtime and ordinary documentation changes run native CI.
 
 `scripts/setup-repo.sh` configures PR merge policy and required Go/native lifecycle checks
-through `gh`, and on `develop` the `decision-citations` check of the pull request's title, body
+through `gh`, and on `develop` the `peer-review`, `refusal-review`, `preflight` and
+`board-verdict` statuses and the `decision-citations` check of the pull request's title, body
 and commit messages. A pull request to `main` gets the check on its title and body only: its
 commits come from `develop`. It has no Python dependency. Changing the script does not update remote
 rulesets; they change only when the script runs with the repository's admin rights. Existing

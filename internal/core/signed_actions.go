@@ -10,6 +10,7 @@ package core
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -90,6 +91,71 @@ func answerBytes(result any) int {
 		return maxSignedAnswer + 1
 	}
 	return b.Len()
+}
+
+// signedAnswerSize is the size of a read's answer as a route writes it; for a version 2
+// envelope, the size of the signed object that carries it, with the escapes of its answer text
+// and of the link frame (docs/sprints/2026-11-22-signed-answers/contract.md, section 3.7).
+func signedAnswerSize(version string, result any) int {
+	if version != signed.Version2 {
+		return answerBytes(result)
+	}
+	var b bytes.Buffer
+	if err := json.NewEncoder(&b).Encode(map[string]any{"ok": true, "result": result}); err != nil {
+		return maxSignedAnswer + 1
+	}
+	// The other fields at their longest; json.Marshal escapes as the link frame does.
+	wrapped, err := json.Marshal(signed.Answer{V: signed.AnswerVersion, Signer: signed.SignerTarget, Pin: strings.Repeat("0", 64),
+		PublicKey: strings.Repeat("A", 64), Request: strings.Repeat("0", 64), Status: 599, Answer: strings.TrimSuffix(b.String(), "\n"),
+		Sig: strings.Repeat("A", 88)})
+	if err != nil {
+		return maxSignedAnswer + 1
+	}
+	return len(wrapped) + 1
+}
+
+// signedReply gives the status and body of one envelope's answer as the routes and the link
+// carry it: a paired computer's answer unchanged, else this computer's answer, which for a
+// version 2 envelope it signs (signReply).
+func (d *Daemon) signedReply(data []byte, result any, err error) (int, []byte) {
+	if answer, ok := result.(forwardedAnswer); ok && err == nil {
+		return answer.status, answer.body
+	}
+	w := &answerWriter{header: http.Header{}}
+	maintainerRead(w, result, err)
+	return d.signReply(data, w.status, trimNewline(w.body))
+}
+
+// signReply signs the answer to a version 2 envelope with this computer's link key (#696): as
+// the target when the envelope names this computer, else as the node, for the node's own
+// claims (contract.md, sections 3 and 4). An envelope that does not parse as version 2 binds
+// no request, and its answer stays unsigned.
+func (d *Daemon) signReply(data []byte, status int, body []byte) (int, []byte) {
+	e, err := signed.Parse(data)
+	if err != nil || e.V != signed.Version2 {
+		return status, body
+	}
+	id, err := d.linkIdentity()
+	if err != nil {
+		return status, body
+	}
+	key, ok := id.Certificate.PrivateKey.(ed25519.PrivateKey)
+	if !ok {
+		return status, body
+	}
+	signer := signed.SignerTarget
+	if e.Target != id.Pin {
+		signer = signed.SignerNode
+	}
+	answer, err := signed.SignAnswer(signer, key, e.Digest(), status, body)
+	if err != nil {
+		return status, body
+	}
+	out, err := json.Marshal(answer)
+	if err != nil {
+		return status, body
+	}
+	return status, out
 }
 
 // pageItems counts the items of a paged read's answer; 0 for an answer that does not page.
@@ -266,7 +332,7 @@ func (d *Daemon) signedAction(ctx context.Context, data []byte) (any, error) {
 		result, err := d.signedRead(ctx, e, key, &args)
 		// An answer is at most 1 MiB as the route writes it (Answer shapes, item 3): a paged read
 		// that does not fit reads again with half its items, and keeps its continuation.
-		for err == nil && answerBytes(result) > signedAnswerLimit(ctx) {
+		for err == nil && signedAnswerSize(e.V, result) > signedAnswerLimit(ctx) {
 			n := pageItems(result)
 			if n <= 1 {
 				return nil, ErrSignedTooLarge
@@ -562,7 +628,7 @@ func (d *Daemon) signedWrite(ctx context.Context, e signed.Envelope, a *signedAc
 		deadline := float64(a.created + signedWindow)
 		a.shape = func(r any) any {
 			if p, ok := r.(RoomPostResult); ok {
-				return maintainerPost{p.RoomID, p.Seq, p.Queued, p.Skipped, p.Duplicate}
+				return maintainerPostOf(p)
 			}
 			return r
 		}
@@ -690,6 +756,16 @@ type refusedResult struct {
 func (r storedReceipt) refusal() error {
 	var refused refusedResult
 	json.Unmarshal(r.result, &refused)
+	// A send's recipient refusals answer again with their own status and form (#695).
+	switch r.code {
+	case "peer_not_found":
+		return ErrPeerNotFound
+	case "alias_unheld":
+		return ErrAliasUnheld
+	case "recipient_inactive":
+		reason, _ := refused.Details["reason"].(string)
+		return InactiveRecipient{reason}
+	}
 	return WorkRefusal{Code: r.code, Message: refused.Error, Details: refused.Details}
 }
 
@@ -731,8 +807,13 @@ func (t *writeTx) writeSignedReceipt(a *signedAction, state, code string, result
 func (t *writeTx) signedRefused(a *signedAction, err error) error {
 	refused := refusedResult{Error: err.Error()}
 	var work WorkRefusal
+	var inactive InactiveRecipient
 	if errors.As(err, &work) {
 		refused = refusedResult{Error: work.Message, Details: work.Details}
+	} else if errors.As(err, &inactive) {
+		// The receipt keeps why the recipient was not sent the message (#695), as the
+		// route's answer gives it.
+		refused = refusedResult{Error: "the recipient session is expired or retired", Details: map[string]any{"reason": inactive.Reason}}
 	}
 	data, _ := json.Marshal(refused)
 	return t.writeSignedReceipt(a, "refused", errorCode(err), data)
@@ -796,6 +877,12 @@ func (d *Daemon) SignedSession(ctx context.Context, data []byte) (string, string
 func (d *Daemon) signedSession(ctx context.Context, data []byte) (string, string, error) {
 	e, key, err := d.checkEnvelope(ctx, data)
 	if err != nil {
+		// A session signed for a paired computer's pin is the node's own operation for another
+		// pin, as on the action route (signedForward); only an unknown pin is a target refusal.
+		var refusal WorkRefusal
+		if errors.As(err, &refusal) && refusal.Details["reason"] == "target" && d.pairedPin(e.Target) {
+			return "", "", Refusal{"invalid_request", "session is an operation of the node: sign it for the node's own pin"}
+		}
 		return "", "", err
 	}
 	if e.Op != "session" {
@@ -909,12 +996,29 @@ func (d *Daemon) signedSessionRoute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token, client, err := d.SignedSession(r.Context(), data)
+	answer := &answerWriter{header: http.Header{}}
 	if err != nil {
-		failure(w, err)
-		return
+		failure(answer, err)
+	} else {
+		respond(answer, 200, map[string]any{"ok": true, "token": token, "client": client,
+			"idle_seconds": int64(sessionIdle.Seconds()), "absolute_seconds": int64(sessionAbsolute.Seconds())})
 	}
-	respond(w, 200, map[string]any{"ok": true, "token": token, "client": client,
-		"idle_seconds": int64(sessionIdle.Seconds()), "absolute_seconds": int64(sessionAbsolute.Seconds())})
+	status, body := answer.status, []byte(trimNewline(answer.body))
+	// On Remote a version 2 session's answer is signed by this node as its target; the local
+	// form has no node between it and the client and answers as before (contract.md, 2.5).
+	if remote, _ := r.Context().Value(signedTransport{}).(bool); remote {
+		status, body = d.signReply(data, status, body)
+	}
+	writeAnswer(w, status, body)
+}
+
+// writeAnswer writes one answer's status and JSON body.
+func writeAnswer(w http.ResponseWriter, status int, body []byte) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(status)
+	w.Write(append(body, '\n'))
 }
 
 // signedActionRoute runs the request's one envelope under the signed session of token.
@@ -956,16 +1060,8 @@ func (d *Daemon) signedActionRoute(w http.ResponseWriter, r *http.Request, token
 	// one, a changes wait on a paired computer, and more.
 	http.NewResponseController(w).SetWriteDeadline(time.Now().Add(signedRouteWrite))
 	result, err := d.SignedAction(r.Context(), data)
-	if answer, ok := result.(forwardedAnswer); ok && err == nil {
-		// The target's answer, unchanged.
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Cache-Control", "no-store")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.WriteHeader(answer.status)
-		w.Write(append(answer.body, '\n'))
-		return
-	}
-	maintainerRead(w, result, err)
+	status, body := d.signedReply(data, result, err)
+	writeAnswer(w, status, body)
 }
 
 // MaxSignedCalls bounds the actions in flight of one signed session: one changes wait for each

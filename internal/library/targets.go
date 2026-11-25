@@ -98,7 +98,7 @@ func (c Catalog) Targets(family, scope, id string) ([]Target, error) {
 		return result, nil
 	case "setup.guidance":
 		return []Target{{"fragment", destination.Path, "fragment", []byte(item.Content)}}, nil
-	case "setup.shared-instructions", "setup.permissions":
+	case "setup.shared-instructions", "setup.permissions", "setup.preflight-runner":
 		return []Target{{"file", destination.Path, "file", []byte(item.Content)}}, nil
 	}
 	return nil, ErrInvalidQuery
