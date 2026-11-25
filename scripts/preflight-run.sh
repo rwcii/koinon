@@ -13,7 +13,9 @@
 # read-only sandbox can read outside the worktree, so a codex worker is not used.
 #
 # The lens policy is .koinon/preflight/lenses.md at the merge base with REF: each "## NAME"
-# section is one enabled lens and its brief. The change that adopts the preflight brings the
+# section is one enabled lens and its brief; a section with no text takes the brief of the
+# standard lens of that name in agents/skills/preflight/SKILL.md at the same commit (Standard
+# lenses). The change that adopts the preflight brings the
 # first policy, so a base without one gives the head's. The base default is origin/develop. Each
 # worker runs in a detached worktree of the head, outside this checkout, with the change in
 # .preflight/change.diff. The reports go to _preflight/HEAD/RUN/ in the main checkout, which Git
@@ -50,15 +52,36 @@ merge_base=$(git merge-base "$base_sha" "$head") || die "the head has no merge b
 policy_path=.koinon/preflight/lenses.md
 if git cat-file -e "$merge_base:$policy_path" 2>/dev/null; then
 	policy_source="the base ($merge_base)"
-	policy=$(git show "$merge_base:$policy_path")
+	policy_commit=$merge_base
 elif git cat-file -e "$head:$policy_path" 2>/dev/null; then
 	policy_source="the head; the base has no lens policy (first adoption)"
-	policy=$(git show "$head:$policy_path")
+	policy_commit=$head
 else
 	die "no lens policy at $policy_path"
 fi
+policy=$(git show "$policy_commit:$policy_path")
 lenses=$(printf '%s\n' "$policy" | sed -n 's/^## \([a-z][a-z0-9-]*\)[[:space:]]*$/\1/p')
 [ -n "$lenses" ] || die "the lens policy has no '## NAME' section"
+skill_path=agents/skills/preflight/SKILL.md
+# brief_of LENS prints the lens's brief: its section's text, or, when the section has no text,
+# the standard lens of that name in the preflight skill at the policy's commit (WDR 004,
+# Decision 8, the wording lens, the agents' design). A lens with neither stops the run.
+brief_of() {
+	text=$(printf '%s\n' "$policy" | awk -v lens="$1" '
+		/^## / { on = ($2 == lens); next }
+		on { print }')
+	if [ -z "$(printf '%s' "$text" | tr -d '[:space:]')" ]; then
+		text=$(git show "$policy_commit:$skill_path" 2>/dev/null | awk -v lens="$1" '
+			/^## / { std = ($0 ~ /^## Standard lenses[[:space:]]*$/); on = 0; next }
+			std && /^### / { on = ($2 == lens); next }
+			on { print }')
+	fi
+	printf '%s\n' "$text"
+}
+for lens in $lenses; do
+	[ -n "$(brief_of "$lens" | tr -d '[:space:]')" ] ||
+		die "the lens $lens has no text in $policy_path and $skill_path has no standard lens $lens"
+done
 
 reports=${PREFLIGHT_REPORTS:-}
 if [ -z "$reports" ]; then
@@ -87,9 +110,7 @@ echo "preflight-run: reports in $out"
 status=0
 results=
 for lens in $lenses; do
-	brief=$(printf '%s\n' "$policy" | awk -v lens="$lens" '
-		/^## / { on = ($2 == lens); next }
-		on { print }')
+	brief=$(brief_of "$lens")
 	prompt=$out/$lens.prompt.md
 	cat >"$prompt" <<EOF
 You are the $lens lens of a preflight review. This is an author check before a pull request.

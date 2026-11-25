@@ -11,11 +11,11 @@ This release adds merge gates for Koinon's own pull requests (`preflight` and `b
 on `develop`, and a `release` that stops before the merge into `main`), sprint plans whose
 chunks two or more pairs can build at the same time, Koinon members started from Orca, a
 docs gate, the `coordinate` skill, room post answers that list each member, and answers that
-a maintainer client can check came from the computer that it asked (#795, #792, #784, #695,
-#696). The store stays at schema 40.
+a maintainer client can check came from the computer that it asked, and a preflight lens for
+alarming wording (#795, #792, #784, #695, #696, #812). The store stays at schema 40.
 
 - Merge gates for Koinon's own pull requests (#795, WDR 004, Decision 8). Koinon adopts the
-  `preflight` skill with four lenses, security, code, standards and refusal:
+  `preflight` skill with five lenses, security, code, standards, refusal and wording:
   `scripts/preflight-run.sh` runs each lens in a fresh `claude -p` worker with no forge
   credential, which reads only the change's worktree and writes nothing, and
   `scripts/preflight-publish.sh` posts one comment and the `preflight` status on the pull
@@ -29,6 +29,15 @@ a maintainer client can check came from the computer that it asked (#795, #792, 
   `preflight` and `board-verdict` on `develop`. Both scripts read the posted status back up to
   5 times, 2 seconds apart, until the newest status of its context has the posted status ID,
   because GitHub can show a new status a few seconds late (#801).
+
+- The `preflight` skill has a Standard lenses section with the `wording` lens: it reports
+  words and names in content that users see or data that users can read (UI, command and
+  website text, cookie names, storage keys, event and property names, headers, exported
+  identifiers) that frame the work in alarming or pejorative terms when an accurate, neutral
+  term exists. A neutral word must not hide what the thing does. A `## NAME` section with no
+  text in a project's lens policy turns on the standard lens of that name, and
+  `scripts/preflight-run.sh` reads its brief from the skill at the policy's commit. Koinon
+  turns on `wording` (#812, WDR 004, Decision 8).
 
 - docs/USAGE.md has "Run Koinon members from Orca": the `orca terminal create` command form,
   `--role` with the pair for each member, the label of linked worktrees, the tmux session by

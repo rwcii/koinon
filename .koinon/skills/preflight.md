@@ -24,8 +24,10 @@ head. It refuses when there is no result for that head, when the result was run 
 another base than the pull request's, and when a report has a secret, a private path or an
 email address. Each report is posted as a fenced block.
 ## Lens policy
-.koinon/preflight/lenses.md at the base commit: security, code, standards and refusal. The
-change that adopts preflight runs with the head's policy, because its base has none.
+.koinon/preflight/lenses.md at the base commit: security, code, standards, refusal and
+wording. The wording section has no text, so the run takes the standard wording lens of
+agents/skills/preflight/SKILL.md at the same commit. The change that adopts preflight runs
+with the head's policy, because its base has none.
 ## Base ref
 origin/develop
 ## Route and image rules

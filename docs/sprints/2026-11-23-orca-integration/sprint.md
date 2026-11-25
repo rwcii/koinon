@@ -2,8 +2,8 @@
 
 Each chunk cites `decision.md` and `definition-of-done.md`, and merges complete through ship
 into develop. Claude drives, Codex observes. One open pull request at a time. Release split
-(`decision.md`, Release number): v0.13.4 holds chunks 01, 02 and 04; chunks 03, 05 and 06 go
-into the next release. Scope review in `review.md`.
+(`decision.md`, Release number): v0.13.4 holds chunks 01, 02 and 04, and the preflight wording
+lens (#812); chunks 03, 05 and 06 go into the next release. Scope review in `review.md`.
 
 | Chunk | Complete outcome | Definition of done | Depends on | Owns |
 | --- | --- | --- | --- | --- |

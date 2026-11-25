@@ -541,6 +541,56 @@ func gateRepository(t *testing.T, e gateEnv, policyAtBase bool) string {
 	return repo
 }
 
+// standardLensRepository makes a repository whose base policy turns on the wording lens with a
+// section that has no text, and whose base preflight skill holds that standard lens when
+// withSkill is true. Its head weakens the skill's brief, which the run must not use.
+func standardLensRepository(t *testing.T, withSkill bool) string {
+	t.Helper()
+	repo := filepath.Join(t.TempDir(), "repo")
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-c", "user.name=synthetic", "-c", "user.email=synthetic@example.invalid",
+			"-c", "commit.gpgsign=false", "-C", repo}, args...)...)
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	files := map[string]string{
+		"file":                        "base\n",
+		".koinon/preflight/lenses.md": "# Lenses\n\n## security\n\nCheck security.\n\n## wording\n",
+	}
+	if withSkill {
+		files["agents/skills/preflight/SKILL.md"] = "# Preflight\n\n## Standard lenses\n\nIntro.\n\n### other\n\nOther brief.\n\n" +
+			"### wording\n\nSynthetic standard wording brief.\n\n## Repository facts\n\nNot a brief.\n"
+	}
+	for name, body := range files {
+		path := filepath.Join(repo, name)
+		if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git("init", "-q", "-b", "main")
+	git("add", "-A")
+	git("commit", "-q", "-m", "base")
+	git("branch", "base")
+	head := map[string]string{"file": "head\n"}
+	if withSkill {
+		head["agents/skills/preflight/SKILL.md"] = "# Preflight\n\n## Standard lenses\n\n### wording\n\nHead brief.\n"
+	}
+	for name, body := range head {
+		if err := os.WriteFile(filepath.Join(repo, name), []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git("add", "-A")
+	git("commit", "-q", "-m", "head")
+	return repo
+}
+
 func readResult(t *testing.T, reports string) map[string]any {
 	t.Helper()
 	found, _ := filepath.Glob(filepath.Join(reports, "*", "*", "result.json"))
@@ -616,6 +666,40 @@ func TestPreflightRunScript(t *testing.T) {
 		result := readResult(t, reports)
 		if err != nil || !strings.Contains(result["policy"].(string), "first adoption") || !strings.Contains(e.read("workers"), "lens=standards") {
 			t.Fatalf("%v %s %v", err, out, result)
+		}
+	})
+	t.Run("a section with no text takes the standard lens", func(t *testing.T) {
+		e := newGateEnv(t)
+		repo := standardLensRepository(t, true)
+		reports := t.TempDir()
+		out, err := e.run(t, repo, "preflight-run.sh", []string{"PREFLIGHT_REPORTS=" + reports}, "--base", "base")
+		if err != nil || !strings.Contains(e.read("workers"), "lens=wording") {
+			t.Fatalf("%v %s", err, out)
+		}
+		prompts, _ := filepath.Glob(filepath.Join(reports, "*", "*", "wording.prompt.md"))
+		if len(prompts) != 1 {
+			t.Fatalf("prompts %v", prompts)
+		}
+		b, _ := os.ReadFile(prompts[0])
+		if prompt := string(b); !strings.Contains(prompt, "Synthetic standard wording brief.") || strings.Contains(prompt, "Head brief.") ||
+			strings.Contains(prompt, "Other brief.") || strings.Contains(prompt, "Not a brief.") {
+			t.Fatalf("wording prompt:\n%s", prompt)
+		}
+		security, _ := filepath.Glob(filepath.Join(reports, "*", "*", "security.prompt.md"))
+		if len(security) != 1 {
+			t.Fatalf("security prompts %v", security)
+		}
+		if b, _ := os.ReadFile(security[0]); !strings.Contains(string(b), "Check security.") || strings.Contains(string(b), "Synthetic standard") {
+			t.Fatalf("security prompt:\n%s", b)
+		}
+	})
+	t.Run("a section with no text and no standard lens", func(t *testing.T) {
+		e := newGateEnv(t)
+		repo := standardLensRepository(t, false)
+		out, err := e.run(t, repo, "preflight-run.sh", []string{"PREFLIGHT_REPORTS=" + t.TempDir()}, "--base", "base")
+		exit, _ := err.(*exec.ExitError)
+		if exit == nil || exit.ExitCode() != 2 || !strings.Contains(out, "the lens wording has no text") || e.read("workers") != "" {
+			t.Fatalf("%v %s", err, out)
 		}
 	})
 	t.Run("a base that holds the head", func(t *testing.T) {
