@@ -3262,10 +3262,12 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   `koinon-speak`, removing a sentence only at the utterance's end.
 - **Actions.** Each action is a `POST` under `/dashboard/actions/` with the request protection
   above, and answers `303` to the view it changed with a fixed `notice` code, so a reload never
-  repeats it. Forms are limited to 4 KiB; the send form takes up to 3 × 65,536 + 4,096 bytes of
-  URL-encoded input, and its decoded body must be 1–65,536 bytes of UTF-8. `bulk` takes up to
-  100 × 3 × 515 + 4,096 bytes, and `work-create`, `work-edit` and `work-finish` up to
-  3 × 3 × 8,192 + 4,096 bytes.
+  repeats it. Each action has a base limit of URL-encoded input: 4,096 bytes; for `send` and
+  the dashboard's `room-post` 3 × 65,536 + 4,096 bytes, with a decoded body of 1–65,536 bytes of
+  UTF-8; for `bulk` 100 × 3 × 515 + 4,096 bytes; and for `work-create`, `work-edit` and
+  `work-finish` 3 × 3 × 8,192 + 4,096 bytes. Each action form also carries its encoded `back`
+  field, so the reader takes up to `len("&back=")` + 3 × 13,824 = 41,478 bytes more than the
+  base limit.
   - `remote-enable`, `remote-disable` (no fields): the same lifecycle as `koinon remote`, then
     303 to the remote panel. The notice is `remote_enabled` or `remote_disabled`;
     `remote_secret_required` when no secret is set; `remote_setup_required` for another

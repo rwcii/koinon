@@ -213,8 +213,9 @@ names the running binary, or the formula's opt path for a Homebrew binary, and r
    it as yourself; it asks `sudo` for each privileged step.
 4. An installed binary that is not this one (in user mode with Homebrew, not the link to the opt
    path): `koinon install`, and nothing more.
-5. No user service manager, and no daemon of this version answers: `koinon install`, and
-   nothing more; without a manager nothing starts the daemon after a restart (#619).
+5. No macOS system daemon, no user service manager, and no daemon of this version answers:
+   `koinon install`, and nothing more; without a manager nothing starts the daemon after a
+   restart (#619).
 6. A `koinon-pickup` entry, a `koinon-NAME` skill entry or an OpenCode command file that is
    missing, or that an earlier Koinon wrote: `koinon install`, and nothing more (#741). The plan
    reads the same files that the install writes and writes none. A linked entry, another skill
