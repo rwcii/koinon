@@ -107,7 +107,7 @@ func TestRoomConversation(t *testing.T) {
 	if missed.Queued != 1 || missed.Skipped != 1 {
 		t.Fatalf("expired member: %+v", missed)
 	}
-	if got := count(t, s, `SELECT COUNT(*) FROM room_deliveries WHERE outcome='skipped' AND reason='inactive' AND message_id IS NULL`); got != 1 {
+	if got := count(t, s, `SELECT COUNT(*) FROM room_deliveries WHERE outcome='skipped' AND reason='no_liveness_evidence' AND message_id IS NULL`); got != 1 {
 		t.Fatalf("skipped delivery rows: %d", got)
 	}
 	join(t, s, "agy", "synthetic-other", "")
@@ -479,6 +479,10 @@ func TestRoomPostRoutes(t *testing.T) {
 	status, result := post(t, address, secret, "/v1/rooms/post", map[string]any{"caller": caller, "room_id": room, "body": "synthetic reply", "key": "k1", "deadline": deadline})
 	if status != 200 || result["result"].(map[string]any)["seq"] != float64(2) || result["result"].(map[string]any)["queued"] != float64(1) {
 		t.Fatalf("post: %d %v", status, result)
+	}
+	// An agent's answer gives counts only, never who the members are (#695).
+	if _, has := result["result"].(map[string]any)["recipients"]; has {
+		t.Fatalf("the agent route named the members: %v", result)
 	}
 	status, result = post(t, address, secret, "/v1/rooms/read", map[string]any{"caller": caller, "room_id": room})
 	posts := result["result"].(map[string]any)["posts"].([]any)

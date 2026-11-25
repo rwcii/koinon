@@ -207,14 +207,24 @@ type maintainerRoom struct {
 	Members   []RoomMember `json:"members"`
 }
 
-// maintainerPost is a room-post receipt: the post's sequence and how many members it reached
-// or skipped.
+// maintainerPost is a room-post receipt: the post's sequence, how many members it reached or
+// skipped, and each member's result (#695). A receipt stored before #695 has no list, and the
+// answer leaves it out.
 type maintainerPost struct {
-	RoomID    string `json:"room_id"`
-	Seq       int64  `json:"seq"`
-	Queued    int    `json:"queued"`
-	Skipped   int    `json:"skipped"`
-	Duplicate bool   `json:"duplicate,omitempty"`
+	RoomID     string           `json:"room_id"`
+	Seq        int64            `json:"seq"`
+	Queued     int              `json:"queued"`
+	Skipped    int              `json:"skipped"`
+	Duplicate  bool             `json:"duplicate,omitempty"`
+	Recipients *[]RoomRecipient `json:"recipients,omitempty"`
+}
+
+func maintainerPostOf(r RoomPostResult) maintainerPost {
+	p := maintainerPost{RoomID: r.RoomID, Seq: r.Seq, Queued: r.Queued, Skipped: r.Skipped, Duplicate: r.Duplicate}
+	if r.Recipients != nil {
+		p.Recipients = &r.Recipients
+	}
+	return p
 }
 
 // maintainerVerdicts are the verdicts that decision-verdict takes, each with the dashboard
@@ -367,7 +377,7 @@ func (d *Daemon) maintainerSessionRoutes(mux *http.ServeMux) {
 		valid := validRoomID(q.RoomID) && q.Body != "" && len(q.Body) <= maxBody && utf8.ValidString(q.Body) && q.Key != "" && len(q.Key) <= 256 && q.Deadline != nil
 		d.maintainerAct(ctx, w, "room-post", "room "+roomTarget(q.RoomID)+" bytes "+strconv.Itoa(len(q.Body)), valid, func(ctx context.Context) (any, error) {
 			r, err := d.store.DashboardRoomPost(ctx, q.RoomID, q.Body, q.Key, *q.Deadline)
-			return maintainerPost{r.RoomID, r.Seq, r.Queued, r.Skipped, r.Duplicate}, err
+			return maintainerPostOf(r), err
 		})
 	})
 	maintainerRoute(d, mux, "room-create", 16384, func(ctx context.Context, w http.ResponseWriter, q struct {

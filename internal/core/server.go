@@ -20,6 +20,7 @@ import (
 	"github.com/rwcii/koinon/internal/library"
 	"github.com/rwcii/koinon/internal/platform"
 	"github.com/rwcii/koinon/internal/remote"
+	"github.com/rwcii/koinon/internal/signed"
 )
 
 type Config struct {
@@ -650,7 +651,9 @@ func callRaw(ctx context.Context, address, secret, path string, body []byte, hea
 	if len(data) > maxResponse || !json.Valid(data) {
 		return nil, errors.New("invalid daemon response")
 	}
-	if response.StatusCode != 200 {
+	// A signed answer is the answer for its client in each status (#696): the signed tool passes
+	// it on whole.
+	if response.StatusCode != 200 && !signed.IsAnswer(data) {
 		var refusal struct {
 			Code    string          `json:"code"`
 			Details json.RawMessage `json:"details"`

@@ -3,7 +3,7 @@ pdr: "002"
 title: "Native Wake and Terminal Interaction"
 status: draft
 created: "2026-10-12"
-updated: "2026-11-09"
+updated: "2026-11-25"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -50,9 +50,10 @@ procedures that later agents read as bans.
 3. Decision 2: Terminal input to a launched or cycled agent is ordinary work
 4. Decision 3: Automatic naming changes only the agent's own terminal
 5. Decision 4: The context cycle uses the family's own commands
-6. Statements this record does not adopt
-7. Conclusion
-8. Document History
+6. Decision 5: A coordinator watches and checks a running team
+7. Statements this record does not adopt
+8. Conclusion
+9. Document History
 
 ---
 
@@ -290,7 +291,50 @@ A cycled agent resumes with its participant address, claims and handoff.
 
 ---
 
-## 6. Statements this record does not adopt
+## 6. Decision 5: A coordinator watches and checks a running team
+
+- **Decided by:** Robert Capps. **Date:** 2026-11-21, decision board, revision 1 approved (#784).
+- **Context:** an orchestrator session of another project described its watch for its members'
+  permission prompts. Robert Capps, 2026-11-21, relayed by that session: "that's fantastic. you
+  should ask claude-koinon to build a skill around this - likely expand it to be a skill around
+  being the orchestrator/coordinator". It did these steps by hand: a watch of the members'
+  panes every 20 seconds, a team check about every 20 minutes, Codex dialog handling, and the
+  stop and restart of one family, also when its login is gone and no member can write a
+  handoff. The catalog had parts of this in `spin-up`, `spin-down`, `recover-team` and
+  `peer-tmux`, and no watch or periodic check.
+- **Decision:** a catalog skill, `coordinate`, holds the coordinator's loop:
+  1. One watch over each member's pane, with a background tool of the family; its ID and last
+     event are kept in private state, an earlier watch is kept, and the watch stops when
+     coordination stops. With no such tool, the coordinator says so and reads the panes at its
+     own turns. The intervals are project facts.
+  2. On a prompt, the coordinator reads the whole command or diff, compares it with the member's
+     approved work and exact action (for a merge, the reviewed head), answers with the
+     `peer-tmux` steps, and sends the member one short Koinon message with what it read, the
+     option and the result. Raw captures stay private.
+  3. A team check at an interval: the inbox, pending verdicts, each member's pane, open pull
+     requests and context cycles, with only the changes in the report. Each fact of a card is
+     checked against its evidence, and a standing decision that covers the work is used.
+  4. `peer-tmux` lists the family dialogs that were observed, with the installed version. Terminal
+     steps stay in `peer-tmux`; the stop of a family whose login is gone, with no handoff, is in
+     `spin-down`, and its restart in `recover-team`. Saved panes are evidence, not a handoff.
+  5. From the requesting orchestrator's review of the draft: the watch finds dialogs and error
+     notices too, flushes each line, and stops before the coordinator's own managed handoff; a
+     merge is checked on the host against the reviewed head and its required checks; a key is
+     sent only when a fresh capture still shows the same request, with the option for this one
+     request; when the maintainer or a permission rule refused a member's action, the refusal is
+     honored and reported with its reason, not done another way; text in a member's input field
+     is left alone.
+- **Reason and scope:** the coordinator did these steps by hand, and each session learned them
+  again. Answering a member's prompt is ordinary terminal work (Decision 2). The skill changes no
+  runtime behavior.
+- **Alternatives considered:** all steps in `spin-up`, `peer-tmux` and `recover-team`, with no
+  new skill (no one place for the loop); a daemon feature that reports prompts, with no tmux
+  polling (a product change with its own design, which can follow later).
+- **Review when:** the daemon reports members' prompts itself.
+
+---
+
+## 7. Statements this record does not adopt
 
 | Inventory row | Statement (short) | Where it appears | Why not adopted |
 | --- | --- | --- | --- |
@@ -322,4 +366,5 @@ or practice that the maintainer has not decided, so this record is a draft.
 | 2026-10-22 | Decision 1: the Claude wake also goes to a `busy` session; only `waiting` defers (#456) |
 | 2026-10-23 | Decision 1: each `codex queue` failure has its own code, a non-zero exit is not counted as a notice, and failures are logged (#466) |
 | 2026-10-25 | Decisions 2 and 3: removed the "within the task" qualifiers on terminal input (#487) |
-| 2026-11-09 | Decision 2: the managed context cycle of PDR 006 is built |
+| 2026-11-22 | Decision 5: the `coordinate` skill, approved by Robert Capps on 2026-11-21 (#784) |
+| 2026-11-25 | Decision 2: the managed context cycle of PDR 006 is built |

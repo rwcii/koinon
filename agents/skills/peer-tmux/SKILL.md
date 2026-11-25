@@ -133,6 +133,20 @@ text as input. A successful `send-keys` shows that the input was sent; capture t
 verify processing. If delivery is uncertain, inspect the pane before a retry, so that the input
 is submitted once.
 
+## Observed dialogs
+
+These dialogs were observed on a Codex pane (codex-cli 0.171.0, 2026-11-21; #784). Check the
+installed version, and read the pane before you send input, because a dialog changes what a key
+does:
+
+- **Rate limit.** A rate-limit dialog takes the next Enter. Close it with Escape, capture the
+  pane, and then send the input.
+- **Hooks review at resume.** A resumed Codex session can show a "Hooks need review" dialog
+  before its prompt. Read it and choose the response that the task calls for.
+
+Keep any text that the member has in its input field, also a dimmed suggestion: do not type over
+it.
+
 ## Handoff, reset, pickup
 
 Use this sequence for a context cycle of the selected peer. Keep the peer's project work paused

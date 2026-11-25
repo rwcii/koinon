@@ -1,0 +1,12 @@
+# Orca integration (#795) — verification
+
+Live checks gate the sprint's completion, not a chunk's merge (`sprint.md`). Each row gives the
+check, the computer, the result and its evidence. An open row stays a listed item of #795.
+
+| Chunk | Check | Computer | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| 02 | One Claude and one Codex member started with `orca terminal create --worktree "path:$PAIR" --command "koinon FAMILY --directory '$PAIR' --role ROLE"` register with their addresses, show their panes in Orca, receive a Koinon message and a wake, and `coordinate` reads their panes | A computer with Orca | Open | The development computer has no Orca; the synthetic launcher tests pass (`internal/launcher/orca_test.go`) |
+| 04 | The first `preflight` and `board-verdict` on chunk 04's own pull request; after the merge, the `develop` ruleset requires both, read back with `gh api repos/rwcii/koinon/rulesets` | This computer | Passed | #799 head 289ff81: `preflight` success 2026-11-24T07:08Z, `board-verdict` success 2026-11-24T07:45Z; the `develop` ruleset requires both (read back 2026-11-25) |
+| 04 | A released v0.13.3 binary reports the new fact headings "Merge approval" (ship) and "Promotion merge" (release) as undeclared until v0.13.4 is installed; after the v0.13.4 install, `koinon library state` reports neither | This computer | Passed | Before (2026-11-25): the v0.13.3 parser (`ParseFactValues` with the v0.13.3 catalog, in a test at tag v0.13.3) refuses `.koinon/skills/ship.md` and `release.md` of 192e851 with "undeclared fact heading", so the whole files read as invalid; the headings that v0.13.3 does not declare are "Merge approval" and "Docs and agent files" (ship) and "Promotion merge" and "Docs and agent files" (release). After the v0.13.4 install, `koinon library state` reports the facts of `skill.ship` and `skill.release` as `present-valid` (2026-11-25) |
+| 04 | The first release with the gates (v0.13.4): the `release` skill stops before the merge into `main`, the maintainer merges, the tag and the publish steps follow | This computer | Passed | The `release` skill stopped at the promotion PR #817 with its evidence and reported its head 3fedf1d to the maintainer; the maintainer merged it into `main` as f81df99 (2026-11-25); the signed tag v0.13.4; Release binaries run 45542621519, all jobs pass; the release assets match `SHA256SUMS`; the tap formula has the v0.13.4 hashes |
+| 05 | A verdict from the Fleet page reaches the card's node, on one Linux and one macOS node | Two linked nodes | Open | Chunk 05 |

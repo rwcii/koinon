@@ -3,7 +3,7 @@ pdr: "001"
 title: "Session Registration and Participant Continuity"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-26"
+updated: "2026-11-23"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -257,6 +257,24 @@ decision said "PROTOCOL.md, docs/USAGE.md and the guide describe roles as mainta
 #487 replaced that with who sets the role (Decision 1 has the #487 source). The syntax refusal
 is code behavior that the code returns; the #493 decision did not list it.
 
+**Pairs started by Orca (#795):**
+
+- **Decided by:** Robert Capps. **Date:** 2026-11-23, in the Orca integration spec that the
+  maintainer gave as the specification for v0.13.4; its section 7 is marked "Decided".
+- **Context:** Orca starts each member of a pair with the Koinon launcher as its terminal
+  command, one worktree for each pair. Linked worktrees of one repository share their label,
+  from the Git common directory, so two pairs of one family would otherwise want one address.
+- **Decision:** the spec, section 7: "Each member's role includes its pair, so that two pairs
+  of one family in one repository get distinct addresses." "Because the numbered fallback
+  depends on launch order, Orca launches always pass `--role`, so each member has a stable
+  address that the team manifest, work items and `coordinate` can rely on." The default tmux
+  session name is the address with the role; the spec's sentence that it is
+  `<family>-<repo>` is corrected in docs/USAGE.md, "Run Koinon members from Orca". Launcher
+  tests show that Orca-like terminal variables change neither the address, nor the session
+  name, nor the registration.
+- **Reason and scope:** stable addresses for each member of each pair. It applies to
+  Orca launches; other launches keep the optional role.
+
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
@@ -418,3 +436,4 @@ roles and succession evidence remain shipped behavior without a maintainer decis
 | 2026-10-17 | Decision 5: the command-line holder choice also lifts a fence (#398) |
 | 2026-10-25 | Decisions 1 and 3: the DeepSeek, `grok_leader_mode` and role syntax refusals are described as code behavior; the "maintainer-assigned" role text is replaced (#487) |
 | 2026-10-26 | Decision 1: the maintainer kept the DeepSeek `launch`/`subagent` refusal (493-3) and the `grok_leader_mode` refusal (493-2) (#493) |
+| 2026-11-23 | Decision 3: Orca launches always pass `--role` with the pair (#795) |

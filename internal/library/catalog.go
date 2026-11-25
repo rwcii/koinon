@@ -21,6 +21,7 @@ import (
 	reference "github.com/rwcii/koinon/docs"
 	"github.com/rwcii/koinon/internal/capabilities"
 	"github.com/rwcii/koinon/internal/skillmeta"
+	"github.com/rwcii/koinon/scripts"
 )
 
 const MaxItems = 32
@@ -84,7 +85,7 @@ type Command struct {
 
 // Embedded constructs the binary's complete catalog from its source whitelist.
 func Embedded(release string) (Catalog, error) {
-	return Build(skills.Source, reference.Permissions, release)
+	return BuildWith(skills.Source, reference.Permissions, scripts.PreflightRunner, release)
 }
 
 func digest(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:]) }
@@ -191,6 +192,11 @@ func projectDestinations(target string, families []string) []Destination {
 // Build also supports a bounded synthetic source filesystem for source-completeness tests.
 // All directories must contain valid skill metadata/schema; none is silently omitted.
 func Build(source, permissions fs.FS, release string) (Catalog, error) {
+	return BuildWith(source, permissions, nil, release)
+}
+
+// BuildWith also ships runner, when it is not empty, as the setup item preflight-runner.
+func BuildWith(source, permissions fs.FS, runner []byte, release string) (Catalog, error) {
 	if release == "" || release == "dev" || !strings.HasPrefix(release, "v") {
 		release = "development"
 	}
@@ -278,7 +284,11 @@ func Build(source, permissions fs.FS, release string) (Catalog, error) {
 		{"opencode-commands", ".opencode/commands", "Generated command descriptors and ownership rules", wrappers},
 		{"guidance", "AGENTS.md", "Marked project guide and catalog pointer", guidance},
 		{"permissions", "docs/koinon/PERMISSIONS.md", "Native permission recommendations", perms},
+		{"preflight-runner", "scripts/koinon-preflight-run.sh", "The preflight runner, which resolves standard lenses", runner},
 	} {
+		if setup.id == "preflight-runner" && len(runner) == 0 {
+			continue
+		}
 		if err := add(Item{ID: "setup." + setup.id, Kind: "setup", Name: setup.id, Description: setup.purpose, Purpose: setup.purpose, FeatureRequirements: []string{}, Destinations: projectDestinations(setup.target, families), Content: string(setup.content)}); err != nil {
 			return Catalog{}, err
 		}

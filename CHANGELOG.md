@@ -5,6 +5,112 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+## 2026-11-24 — Merge gates, parallel sprint chunks, Orca launch, and signed answers
+
+This release adds merge gates for Koinon's own pull requests (`preflight` and `board-verdict`
+on `develop`, and a `release` that stops before the merge into `main`), sprint plans whose
+chunks two or more pairs can build at the same time, Koinon members started from Orca, a
+docs gate, the `coordinate` skill, room post answers that list each member, and answers that
+a maintainer client can check came from the computer that it asked, and a preflight lens for
+alarming wording that adopting projects can run (#795, #792, #784, #695, #696, #812, #814).
+The store stays at schema 40.
+
+- Merge gates for Koinon's own pull requests (#795, WDR 004, Decision 8). Koinon adopts the
+  `preflight` skill with five lenses, security, code, standards, refusal and wording:
+  `scripts/preflight-run.sh` runs each lens in a fresh `claude -p` worker with no forge
+  credential, which reads only the change's worktree and writes nothing, and
+  `scripts/preflight-publish.sh` posts one comment and the `preflight` status on the pull
+  request's head, after it checks the result's base and each report for secrets, private paths
+  and email addresses, with each report in a fenced block. After the reviews, the maintainer
+  approves a card whose Where field is exactly the target `OWNER/REPO#PR@HEAD`, and
+  `scripts/board-verdict.sh` posts the `board-verdict` status on that head. The `release` skill
+  stops when the promotion pull request is ready, and the maintainer merges into `main`. The
+  `ship` and `release` skills take these steps from the new optional facts "Merge approval" and
+  "Promotion merge"; a project without them keeps its steps. `scripts/setup-repo.sh` requires
+  `preflight` and `board-verdict` on `develop`. Both scripts read the posted status back up to
+  5 times, 2 seconds apart, until the newest status of its context has the posted status ID,
+  because GitHub can show a new status a few seconds late (#801).
+
+- The `preflight` skill has a Standard lenses section with the `wording` lens: it reports
+  words and names in content that users see or data that users can read (UI, command and
+  website text, cookie names, storage keys, event and property names, headers, exported
+  identifiers) that frame the work in alarming or pejorative terms when an accurate, neutral
+  term exists. A neutral word must not hide what the thing does. A `## NAME` section with no
+  text in a project's lens policy turns on the standard lens of that name, and
+  `scripts/preflight-run.sh` reads its brief from the skill at the policy's commit. Koinon
+  turns on `wording` (#812, WDR 004, Decision 8).
+
+- `koinon preflight brief NAME` prints a standard lens brief from the `preflight` skill in the
+  installed binary, with no daemon or session, and answers `not_found` for an unknown lens. The
+  catalog ships the preflight runner as the setup item `setup.preflight-runner`, which an adopting
+  project writes to `scripts/koinon-preflight-run.sh`; in a repository without
+  `agents/skills/preflight/SKILL.md`, or whose copy lacks the lens, the runner takes a standard
+  lens brief from that command. The runner writes a `.gitignore` of `*` in each run's new report
+  folder, and the `preflight` skill asks the author to remove an email address, a private path or a
+  secret from each report before it is posted (#814, PDR 008, Decision 5).
+
+- docs/USAGE.md has "Run Koinon members from Orca": the `orca terminal create` command form,
+  `--role` with the pair for each member, the label of linked worktrees, the tmux session by
+  `TMUX`, and the observer's scratch copy (#795). Launcher tests start two pairs in two
+  worktrees of one repository with Orca-like terminal variables, in a pane and in a new tmux
+  session. The `pair` skill says that the observer reproduces findings in a detached worktree
+  of the checkpoint, outside the driver's worktree.
+
+- The `sprint` skill gives each chunk `Depends on` and `Owns` columns and adds a parallel view
+  to `sprint.md`: groups of chunks whose dependencies are in earlier groups and whose owned
+  files, directories and records do not overlap, so that two or more pairs can build them at
+  the same time (#795, WDR 002, Decision 7). A contributor test checks each plan with a
+  parallel view.
+
+- The `preflight` and `ship` skills have a docs gate (#792, WDR 004, Decision 7): before the
+  head is frozen and before the other checks, the author reads the README, the user docs, the
+  agent instruction files and the skills at the head, compares them with the code, and
+  corrects them in the same change. The new optional repository fact "Docs and agent files"
+  names the files. The `release` skill runs the same gate on the candidate, with the released
+  baseline as its base, before the promotion.
+
+- The README describes rooms, the decision board, context cycles, the skills catalog and
+  signed answers, and the docs name the MCP tools and checks that they left out (#791).
+
+- A new catalog skill, `coordinate`, gives the coordinator of a running team its loop (#784): one
+  watch over the members' panes for prompts, dialogs and error notices, kept in private state
+  with no second watch, an answer to each prompt after a check against the member's approved work, with a
+  short Koinon message to the member, and a team check at an interval. `peer-tmux` lists the
+  observed Codex dialogs; `spin-down` and `recover-team` have the stop and restart of a family
+  whose login is gone and that has no handoff. `koinon install` writes `koinon-coordinate`.
+
+- The maintainer's room post answer now lists each member of the room: `sent`, or `not_sent`
+  with the reason (`retired`, `ended`, `lapsed`, `no_liveness_evidence`, `unheld` or
+  `conflicting`), on the dashboard's MCP route and on signed actions (#695). A room's
+  delivery rows give the same liveness reason in place of `inactive`, and the Rooms page shows
+  it in words. Rooms stay real time: a member that was not sent a post never gets it later. An agent's
+  room post answer keeps its counts only. A signed `send` refused for its recipient keeps the
+  code and reason in its receipt, so the repeat and `outcome` give them.
+
+- A maintainer client can now check that each answer came from the computer that it asked
+  (#696). An envelope of version `koinon-maintainer-2` gets every answer signed with that
+  computer's link key, as one `koinon-answer-2` object, on the loopback and Remote action
+  routes, the Remote session route, the `signed` MCP tool and the link; a node that passes an
+  action on signs only its own claims, such as `computer_offline`, with its own key. A node can
+  no longer change another computer's answer unseen. Version 1 envelopes work as before, with
+  unsigned answers. A signed session for a paired computer's pin is now `invalid_request` on the
+  session route too, as on the action route, in place of `signature_refused` with reason
+  `target`.
+
+Upgrade from v0.13.3 with Homebrew: run `brew update` and `brew upgrade koinon`. The daemon
+restarts on the new binary and writes the new `koinon-coordinate` skill entry. The store stays
+at schema 40, so v0.13.3 can still read it. The restart ends current local dashboard logins:
+log in again with the Koinon password, or run `koinon dashboard` for a one-time link. A remote
+sign-in keeps the rest of its fixed 48-hour window. Run `koinon install --plan` to check. A
+running `koinon mcp` server runs the new release without a session restart.
+
+Upgrade notes:
+
+- A host without a service manager, such as a container, runs the daemon in the background:
+  after `brew upgrade koinon`, run `koinon install` there to start it on the new binary.
+- A macOS system-mode daemon (`--system`) keeps a copy; upgrade it with
+  `$(brew --prefix)/bin/koinon install --system`.
+
 ## 2026-11-20 — Wakes for narrow Codex panes, and a macOS upgrade that starts the daemon
 
 This release wakes and compacts Codex sessions in 80-column panes again (#761), a macOS install

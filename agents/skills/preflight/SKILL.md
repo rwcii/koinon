@@ -12,7 +12,8 @@ Koinon's procedure source is [PDR 008](https://github.com/rwcii/koinon/blob/deve
 A preflight is an author check, not an independent review. The project's independent reviews
 stay required. Their round and stop rules apply to those reviews, not to preflight runs.
 
-Load the Review run command, Review publish command, Lens policy and Base ref facts. When the
+Load the Review run command, Review publish command, Lens policy, Base ref, and Docs and agent
+files facts. When the
 project declares a Review tool pin, use a review tool built from that exact source revision.
 
 ## Before you start
@@ -21,6 +22,7 @@ project declares a Review tool pin, use a review tool built from that exact sour
 2. Make sure that the lens policy exists at the base commit.
 3. Get the family route and the worker image under the Route and image rules fact.
 4. Make sure that the report folder is ignored by Git.
+5. Run the docs gate below. A lens reviews the docs only as they are at the head.
 
 ## 1. Run the lenses before the pull request
 
@@ -58,6 +60,47 @@ the Usage import step. When that fact is "none", report the usage files as not i
 
 The comment shows a value that is not available as `unknown`. Never show it as zero.
 
+A lens worker can see the account's email address, and the comment is public. Read each
+report before the command posts it, and remove an email address, a private path or a secret
+from it. Koinon's source for this step is PDR 008, Decision 5 (#814, the agents' design).
+
+## Docs gate
+
+Koinon's procedure source for this gate is WDR 004, Decision 7. Before you run the lenses,
+compare the files in the Docs and agent files fact with the code at the head:
+
+1. List the user-visible changes against the base: commands, tools, flags, defaults, limits,
+   error codes, routes, paths, versions, features and skills.
+2. Read each file in the fact at the head. Check first the parts that describe a changed item,
+   then the rest of the file, because a statement can be wrong from an earlier change.
+3. Correct each statement that the code at the head contradicts.
+4. Describe each new user-visible feature in the file where a reader looks for it.
+5. Make the version numbers, release names and skill lists in those files agree with the code
+   at the head.
+6. Commit the corrections in this change. Name the files that you read and changed in the
+   review evidence.
+
+## Standard lenses
+
+A project turns on a standard lens with a `## NAME` section that has no text in its lens
+policy. The Review run command gives that lens's worker the brief below, from this skill. The
+catalog's setup item `setup.preflight-runner` is a runner that does this; `koinon preflight
+brief NAME` prints a brief from the installed release. Koinon's source for the wording lens is
+WDR 004, Decision 8.
+
+### wording
+
+Check the content that users see and the data that users can read in the change: UI,
+dashboard and website text, command output and messages, error text, and the names of cookies,
+local storage keys, events, properties, headers and identifiers in exported or published data.
+Report each word or name that frames the work in alarming or pejorative terms when an accurate,
+neutral term exists, for example "profile", "tracking" or "fingerprint" where "visitor ID",
+"visit" or "site data" is just as accurate. Give the text, its file and line, and an accurate,
+neutral replacement. The replacement must not hide what the thing does: wording that misleads
+is a finding too. Settled policy texts and fixed third-party API names are not findings. Code
+comments, README files, agent files and other repository documentation are outside this lens.
+When the change has no such content, approve.
+
 ## Repository facts
 
 The project's facts for this skill are local data in the file named below, in the current
@@ -72,6 +115,11 @@ the file. The parser reads the file as plain text, up to 64 KiB.
   "version": 1,
   "filename": ".koinon/skills/preflight.md",
   "fields": [
+    {
+      "heading": "Docs and agent files",
+      "required": false,
+      "default": "the README, the user docs, the agent instruction files such as AGENTS.md and CLAUDE.md, and the project's skills"
+    },
     {
       "heading": "Review run command",
       "required": true

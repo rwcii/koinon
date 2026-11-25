@@ -3,7 +3,7 @@ pdr: "008"
 title: "Portable Skills and Explicit Adoption"
 status: draft
 created: "2026-10-12"
-updated: "2026-11-17"
+updated: "2026-11-25"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -93,16 +93,16 @@ handoff and pickup skills, and its own `koinon-pickup` entry, are PDR 006.
 
 The skills Koinon uses are the same files it offers. The binary embeds `agents/skills/*/SKILL.md`
 and the shared `AGENTS.md` and builds the catalog from those bytes; `koinon version` reports
-`catalog_digest`. The current source includes 21 skills: `refusal-review` was added after
-the initial 13, and seven procedures that adopting projects brought (Decision 5), and setup items for shared instructions, discovery links,
-OpenCode wrappers, a guidance reference and permission recommendations. `spin-up` handles
-first-run permission prompts and alerts in the new session's verified terminal. Skills read
-project facts (branches, checks, release steps) from `.koinon/skills/NAME.md`; each skill
-declares required and optional facts with defaults. `check`, `ship` and `release` have
-required facts, and of the Decision 5 skills `preflight`, `provenance`, `standards-review`,
-`record`, `sprint-closeout` and `standards-audit`. When a required fact is missing, the agent derives it from the project's
-evidence and records it in the file. Fact files live in the project; the binary does not embed
-them.
+`catalog_digest`. The current source includes 22 skills: `refusal-review` and `coordinate` were
+added after the initial 13, and seven procedures that adopting projects brought (Decision 5), and
+setup items for shared instructions, discovery links, OpenCode wrappers, a guidance reference,
+permission recommendations and the preflight runner. `spin-up` handles first-run permission prompts
+and alerts in the new session's verified terminal. Skills read project facts (branches, checks,
+release steps) from `.koinon/skills/NAME.md`; each skill declares required and optional facts with
+defaults. `check`, `ship` and `release` have required facts, and of the Decision 5 skills
+`preflight`, `provenance`, `standards-review`, `record`, `sprint-closeout` and `standards-audit`.
+When a required fact is missing, the agent derives it from the project's evidence and records it in
+the file. Fact files live in the project; the binary does not embed them.
 
 Koinon-owned entries are not catalog items: `koinon-pickup`, the managed context cycle's
 pickup entry (PDR 006, Decision 4), and the team skill entries (Decision 2). `koinon install` and the daemon at each start install it
@@ -356,8 +356,9 @@ work: `preflight`, `provenance`, `refusal-audit`, `standards-review`, `record`,
 `sprint-closeout` and `standards-audit` (#732). Their steps are generic; each project's values
 come from the fact headings that each skill declares, in `.koinon/skills/NAME.md` of that
 project, as for the other skills (Decision 1). `koinon install` and the daemon write their
-`koinon-NAME` entries as for every catalog skill (Decision 2). Koinon offers these seven and
-adopts none of them for its own work; it has no fact file for them. LICENSE names "Robert Capps
+`koinon-NAME` entries as for every catalog skill (Decision 2). Koinon offers these seven. It
+adopts `preflight` for its own work (below) and none of the other six, so it has no fact file
+for them. LICENSE names "Robert Capps
 and Stratovera, LLC" as the copyright holder of Koinon, these skills included; the skills carry
 no notice of their own.
 
@@ -395,12 +396,47 @@ no notice of their own.
   LICENSE holder. The install script for a computer with no Koinon changes Decision 2 and has
   its own verdict (#732, chunk 02).
 
+**Koinon adopts `preflight` (#795):** the maintainer's merge gates, recorded in WDR 004,
+Decision 8 (2026-11-23, changed 2026-11-24), require a passing preflight with five lenses on
+each pull request into `develop`. Koinon adopts `preflight` with `.koinon/skills/preflight.md`,
+the lens policy `.koinon/preflight/lenses.md`, `scripts/preflight-run.sh` and
+`scripts/preflight-publish.sh`. The skill text did not change for the adoption; the wording
+lens later added its Standard lenses section (WDR 004, Decision 8, #812). The other six
+procedures stay offered and not adopted.
+
+**Changed on 2026-11-25: the preflight runner for adopting projects (#814).**
+
+- **Decided by:** Robert Capps. **Date:** 2026-11-25, terminal, then the decision board.
+- **Context:** the installed release carried the `preflight` skill with its standard `wording`
+  lens, but not the runner that resolves a lens section with no text; that runner was only in
+  Koinon's checkout. An adopting project had to write that lookup itself, and
+  `koinon library read` needs a calling session, which a runner script does not have.
+- **Decision:** after the report of that gap, the maintainer: "fix that gap". On the decision
+  board, the card for this design, in v0.13.4, was approved with no note.
+- **The agents' design, in the approved card:** the catalog ships `scripts/preflight-run.sh` as the
+  setup item `setup.preflight-runner` (project path `scripts/koinon-preflight-run.sh`), and the new
+  command `koinon preflight brief NAME` prints a standard lens brief from the skill in the
+  installed binary, with no daemon or session. The runner reads the brief from the repository's
+  `agents/skills/preflight/SKILL.md` at the policy's commit when that file exists, as in Koinon,
+  and otherwise from that command. The lens text stays in one place, the skill.
+- **The agents' design, added by the preflight and peer reviews after the approval, not on the
+  card:** the runner falls back to that command also when the repository's skill copy has no such
+  lens, writes a `.gitignore` of `*` in each run's new report folder (moved there after the peer
+  review, so it hides nothing else), and names no Koinon path in its messages; the `preflight`
+  skill asks the author to remove an email address, a private path or a secret from each report
+  before the publish step posts it, because the worker can see the account's email address.
+- **Reason and scope:** the author's reason: a project turns on a standard lens with one section
+  and no lookup of its own. Scope: the runner and the brief command; `scripts/preflight-publish.sh`
+  stays in Koinon's checkout.
+
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
-| Merge some of the seven into existing skills | For example `refusal-audit` into `refusal-review` | It changes text that the maintainer saw; the catalog has room (26 of 32 items) |
+| Merge some of the seven into existing skills | For example `refusal-audit` into `refusal-review` | It changes text that the maintainer saw; the catalog has room (28 of 32 items) |
 | Wrappers in the adopting project | Skills under the project's own prefix | A second installer and a second copy of each procedure |
+| Only `koinon preflight brief` (#814) | The command without the runner item | Each project still writes the lookup in its own runner |
+| A `koinon preflight run` command (#814) | The whole runner ported to Go | No project copy, but about a day of work for v0.13.4 |
 
 ### User Impact
 
@@ -431,3 +467,7 @@ drift defect are ordinary corrections; they add no product decision.
 | 2026-10-25 | Requirements and Decisions 1–4: removed the unsourced approval step, the fact-file and catalog caveats and the "grant no permission" text; the verified-root report and the install's bare-name and symbolic-link handling are stated as code facts (#487) |
 | 2026-11-17 | Decision 5: seven procedures that an adopting project brought, offered in the catalog; LICENSE names Robert Capps and Stratovera, LLC (#732) |
 | 2026-11-17 | Decision 2: a script installs the full skill text of one pinned release on a computer with no Koinon (#732) |
+| 2026-11-23 | Decision 5: Koinon adopts `preflight` for its own work (#795) |
+| 2026-11-24 | Decision 5: the merge gates' date, after the change of 2026-11-24 to WDR 004, Decision 8 (#795) |
+| 2026-11-24 | Decision 5: five lenses; the preflight skill's Standard lenses section, after the change of 2026-11-24 to WDR 004, Decision 8 (#812) |
+| 2026-11-25 | Decision 5: the preflight runner as a setup item and `koinon preflight brief` (#814) |

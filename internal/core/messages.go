@@ -266,6 +266,12 @@ func (s *Store) send(ctx context.Context, caller Key, to, body string, dashboard
 	}
 	outcome, err := s.sendTx(ctx, tx, caller, to, body, dashboard)
 	if err != nil {
+		// A signed send keeps why it was not sent in its receipt, so the repeat and outcome
+		// give the reason (#695).
+		var inactive InactiveRecipient
+		if signedOf(ctx) != nil && (errors.As(err, &inactive) || errors.Is(err, ErrPeerNotFound) || errors.Is(err, ErrAliasUnheld)) {
+			return Outcome{}, tx.operationRefusal(err)
+		}
 		return Outcome{}, err
 	}
 	tx.operationResult(outcome)

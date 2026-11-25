@@ -71,7 +71,7 @@ func TestDashboardRoomConversationView(t *testing.T) {
 			a.Name + " <small>codex:\nnot retained, acknowledgement unknown",
 			b.Name + " <small>claude:\n",
 			", acknowledged by recipient",
-			c.Name + " <small>agy:\nskipped (inactive)",
+			c.Name + " <small>agy:\nskipped (retired)",
 		} {
 			if !strings.Contains(body, want) {
 				t.Fatalf("%s lacks %q:\n%s", name, want, body)

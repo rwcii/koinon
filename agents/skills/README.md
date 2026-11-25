@@ -11,7 +11,7 @@ slash-command wrappers that load these same skills. Rules for writing a skill ar
 | --- | --- |
 | [handoff](handoff/SKILL.md) | Write a snapshot of this agent's work to the ignored `_handoff/<agent>/` at the end of a session. |
 | [pickup](pickup/SKILL.md) | Resume from this agent's newest handoff and verify it against the live repository. |
-| [sprint](sprint/SKILL.md) | Plan a deliverable of more than one pull request: decision, definition of done, ordered chunks, peer review of the plan. |
+| [sprint](sprint/SKILL.md) | Plan a deliverable of more than one pull request: decision, definition of done, chunks with their dependencies and owned items, a parallel view, peer review of the plan. |
 | [check](check/SKILL.md) | Run the checks that must pass before a push. |
 | [pair](pair/SKILL.md) | Share one checkout, trade the driver role at committed checkpoints, and finish within fixed criteria and bounded review. |
 | [ship](ship/SKILL.md) | Take one change through the project's branch, review and merge policy. |
@@ -22,6 +22,7 @@ slash-command wrappers that load these same skills. Rules for writing a skill ar
 | [spin-up](spin-up/SKILL.md) | Prepare and carry out a team launch, including first-run prompts. |
 | [spin-down](spin-down/SKILL.md) | Collect each session's handoff and complete the team stop plan. |
 | [recover-team](recover-team/SKILL.md) | Reconcile team state and carry out a restart plan. |
+| [coordinate](coordinate/SKILL.md) | Coordinate a running team: watch the members' panes for permission prompts, answer them, and check the team at an interval. |
 | [koinon-guide](koinon-guide/SKILL.md) | Read installed runtime guidance and catalog recommendations. |
 | [preflight](preflight/SKILL.md) | Run the project's enabled review lenses locally before a pull request, and post one result bound to the head. |
 | [provenance](provenance/SKILL.md) | Record each commit's AI-development usage as a Git note, and recount the branch before the merge. |
@@ -32,7 +33,10 @@ slash-command wrappers that load these same skills. Rules for writing a skill ar
 | [standards-audit](standards-audit/SKILL.md) | Audit a repository or path in a fresh context for decisions that have no record. |
 
 A typical change runs `check`, then `ship`, with the other agent family running `peer-review` and `refusal-review`.
-A larger deliverable starts with `sprint`. `release` promotes the result to `main`.
+A larger deliverable starts with `sprint`. `release` prepares the promotion of the result to `main`.
+A project's facts can add a `preflight` before the pull request and the maintainer's board
+approval of each head (`ship`, "Merge approval"), and the maintainer's merge into `main`
+(`release`, "Promotion merge").
 
 ## Run a skill
 
@@ -64,8 +68,6 @@ Generated files have an ownership comment. Generation repairs or removes only th
 and narrowly adopts the nine original wrappers when their template is unchanged. A custom
 command that collides with a skill name, modified legacy template or managed symlink causes
 an error before any changes. Custom commands and native OpenCode package files are preserved.
-The existing nine wrappers are already tracked on `develop`, so merging this change replaces
-them normally.
 
 Check mode compares bytes and the executable bit without writing; it accepts checkout
 permissions from the user's umask. Go contributor tests run it on Linux and
@@ -97,21 +99,22 @@ To add a skill, create `agents/skills/<name>/SKILL.md`, add a row to the table a
 
 ## Embedded library and project facts
 
-The Go package here embeds `*/SKILL.md` and the shared `AGENTS.md`; the binary builds its
-catalog directly from those bytes. `koinon version` reports `catalog_digest` without
-reading a checkout. Setup link/command descriptors derive from the shared layout/metadata;
-the permissions recommendation embeds `docs/PERMISSIONS.md` from its own source directory.
-The catalog holds the skills and the shared authoring file; root instructions, sprint plans,
+The Go package here embeds `*/SKILL.md` and the shared `AGENTS.md`; the binary builds its catalog
+directly from those bytes. `koinon version` reports `catalog_digest` without reading a checkout.
+Setup link/command descriptors derive from the shared layout/metadata; the permissions
+recommendation embeds `docs/PERMISSIONS.md` from its own source directory, and the setup item
+`setup.preflight-runner` embeds `scripts/preflight-run.sh` from `scripts/`. The catalog holds the
+skills, the shared authoring file and these setup items; root instructions, sprint plans,
 repository fact values and handoffs stay in the checkout. The library tools read the catalog and
 record adoption state.
 
 All skills are portable machine-wide and project-local candidates. Read the adopting project's
 policy and the schema at the end of each skill. Required facts live in that worktree's
 `.koinon/skills/NAME.md`; optional facts use declared defaults. Koinon's own fact files cite
-public policy/CI sources. Koinon offers `preflight`, `provenance`, `record`, `refusal-audit`,
-`sprint-closeout`, `standards-audit` and `standards-review` without adopting them for its own
-work (PDR 008, Decision 5), so it has no fact file for them. A missing required fact is derived from the project's evidence and
-recorded in the file. Skill adoption and native configuration changes are their own steps.
+public policy/CI sources. Koinon adopts `preflight` for its own work, and offers `provenance`,
+`record`, `refusal-audit`, `sprint-closeout`, `standards-audit` and `standards-review` without
+adopting them (PDR 008, Decision 5), so it has no fact file for those six. A missing required
+fact is derived from the project's evidence and recorded in the file. Skill adoption and native configuration changes are their own steps.
 
 Codex user discovery was verified in an isolated native home on 0.162.0. The catalog reports
 Claude's documented personal location and the other families' user roots as unverified, for

@@ -101,6 +101,14 @@ func outcomeUnknown(target, request string) error {
 var definiteLinkRefusals = map[string]bool{"link_operation_unknown": true, ErrLinkNoPair.Code: true, ErrLinkRemoteOff.Code: true,
 	"invalid_request": true, "link_frame_too_large": true}
 
+// pairedPin reports whether pin is the pin of a computer that this computer pairs with.
+func (d *Daemon) pairedPin(pin string) bool {
+	d.link.mu.Lock()
+	defer d.link.mu.Unlock()
+	s, err := link.ReadState(d.root)
+	return err == nil && slices.ContainsFunc(s.Pairs, func(p link.Pair) bool { return p.Pin == pin && p.State == link.Paired })
+}
+
 // signedForward sends an envelope for a paired computer's pin on the link and returns its answer.
 func (d *Daemon) signedForward(ctx context.Context, e signed.Envelope, data []byte) (any, error) {
 	d.link.mu.Lock()
@@ -185,7 +193,7 @@ func (d *Daemon) signedForward(ctx context.Context, e signed.Envelope, data []by
 		}
 		return nil, outcomeUnknown(e.Target, e.Request)
 	}
-	answer, ok := validReply(reply)
+	answer, ok := validReply(reply, e.V)
 	if !ok {
 		return nil, outcomeUnknown(e.Target, e.Request)
 	}
@@ -194,11 +202,32 @@ func (d *Daemon) signedForward(ctx context.Context, e signed.Envelope, data []by
 
 // validReply takes a maintainer-ok reply that has the form of a route's answer: a JSON object
 // whose ok is true with status 200 and a result, or false with a refusal status and a code.
-// Its bytes stay as they came.
-func validReply(reply link.Frame) (forwardedAnswer, bool) {
+// For a version 2 envelope it takes the target's signed answer with the same status, or the
+// unsigned version refusal of a computer at an earlier release, which the client shows as not
+// verified (#696, contract.md, sections 3.6 and 4). Its bytes stay as they came.
+func validReply(reply link.Frame, version string) (forwardedAnswer, bool) {
 	var answer maintainerReply
 	if reply.Op != "maintainer-ok" || reply.Decode(&answer) != nil {
 		return forwardedAnswer{}, false
+	}
+	if version == signed.Version2 {
+		if a, err := signed.ParseAnswer(answer.Answer); err == nil {
+			if a.Status != int64(answer.Status) || a.Signer != signed.SignerTarget {
+				return forwardedAnswer{}, false
+			}
+			return forwardedAnswer{status: answer.Status, body: answer.Answer}, true
+		}
+		var refusal struct {
+			OK      *bool  `json:"ok"`
+			Code    string `json:"code"`
+			Details struct {
+				Reason string `json:"reason"`
+			} `json:"details"`
+		}
+		if json.Unmarshal(answer.Answer, &refusal) != nil || refusal.OK == nil || *refusal.OK ||
+			refusal.Code != "signature_refused" || refusal.Details.Reason != "version" {
+			return forwardedAnswer{}, false
+		}
 	}
 	var shape struct {
 		OK     *bool           `json:"ok"`
@@ -277,6 +306,14 @@ func (d *Daemon) answerMaintainer(pin string, f link.Frame, gen uint64) (link.Fr
 	ctx, cancel := context.WithTimeout(life, maxChangeWait*time.Second+forwardExchange)
 	defer cancel()
 	ctx = context.WithValue(ctx, forwardedKey{}, id.Pin)
+	// A test makes this computer answer a version 2 envelope as a computer of an earlier release
+	// does, with its unsigned version refusal (contract.md, section 4).
+	if e, err := signed.Parse(data); err == nil && e.V == signed.Version2 && d.linkFault("maintainer-earlier-release") != nil {
+		w := &answerWriter{header: http.Header{}}
+		maintainerRead(w, nil, signedRefusal("version", "the version is not "+signed.Version))
+		reply, err := link.NewFrame("maintainer-ok", maintainerReply{Status: w.status, Answer: trimNewline(w.body)})
+		return reply, false, err
+	}
 	op := ""
 	if e, err := signed.Parse(data); err == nil {
 		op = e.Op
@@ -296,9 +333,8 @@ func (d *Daemon) answerMaintainer(pin string, f link.Frame, gen uint64) (link.Fr
 	} else {
 		result, err = d.SignedAction(ctx, data)
 	}
-	w := &answerWriter{header: http.Header{}}
-	maintainerRead(w, result, err)
-	reply, err := link.NewFrame("maintainer-ok", maintainerReply{Status: w.status, Answer: trimNewline(w.body)})
+	status, answer := d.signedReply(data, result, err)
+	reply, err := link.NewFrame("maintainer-ok", maintainerReply{Status: status, Answer: answer})
 	return reply, false, err
 }
 
