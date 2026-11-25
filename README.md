@@ -212,10 +212,11 @@ with a live owner returns `claim_conflict`. See [work commands](docs/WORK-ITEMS-
 
 `koinon dashboard` opens a one-time login link for the loopback dashboard; with a maintainer
 secret (`koinon maintainer secret set`), the login page takes the secret instead. At a
-terminal, the first `koinon install` asks whether the dashboard opens only on this computer
-or also on one network address over HTTPS (port 8443 by default);
-`--dashboard-address HOST:PORT|none` sets it without the question, and `koinon dashboard`
-then also prints that URL and its certificate SHA-256 fingerprint. The views show
+terminal, the first `koinon install` asks where the dashboard opens: only on this computer,
+also on your tailnet through Tailscale Serve, or also on one network address over HTTPS (port
+8443 by default). `--dashboard-address HOST:PORT|none` sets the network address, or none,
+without the question, and `koinon dashboard` then also prints that URL and its certificate
+SHA-256 fingerprint. The views show
 sessions, messages, delivery, memory and work. Administrative actions require a login,
 matching Host/Origin and a CSRF token, and write an audit record. The maintainer inbox is
 available through that dashboard. See [usage](docs/USAGE.md) and [protocol](PROTOCOL.md).
