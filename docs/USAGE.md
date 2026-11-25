@@ -128,6 +128,25 @@ receipts, not unrelated memory/work expiry. Recommendations cover only verified
 missing/outdated skills required by currently available features; other skills are optional.
 Declined and edited items remain visible. Read-only state changes no memory cursor or decision.
 
+### Preflight runner and standard lenses
+
+The catalog's setup item `setup.preflight-runner` is Koinon's preflight runner. An adopting
+project writes it to `scripts/koinon-preflight-run.sh` and runs it with
+`sh scripts/koinon-preflight-run.sh [--base REF]` as the `preflight` skill's Review run
+command. It reads the lens policy `.koinon/preflight/lenses.md` at the merge base, needs `git`,
+`jq` and the `claude` CLI, and writes local reports only. A `## NAME` section with no text turns
+on the standard lens NAME of the `preflight` skill. The runner takes its brief from
+`agents/skills/preflight/SKILL.md` at the same commit when the repository has that file, and
+otherwise from the installed release:
+
+```sh
+koinon preflight brief wording
+```
+
+The command prints the brief from the skill in the installed binary, needs no daemon and no
+session, and answers `not_found` for an unknown lens. After an upgrade, `library_state` shows
+the project's runner copy as outdated when the release changed it.
+
 ## Messages and participants
 
 Add the [recommended native permissions](PERMISSIONS.md) for each family. The file gives

@@ -12,7 +12,8 @@ on `develop`, and a `release` that stops before the merge into `main`), sprint p
 chunks two or more pairs can build at the same time, Koinon members started from Orca, a
 docs gate, the `coordinate` skill, room post answers that list each member, and answers that
 a maintainer client can check came from the computer that it asked, and a preflight lens for
-alarming wording (#795, #792, #784, #695, #696, #812). The store stays at schema 40.
+alarming wording that adopting projects can run (#795, #792, #784, #695, #696, #812, #814).
+The store stays at schema 40.
 
 - Merge gates for Koinon's own pull requests (#795, WDR 004, Decision 8). Koinon adopts the
   `preflight` skill with five lenses, security, code, standards, refusal and wording:
@@ -38,6 +39,13 @@ alarming wording (#795, #792, #784, #695, #696, #812). The store stays at schema
   text in a project's lens policy turns on the standard lens of that name, and
   `scripts/preflight-run.sh` reads its brief from the skill at the policy's commit. Koinon
   turns on `wording` (#812, WDR 004, Decision 8).
+
+- `koinon preflight brief NAME` prints a standard lens brief from the `preflight` skill in the
+  installed binary, with no daemon or session, and answers `not_found` for an unknown lens. The
+  catalog ships the preflight runner as the setup item `setup.preflight-runner`, which an
+  adopting project writes to `scripts/koinon-preflight-run.sh`; in a repository without
+  `agents/skills/preflight/SKILL.md`, the runner takes a standard lens brief from that command
+  (#814, PDR 008, Decision 5).
 
 - docs/USAGE.md has "Run Koinon members from Orca": the `orca terminal create` command form,
   `--role` with the pair for each member, the label of linked worktrees, the tmux session by

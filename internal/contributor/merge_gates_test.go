@@ -103,6 +103,11 @@ esac
 // fakeKoinon prints $FAKE/card.json as the answer of koinon decision get.
 const fakeKoinon = `#!/bin/sh
 echo "$*" >> "$FAKE/koinon-calls"
+if [ "$1" = preflight ]; then
+	[ -f "$FAKE/brief-$3" ] || { echo '{"code":"not_found","ok":false}'; exit 1; }
+	cat "$FAKE/brief-$3"
+	exit 0
+fi
 cat "$FAKE/card.json"
 `
 
@@ -691,6 +696,37 @@ func TestPreflightRunScript(t *testing.T) {
 		}
 		if b, _ := os.ReadFile(security[0]); !strings.Contains(string(b), "Check security.") || strings.Contains(string(b), "Synthetic standard") {
 			t.Fatalf("security prompt:\n%s", b)
+		}
+	})
+	t.Run("a repository without the skill takes the installed release's brief", func(t *testing.T) {
+		e := newGateEnv(t)
+		repo := standardLensRepository(t, false)
+		e.write(t, "brief-wording", "Synthetic installed wording brief.\n")
+		reports := t.TempDir()
+		out, err := e.run(t, repo, "preflight-run.sh", []string{"PREFLIGHT_REPORTS=" + reports}, "--base", "base")
+		if err != nil || !strings.Contains(e.read("koinon-calls"), "preflight brief wording") {
+			t.Fatalf("%v %s", err, out)
+		}
+		prompts, _ := filepath.Glob(filepath.Join(reports, "*", "*", "wording.prompt.md"))
+		if len(prompts) != 1 {
+			t.Fatalf("prompts %v", prompts)
+		}
+		if b, _ := os.ReadFile(prompts[0]); !strings.Contains(string(b), "Synthetic installed wording brief.") {
+			t.Fatalf("wording prompt:\n%s", b)
+		}
+	})
+	t.Run("a repository with the skill does not ask the installed release", func(t *testing.T) {
+		e := newGateEnv(t)
+		repo := standardLensRepository(t, true)
+		e.write(t, "brief-wording", "Synthetic installed wording brief.\n")
+		reports := t.TempDir()
+		out, err := e.run(t, repo, "preflight-run.sh", []string{"PREFLIGHT_REPORTS=" + reports}, "--base", "base")
+		prompts, _ := filepath.Glob(filepath.Join(reports, "*", "*", "wording.prompt.md"))
+		if err != nil || len(prompts) != 1 || strings.Contains(e.read("koinon-calls"), "preflight") {
+			t.Fatalf("%v %s %s", err, out, e.read("koinon-calls"))
+		}
+		if b, _ := os.ReadFile(prompts[0]); strings.Contains(string(b), "Synthetic installed") || !strings.Contains(string(b), "Synthetic standard wording brief.") {
+			t.Fatalf("wording prompt:\n%s", b)
 		}
 	})
 	t.Run("a section with no text and no standard lens", func(t *testing.T) {

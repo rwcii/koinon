@@ -79,8 +79,10 @@ compare the files in the Docs and agent files fact with the code at the head:
 ## Standard lenses
 
 A project turns on a standard lens with a `## NAME` section that has no text in its lens
-policy. The Review run command gives that lens's worker the brief below, from this skill. Koinon's
-source for the wording lens is WDR 004, Decision 8.
+policy. The Review run command gives that lens's worker the brief below, from this skill. The
+catalog's setup item `setup.preflight-runner` is a runner that does this; `koinon preflight
+brief NAME` prints a brief from the installed release. Koinon's source for the wording lens is
+WDR 004, Decision 8.
 
 ### wording
 
