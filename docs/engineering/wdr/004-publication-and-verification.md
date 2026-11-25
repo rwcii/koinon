@@ -230,7 +230,7 @@ Koinon currently supports Linux and macOS, with operating-system differences in
 both systems, `go vet ./...`, `go test -race -timeout 30m ./...` and the four `CGO_ENABLED=0` builds
 (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64) and the native service lifecycle job under
 systemd and launchd; on Linux, the `decision-citations` check of the pull request text (WDR 001,
-Decision 7); and the reviewer's `peer-review` and `refusal-review` commit statuses. The verdict is a pull
+Decision 7); and the reviewer's `peer-review` and `refusal-review` commit statuses (WDR 001, Decision 6). The verdict is a pull
 request comment bound to the head commit, because every agent acts under one GitHub account
 and an author cannot approve its own pull request (WDR 003). The `check` skill runs the suite
 locally with `git diff --check`, shell syntax checks for shell edits, the changelog rule and a
@@ -667,4 +667,4 @@ maintainer's board approval of its head, and the maintainer merges each release 
 | 2026-11-23 | Decision 8: preflight, the board approval of each head, and the maintainer's merge into `main` (#795) |
 | 2026-11-24 | Decision 8: a passing preflight is required; the card's Where target and content are the agents' design; the release bullet cites WDR 002, Decision 6, which it partly restores (#795) |
 | 2026-11-24 | Decision 8: the wording lens (#812) |
-| 2026-11-25 | Decision 3 and the Conclusion: the required `decision-citations` check and `refusal-review` status, and the lifecycle exemption without `agents/`, as `scripts/setup-repo.sh` and the workflows have them |
+| 2026-11-25 | Decision 3 and the Conclusion: the required `decision-citations` check and `refusal-review` status, and the lifecycle exemption without `agents/` (`docs/sprints/2026-10-11-skills-library/chunks/01-catalog.md`: skill changes no longer skip the native lifecycle proof), as `scripts/setup-repo.sh` and the workflows have them |

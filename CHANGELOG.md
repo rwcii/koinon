@@ -9,7 +9,7 @@ into a dated release section when promoted to `main`.
   answers and the network address (`--dashboard-address`, port 8443, the certificate
   fingerprint); INSTALL lists the full `--plan` order (no user service manager, the status
   lines) and the Grok status line that uninstall restores; USAGE gives examples of
-  `form_notes`; PROTOCOL says that the managed cycle runs and describes the `same_host` move of
+  `form_notes`; PROTOCOL says that the managed cycle runs, that no adapter checks a version, and describes the `same_host` move of
   an Enable, the cycle adapter of each family, the launch `role`, the `attention` and
   `settings` views and the form limits of the bulk and work actions; CONTRIBUTING and WDR 004
   name the required `decision-citations` check, WDR 004 also the `refusal-review` status and

@@ -641,8 +641,8 @@ admits a cycle when the family has a registered cycle adapter, the session still
 and tmux pane that its Enable pinned, it has no unfinished cycle (nor has its host), and fewer
 than 16 cycles are unfinished. Chunk 03 registers the Claude Code adapter, chunk 04 the Codex
 adapter, #512 the agy adapter, #513 the OpenCode adapter, #514 the DeepSeek adapter and #515
-the Grok adapter, so every family has one; each adapter's probe limits it to evidenced
-platforms and versions. Admission is one ordinary transaction: the
+the Grok adapter, so every family has one; each adapter's probe limits it to the platforms
+where its native checks passed and checks no version (PDR 006, Decision 5). Admission is one ordinary transaction: the
 cycle row, its first event `requested admitted`, an audit record and the typed request in the
 session's own inbox. The request's sender is the reserved system identity `overwatch`
 (`sender_family` and `sender_id` `overwatch`, `sender_name` `overwatch`), with `system_kind`
