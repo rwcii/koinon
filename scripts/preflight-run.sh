@@ -11,7 +11,8 @@
 # allow more, Claude Code asks before a read outside the working directory, and a -p run has
 # nobody to answer, so the read is denied; usage.json counts the denials; Claude Code still
 # gives it the account's email address, so the author reads each report and removes an email
-# address, a private path or a secret before the publish step posts it. Codex's
+# address, a private path or a secret before the publish step posts it; in Koinon,
+# scripts/preflight-publish.sh also refuses such a report. Codex's
 # read-only sandbox can read outside the worktree, so a codex worker is not used.
 #
 # The lens policy is .koinon/preflight/lenses.md at the merge base with REF: each "## NAME"
@@ -23,8 +24,8 @@
 # first policy, so a base without one gives the head's. The base default is origin/develop; give
 # the pull request's base branch with --base. Each worker runs in a detached worktree of the
 # head, outside this checkout, with the change in .preflight/change.diff. The reports go to
-# _preflight/HEAD/RUN/ in the main checkout, or to $PREFLIGHT_REPORTS; the run writes a
-# .gitignore of "*" in that folder, so Git ignores the reports.
+# _preflight/HEAD/RUN/ in the main checkout, or to $PREFLIGHT_REPORTS/HEAD/RUN/; the run writes
+# a .gitignore of "*" in its new RUN folder, so Git ignores its reports and nothing else.
 # Exit status 0: every lens approves. 1: a lens rejects. 2: a lens failed or the run could not
 # start.
 set -eu
@@ -101,8 +102,9 @@ if [ -z "$reports" ]; then
 fi
 run=$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%010d' "$$")
 mkdir -p "$reports/$head/$run"
-[ -e "$reports/.gitignore" ] || [ -L "$reports/.gitignore" ] || printf '*\n' >"$reports/.gitignore"
 out=$(cd "$reports/$head/$run" && pwd -P)
+# The run folder is new, so this .gitignore replaces nothing and hides only this run's reports.
+printf '*\n' >"$out/.gitignore"
 work=$(mktemp -d "${TMPDIR:-/tmp}/preflight.XXXXXX")
 work=$(cd "$work" && pwd -P)
 cleanup() {

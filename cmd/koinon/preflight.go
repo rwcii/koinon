@@ -10,7 +10,7 @@ import (
 
 // preflightCommand prints a standard lens brief from the preflight skill in this binary, for
 // a preflight runner whose lens policy turns the lens on with a section that has no text
-// (WDR 004, Decision 8; #814). It reads nothing else and needs no daemon.
+// (PDR 008, Decision 5; #814). It reads nothing else and needs no daemon.
 func preflightCommand(args []string, out io.Writer) error {
 	if len(args) != 2 || args[0] != "brief" {
 		return usageError{"invalid_request", "use koinon preflight brief NAME"}

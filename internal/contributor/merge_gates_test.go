@@ -746,22 +746,44 @@ func TestPreflightRunScript(t *testing.T) {
 			t.Fatalf("wording prompt:\n%s", b)
 		}
 	})
-	t.Run("the report folder is ignored", func(t *testing.T) {
-		e := newGateEnv(t)
-		repo := standardLensRepository(t, true)
-		out, err := e.run(t, repo, "preflight-run.sh", nil, "--base", "base")
-		if err != nil {
-			t.Fatalf("%v %s", err, out)
-		}
-		if b, _ := os.ReadFile(filepath.Join(repo, "_preflight", ".gitignore")); string(b) != "*\n" {
-			t.Fatalf("report folder .gitignore %q", b)
-		}
-		cmd := exec.Command("git", "-C", repo, "status", "--porcelain", "--untracked-files=all")
-		cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
-		if status, err := cmd.Output(); err != nil || len(status) != 0 {
-			t.Fatalf("reports are not ignored: %v %s", err, status)
-		}
-	})
+	// Each run hides its own reports and nothing else: an existing .gitignore in the report
+	// folder does not stop it, and a report folder at the checkout root hides no other file.
+	for _, c := range []struct{ name, reports string }{{"the default report folder", ""}, {"a report folder at the checkout root", "."}} {
+		t.Run(c.name+" keeps only the run's reports out of Git", func(t *testing.T) {
+			e := newGateEnv(t)
+			repo := standardLensRepository(t, true)
+			if err := os.MkdirAll(filepath.Join(repo, "_preflight"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			os.WriteFile(filepath.Join(repo, "_preflight", ".gitignore"), []byte("*.tmp\n"), 0600)
+			os.WriteFile(filepath.Join(repo, "unrelated.txt"), []byte("synthetic\n"), 0600)
+			var env []string
+			if c.reports != "" {
+				env = []string{"PREFLIGHT_REPORTS=" + filepath.Join(repo, c.reports)}
+			}
+			out, err := e.run(t, repo, "preflight-run.sh", env, "--base", "base")
+			if err != nil {
+				t.Fatalf("%v %s", err, out)
+			}
+			found, _ := filepath.Glob(filepath.Join(repo, "*", "*", "*", "result.json"))
+			if c.reports != "" {
+				found, _ = filepath.Glob(filepath.Join(repo, "*", "*", "result.json"))
+			}
+			if len(found) != 1 {
+				t.Fatalf("results %v", found)
+			}
+			if b, _ := os.ReadFile(filepath.Join(filepath.Dir(found[0]), ".gitignore")); string(b) != "*\n" {
+				t.Fatalf("run folder .gitignore %q", b)
+			}
+			cmd := exec.Command("git", "-C", repo, "status", "--porcelain", "--untracked-files=all")
+			cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
+			status, err := cmd.Output()
+			want := "?? _preflight/.gitignore\n?? unrelated.txt\n"
+			if err != nil || string(status) != want {
+				t.Fatalf("git status %v:\n%s\nwant:\n%s", err, status, want)
+			}
+		})
+	}
 	t.Run("a repository with the skill does not ask the installed release", func(t *testing.T) {
 		e := newGateEnv(t)
 		repo := standardLensRepository(t, true)

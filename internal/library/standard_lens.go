@@ -16,7 +16,7 @@ var lensName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
 
 // StandardLens returns the brief of the standard lens NAME: the text under "### NAME" in the
 // "## Standard lenses" section of the preflight skill in source, as scripts/preflight-run.sh
-// reads it (WDR 004, Decision 8; #814).
+// reads it (WDR 004, Decision 8; PDR 008, Decision 5; #814).
 func StandardLens(source fs.FS, name string) (string, error) {
 	if !lensName.MatchString(name) {
 		return "", ErrNoStandardLens

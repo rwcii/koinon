@@ -135,12 +135,13 @@ writes it to `scripts/koinon-preflight-run.sh`, records the adoption as a projec
 and runs it with `sh scripts/koinon-preflight-run.sh --base BRANCH`, the pull request's base
 branch, as the `preflight` skill's Review run command; the base defaults to `origin/develop`. It
 reads the lens policy `.koinon/preflight/lenses.md` at the merge base, needs `git`, `jq` and the
-`claude` CLI, and writes local reports only, to `_preflight/` in the main checkout, where a
-`.gitignore` of `*` keeps them out of Git. A lens worker can see the account's email address, so
-the author reads each report and removes an email address, a private path or a secret before the
-publish step posts it. A `## NAME` section with no text turns on the standard lens NAME of the
-`preflight` skill. The runner takes its brief from `agents/skills/preflight/SKILL.md` at the same
-commit when the repository's copy has that lens, and otherwise from the installed release:
+`claude` CLI, and writes local reports only, to `_preflight/HEAD/RUN/` in the main checkout; a
+`.gitignore` of `*` in each new RUN folder keeps that run's reports out of Git and hides nothing
+else. A lens worker can see the account's email address, so the author reads each report and
+removes an email address, a private path or a secret before the publish step posts it. A `## NAME`
+section with no text turns on the standard lens NAME of the `preflight` skill. The runner takes its
+brief from `agents/skills/preflight/SKILL.md` at the same commit when the repository's copy has
+that lens, and otherwise from the installed release:
 
 ```sh
 koinon preflight brief wording
