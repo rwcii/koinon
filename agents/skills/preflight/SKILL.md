@@ -60,6 +60,10 @@ the Usage import step. When that fact is "none", report the usage files as not i
 
 The comment shows a value that is not available as `unknown`. Never show it as zero.
 
+A lens worker can see the account's email address, and the comment is public. Read each
+report before the command posts it, and remove an email address, a private path or a secret
+from it. Koinon's source for this step is PDR 008, Decision 5 (#814, the agents' design).
+
 ## Docs gate
 
 Koinon's procedure source for this gate is WDR 004, Decision 7. Before you run the lenses,
@@ -79,8 +83,10 @@ compare the files in the Docs and agent files fact with the code at the head:
 ## Standard lenses
 
 A project turns on a standard lens with a `## NAME` section that has no text in its lens
-policy. The Review run command gives that lens's worker the brief below, from this skill. Koinon's
-source for the wording lens is WDR 004, Decision 8.
+policy. The Review run command gives that lens's worker the brief below, from this skill. The
+catalog's setup item `setup.preflight-runner` is a runner that does this; `koinon preflight
+brief NAME` prints a brief from the installed release. Koinon's source for the wording lens is
+WDR 004, Decision 8.
 
 ### wording
 

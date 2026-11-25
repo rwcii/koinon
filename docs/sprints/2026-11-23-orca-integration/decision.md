@@ -51,6 +51,14 @@ computers. Today:
     release".
   - **Reason and scope:** the source gives no further reason. Scope: #812 only; the rest of
     the split stays.
+- **Changed on 2026-11-25: the preflight runner joins v0.13.4.**
+  - **Decided by:** Robert Capps. **Date:** 2026-11-25, terminal, then the decision board.
+  - **Context:** an adopting project could not turn on the wording lens without its own
+    lookup (#814). The report said #814 was not in v0.13.4; the maintainer: "fix that gap".
+    The card's alternative was to promote v0.13.4 first and move #814 to the next release.
+  - **Decision:** the card that puts #814 in v0.13.4 was approved with no note.
+  - **Reason and scope:** the card's text, written by the author: "you added #812 to v0.13.4
+    for adoption". Scope: #814 only.
 
 ### Node keys in the mesh (spec section 3)
 

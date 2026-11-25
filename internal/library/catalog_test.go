@@ -50,7 +50,7 @@ func TestEmbeddedExactSourceAndDescriptors(t *testing.T) {
 		t.Fatal(err)
 	}
 	canonicalPaths, _ := fs.Glob(skills.Source, "*/SKILL.md")
-	if len(canonicalPaths) < 13 || len(catalog.Items) != len(canonicalPaths)+5 || len(catalog.Digest) != 64 {
+	if len(canonicalPaths) < 13 || len(catalog.Items) != len(canonicalPaths)+6 || len(catalog.Digest) != 64 {
 		t.Fatalf("incomplete catalog: %d/%s", len(catalog.Items), catalog.Digest)
 	}
 	seen := map[string]bool{}
@@ -93,6 +93,22 @@ func TestEmbeddedExactSourceAndDescriptors(t *testing.T) {
 			b, _ := fs.ReadFile(reference.Permissions, "PERMISSIONS.md")
 			if !bytes.Equal(b, []byte(item.Content)) {
 				t.Fatal("copied permissions source")
+			}
+		}
+		// The runner ships with the bytes of scripts/preflight-run.sh, at a project path (#814).
+		if item.ID == "setup.preflight-runner" {
+			b, err := os.ReadFile(filepath.Join("..", "..", "scripts", "preflight-run.sh"))
+			if err != nil || !bytes.Equal(b, []byte(item.Content)) || len(item.Destinations) == 0 {
+				t.Fatalf("preflight runner item: %v", err)
+			}
+			for _, d := range item.Destinations {
+				if d.Scope != "project" || d.Path != "scripts/koinon-preflight-run.sh" {
+					t.Fatalf("preflight runner destination %+v", d)
+				}
+			}
+			targets, err := catalog.Targets(item.Destinations[0].Family, "project", item.ID)
+			if err != nil || len(targets) != 1 || targets[0].Path != "scripts/koinon-preflight-run.sh" || !bytes.Equal(targets[0].Expected, b) {
+				t.Fatalf("preflight runner targets %v %v", targets, err)
 			}
 		}
 	}
@@ -250,5 +266,26 @@ func TestTeamSkillFactBindings(t *testing.T) {
 		if state := (Inspector{}).InspectItem(c, ctx, "skill."+test.skill, nil).Facts; state == nil || state.State != "present-valid" {
 			t.Fatalf("%s with a sidecar: %+v", test.skill, state)
 		}
+	}
+}
+
+// A standard lens brief is the text under its "### NAME" heading in the "## Standard lenses"
+// section of the preflight skill, and nothing else (#814).
+func TestStandardLens(t *testing.T) {
+	source := fstest.MapFS{"preflight/SKILL.md": {Data: []byte("# Preflight\n\n### wording\n\nNot standard.\n\n" +
+		"## Standard lenses\n\nIntro.\n\n### other\n\nOther brief.\n\n### wording\n\nThe wording brief.\nSecond line.\n\n" +
+		"## Repository facts\n\n### wording\n\nNot standard either.\n")}}
+	got, err := StandardLens(source, "wording")
+	if err != nil || got != "The wording brief.\nSecond line.\n" {
+		t.Fatalf("%q %v", got, err)
+	}
+	for _, name := range []string{"missing", "Wording", "../wording", "", "intro"} {
+		if _, err := StandardLens(source, name); err != ErrNoStandardLens {
+			t.Errorf("%q: %v", name, err)
+		}
+	}
+	embedded, err := EmbeddedStandardLens("wording")
+	if err != nil || !strings.Contains(embedded, "alarming or pejorative") {
+		t.Fatalf("embedded wording lens: %q %v", embedded, err)
 	}
 }

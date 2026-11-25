@@ -3,7 +3,7 @@ pdr: "008"
 title: "Portable Skills and Explicit Adoption"
 status: draft
 created: "2026-10-12"
-updated: "2026-11-24"
+updated: "2026-11-25"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -93,16 +93,16 @@ handoff and pickup skills, and its own `koinon-pickup` entry, are PDR 006.
 
 The skills Koinon uses are the same files it offers. The binary embeds `agents/skills/*/SKILL.md`
 and the shared `AGENTS.md` and builds the catalog from those bytes; `koinon version` reports
-`catalog_digest`. The current source includes 21 skills: `refusal-review` was added after
-the initial 13, and seven procedures that adopting projects brought (Decision 5), and setup items for shared instructions, discovery links,
-OpenCode wrappers, a guidance reference and permission recommendations. `spin-up` handles
-first-run permission prompts and alerts in the new session's verified terminal. Skills read
-project facts (branches, checks, release steps) from `.koinon/skills/NAME.md`; each skill
-declares required and optional facts with defaults. `check`, `ship` and `release` have
-required facts, and of the Decision 5 skills `preflight`, `provenance`, `standards-review`,
-`record`, `sprint-closeout` and `standards-audit`. When a required fact is missing, the agent derives it from the project's
-evidence and records it in the file. Fact files live in the project; the binary does not embed
-them.
+`catalog_digest`. The current source includes 22 skills: `refusal-review` and `coordinate` were
+added after the initial 13, and seven procedures that adopting projects brought (Decision 5), and
+setup items for shared instructions, discovery links, OpenCode wrappers, a guidance reference,
+permission recommendations and the preflight runner. `spin-up` handles first-run permission prompts
+and alerts in the new session's verified terminal. Skills read project facts (branches, checks,
+release steps) from `.koinon/skills/NAME.md`; each skill declares required and optional facts with
+defaults. `check`, `ship` and `release` have required facts, and of the Decision 5 skills
+`preflight`, `provenance`, `standards-review`, `record`, `sprint-closeout` and `standards-audit`.
+When a required fact is missing, the agent derives it from the project's evidence and records it in
+the file. Fact files live in the project; the binary does not embed them.
 
 Koinon-owned entries are not catalog items: `koinon-pickup`, the managed context cycle's
 pickup entry (PDR 006, Decision 4), and the team skill entries (Decision 2). `koinon install` and the daemon at each start install it
@@ -404,12 +404,39 @@ the lens policy `.koinon/preflight/lenses.md`, `scripts/preflight-run.sh` and
 lens later added its Standard lenses section (WDR 004, Decision 8, #812). The other six
 procedures stay offered and not adopted.
 
+**Changed on 2026-11-25: the preflight runner for adopting projects (#814).**
+
+- **Decided by:** Robert Capps. **Date:** 2026-11-25, terminal, then the decision board.
+- **Context:** the installed release carried the `preflight` skill with its standard `wording`
+  lens, but not the runner that resolves a lens section with no text; that runner was only in
+  Koinon's checkout. An adopting project had to write that lookup itself, and
+  `koinon library read` needs a calling session, which a runner script does not have.
+- **Decision:** after the report of that gap, the maintainer: "fix that gap". On the decision
+  board, the card for this design, in v0.13.4, was approved with no note.
+- **The agents' design, in the approved card:** the catalog ships `scripts/preflight-run.sh` as the
+  setup item `setup.preflight-runner` (project path `scripts/koinon-preflight-run.sh`), and the new
+  command `koinon preflight brief NAME` prints a standard lens brief from the skill in the
+  installed binary, with no daemon or session. The runner reads the brief from the repository's
+  `agents/skills/preflight/SKILL.md` at the policy's commit when that file exists, as in Koinon,
+  and otherwise from that command. The lens text stays in one place, the skill.
+- **The agents' design, added by the preflight and peer reviews after the approval, not on the
+  card:** the runner falls back to that command also when the repository's skill copy has no such
+  lens, writes a `.gitignore` of `*` in each run's new report folder (moved there after the peer
+  review, so it hides nothing else), and names no Koinon path in its messages; the `preflight`
+  skill asks the author to remove an email address, a private path or a secret from each report
+  before the publish step posts it, because the worker can see the account's email address.
+- **Reason and scope:** the author's reason: a project turns on a standard lens with one section
+  and no lookup of its own. Scope: the runner and the brief command; `scripts/preflight-publish.sh`
+  stays in Koinon's checkout.
+
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
 | ----------- | ----------- | ------------ |
-| Merge some of the seven into existing skills | For example `refusal-audit` into `refusal-review` | It changes text that the maintainer saw; the catalog has room (26 of 32 items) |
+| Merge some of the seven into existing skills | For example `refusal-audit` into `refusal-review` | It changes text that the maintainer saw; the catalog has room (28 of 32 items) |
 | Wrappers in the adopting project | Skills under the project's own prefix | A second installer and a second copy of each procedure |
+| Only `koinon preflight brief` (#814) | The command without the runner item | Each project still writes the lookup in its own runner |
+| A `koinon preflight run` command (#814) | The whole runner ported to Go | No project copy, but about a day of work for v0.13.4 |
 
 ### User Impact
 
@@ -443,3 +470,4 @@ drift defect are ordinary corrections; they add no product decision.
 | 2026-11-23 | Decision 5: Koinon adopts `preflight` for its own work (#795) |
 | 2026-11-24 | Decision 5: the merge gates' date, after the change of 2026-11-24 to WDR 004, Decision 8 (#795) |
 | 2026-11-24 | Decision 5: five lenses; the preflight skill's Standard lenses section, after the change of 2026-11-24 to WDR 004, Decision 8 (#812) |
+| 2026-11-25 | Decision 5: the preflight runner as a setup item and `koinon preflight brief` (#814) |

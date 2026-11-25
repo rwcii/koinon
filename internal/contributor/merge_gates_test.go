@@ -103,6 +103,11 @@ esac
 // fakeKoinon prints $FAKE/card.json as the answer of koinon decision get.
 const fakeKoinon = `#!/bin/sh
 echo "$*" >> "$FAKE/koinon-calls"
+if [ "$1" = preflight ]; then
+	[ -f "$FAKE/brief-$3" ] || { echo '{"code":"not_found","ok":false}'; exit 1; }
+	cat "$FAKE/brief-$3"
+	exit 0
+fi
 cat "$FAKE/card.json"
 `
 
@@ -541,10 +546,28 @@ func gateRepository(t *testing.T, e gateEnv, policyAtBase bool) string {
 	return repo
 }
 
+// The base preflight skill of standardLensRepository: with the wording lens, or an older copy
+// without the Standard lenses section.
+const (
+	skillWithLens = "# Preflight\n\n## Standard lenses\n\nIntro.\n\n### other\n\nOther brief.\n\n" +
+		"### wording\n\nSynthetic standard wording brief.\n\n## Repository facts\n\nNot a brief.\n"
+	skillWithoutLens = "# Preflight\n\n## Repository facts\n\n### wording\n\nNot a brief.\n"
+)
+
 // standardLensRepository makes a repository whose base policy turns on the wording lens with a
 // section that has no text, and whose base preflight skill holds that standard lens when
 // withSkill is true. Its head weakens the skill's brief, which the run must not use.
 func standardLensRepository(t *testing.T, withSkill bool) string {
+	t.Helper()
+	if withSkill {
+		return standardLensRepositoryWith(t, skillWithLens)
+	}
+	return standardLensRepositoryWith(t, "")
+}
+
+// standardLensRepositoryWith is standardLensRepository with the base skill text, or no skill
+// file when skill is empty.
+func standardLensRepositoryWith(t *testing.T, skill string) string {
 	t.Helper()
 	repo := filepath.Join(t.TempDir(), "repo")
 	git := func(args ...string) {
@@ -560,9 +583,8 @@ func standardLensRepository(t *testing.T, withSkill bool) string {
 		"file":                        "base\n",
 		".koinon/preflight/lenses.md": "# Lenses\n\n## security\n\nCheck security.\n\n## wording\n",
 	}
-	if withSkill {
-		files["agents/skills/preflight/SKILL.md"] = "# Preflight\n\n## Standard lenses\n\nIntro.\n\n### other\n\nOther brief.\n\n" +
-			"### wording\n\nSynthetic standard wording brief.\n\n## Repository facts\n\nNot a brief.\n"
+	if skill != "" {
+		files["agents/skills/preflight/SKILL.md"] = skill
 	}
 	for name, body := range files {
 		path := filepath.Join(repo, name)
@@ -578,7 +600,7 @@ func standardLensRepository(t *testing.T, withSkill bool) string {
 	git("commit", "-q", "-m", "base")
 	git("branch", "base")
 	head := map[string]string{"file": "head\n"}
-	if withSkill {
+	if skill != "" {
 		head["agents/skills/preflight/SKILL.md"] = "# Preflight\n\n## Standard lenses\n\n### wording\n\nHead brief.\n"
 	}
 	for name, body := range head {
@@ -693,6 +715,89 @@ func TestPreflightRunScript(t *testing.T) {
 			t.Fatalf("security prompt:\n%s", b)
 		}
 	})
+	t.Run("a repository without the skill takes the installed release's brief", func(t *testing.T) {
+		e := newGateEnv(t)
+		repo := standardLensRepository(t, false)
+		e.write(t, "brief-wording", "Synthetic installed wording brief.\n")
+		reports := t.TempDir()
+		out, err := e.run(t, repo, "preflight-run.sh", []string{"PREFLIGHT_REPORTS=" + reports}, "--base", "base")
+		if err != nil || !strings.Contains(e.read("koinon-calls"), "preflight brief wording") {
+			t.Fatalf("%v %s", err, out)
+		}
+		prompts, _ := filepath.Glob(filepath.Join(reports, "*", "*", "wording.prompt.md"))
+		if len(prompts) != 1 {
+			t.Fatalf("prompts %v", prompts)
+		}
+		if b, _ := os.ReadFile(prompts[0]); !strings.Contains(string(b), "Synthetic installed wording brief.") {
+			t.Fatalf("wording prompt:\n%s", b)
+		}
+	})
+	t.Run("a skill copy without the lens takes the installed release's brief", func(t *testing.T) {
+		e := newGateEnv(t)
+		repo := standardLensRepositoryWith(t, skillWithoutLens)
+		e.write(t, "brief-wording", "Synthetic installed wording brief.\n")
+		reports := t.TempDir()
+		out, err := e.run(t, repo, "preflight-run.sh", []string{"PREFLIGHT_REPORTS=" + reports}, "--base", "base")
+		prompts, _ := filepath.Glob(filepath.Join(reports, "*", "*", "wording.prompt.md"))
+		if err != nil || len(prompts) != 1 || !strings.Contains(e.read("koinon-calls"), "preflight brief wording") {
+			t.Fatalf("%v %s", err, out)
+		}
+		if b, _ := os.ReadFile(prompts[0]); !strings.Contains(string(b), "Synthetic installed wording brief.") || strings.Contains(string(b), "Not a brief.") {
+			t.Fatalf("wording prompt:\n%s", b)
+		}
+	})
+	// Each run hides its own reports and nothing else: an existing .gitignore in the report
+	// folder does not stop it, and a report folder at the checkout root hides no other file.
+	for _, c := range []struct{ name, reports string }{{"the default report folder", ""}, {"a report folder at the checkout root", "."}} {
+		t.Run(c.name+" keeps only the run's reports out of Git", func(t *testing.T) {
+			e := newGateEnv(t)
+			repo := standardLensRepository(t, true)
+			if err := os.MkdirAll(filepath.Join(repo, "_preflight"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			os.WriteFile(filepath.Join(repo, "_preflight", ".gitignore"), []byte("*.tmp\n"), 0600)
+			os.WriteFile(filepath.Join(repo, "unrelated.txt"), []byte("synthetic\n"), 0600)
+			var env []string
+			if c.reports != "" {
+				env = []string{"PREFLIGHT_REPORTS=" + filepath.Join(repo, c.reports)}
+			}
+			out, err := e.run(t, repo, "preflight-run.sh", env, "--base", "base")
+			if err != nil {
+				t.Fatalf("%v %s", err, out)
+			}
+			found, _ := filepath.Glob(filepath.Join(repo, "*", "*", "*", "result.json"))
+			if c.reports != "" {
+				found, _ = filepath.Glob(filepath.Join(repo, "*", "*", "result.json"))
+			}
+			if len(found) != 1 {
+				t.Fatalf("results %v", found)
+			}
+			if b, _ := os.ReadFile(filepath.Join(filepath.Dir(found[0]), ".gitignore")); string(b) != "*\n" {
+				t.Fatalf("run folder .gitignore %q", b)
+			}
+			cmd := exec.Command("git", "-C", repo, "status", "--porcelain", "--untracked-files=all")
+			cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
+			status, err := cmd.Output()
+			want := "?? _preflight/.gitignore\n?? unrelated.txt\n"
+			if err != nil || string(status) != want {
+				t.Fatalf("git status %v:\n%s\nwant:\n%s", err, status, want)
+			}
+		})
+	}
+	t.Run("a repository with the skill does not ask the installed release", func(t *testing.T) {
+		e := newGateEnv(t)
+		repo := standardLensRepository(t, true)
+		e.write(t, "brief-wording", "Synthetic installed wording brief.\n")
+		reports := t.TempDir()
+		out, err := e.run(t, repo, "preflight-run.sh", []string{"PREFLIGHT_REPORTS=" + reports}, "--base", "base")
+		prompts, _ := filepath.Glob(filepath.Join(reports, "*", "*", "wording.prompt.md"))
+		if err != nil || len(prompts) != 1 || strings.Contains(e.read("koinon-calls"), "preflight") {
+			t.Fatalf("%v %s %s", err, out, e.read("koinon-calls"))
+		}
+		if b, _ := os.ReadFile(prompts[0]); strings.Contains(string(b), "Synthetic installed") || !strings.Contains(string(b), "Synthetic standard wording brief.") {
+			t.Fatalf("wording prompt:\n%s", b)
+		}
+	})
 	t.Run("a section with no text and no standard lens", func(t *testing.T) {
 		e := newGateEnv(t)
 		repo := standardLensRepository(t, false)
@@ -714,7 +819,7 @@ func TestPreflightRunScript(t *testing.T) {
 		e := newGateEnv(t)
 		repo := gateRepository(t, e, true)
 		out, err := e.run(t, repo, "preflight-run.sh", []string{"PREFLIGHT_REPORTS=" + t.TempDir()}, "--family", "codex")
-		if err == nil || !strings.Contains(out, "usage: scripts/preflight-run.sh [--base REF]") || e.read("workers") != "" {
+		if err == nil || !strings.Contains(out, "usage: preflight-run.sh [--base REF]") || e.read("workers") != "" {
 			t.Fatalf("%v %s", err, out)
 		}
 	})
