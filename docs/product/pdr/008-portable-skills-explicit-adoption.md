@@ -425,9 +425,9 @@ procedures stay offered and not adopted.
   `preflight` skill asks the author to remove an email address, a private path or a secret from
   each report before the publish step posts it, because the worker can see the account's email
   address.
-- **Reason and scope:** a project turns on a standard lens with one section and no lookup of
-  its own. Scope: the runner and the brief command; `scripts/preflight-publish.sh` stays in
-  Koinon's checkout.
+- **Reason and scope:** the author's reason: a project turns on a standard lens with one section
+  and no lookup of its own. Scope: the runner and the brief command; `scripts/preflight-publish.sh`
+  stays in Koinon's checkout.
 
 ### Alternatives Considered
 

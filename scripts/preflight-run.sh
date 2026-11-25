@@ -101,7 +101,7 @@ if [ -z "$reports" ]; then
 fi
 run=$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%010d' "$$")
 mkdir -p "$reports/$head/$run"
-[ -e "$reports/.gitignore" ] || printf '*\n' >"$reports/.gitignore"
+[ -e "$reports/.gitignore" ] || [ -L "$reports/.gitignore" ] || printf '*\n' >"$reports/.gitignore"
 out=$(cd "$reports/$head/$run" && pwd -P)
 work=$(mktemp -d "${TMPDIR:-/tmp}/preflight.XXXXXX")
 work=$(cd "$work" && pwd -P)
