@@ -75,6 +75,44 @@ func TestCodexNarrowCompaction(t *testing.T) {
 	}
 }
 
+// With startup warnings, Codex CLI 0.172.0 keeps the warnings mark alone on the last footer
+// row while the composer holds text (#825). A footer of 3 or 4 rows that ends with that mark
+// is the footer; the same mark after other text on the row, or 5 rows, is not.
+func TestCodexWarningsFooter(t *testing.T) {
+	const mark = "                              ⚠  2 warnings · f2 to view"
+	notice := codexTestNotice
+	typed := narrowScreen([]string{"\x1b[1m›\x1b[0m " + notice[:60], "  " + notice[60:]}, narrowStatus, narrowStatusTail, mark)
+	if got := codexDraft(typed); squeeze(got) != squeeze(notice) {
+		t.Fatalf("readback %q", got)
+	}
+	if one := narrowScreen([]string{"\x1b[1m›\x1b[0m " + notice}, narrowStatus, narrowStatusTail, "  ⚠ 1 warning · f2 to view"); squeeze(codexDraft(one)) != squeeze(notice) {
+		t.Fatal("one warning")
+	}
+	for name, screen := range map[string]string{
+		"draft with text before the mark": narrowScreen([]string{narrowPlaceholder}, narrowStatus, narrowStatusTail, "  synthetic "+strings.TrimSpace(mark)),
+		"mark not the last of 3 rows":     narrowScreen([]string{narrowPlaceholder}, narrowStatus, mark, narrowStatusTail),
+		"5 rows that end with the mark":   narrowScreen([]string{narrowPlaceholder}, narrowStatus, narrowStatusTail, "  synthetic row", "  synthetic row", mark),
+	} {
+		if codexIdle(screen) {
+			t.Errorf("%s: read as an empty composer", name)
+		}
+	}
+}
+
+// The pane wake types the notice into an idle pane whose footer ends with the warnings mark
+// alone, reads it back and submits it with Enter (#825).
+func TestCodexWakeWarningsPane(t *testing.T) {
+	f := newCodexFixture(t)
+	p := f.pane("warnings", "sh -c 'PROGRAM; exit'")
+	session := f.session(f.child(p.shell), p.id, "idle")
+	if got := f.s.providerWake(context.Background(), session, codexTestNotice); got != accepted() {
+		t.Fatalf("wake: %v\n%s", got, f.run("capture-pane", "-p", "-t", p.id))
+	}
+	if got := f.received(p); got != codexTestNotice+"\n" {
+		t.Fatalf("received %q", got)
+	}
+}
+
 // The pane wake types the notice into an idle narrow pane and reads it back before Enter.
 func TestCodexWakeNarrowPane(t *testing.T) {
 	f := newCodexFixture(t)

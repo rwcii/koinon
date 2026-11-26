@@ -102,6 +102,7 @@ type codexTerminal struct {
 	pid, start int64
 	args       []string
 	narrow     bool // the status line takes two rows
+	warnings   bool // Codex 0.172.0 startup warnings: the mark alone ends the footer under a draft (#825)
 }
 
 func newCodexTerminal(t *testing.T) *codexTerminal {
@@ -169,8 +170,13 @@ func (c *codexTerminal) screen() string {
 	if c.narrow {
 		b.WriteString("  69% left\n") // a narrow pane wraps the status line (#761)
 	}
-	if c.input == "" {
+	switch {
+	case c.input == "" && c.warnings:
+		b.WriteString("  ? for shortcuts            ⚠  2 warnings · f2 to view\n")
+	case c.input == "":
 		b.WriteString("  ? for shortcuts\n")
+	case c.warnings:
+		b.WriteString("                             ⚠  2 warnings · f2 to view\n")
 	}
 	return b.String()
 }
@@ -623,6 +629,20 @@ func TestCodexPickupRows(t *testing.T) {
 		if !c.installed && len(term.sent()) != 0 {
 			t.Fatalf("%s: keys %q", c.name, term.sent())
 		}
+	}
+}
+
+// In a narrow pane with startup warnings, the typed pickup is read back above a footer that
+// ends with the warnings mark alone, and submitted with Enter (#825).
+func TestCodexPickupWarningsFooter(t *testing.T) {
+	term := newCodexTerminal(t)
+	term.narrow, term.warnings = true, true
+	target := term.target(t)
+	writeEntry(t, CodexPickupSkillPath(term.home), PickupSkill())
+	term.menu = []string{"koinon-pickup  [Skill] Koinon's managed-cycle entry"}
+	ok, err := (codexCycle{}).Pickup(context.Background(), target, term.fence)
+	if !ok || err != nil || !slices.Equal(term.sent(), []string{"-l $koinon-pickup", "Escape", "Enter"}) {
+		t.Fatalf("pickup: %v %v keys %q", ok, err, term.sent())
 	}
 }
 
