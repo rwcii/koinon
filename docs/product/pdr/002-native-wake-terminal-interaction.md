@@ -3,7 +3,7 @@ pdr: "002"
 title: "Native Wake and Terminal Interaction"
 status: draft
 created: "2026-10-12"
-updated: "2026-10-25"
+updated: "2026-11-25"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -181,8 +181,9 @@ An agent that launches another agent currently interacts with the new agent's te
 clear its permission prompts and startup alerts, and an agent running a context handoff
 enters the commands in the agent's tmux session. This is ordinary work. The `peer-tmux` skill
 describes the steps: verify the target pane, read the screen before and after each input, and
-read back a dialog's selected option before Enter. Koinon's runtime does not type into an
-agent's input today; the planned daemon-driven cycle is PDR 006.
+read back a dialog's selected option before Enter. The daemon-driven managed context
+cycle of PDR 006 is built: the daemon clears the context, or starts a new session, and gives
+the agent the pickup command itself.
 
 **Provenance:** Robert Capps, 2026-10-12: "in fact, an agent will need to interact with a newly
 launched agent when invoked, as there will be permissions and other alerts that need to be
@@ -367,3 +368,4 @@ or practice that the maintainer has not decided, so this record is a draft.
 | 2026-10-23 | Decision 1: each `codex queue` failure has its own code, a non-zero exit is not counted as a notice, and failures are logged (#466) |
 | 2026-10-25 | Decisions 2 and 3: removed the "within the task" qualifiers on terminal input (#487) |
 | 2026-11-22 | Decision 5: the `coordinate` skill, approved by Robert Capps on 2026-11-21 (#784) |
+| 2026-11-25 | Decision 2: the managed context cycle of PDR 006 is built (#822) |
