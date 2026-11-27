@@ -213,17 +213,21 @@ names the running binary, or the formula's opt path for a Homebrew binary, and r
    it as yourself; it asks `sudo` for each privileged step.
 4. An installed binary that is not this one (in user mode with Homebrew, not the link to the opt
    path): `koinon install`, and nothing more.
-5. A `koinon-pickup` entry, a `koinon-NAME` skill entry or an OpenCode command file that is
+5. No macOS system daemon, no user service manager, and no daemon of this version answers:
+   `koinon install`, and nothing more; without a manager nothing starts the daemon after a
+   restart (#619).
+6. A `koinon-pickup` entry, a `koinon-NAME` skill entry or an OpenCode command file that is
    missing, or that an earlier Koinon wrote: `koinon install`, and nothing more (#741). The plan
    reads the same files that the install writes and writes none. A linked entry, another skill
    at a shared name such as an adopted `koinon-guide`, and an edited command are kept and need
    nothing. `library_state` does not check these entries: it checks catalog adoption.
-6. No maintainer secret: `koinon maintainer secret set`. The daemon reports this in
+7. No maintainer secret: `koinon maintainer secret set`. The daemon reports this in
    `GET /v1/status`; the plan waits up to 20 seconds for it, since the daemon restarts after
    `brew upgrade`.
-7. Each agent family whose CLI is on `PATH` without the koinon server for the installed binary:
-   `koinon setup FAMILY --binary <prefix>/bin/koinon`, which configures the installed binary as
-   the install does.
+8. Each agent family whose CLI is on `PATH` without the koinon server for the installed binary,
+   and each configured Claude, agy or Grok family whose status line is missing or out of date
+   (#631): `koinon setup FAMILY --binary <prefix>/bin/koinon`, which configures the installed
+   binary as the install does.
 
 The port is not in the plan; a change is optional (Port, below). When a check cannot finish,
 for example when the daemon does not answer, a daemon of an earlier release does not report the
@@ -676,7 +680,8 @@ staging files.
   - the Codex SessionStart hook in `$CODEX_HOME/hooks.json` (default `~/.codex/hooks.json`),
     only while it runs this binary;
   - the OpenCode identity plugin;
-  - the Claude status line, whose saved original is restored.
+  - the Claude status line, whose saved original is restored;
+  - the Grok `[ui.status_line]` entry, whose saved original is restored.
 - The service file that carries the marker. It is removed only after the manager reports the
   service stopped. When the manager refuses the stop, or still reports the service running,
   uninstall refuses with `service_stop_failed` and keeps the service file and the binary.

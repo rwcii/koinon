@@ -3,7 +3,7 @@ wdr: "004"
 title: "Publication and Verification"
 status: draft
 created: "2026-10-12"
-updated: "2026-11-24"
+updated: "2026-11-25"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -226,10 +226,11 @@ are practice.
 ### Decision
 
 Koinon currently supports Linux and macOS, with operating-system differences in
-`internal/platform`. The `develop` ruleset requires these checks to pass on the head commit, on
-both systems: `go vet ./...`, `go test -race -timeout 30m ./...` and the four `CGO_ENABLED=0` builds
-(linux/amd64, linux/arm64, darwin/amd64, darwin/arm64), the native service lifecycle job under
-systemd and launchd, and the reviewer's `peer-review` commit status. The verdict is a pull
+`internal/platform`. The `develop` ruleset requires these checks to pass on the head commit: on
+both systems, `go vet ./...`, `go test -race -timeout 30m ./...` and the four `CGO_ENABLED=0` builds
+(linux/amd64, linux/arm64, darwin/amd64, darwin/arm64) and the native service lifecycle job under
+systemd and launchd; on Linux, the `decision-citations` check of the pull request text (WDR 001,
+Decision 7); and the reviewer's `peer-review` and `refusal-review` commit statuses (WDR 001, Decision 6). The verdict is a pull
 request comment bound to the head commit, because every agent acts under one GitHub account
 and an author cannot approve its own pull request (WDR 003). The `check` skill runs the suite
 locally with `git diff --check`, shell syntax checks for shell edits, the changelog rule and a
@@ -263,7 +264,7 @@ check: Robert Capps, 2026-10-26, kept it (493-5 in WDR 001, Decision 6,
 
 **Gate crossed:** merge-time. `tests.yml` runs the `go` job on `ubuntu-latest` and
 `macos-latest` for every pull request. `native-go-lifecycle.yml` runs `go-lifecycle` with
-`KOINON_NATIVE_JOB=1` on disposable runners; for a pull request that changes only `agents/`,
+`KOINON_NATIVE_JOB=1` on disposable runners; for a pull request that changes only
 `docs/sprints/`, `.claude/`, `.agents/` or `.codex/`, the jobs still report but skip the
 service steps. The `develop` ruleset requires `go (ubuntu-latest)`, `go (macos-latest)`,
 `go-lifecycle (ubuntu-latest, systemd)`, `go-lifecycle (macos-latest, launchd)`,
@@ -639,8 +640,8 @@ merge into `main`.
 ## Conclusion
 
 Koinon currently publishes through one squash pull request at a time into `develop`, on a head
-merged with the latest `develop`, with the Linux and macOS checks and a commit-bound
-`peer-review` status required, and auto-merge set; a release lists the failed CI runs since the
+merged with the latest `develop`, with the Linux and macOS checks, the `decision-citations`
+check and commit-bound `peer-review` and `refusal-review` statuses required, and auto-merge set; a release lists the failed CI runs since the
 last one, and each change and release passes the docs gate. GitHub rulesets enforce the branch,
 check and up-to-date rules; one open pull request, the merge of `develop` into a published
 branch, signing and DCO are practice. The pull request order, auto-merge, commit identity,
@@ -666,3 +667,4 @@ maintainer's board approval of its head, and the maintainer merges each release 
 | 2026-11-23 | Decision 8: preflight, the board approval of each head, and the maintainer's merge into `main` (#795) |
 | 2026-11-24 | Decision 8: a passing preflight is required; the card's Where target and content are the agents' design; the release bullet cites WDR 002, Decision 6, which it partly restores (#795) |
 | 2026-11-24 | Decision 8: the wording lens (#812) |
+| 2026-11-25 | Decision 3 and the Conclusion: the required `decision-citations` check and `refusal-review` status, and the lifecycle exemption without `agents/` (`docs/sprints/2026-10-11-skills-library/chunks/01-catalog.md`: skill changes no longer skip the native lifecycle proof), as `scripts/setup-repo.sh` and the workflows have them (#822) |

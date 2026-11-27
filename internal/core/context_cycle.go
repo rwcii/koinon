@@ -596,8 +596,9 @@ var cycleCode = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 
 func init() {
 	// The Claude Code adapter (chunk 03), the Codex adapter (chunk 04), the agy adapter (#512),
-	// the OpenCode adapter (#513) and the Grok adapter (#515); Probe limits each to evidenced
-	// platforms and versions.
+	// the OpenCode adapter (#513) and the Grok adapter (#515); the DeepSeek adapter (#514)
+	// registers in cycle_deepseek.go. Probe limits each to evidenced platforms and checks no
+	// version (PDR 006, Decision 5).
 	cycleAdapters["claude"] = claudeCycle{}
 	cycleAdapters["codex"] = codexCycle{}
 	cycleAdapters["agy"] = agyCycle{}
