@@ -179,6 +179,9 @@ func (d *Daemon) dashboardActions(mux *http.ServeMux, authed func(int64, func(ht
 	run := func(w http.ResponseWriter, r *http.Request, action, target, view string, query url.Values, valid bool,
 		apply func(ctx context.Context) error, accepted string, refusal func(error) string) {
 		ctx, pending := withAudit(r.Context(), action, target)
+		if strings.HasPrefix(action, "decision-") {
+			pending.host = r.Host
+		}
 		if action == "send" || action == "room-post" || strings.HasPrefix(action, "decision-") {
 			var err error
 			ctx, err = d.operationContext(r, ctx, "", action, target, accepted)

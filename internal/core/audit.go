@@ -33,16 +33,23 @@ type pendingAudit struct {
 	action, target string
 	// origin names who made the change: "dashboard", "mcp:NAME" for a maintainer client
 	// (PDR 009, Decision 4), "cli" or "agent PEER" (#391).
-	origin  string
+	origin string
+	// host is the Host of the dashboard page that posted a verdict, so a verdict on an
+	// unexpected card shows which dashboard sent it (#800).
+	host    string
 	written bool
 }
 
 // recordTarget is the target as the record stores it, with the change's origin.
 func (p *pendingAudit) recordTarget() string {
-	if p.origin == "" {
-		return p.target
+	target := p.target
+	if p.origin != "" {
+		target += " by " + p.origin
 	}
-	return p.target + " by " + p.origin
+	if p.host != "" {
+		target += " at " + p.host
+	}
+	return target
 }
 
 // setAuditTarget names what an accepted change did, once the store knows it.

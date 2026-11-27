@@ -4,9 +4,12 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/rwcii/koinon/internal/link"
 )
 
 // The designed decision board (#206, chunk 03). All data is synthetic.
@@ -105,7 +108,7 @@ func TestDecisionBoard(t *testing.T) {
 	}
 	// A task waits with Completed, Declined and Provide feedback (#537).
 	t1 := cardOf(t, body, "T-1")
-	if !strings.Contains(t1, `<button type="submit" formaction="/dashboard/actions/decision-complete">Completed</button> <button type="submit" formaction="/dashboard/actions/decision-decline">Declined</button> <button type="submit" formaction="/dashboard/actions/decision-feedback">Provide feedback</button>`) ||
+	if !strings.Contains(t1, `<button type="submit" formaction="/dashboard/actions/decision-complete">Completed T-1</button> <button type="submit" formaction="/dashboard/actions/decision-decline">Declined T-1</button> <button type="submit" formaction="/dashboard/actions/decision-feedback">Provide feedback on T-1</button>`) ||
 		!strings.Contains(t1, ">waiting</span>") || strings.Contains(t1, "decision-approve") || strings.Contains(t1, "decision-acknowledge") {
 		t.Errorf("task card: %s", t1)
 	}
@@ -456,9 +459,9 @@ func TestDecisionLookupCard(t *testing.T) {
 		reference, status, want string
 		absent                  []string
 	}{
-		{"D-1", "waiting", `<button type="submit" formaction="/dashboard/actions/decision-approve">Approve</button> <button type="submit" formaction="/dashboard/actions/decision-decline">Decline</button> <button type="submit" formaction="/dashboard/actions/decision-feedback">Provide feedback</button>`,
+		{"D-1", "waiting", `<button type="submit" formaction="/dashboard/actions/decision-approve">Approve D-1</button> <button type="submit" formaction="/dashboard/actions/decision-decline">Decline D-1</button> <button type="submit" formaction="/dashboard/actions/decision-feedback">Provide feedback on D-1</button>`,
 			[]string{"decision-acknowledge", "decision-complete"}},
-		{"F-1", "fyi", `<button type="submit" formaction="/dashboard/actions/decision-acknowledge">Acknowledge</button>`,
+		{"F-1", "fyi", `<button type="submit" formaction="/dashboard/actions/decision-acknowledge">Acknowledge F-1</button>`,
 			[]string{"decision-approve", "decision-decline", "decision-feedback"}},
 		{"P-1", "in_progress", "Go <strong>ahead</strong>.", []string{"<form", "Read only."}},
 	} {
@@ -694,5 +697,47 @@ func TestDecisionBoardSearch(t *testing.T) {
 	}
 	if got := strings.Join(boardMatches(lookupSection(t, get(location.String()))), " "); got != "tools-4=in progress tools-5=open tools-old=deep archive" {
 		t.Errorf("after approve: matches %q", got)
+	}
+}
+
+// The board names its computer, each verdict form names its card, revision and computer
+// beside buttons that name the card, and the verdict's audit record names the Host of the
+// page that posted it (#800). With a link name the computer is that name.
+func TestDecisionBoardNamesCardAndComputer(t *testing.T) {
+	d, root := startTestDaemon(t)
+	client := newActionClient(t, d, root)
+	peer := join(t, d.store, "claude", "synthetic-board-peer", "")
+	order, title, kind := int64(1), "Synthetic decision", "decision"
+	mustCreate(t, d.store, Key{"claude", peer.ID}, "D-1", DecisionFields{Order: &order, Title: &title, Kind: &kind, Recipients: &[]string{peer.Name}})
+	host, _ := os.Hostname()
+	check := func(computer string) {
+		t.Helper()
+		body := dashboardDo(t, d, "GET", "/dashboard/decisions", client.cookie, nil, nil).body
+		card := cardOf(t, body, "D-1")
+		if !strings.Contains(body, "<h1>Decisions on "+computer+"</h1>") ||
+			!strings.Contains(card, `<p class="verdict-target">Answer <b>D-1</b>, revision 1, on <b>`+computer+`</b></p>`) ||
+			!strings.Contains(card, ">Approve D-1</button>") || !strings.Contains(card, ">Decline D-1</button>") ||
+			!strings.Contains(card, ">Provide feedback on D-1</button>") {
+			t.Fatalf("board for %s: %s", computer, body)
+		}
+	}
+	check(host)
+	d.link.mu.Lock()
+	s, err := link.ReadState(d.root)
+	if err == nil {
+		s.Name = "synthetic-computer"
+		err = link.WriteState(d.root, s)
+	}
+	d.link.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	check("synthetic-computer")
+	if got := client.do("decision-approve", url.Values{"reference": {"D-1"}, "revision": {"1"}}); got != "decision_approved" {
+		t.Fatalf("approve: %s", got)
+	}
+	records := auditAll(t, d.store)
+	if want := "decision D-1 revision 1 approved verdict 1 by dashboard at " + d.Addresses()[0]; len(records) == 0 || records[0].Target != want {
+		t.Fatalf("audit: %+v, want target %q", records, want)
 	}
 }

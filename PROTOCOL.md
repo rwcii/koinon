@@ -3214,9 +3214,10 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   `fragment=1` a view returns its list alone; the page script fetches it every 5 seconds while the
   page is visible, with the page's own query. The search and recipient filter forms sit outside
   the list, so a refresh never resets them. Content replacement waits while a disclosure in the
-  list is open, a form field in it has focus, or a field holds unsent input (a text value,
-  select or checkbox that differs from the loaded one, with or without focus, #510), so
-  an open confirmation, edit form, or verdict note stays. Connectivity reads can continue
+  list is open, a form field in it has focus, a field holds unsent input (a text value,
+  select or checkbox that differs from the loaded one, with or without focus, #510), the
+  pointer is over the list, or a text selection is in it (#800), so an open confirmation, edit
+  form, verdict note or selection stays and the list does not move under a click. Connectivity reads can continue
   while replacement is held; they do not make the displayed data fresh. The page shows
   the host, connection state and last successful displayed-data refresh, and labels data
   stale after 15 seconds without one. Foregrounding or reconnecting requests an immediate
@@ -3366,7 +3367,11 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     3 × 4,096 + 4,096 bytes. The verdict is the maintainer's instruction and approval (PDR 005,
     Decision 3). The notices are `decision_approved`, `decision_declined`, `decision_feedback`,
     `decision_completed` and `decision_acknowledged`; refusals are `stale_revision`,
-    `decided`, `invalid_verdict`, `feedback_required` and `hidden_command`.
+    `decided`, `invalid_verdict`, `feedback_required` and `hidden_command`. The board's title
+    names this computer, by its link name or, without one, its host name, and each verdict
+    form shows "Answer REFERENCE, revision N, on COMPUTER" above buttons that name the
+    reference, such as "Approve REFERENCE" (#800). The verdict's audit record ends with
+    `at HOST`, the Host of the page that posted it.
   - `send` (`to`, `body`): a message from `maintainer`; the recipient's wake works as for any
     message.
   - `launch` (`family` `claude`, `codex`, `agy`, `opencode` or `grok`; `directory`; optional `name`): the daemon runs

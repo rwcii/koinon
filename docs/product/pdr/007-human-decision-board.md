@@ -3,7 +3,7 @@ pdr: "007"
 title: "Human Decision Board"
 status: draft
 created: "2026-10-12"
-updated: "2026-11-25"
+updated: "2026-11-27"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -256,6 +256,13 @@ the change reopens the item for a new verdict, and the record keeps every earlie
 the text it was given on. A concurrent edit cannot make a verdict apply to unseen text. This
 covers the maintainer's verdicts on this board, not agent-to-agent work verdicts (PDR 004).
 
+The board shows which card and which computer a verdict is for (#800). Its title names this
+computer, by its link name or, without one, its host name ("Decisions on COMPUTER"). Each
+verdict form shows "Answer REFERENCE, revision N, on COMPUTER" above buttons that name the
+reference. The card list does not refresh while the pointer is over it or a text selection is
+in it, so a click does not land in another card's form. The audit record of a dashboard verdict
+names the Host of the page that posted it.
+
 **Provenance:** Requested in #206 (issue body, requirements 3 and 4, and the settled point
 on verdict writes); a request record, original words not located. The concurrent-edit
 guarantee: Proposed in the #206 plan (criterion 4); approved with the plan at Gate B (#206 comment 6150911355).
@@ -271,6 +278,27 @@ answer "agreed, your recommendation is correct" on the state after feedback
 feedback hands the item back to its author for a revision; it is not a verdict that closes the
 question.
 
+**Provenance (2026-11-27, #800):**
+
+- **Decided by:** Robert Capps.
+- **Date:** 2026-11-27.
+- **Context:** on 2026-11-23 (v0.13.3), a note that Robert Capps typed for a card of another
+  computer's board was stored on this computer's card `c04-exact-target` as a decline. The
+  verdict action stores the verdict on the card that the posted form names, and the records
+  could not show which page sent it. Two paths can put a click in the wrong form: the board's
+  title did not name its computer, which only the small connection line showed ("Host NAME"),
+  so two computers' boards look alike; and the 5-second refresh replaced the card list while
+  the pointer was over it. The question: close both paths, or only name the computer and the
+  card.
+- **Decision:** approved, close both paths in one change: the title names the computer, each
+  verdict form names its card, revision and computer beside buttons that name the card, the
+  refresh holds under the pointer and a text selection, and the verdict's audit record names
+  the page's Host.
+- **Reason and scope:** a verdict is the maintainer's instruction and approval (PDR 005,
+  Decision 3), so a verdict on a card that the maintainer did not read can approve or decline
+  work that the maintainer never saw. The scope is the dashboard board and its verdict audit.
+  A held refresh shows older data while the pointer rests on the list.
+
 ### Alternatives Considered
 
 | Alternative | Description | Why Rejected |
@@ -279,6 +307,7 @@ question.
 | A separate human-identity check | Extra authentication beyond the dashboard login | #206 settled point: no further check under the same-user model |
 | Editable after verdict, verdict kept | Update the item and keep the verdict | The verdict would no longer match the text the human saw |
 | Frozen after verdict | New facts need a new item | Robert Capps, 2026-10-13: the text can change when the facts change |
+| Only name the computer and the card | No change to the refresh | Robert Capps, 2026-11-27 (#800): a list that moves at a click can still put the click in another card's form |
 
 ### Rationale
 
@@ -428,3 +457,4 @@ blocks, which the maintainer copies into a terminal, hold printable ASCII only. 
 | 2026-11-09 | Decision 1: the card labels Fix loop and On track (#638, CARD-LOOP-SCOPE) |
 | 2026-11-18 | Decision 4: remote recipients on a paired computer get notices and read and acknowledge at the card's computer (#746; PDR 011, Decision 2, amendment BOARD-LINK-746) |
 | 2026-11-25 | Executive summary: the board is built (#353, #358, #360) (#822) |
+| 2026-11-27 | Decision 2: the board names its computer and each verdict form its card, the refresh holds under the pointer and a selection, and the verdict audit names the page's Host (#800) |

@@ -14,7 +14,7 @@ const refreshScript = `
 const fs = require('fs');
 const vm = require('vm');
 function run(name, script) {
-  const state = { focused: false, requests: 0, complete: null };
+  const state = { focused: false, requests: 0, complete: null, selection: null };
   const input = { tagName: 'TEXTAREA' };
   // The list's disclosures: one with a form, one read-only with a data-key, one read-only
   // without. Replacing the list's HTML replaces them with closed ones.
@@ -30,7 +30,8 @@ function run(name, script) {
     { tagName: 'INPUT', type: 'checkbox', checked: false, defaultChecked: false }];
   let html = 'unsaved edit form';
   const list = {
-    dataset: { refresh: '5000' }, details: fresh(), fields: fields(), checked: false, held: false,
+    dataset: { refresh: '5000' }, details: fresh(), fields: fields(), checked: false, held: false, listeners: {},
+    addEventListener(type, f) { this.listeners[type] = f; },
     get innerHTML() { return html; },
     set innerHTML(v) { html = v; this.details = fresh(); this.fields = fields(); },
     querySelector(selector) {
@@ -53,7 +54,7 @@ function run(name, script) {
       if (selector === 'input, textarea, select') { return this.fields; }
       throw new Error('unmodelled selector ' + selector);
     },
-    contains(node) { return node === input; },
+    contains(node) { return node === input || node === 'in-list'; },
     removeAttribute(name) { if (name === 'data-held') { this.held = false; } },
     setAttribute(name) { if (name === 'data-held') { this.held = true; } }
   };
@@ -63,7 +64,7 @@ function run(name, script) {
     getElementById(id) { return id === "list" ? list : null; }, visibilityState: 'visible', addEventListener() {},
     get activeElement() { return state.focused ? input : null; }
   };
-  const context = { document, URL, AbortController, window: { location: { href: 'http://localhost/dashboard/memory', reload() { state.reloaded = true; } }, setInterval(f, ms) { if (ms === 5000) { tick = f; } }, setTimeout() {}, clearTimeout() {}, addEventListener() {} },
+  const context = { document, URL, AbortController, window: { getSelection() { return state.selection; }, location: { href: 'http://localhost/dashboard/memory', reload() { state.reloaded = true; } }, setInterval(f, ms) { if (ms === 5000) { tick = f; } }, setTimeout() {}, clearTimeout() {}, addEventListener() {} },
     fetch() { state.requests++; return new Promise(resolve => { state.complete = resolve; }); } };
   vm.runInNewContext(fs.readFileSync(process.argv[2], 'utf8'), context);
   return script(state, () => tick(), list).then(result => console.log(name + ' ' + result));
@@ -88,6 +89,13 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
   await run('implicit-select-reset', async (state, tick, list) => { list.fields[3].selectedIndex = 2; tick(); answer(state); await settle(); list.fields[3].selectedIndex = 1; tick(); answer(state); await settle(); return list.innerHTML + ' held ' + list.held; });
   await run('checkbox-changed', async (state, tick, list) => { list.fields[4].checked = true; tick(); return state.requests + ' ' + list.innerHTML; });
   await run('typed-then-cleared', async (state, tick, list) => { list.fields[0].value = 'x'; tick(); answer(state); await settle(); list.fields[0].value = ''; tick(); answer(state); await settle(); return list.innerHTML + ' held ' + list.held; });
+  // A pointer over the list or a text selection in it holds the refresh; after the pointer
+  // leaves, or for a selection outside the list, the list is replaced again (#800).
+  const selected = node => ({ isCollapsed: false, rangeCount: 1, getRangeAt() { return { commonAncestorContainer: node }; } });
+  await run('pointer-over', async (state, tick, list) => { list.listeners.pointerenter(); tick(); answer(state); await settle(); return state.requests + ' ' + list.innerHTML; });
+  await run('pointer-left', async (state, tick, list) => { list.listeners.pointerenter(); list.listeners.pointerleave(); tick(); answer(state); await settle(); return list.innerHTML; });
+  await run('selection-in-list', async (state, tick, list) => { state.selection = selected('in-list'); tick(); answer(state); await settle(); return state.requests + ' ' + list.innerHTML; });
+  await run('selection-elsewhere', async (state, tick, list) => { state.selection = selected({}); tick(); answer(state); await settle(); return list.innerHTML; });
   // A fault page loads the whole view once its list reads again (#507).
   await run('fault-recovers', async (state, tick, list) => { list.dataset.reload = 'true'; tick(); answer(state); await settle(); return list.innerHTML + ' reloaded ' + (state.reloaded === true); });
   await run('fault-persists', async (state, tick, list) => { list.dataset.reload = 'true'; tick(); state.complete({ ok: false }); await settle(); return list.innerHTML + ' reloaded ' + (state.reloaded === true); });
@@ -99,7 +107,8 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
 // open read-only disclosure with a data-key does not hold it and is open again after (#373).
 // A session selected for a bulk action holds it, so the selection stays (#429). A field with
 // input not yet sent holds it also without focus, and the list is marked held (#510). A fault
-// page loads the whole view once the list reads again (#507).
+// page loads the whole view once the list reads again (#507). A pointer over the list or a
+// text selection in it holds it too (#800).
 func TestRefreshKeepsFormsInUse(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -130,6 +139,8 @@ func TestRefreshKeepsFormsInUse(t *testing.T) {
 		"select-changed 1 unsaved edit form\nimplicit-select-changed 1 unsaved edit form\n" +
 		"implicit-select-reset replacement fragment held false\ncheckbox-changed 1 unsaved edit form\n" +
 		"typed-then-cleared replacement fragment held false\n" +
+		"pointer-over 1 unsaved edit form\npointer-left replacement fragment\n" +
+		"selection-in-list 1 unsaved edit form\nselection-elsewhere replacement fragment\n" +
 		"fault-recovers unsaved edit form reloaded true\nfault-persists unsaved edit form reloaded false\n"
 	if string(out) != want {
 		t.Fatalf("refresh:\n%s\nwant:\n%s", out, strings.TrimSpace(want))

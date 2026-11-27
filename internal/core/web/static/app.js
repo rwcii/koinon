@@ -37,9 +37,18 @@
     }
     return false;
   }
+  // A pointer over the list or a text selection in it holds the refresh, so the list does not
+  // move under a click or a selection (#800).
+  var pointerIn = false;
+  list.addEventListener("pointerenter", function () { pointerIn = true; });
+  list.addEventListener("pointerleave", function () { pointerIn = false; });
+  function selecting() {
+    var s = window.getSelection ? window.getSelection() : null;
+    return s !== null && !s.isCollapsed && s.rangeCount > 0 && list.contains(s.getRangeAt(0).commonAncestorContainer);
+  }
   function busy() {
     var active = document.activeElement;
-    return list.querySelector("details[open]:not([data-key]), details[open] form, form[data-busy], input[form=bulk]:checked") !== null ||
+    return pointerIn || selecting() || list.querySelector("details[open]:not([data-key]), details[open] form, form[data-busy], input[form=bulk]:checked") !== null ||
       (active !== null && list.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) || unsent();
   }
   function held(on) {

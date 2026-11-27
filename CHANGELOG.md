@@ -5,6 +5,13 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A verdict on the decision board is harder to give on the wrong card (#800). The board's title
+  names its computer (its link name, or its host name), each verdict form shows "Answer
+  REFERENCE, revision N, on COMPUTER" above buttons that name the card ("Approve REFERENCE"),
+  and the card list no longer refreshes while the pointer is over it or text in it is
+  selected, so it does not move under a click. The verdict's audit record ends with `at HOST`,
+  the Host of the page that posted it.
+
 - The docs match the code at the head: README describes the install's three dashboard
   answers and the network address (`--dashboard-address`, port 8443, the certificate
   fingerprint); INSTALL lists the full `--plan` order (no user service manager, the status
