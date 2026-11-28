@@ -24,7 +24,7 @@ var decisionFieldSchema = map[string]any{
 	"commands": map[string]any{"type": "array", "maxItems": 8, "items": text,
 		"description": "Terminal-copy commands: each 1 to 512 bytes of printable ASCII (0x20-0x7E)."},
 	"recipients": map[string]any{"type": "array", "maxItems": 32, "items": text,
-		"description": "Participant addresses or peer names that receive the verdict."},
+		"description": "Participant addresses or peer names that receive the verdict. A decision or task card that leaves recipients out and has none gets a form note; an empty list is for a card that no other agent acts on."},
 }
 
 var decisionTools = []map[string]any{

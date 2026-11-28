@@ -13,17 +13,23 @@ into a dated release section when promoted to `main`.
   pointer hold. The verdict's audit record ends with `at HOST`, the Host of the page that
   posted it (PDR 007, Decision 2).
 
+- A decision or task card created or edited with its recipients left out and none stored now
+  gets a form note about the missing recipients (#805). Such a card's verdict reaches only its
+  author, and the board shows no agent for it; only the note is new. An explicit empty list
+  (`recipients: []`, or `--no-recipients` in the CLI) is still for a card that no other agent
+  acts on, and gets no note.
+
 - `koinon link name` with a link port that Tailscale Serve already uses answers
   `tailscale_serve_conflict`, not `storage_error` (#788); the CLI, the JSON answer and the
-  dashboard notice give its next step. The saved name and
-  port, and the old Serve mapping of a changed port, now stay as they were; before, the refused
-  port was saved and `koinon link status` showed it with the listener off. A failed step after
-  the save puts the saved name and port back, except after a changed port's new mapping is
-  journaled. Other daemon routes that meet a Tailscale diagnostic also answer with its code
-  (409) and its next step, not `storage_error`. The same code, such as `tailscale_missing`, now
-  shows in place of `storage_error` in a pair's link status observation, a queued link
-  message's retry reason, a `computer_offline` answer, audit refusal codes and operation
-  receipts. A dashboard notice shows the code only, except for `tailscale_serve_conflict`.
+  dashboard notice give its next step. The saved name and port, and the old Serve mapping of a
+  changed port, now stay as they were; before, the refused port was saved and
+  `koinon link status` showed it with the listener off. A failed step after the save puts the
+  saved name and port back, except after a changed port's new mapping is journaled. Other daemon routes that
+  meet a Tailscale diagnostic also answer with its code (409) and its next step, not
+  `storage_error`. The same code, such as `tailscale_missing`, now shows in place of
+  `storage_error` in a pair's link status observation, a queued link message's retry reason, a
+  `computer_offline` answer, audit refusal codes and operation receipts. A dashboard notice
+  shows the code only, except for `tailscale_serve_conflict`.
 
 - Koinon submits a wake notice or a pickup command in a Codex pane with startup warnings again
   (#825). In an 80-column pane, Codex CLI 0.172.0 keeps the mark `⚠ N warnings · f2 to view`
