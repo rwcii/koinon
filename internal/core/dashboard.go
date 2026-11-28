@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/rwcii/koinon/internal/link"
 )
 
 // The dashboard (sprint chunk 08) is served on the daemon's loopback listeners under
@@ -92,8 +94,11 @@ type dashboardPage struct {
 	Back   string // the view's order and filters, which its action forms return to
 	// Reload makes the refresh load the whole page once its list reads again: the fault page
 	// has none of the view's actions or filters to keep (#507).
-	Reload          bool
-	Host            string
+	Reload bool
+	Host   string
+	// Computer names this computer as its paired computers name it: the link name, or the
+	// host name without a link (#800).
+	Computer        string
 	Remote          bool
 	RemoteSessionID string
 	SessionExpires  int64
@@ -195,6 +200,12 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 		}
 		page.Views, page.Now = dashboardViews, d.store.now()
 		page.Host, _ = os.Hostname()
+		if page.View == "decisions" {
+			page.Computer = d.computerName(page.Host)
+			// The board names its computer, so that a verdict is given on this computer's
+			// card and not on a card that another computer's board shows (#800).
+			page.Title = "Decisions on " + page.Computer
+		}
 		page.Remote = remoteOrigin(r) != ""
 		if page.Remote {
 			if token, ok := d.requestSession(r); ok {
@@ -771,4 +782,16 @@ func buildRevision() string {
 		}
 	}
 	return "unknown"
+}
+
+// computerName is this computer's link name, or host when it has none or the link state
+// cannot be read (#800).
+func (d *Daemon) computerName(host string) string {
+	d.link.mu.Lock()
+	s, err := link.ReadState(d.root)
+	d.link.mu.Unlock()
+	if err == nil && s.Name != "" {
+		return s.Name
+	}
+	return host
 }

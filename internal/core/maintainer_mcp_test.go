@@ -414,8 +414,8 @@ func TestMaintainerViaOrigins(t *testing.T) {
 	}
 	all := strings.Join(records, "\n")
 	for _, want := range []string{"accepted decision VIA-1 revision 1 approved verdict 1 by mcp:client-one",
-		"accepted decision VIA-2 revision 1 declined verdict 2 by mcp:client-two", "accepted decision VIA-3 revision 1 approved verdict 3 by dashboard",
-		"refused decision VIA-1 by mcp:client-one", "refused decision VIA-1 by dashboard"} {
+		"accepted decision VIA-2 revision 1 declined verdict 2 by mcp:client-two", "accepted decision VIA-3 revision 1 approved verdict 3 by dashboard at " + d.Addresses()[0],
+		"refused decision VIA-1 by mcp:client-one", "refused decision VIA-1 by dashboard at " + d.Addresses()[0]} {
 		if !strings.Contains(all+"\n", want+"\n") {
 			t.Fatalf("no record %q in:\n%s", want, all)
 		}
