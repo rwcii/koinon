@@ -37,9 +37,24 @@
     }
     return false;
   }
+  // On the decision board, a pointer over a card or a text selection with any part in the
+  // list holds the refresh, so the list does not move under a click (#800; PDR 007,
+  // Decision 2). :hover follows a pointer that rests still while the page loads or the
+  // layout changes. Only a main pointer that can hover counts: after a tap a touch screen keeps
+  // :hover on the card until the next tap, which would stop the refresh with no pointer there.
+  // containsNode with partial containment also takes a selection that starts in a card and
+  // ends outside the list.
+  var holdPointer = list.dataset.holdPointer === "true";
+  function canHover() { return !window.matchMedia || window.matchMedia("(hover: hover)").matches; }
+  function boardHeld() {
+    if (!holdPointer) { return false; }
+    if (canHover() && list.querySelector("article.card:hover") !== null) { return true; }
+    var s = window.getSelection ? window.getSelection() : null;
+    return s !== null && !s.isCollapsed && s.rangeCount > 0 && s.containsNode(list, true);
+  }
   function busy() {
     var active = document.activeElement;
-    return list.querySelector("details[open]:not([data-key]), details[open] form, form[data-busy], input[form=bulk]:checked") !== null ||
+    return boardHeld() || list.querySelector("details[open]:not([data-key]), details[open] form, form[data-busy], input[form=bulk]:checked") !== null ||
       (active !== null && list.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) || unsent();
   }
   function held(on) {
@@ -88,6 +103,14 @@
         if (list.dataset.reload) { window.location.reload(); return; }
         var open = Array.prototype.map.call(list.querySelectorAll("details[open][data-key]"), function (d) { return d.dataset.key; });
         list.innerHTML = html;
+        // The board's fragment carries its title, which names this computer; a changed link
+        // name then reaches the heading and the tab title too, not only the verdict forms (#800).
+        var named = holdPointer ? list.querySelector("[data-page-title]") : null;
+        var heading = named ? document.querySelector("main > h1") : null;
+        if (heading) {
+          heading.textContent = named.dataset.pageTitle;
+          document.title = "Koinon · " + named.dataset.pageTitle;
+        }
         list.querySelectorAll("details[data-key]").forEach(function (d) {
           if (open.indexOf(d.dataset.key) >= 0) { d.open = true; }
         });
