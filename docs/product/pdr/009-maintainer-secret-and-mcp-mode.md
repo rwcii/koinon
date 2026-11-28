@@ -271,7 +271,9 @@ record its client: "yes, record the client on #470"
 ([comment](https://github.com/rwcii/koinon/issues/470#issuecomment-6400924866)). Until the
 maintainer MCP mode exists, a login with the secret records `maintainer_login` with the
 client `dashboard` in the audit log. Built (#470, PR 2): each audit record of a maintainer
-action, also a refused one, ends its target with `by dashboard` or `by mcp:NAME`; each verdict
+action, also a refused one, ends its target with `by dashboard` or `by mcp:NAME`, and a
+dashboard verdict's then with `at HOST`, the Host of the page that posted it (PDR 007,
+Decision 2); each verdict
 stores `via`, which the dashboard's verdict history and the maintainer's `decision_history`
 show and the agents' `decision_history` does not; an acknowledgement of the maintainer's inbox
 records `mcp:NAME` as the acknowledging operation, as the dashboard records `dashboard`.

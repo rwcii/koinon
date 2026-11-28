@@ -200,8 +200,8 @@ func (d *Daemon) dashboardHandler() (http.Handler, error) {
 		}
 		page.Views, page.Now = dashboardViews, d.store.now()
 		page.Host, _ = os.Hostname()
-		page.Computer = d.computerName(page.Host)
 		if page.View == "decisions" {
+			page.Computer = d.computerName(page.Host)
 			// The board names its computer, so that a verdict is given on this computer's
 			// card and not on a card that another computer's board shows (#800).
 			page.Title = "Decisions on " + page.Computer

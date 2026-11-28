@@ -8,9 +8,10 @@ into a dated release section when promoted to `main`.
 - A verdict on the decision board is harder to give on the wrong card (#800). The board's title
   names its computer (its link name, or its host name), each verdict form shows "Answer
   REFERENCE, revision N, on COMPUTER" above buttons that name the card ("Approve REFERENCE"),
-  and the card list no longer refreshes while the pointer is over it or text in it is
-  selected, so it does not move under a click. The verdict's audit record ends with `at HOST`,
-  the Host of the page that posted it.
+  and the board's card list no longer refreshes while the pointer is over it, for 10 seconds
+  after a touch, scroll or key, or while text in it is selected, so it does not move under a
+  click or a tap. The verdict's audit record ends with `at HOST`, the Host of the page that
+  posted it (PDR 007, Decision 2).
 
 - Koinon submits a wake notice or a pickup command in a Codex pane with startup warnings again
   (#825). In an 80-column pane, Codex CLI 0.172.0 keeps the mark `⚠ N warnings · f2 to view`

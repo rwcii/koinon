@@ -259,9 +259,10 @@ covers the maintainer's verdicts on this board, not agent-to-agent work verdicts
 The board shows which card and which computer a verdict is for (#800). Its title names this
 computer, by its link name or, without one, its host name ("Decisions on COMPUTER"). Each
 verdict form shows "Answer REFERENCE, revision N, on COMPUTER" above buttons that name the
-reference. The card list does not refresh while the pointer is over it or a text selection is
-in it, so a click does not land in another card's form. The audit record of a dashboard verdict
-names the Host of the page that posted it.
+reference. The board's card list does not refresh while the pointer is over it, for 10 seconds
+after a touch, scroll, wheel or key on the page, or while a text selection is in it, so a click
+or a tap does not land in another card's form. The audit record of a dashboard verdict names
+the Host of the page that posted it.
 
 **Provenance:** Requested in #206 (issue body, requirements 3 and 4, and the settled point
 on verdict writes); a request record, original words not located. The concurrent-edit
@@ -290,14 +291,20 @@ question.
   so two computers' boards look alike; and the 5-second refresh replaced the card list while
   the pointer was over it. The question: close both paths, or only name the computer and the
   card.
-- **Decision:** approved, close both paths in one change: the title names the computer, each
-  verdict form names its card, revision and computer beside buttons that name the card, the
-  refresh holds under the pointer and a text selection, and the verdict's audit record names
-  the page's Host.
-- **Reason and scope:** a verdict is the maintainer's instruction and approval (PDR 005,
-  Decision 3), so a verdict on a card that the maintainer did not read can approve or decline
-  work that the maintainer never saw. The scope is the dashboard board and its verdict audit.
-  A held refresh shows older data while the pointer rests on the list.
+- **Decision:** on the decision board (revision 1), "approved", for the recommendation "Close
+  both paths to a wrong-card verdict in one PR": the board names its computer, each verdict
+  form shows "Answer REFERENCE, revision N, on COMPUTER" and each button names the action and
+  the reference, the list refresh also holds while the pointer is over a card or a text
+  selection is in the list, and the verdict's audit record adds the Host of the page that
+  posted it. The hold for 10 seconds after a touch, scroll, wheel or key is the agents' design
+  for touch screens, where no pointer stays over the list; the preflight review of the change
+  found that gap.
+- **Reason and scope:** the recommendation's reason: a verdict is the maintainer's instruction
+  and approval (PDR 005, Decision 3), so a verdict on a card that the maintainer did not read
+  can decline or approve work that the maintainer never saw, and the cause of #800 cannot be
+  found from the records. The scope is the decision board's page and list, and the audit
+  record of a dashboard verdict; the other views keep their refresh. A held refresh shows
+  older data while the person works on the list.
 
 ### Alternatives Considered
 
@@ -307,7 +314,7 @@ question.
 | A separate human-identity check | Extra authentication beyond the dashboard login | #206 settled point: no further check under the same-user model |
 | Editable after verdict, verdict kept | Update the item and keep the verdict | The verdict would no longer match the text the human saw |
 | Frozen after verdict | New facts need a new item | Robert Capps, 2026-10-13: the text can change when the facts change |
-| Only name the computer and the card | No change to the refresh | Robert Capps, 2026-11-27 (#800): a list that moves at a click can still put the click in another card's form |
+| Only name the computer and the card | No change to the refresh | Not chosen on 2026-11-27 (#800); the recommendation's reason: a list that moves at a click can still put the click in another card's form |
 
 ### Rationale
 

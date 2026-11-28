@@ -37,18 +37,27 @@
     }
     return false;
   }
-  // A pointer over the list or a text selection in it holds the refresh, so the list does not
-  // move under a click or a selection (#800).
-  var pointerIn = false;
-  list.addEventListener("pointerenter", function () { pointerIn = true; });
-  list.addEventListener("pointerleave", function () { pointerIn = false; });
-  function selecting() {
+  // On the decision board, a pointer over the list, a touch, scroll, wheel or key on the page
+  // in the last 10 seconds, or a text selection in the list holds the refresh, so the list
+  // does not move under a click or a tap (#800; PDR 007, Decision 2).
+  var holdPointer = list.dataset.holdPointer === "true";
+  var pointerIn = false, touchedAt = 0;
+  if (holdPointer) {
+    list.addEventListener("pointerenter", function () { pointerIn = true; });
+    list.addEventListener("pointerleave", function () { pointerIn = false; });
+    ["pointerdown", "touchstart", "scroll", "wheel", "keydown"].forEach(function (type) {
+      document.addEventListener(type, function () { touchedAt = Date.now(); }, { capture: true, passive: true });
+    });
+  }
+  function boardHeld() {
+    if (!holdPointer) { return false; }
+    if (pointerIn || Date.now() - touchedAt < 10000) { return true; }
     var s = window.getSelection ? window.getSelection() : null;
     return s !== null && !s.isCollapsed && s.rangeCount > 0 && list.contains(s.getRangeAt(0).commonAncestorContainer);
   }
   function busy() {
     var active = document.activeElement;
-    return pointerIn || selecting() || list.querySelector("details[open]:not([data-key]), details[open] form, form[data-busy], input[form=bulk]:checked") !== null ||
+    return boardHeld() || list.querySelector("details[open]:not([data-key]), details[open] form, form[data-busy], input[form=bulk]:checked") !== null ||
       (active !== null && list.contains(active) && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName)) || unsent();
   }
   function held(on) {
