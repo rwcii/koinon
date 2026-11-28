@@ -7,8 +7,9 @@ into a dated release section when promoted to `main`.
 
 - `library_state` now gives a `reason` for an `invalid` or `incomplete` facts file, such as
   `facts_source_invalid` for a `Sources` line without `- ` (#818). An `incomplete` state
-  also names the missing `heading`. docs/USAGE.md describes the facts file format, with an
-  example and each reason.
+  also names the missing `heading`. A managed context cycle that cannot read the Handoff path
+  fact names the same reason in its refusal. docs/USAGE.md describes the facts file format,
+  with an example and each reason.
 
 - A verdict on the decision board is harder to give on the wrong card (#800). The board's title
   names its computer (its link name, or its host name), each verdict form shows "Answer
