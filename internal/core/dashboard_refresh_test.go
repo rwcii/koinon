@@ -142,7 +142,7 @@ func TestRefreshKeepsFormsInUse(t *testing.T) {
 		"implicit-select-reset replacement fragment held false\ncheckbox-changed 1 unsaved edit form\n" +
 		"typed-then-cleared replacement fragment held false\n" +
 		"board-pointer-over 1 unsaved edit form\nboard-pointer-left replacement fragment\n" +
-				"board-selection-in-list 1 unsaved edit form\nboard-selection-elsewhere replacement fragment\n" +
+		"board-selection-in-list 1 unsaved edit form\nboard-selection-elsewhere replacement fragment\n" +
 		"other-view-hover-selection replacement fragment\n" +
 		"fault-recovers unsaved edit form reloaded true\nfault-persists unsaved edit form reloaded false\n"
 	if string(out) != want {
