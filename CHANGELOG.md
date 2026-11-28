@@ -12,6 +12,14 @@ into a dated release section when promoted to `main`.
   selected, so it does not move under a click. The verdict's audit record ends with `at HOST`,
   the Host of the page that posted it.
 
+- Koinon submits a wake notice or a pickup command in a Codex pane with startup warnings again
+  (#825). In an 80-column pane, Codex CLI 0.172.0 keeps the mark `⚠ N warnings · f2 to view`
+  alone on the last footer row while the input holds text. The daemon did not read that row
+  as the footer, so its read-back of the typed text failed and it did not press Enter: the
+  wake ended `pane_submission_unconfirmed` and the pickup `typed_not_read_back`, with the text
+  left in the input. A footer of three or four rows that ends with that mark now counts as
+  the footer.
+
 - The docs match the code at the head: README describes the install's three dashboard
   answers and the network address (`--dashboard-address`, port 8443, the certificate
   fingerprint); INSTALL lists the full `--plan` order (no user service manager, the status

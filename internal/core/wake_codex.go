@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 	"unicode"
@@ -243,8 +244,9 @@ func (c codexScreen) composer() int {
 // shortcut hint. In every T1 capture a blank row separates it from the composer. In a narrow
 // pane, such as 80 columns, the status line takes two rows (#761), so a run of 3 or 4 rows is
 // the footer when its last row is the shortcut hint, which shows only while the composer is
-// empty. Another layout, such as a longer last run or none, gives -1, and the composer counts
-// as not empty.
+// empty, or the warnings mark alone ("⚠ 2 warnings · f2 to view"), which stays when text is
+// typed and the hint goes (#825). Another layout, such as a longer last run or none, gives -1,
+// and the composer counts as not empty.
 func (c codexScreen) footer(i int) int {
 	end := len(c.plain) - 1
 	for end > i && strings.TrimSpace(c.plain[end]) == "" {
@@ -259,7 +261,7 @@ func (c codexScreen) footer(i int) int {
 	}
 	switch rows := end - start + 1; {
 	case rows <= 2:
-	case rows <= 4 && strings.Contains(c.plain[end], codexShortcutHint):
+	case rows <= 4 && (strings.Contains(c.plain[end], codexShortcutHint) || codexWarningsMark.MatchString(strings.TrimSpace(c.plain[end]))):
 	default:
 		return -1
 	}
@@ -268,6 +270,10 @@ func (c codexScreen) footer(i int) int {
 
 // codexShortcutHint is the text of the footer's last row while the composer is empty.
 const codexShortcutHint = "? for shortcuts"
+
+// codexWarningsMark is the footer's last row when Codex has startup warnings and the composer
+// holds text: the mark alone, right-aligned, without the hint (Codex CLI 0.172.0, #825).
+var codexWarningsMark = regexp.MustCompile(`^⚠\s+[0-9]+ warnings? · f2 to view$`)
 
 // composerText is the composer's text: the rest of the mark's line unless it is only the dim
 // placeholder ("Ask Codex to do anything"), and every non-blank row down to the footer, also

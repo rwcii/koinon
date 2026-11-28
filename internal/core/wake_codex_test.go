@@ -25,15 +25,19 @@ import (
 // line it reads, the program draws it as a submitted prompt above an empty composer.
 const codexScreenProgram = `#!/bin/sh
 state=$1 received=$2
-# A narrow pane wraps the status line onto a second row (#761).
-tail= up=0
+# A narrow pane wraps the status line onto a second row (#761). With startup warnings, Codex
+# CLI 0.172.0 keeps a warnings mark alone on the last footer row while the composer holds text
+# (#825). The program cannot redraw on each key, so in that state it draws that footer from
+# the start, also under the empty composer.
+tail= up=0 hint='  \033[1m?\033[0m for shortcuts'
 [ "$state" = narrow ] && tail='  69%% left\n' up=1
+[ "$state" = warnings ] && tail='  69%% left\n' up=1 hint='                                  \342\232\240  2 warnings \302\267 f2 to view'
 composer() {
 	if [ -n "$1" ]; then
 		printf '\033[1m›\033[0m %s\n\n  synthetic-model · /tmp/synthetic/repo · Context 0%% used\n'"$tail" "$1"
 		printf '\033[%dA\r\033[2C' $((3 + up))
 	else
-		printf '\033[1m›\033[0m \033[2mAsk Codex to do anything\033[0m\n\n  synthetic-model · /tmp/synthetic/repo · Context 0%% used\n'"$tail"'  \033[1m?\033[0m for shortcuts\n'
+		printf '\033[1m›\033[0m \033[2mAsk Codex to do anything\033[0m\n\n  synthetic-model · /tmp/synthetic/repo · Context 0%% used\n'"$tail$hint"'\n'
 		printf '\033[%dA\r\033[2C' $((4 + up))
 	fi
 }

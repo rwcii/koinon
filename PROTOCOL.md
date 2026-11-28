@@ -1794,8 +1794,11 @@ the foreground is refused. Otherwise the wake waits with `codex_target_unavailab
 observed activity to be `idle`. An unknown or busy activity waits with `receiver_busy`, as does
 a screen that shows the running-turn status (`Working (… esc to interrupt)`) or whose input
 area holds text: any text after the mark (`›`) other than the dim placeholder, or on any row
-from there down to the footer, the last run of at most two rows after a blank row. A screen
-without that footer counts as busy. Each attempt sends the notice once with `send-keys -l`,
+from there down to the footer. The footer is the last run of rows after a blank row: at most
+two rows, or three or four rows whose last row is the shortcut hint (`? for shortcuts`), as in
+an 80-column pane where the status line wraps (#761), or the startup warnings mark alone
+(`⚠ N warnings · f2 to view`), which Codex CLI 0.172.0 keeps there while the input holds text
+(#825). A screen without that footer counts as busy. Each attempt sends the notice once with `send-keys -l`,
 reads the input back, and sends Enter once, only when the input holds exactly the notice. It
 records `notified` only when a later read shows the input empty and the notice as the latest
 submitted prompt; otherwise `uncertain` with `pane_submission_unconfirmed`. The read wait and
