@@ -112,10 +112,15 @@ failed step after the save puts the saved name and port back, except after a cha
 new mapping is journaled; a failed removal of the old mapping also opens the old link again.
 A change of Serve between the check and a changed port's new mapping can still give the code
 after the journal write; link status then shows the new port. A maintainer route or another
-daemon route that meets a Tailscale diagnostic answers with its code (409). Remote enable and
-restore open the listener, then the mapping; remote disable closes link connections and the
-listener and cancels open invitations, then removes the mapping; pairs stay. A disable whose
-record write fails keeps the link closed.
+daemon route that meets a Tailscale diagnostic answers with its code (409) and its next step.
+The link status observation of a pair, the retry reason of a queued link message, the code in
+a `computer_offline` answer, the refusal code of an audit record and the code of an operation
+receipt also carry the diagnostic's code, such as `tailscale_missing`, in place of
+`storage_error`. A dashboard notice gives the next step only for `tailscale_serve_conflict`;
+for another diagnostic it shows the code. Remote enable and restore open the listener, then
+the mapping; remote disable closes link connections and the listener and cancels open
+invitations, then removes the mapping; pairs stay. A disable whose record write fails keeps
+the link closed.
 
 The listener takes TLS 1.3 only, with a client certificate required and session tickets off;
 `VerifyConnection` admits a paired or pending key, or any key while an invitation is open, and
