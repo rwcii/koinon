@@ -37,15 +37,17 @@
     }
     return false;
   }
-  // On the decision board, a pointer over a card or a text selection in the list holds the
-  // refresh, so the list does not move under a click (#800; PDR 007, Decision 2). :hover
-  // follows a pointer that rests still while the page loads or the layout changes.
+  // On the decision board, a pointer over a card or a text selection with any part in the
+  // list holds the refresh, so the list does not move under a click (#800; PDR 007,
+  // Decision 2). :hover follows a pointer that rests still while the page loads or the
+  // layout changes. containsNode with partial containment also takes a selection that starts
+  // in a card and ends outside the list.
   var holdPointer = list.dataset.holdPointer === "true";
   function boardHeld() {
     if (!holdPointer) { return false; }
     if (list.querySelector("article.card:hover") !== null) { return true; }
     var s = window.getSelection ? window.getSelection() : null;
-    return s !== null && !s.isCollapsed && s.rangeCount > 0 && list.contains(s.getRangeAt(0).commonAncestorContainer);
+    return s !== null && !s.isCollapsed && s.rangeCount > 0 && s.containsNode(list, true);
   }
   function busy() {
     var active = document.activeElement;

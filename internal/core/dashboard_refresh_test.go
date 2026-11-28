@@ -54,7 +54,7 @@ function run(name, script) {
       if (selector === 'input, textarea, select') { return this.fields; }
       throw new Error('unmodelled selector ' + selector);
     },
-    contains(node) { return node === input || node === 'in-list'; },
+    contains(node) { return node === input; },
     removeAttribute(name) { if (name === 'data-held') { this.held = false; } },
     setAttribute(name) { if (name === 'data-held') { this.held = true; } }
   };
@@ -89,15 +89,21 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
   await run('implicit-select-reset', async (state, tick, list) => { list.fields[3].selectedIndex = 2; tick(); answer(state); await settle(); list.fields[3].selectedIndex = 1; tick(); answer(state); await settle(); return list.innerHTML + ' held ' + list.held; });
   await run('checkbox-changed', async (state, tick, list) => { list.fields[4].checked = true; tick(); return state.requests + ' ' + list.innerHTML; });
   await run('typed-then-cleared', async (state, tick, list) => { list.fields[0].value = 'x'; tick(); answer(state); await settle(); list.fields[0].value = ''; tick(); answer(state); await settle(); return list.innerHTML + ' held ' + list.held; });
-  // On the decision board a pointer over a card or a text selection in the list holds the
-  // refresh; after the pointer leaves, or for a selection outside the list, the list is
-  // replaced again. Other views keep no such hold (#800).
-  const selected = node => ({ isCollapsed: false, rangeCount: 1, getRangeAt() { return { commonAncestorContainer: node }; } });
+  // On the decision board a pointer over a card or a text selection with any part in the
+  // list holds the refresh; after the pointer leaves, or for a selection outside the list, the
+  // list is replaced again. Other views keep no such hold (#800). The model selection gives
+  // its two ends, each in the list or not, and whether it runs across the whole list;
+  // containsNode(list, true) is true when any part of the list is selected, as in a browser.
+  const selected = (list, anchorIn, focusIn, across) => ({ isCollapsed: false, rangeCount: 1,
+    containsNode(node, partial) { return node === list && partial === true && (anchorIn || focusIn || across); } });
   await run('board-pointer-over', async (state, tick, list) => { list.hovered = true; tick(); answer(state); await settle(); return state.requests + ' ' + list.innerHTML; });
   await run('board-pointer-left', async (state, tick, list) => { list.hovered = true; tick(); list.hovered = false; answer(state); await settle(); return list.innerHTML; });
-  await run('board-selection-in-list', async (state, tick, list) => { state.selection = selected('in-list'); tick(); answer(state); await settle(); return state.requests + ' ' + list.innerHTML; });
-  await run('board-selection-elsewhere', async (state, tick, list) => { state.selection = selected({}); tick(); answer(state); await settle(); return list.innerHTML; });
-  await run('other-view-hover-selection', async (state, tick, list) => { list.hovered = true; state.selection = selected('in-list'); tick(); answer(state); await settle(); return list.innerHTML; });
+  await run('board-selection-in-list', async (state, tick, list) => { state.selection = selected(list, true, true, false); tick(); answer(state); await settle(); return state.requests + ' ' + list.innerHTML; });
+  await run('board-selection-leaves-list', async (state, tick, list) => { state.selection = selected(list, true, false, false); tick(); answer(state); await settle(); return state.requests + ' ' + list.innerHTML; });
+  await run('board-selection-enters-list', async (state, tick, list) => { state.selection = selected(list, false, true, false); tick(); answer(state); await settle(); return state.requests + ' ' + list.innerHTML; });
+  await run('board-selection-across-list', async (state, tick, list) => { state.selection = selected(list, false, false, true); tick(); answer(state); await settle(); return state.requests + ' ' + list.innerHTML; });
+  await run('board-selection-elsewhere', async (state, tick, list) => { state.selection = selected(list, false, false, false); tick(); answer(state); await settle(); return list.innerHTML; });
+  await run('other-view-hover-selection', async (state, tick, list) => { list.hovered = true; state.selection = selected(list, true, true, false); tick(); answer(state); await settle(); return list.innerHTML; });
   // A fault page loads the whole view once its list reads again (#507).
   await run('fault-recovers', async (state, tick, list) => { list.dataset.reload = 'true'; tick(); answer(state); await settle(); return list.innerHTML + ' reloaded ' + (state.reloaded === true); });
   await run('fault-persists', async (state, tick, list) => { list.dataset.reload = 'true'; tick(); state.complete({ ok: false }); await settle(); return list.innerHTML + ' reloaded ' + (state.reloaded === true); });
@@ -110,7 +116,7 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
 // A session selected for a bulk action holds it, so the selection stays (#429). A field with
 // input not yet sent holds it also without focus, and the list is marked held (#510). A fault
 // page loads the whole view once the list reads again (#507). On the decision board, a pointer
-// over a card or a text selection in the list holds it too (#800).
+// over a card or a text selection with any part in the list holds it too (#800).
 func TestRefreshKeepsFormsInUse(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -142,7 +148,9 @@ func TestRefreshKeepsFormsInUse(t *testing.T) {
 		"implicit-select-reset replacement fragment held false\ncheckbox-changed 1 unsaved edit form\n" +
 		"typed-then-cleared replacement fragment held false\n" +
 		"board-pointer-over 1 unsaved edit form\nboard-pointer-left replacement fragment\n" +
-		"board-selection-in-list 1 unsaved edit form\nboard-selection-elsewhere replacement fragment\n" +
+		"board-selection-in-list 1 unsaved edit form\nboard-selection-leaves-list 1 unsaved edit form\n" +
+		"board-selection-enters-list 1 unsaved edit form\nboard-selection-across-list 1 unsaved edit form\n" +
+		"board-selection-elsewhere replacement fragment\n" +
 		"other-view-hover-selection replacement fragment\n" +
 		"fault-recovers unsaved edit form reloaded true\nfault-persists unsaved edit form reloaded false\n"
 	if string(out) != want {
