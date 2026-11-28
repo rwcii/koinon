@@ -349,3 +349,58 @@ func TestFailureAnswersTailscaleDiagnostic(t *testing.T) {
 		t.Fatalf("diagnostic answer: %d %v", w.Code, body)
 	}
 }
+
+// A rename on the saved port whose Serve mapping now forwards to another target is refused at
+// the Serve check, before the name is saved (#788 preflight).
+func TestLinkSetupSamePortConflictKeepsName(t *testing.T) {
+	n := &linkNet{}
+	a := newLinkHost(t, n, "alpha", "100.64.0.1")
+	a.fake.mu.Lock()
+	owned := a.fake.config.TCP["47672"]
+	a.fake.config.TCP["47672"] = remote.TCPConfig{TCPForward: "127.0.0.1:9999"}
+	a.fake.mu.Unlock()
+	// The daemon's close removes its own mapping; give it back for the cleanup.
+	t.Cleanup(func() {
+		a.fake.mu.Lock()
+		a.fake.config.TCP["47672"] = owned
+		a.fake.mu.Unlock()
+	})
+	err := a.d.linkSetup(context.Background(), "beta", 0)
+	if errorCode(err) != "tailscale_serve_conflict" {
+		t.Fatalf("rename on a retargeted port: %v", err)
+	}
+	if s := a.state(t); s.Name != "alpha" || s.Port != link.DefaultPort {
+		t.Fatalf("a refused rename changed the saved link: name %q port %d", s.Name, s.Port)
+	}
+}
+
+// A changed port whose old mapping cannot be removed puts the saved name and port back and
+// opens the old link again (#788 preflight).
+func TestLinkSetupFailedRemoveRestoresSavedLink(t *testing.T) {
+	n := &linkNet{}
+	a := newLinkHost(t, n, "alpha", "100.64.0.1")
+	before, _ := ReadRemoteConfig(a.root)
+	a.fake.mu.Lock()
+	a.fake.fail = true
+	a.fake.mu.Unlock()
+	err := a.d.linkSetup(context.Background(), "renamed", 47681)
+	a.fake.mu.Lock()
+	a.fake.fail = false
+	a.fake.mu.Unlock()
+	if err == nil {
+		t.Fatal("setup with a failed Serve removal succeeded")
+	}
+	if s := a.state(t); s.Name != "alpha" || s.Port != link.DefaultPort {
+		t.Fatalf("a failed removal changed the saved link: name %q port %d", s.Name, s.Port)
+	}
+	after, _ := ReadRemoteConfig(a.root)
+	if after.Link == nil || *after.Link != *before.Link || !after.LinkOwned {
+		t.Fatalf("a failed removal changed the link journal: %+v, was %+v", after.Link, before.Link)
+	}
+	a.d.link.mu.Lock()
+	open := a.d.link.listener != nil
+	a.d.link.mu.Unlock()
+	if !open {
+		t.Fatal("a failed removal left the old link closed")
+	}
+}

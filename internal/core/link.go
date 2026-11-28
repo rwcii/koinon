@@ -1346,8 +1346,12 @@ func (d *Daemon) linkSetupLocked(ctx context.Context, name string, port int) err
 		return ErrLinkRemoteOff
 	}
 	// The name and the port are saved only after the port passes its Serve check, so a
-	// refused port leaves the saved name, port and mapping as they were (#788).
-	save := func() error {
+	// refused port leaves the saved name, port and mapping as they were (#788). The save comes
+	// before the old link closes, so a failed write changes nothing, and undo puts the saved
+	// name and port back when a later step fails before the new mapping is journaled.
+	var oldName string
+	var oldPort int
+	write := func(name string, port int) error {
 		d.link.mu.Lock()
 		defer d.link.mu.Unlock()
 		s, err := link.ReadState(d.root)
@@ -1357,22 +1361,41 @@ func (d *Daemon) linkSetupLocked(ctx context.Context, name string, port int) err
 		s.Name, s.Port = name, port
 		return link.WriteState(d.root, s)
 	}
+	save := func() error {
+		d.link.mu.Lock()
+		s, err := link.ReadState(d.root)
+		d.link.mu.Unlock()
+		if err != nil {
+			return err
+		}
+		oldName, oldPort = s.Name, s.Port
+		return write(name, port)
+	}
+	undo := func(err error) error {
+		return errors.Join(err, write(oldName, oldPort))
+	}
 	if c.Link != nil && c.Link.Port == port {
+		owned := c.LinkOwned
+		if err := rt.manager.CheckTCP(ctx, *c.Link, owned); err != nil {
+			return err
+		}
 		if err := save(); err != nil {
 			return err
 		}
-		owned := c.LinkOwned
 		if !owned {
 			c.LinkOwned = true
 			if err := writeRemoteConfig(d.root, c); err != nil {
-				return err
+				return undo(err)
 			}
 		}
 		rt.config = c
 		if err := d.openLinkLocked(nil); err != nil {
-			return err
+			return undo(err)
 		}
-		return rt.manager.EnsureTCP(ctx, *c.Link, owned)
+		if err := rt.manager.EnsureTCP(ctx, *c.Link, owned); err != nil {
+			return undo(err)
+		}
+		return nil
 	}
 	held, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
@@ -1383,27 +1406,28 @@ func (d *Daemon) linkSetupLocked(ctx context.Context, name string, port int) err
 		held.Close()
 		return err
 	}
-	if c.Link != nil && c.LinkOwned {
-		// A changed port: the old mapping goes after the new port passed its check.
-		d.closeLinkLocked()
-		if err := rt.manager.RemoveTCP(ctx, *c.Link); err != nil {
-			held.Close()
-			return err
-		}
-		c.LinkOwned = false
-		if err := writeRemoteConfig(d.root, c); err != nil {
-			held.Close()
-			return err
-		}
-	}
 	if err := save(); err != nil {
 		held.Close()
 		return err
 	}
+	if c.Link != nil && c.LinkOwned {
+		// A changed port: the old mapping goes after the new port passed its check. When its
+		// removal fails, the old link opens again.
+		d.closeLinkLocked()
+		if err := rt.manager.RemoveTCP(ctx, *c.Link); err != nil {
+			held.Close()
+			return undo(errors.Join(err, d.openLinkLocked(nil)))
+		}
+		c.LinkOwned = false
+		if err := writeRemoteConfig(d.root, c); err != nil {
+			held.Close()
+			return undo(err)
+		}
+	}
 	c.Link, c.LinkOwned = &mapping, true
 	if err := writeRemoteConfig(d.root, c); err != nil {
 		held.Close()
-		return err
+		return undo(err)
 	}
 	rt.config = c
 	d.closeLinkLocked()

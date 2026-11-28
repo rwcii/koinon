@@ -16,7 +16,10 @@ into a dated release section when promoted to `main`.
 - `koinon link name` with a link port that Tailscale Serve already uses answers
   `tailscale_serve_conflict` with its next step, not `storage_error` (#788). The saved name and
   port, and the old Serve mapping of a changed port, now stay as they were; before, the refused
-  port was saved and `koinon link status` showed it with the listener off.
+  port was saved and `koinon link status` showed it with the listener off. A failed step after
+  the save and before the new mapping is journaled puts the saved name and port back. Other
+  daemon routes that meet a Tailscale diagnostic also answer with its code (409), not
+  `storage_error`.
 
 - Koinon submits a wake notice or a pickup command in a Codex pane with startup warnings again
   (#825). In an 80-column pane, Codex CLI 0.172.0 keeps the mark `⚠ N warnings · f2 to view`
