@@ -187,6 +187,8 @@ func init() {
 		"link_renamed":           "The computer's name on this computer was saved.",
 		"link_message_cancelled": "The message was cancelled, or its cancel waits for the other computer's answer.",
 		"link_audit_failed":      "The change was made, but its audit record could not be written.",
+		"tailscale_serve_conflict": "Refused: Tailscale already uses that port. Keep that configuration and move or remove it " +
+			"yourself, or choose another link port. The saved name and port did not change.",
 	} {
 		noticeText[code] = text
 	}

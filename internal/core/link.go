@@ -1338,16 +1338,6 @@ func (d *Daemon) linkSetupLocked(ctx context.Context, name string, port int) err
 	if port == rt.config.Mapping.Port() {
 		return ErrLinkPortSame
 	}
-	d.link.mu.Lock()
-	s, err := link.ReadState(d.root)
-	if err == nil {
-		s.Name, s.Port = name, port
-		err = link.WriteState(d.root, s)
-	}
-	d.link.mu.Unlock()
-	if err != nil {
-		return err
-	}
 	c, err := ReadRemoteConfig(d.root)
 	if err != nil {
 		return err
@@ -1355,7 +1345,22 @@ func (d *Daemon) linkSetupLocked(ctx context.Context, name string, port int) err
 	if c == nil || !c.Enabled {
 		return ErrLinkRemoteOff
 	}
+	// The name and the port are saved only after the port passes its Serve check, so a
+	// refused port leaves the saved name, port and mapping as they were (#788).
+	save := func() error {
+		d.link.mu.Lock()
+		defer d.link.mu.Unlock()
+		s, err := link.ReadState(d.root)
+		if err != nil {
+			return err
+		}
+		s.Name, s.Port = name, port
+		return link.WriteState(d.root, s)
+	}
 	if c.Link != nil && c.Link.Port == port {
+		if err := save(); err != nil {
+			return err
+		}
 		owned := c.LinkOwned
 		if !owned {
 			c.LinkOwned = true
@@ -1369,23 +1374,29 @@ func (d *Daemon) linkSetupLocked(ctx context.Context, name string, port int) err
 		}
 		return rt.manager.EnsureTCP(ctx, *c.Link, owned)
 	}
-	if c.Link != nil && c.LinkOwned {
-		// A changed port: the old mapping goes first.
-		d.closeLinkLocked()
-		if err := rt.manager.RemoveTCP(ctx, *c.Link); err != nil {
-			return err
-		}
-		c.LinkOwned = false
-		if err := writeRemoteConfig(d.root, c); err != nil {
-			return err
-		}
-	}
 	held, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		return err
 	}
 	mapping := remote.TCPMapping{Port: port, Target: held.Addr().String()}
 	if err := rt.manager.CheckTCP(ctx, mapping, false); err != nil {
+		held.Close()
+		return err
+	}
+	if c.Link != nil && c.LinkOwned {
+		// A changed port: the old mapping goes after the new port passed its check.
+		d.closeLinkLocked()
+		if err := rt.manager.RemoveTCP(ctx, *c.Link); err != nil {
+			held.Close()
+			return err
+		}
+		c.LinkOwned = false
+		if err := writeRemoteConfig(d.root, c); err != nil {
+			held.Close()
+			return err
+		}
+	}
+	if err := save(); err != nil {
 		held.Close()
 		return err
 	}

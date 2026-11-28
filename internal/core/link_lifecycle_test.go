@@ -5,8 +5,12 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -295,5 +299,53 @@ func TestLinkOldJoinDoesNotSendInNewGeneration(t *testing.T) {
 	state := b.state(t)
 	if len(state.Pairs) != 0 || len(state.Invites) != 1 {
 		t.Fatalf("old join sent pair-hello in new generation: local error=%v, peer pairs=%d, peer invitations=%d", result, len(state.Pairs), len(state.Invites))
+	}
+}
+
+// A link port that Tailscale Serve already uses is refused with the Serve diagnostic, and the
+// saved name, port, link mapping and journal stay as they were (#788).
+func TestLinkSetupServeConflictKeepsSavedLink(t *testing.T) {
+	n := &linkNet{}
+	a := newLinkHost(t, n, "alpha", "100.64.0.1")
+	before, _ := ReadRemoteConfig(a.root)
+	a.fake.mu.Lock()
+	a.fake.config.TCP["47680"] = remote.TCPConfig{TCPForward: "127.0.0.1:1"}
+	a.fake.mu.Unlock()
+	err := a.d.linkSetup(context.Background(), "renamed", 47680)
+	var diagnostic *remote.Diagnostic
+	if !errors.As(err, &diagnostic) || diagnostic.Code != "tailscale_serve_conflict" || errorCode(err) != "tailscale_serve_conflict" {
+		t.Fatalf("setup on a used port: %v", err)
+	}
+	if s := a.state(t); s.Name != "alpha" || s.Port != link.DefaultPort {
+		t.Fatalf("a refused port changed the saved link: name %q port %d", s.Name, s.Port)
+	}
+	after, _ := ReadRemoteConfig(a.root)
+	if after.Link == nil || before.Link == nil || *after.Link != *before.Link || !after.LinkOwned {
+		t.Fatalf("a refused port changed the link journal: %+v, was %+v", after.Link, before.Link)
+	}
+	a.fake.mu.Lock()
+	_, kept := a.fake.config.TCP["47672"]
+	a.fake.mu.Unlock()
+	if !kept {
+		t.Fatal("a refused port removed the old Serve mapping")
+	}
+	if err := a.d.linkSetup(context.Background(), "renamed", 47681); err != nil {
+		t.Fatalf("a free port after the refusal: %v", err)
+	}
+	if s := a.state(t); s.Name != "renamed" || s.Port != 47681 {
+		t.Fatalf("setup on a free port: name %q port %d", s.Name, s.Port)
+	}
+}
+
+// A Tailscale diagnostic answers with its own code and next step, not storage_error (#788).
+func TestFailureAnswersTailscaleDiagnostic(t *testing.T) {
+	w := httptest.NewRecorder()
+	failure(w, fmt.Errorf("link name: %w", &remote.Diagnostic{Code: "tailscale_serve_conflict", Next: "choose another link port"}))
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if w.Code != http.StatusConflict || body["code"] != "tailscale_serve_conflict" || body["error"] != "choose another link port" {
+		t.Fatalf("diagnostic answer: %d %v", w.Code, body)
 	}
 }

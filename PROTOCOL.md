@@ -103,9 +103,12 @@ that write error. `remote-dashboard.json` adds `link` (the link port
 and the loopback target) and `link_owned`, under the same write-ahead ownership rules as the
 dashboard mapping. Setup (`link-name`) validates the name (lower-case letters, digits,
 hyphens and dots, at most 253 bytes, labels of 1 to 63 bytes with alphanumeric ends) and the
-port (1 to 65535, not the dashboard's HTTPS port; 47672 by default), journals the mapping,
-opens a `127.0.0.1` TLS listener and adds `tailscale serve --bg --tcp=PORT
-tcp://127.0.0.1:N`. Remote enable and restore open the listener, then the mapping; remote
+port (1 to 65535, not the dashboard's HTTPS port; 47672 by default), checks that Serve does
+not already use a new port, journals the mapping, opens a `127.0.0.1` TLS listener and adds
+`tailscale serve --bg --tcp=PORT tcp://127.0.0.1:N`. A port that Serve already uses is refused
+with `tailscale_serve_conflict` (409) and its next step, before setup saves the name or the
+port or removes the old mapping, so the saved link stays as it was (#788). A maintainer route
+or another daemon route that meets a Tailscale diagnostic answers with its code. Remote enable and restore open the listener, then the mapping; remote
 disable closes link connections and the listener and cancels open invitations, then removes
 the mapping; pairs stay. A disable whose record write fails keeps the link closed.
 

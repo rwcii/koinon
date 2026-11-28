@@ -283,6 +283,13 @@ func failure(w http.ResponseWriter, err error) {
 		respond(w, http.StatusConflict, map[string]any{"ok": false, "code": "session_conflict", "details": map[string]any{"state": conflict.State, "fenced": conflict.Fenced}})
 		return
 	}
+	// A Tailscale diagnostic names its own code and next step, such as a Serve port that is
+	// already in use (#788).
+	var diagnostic *remote.Diagnostic
+	if errors.As(err, &diagnostic) {
+		respond(w, http.StatusConflict, map[string]any{"ok": false, "code": diagnostic.Code, "error": diagnostic.Next})
+		return
+	}
 	var inactive InactiveRecipient
 	if errors.As(err, &inactive) {
 		respond(w, http.StatusConflict, map[string]any{"ok": false, "code": "recipient_inactive",
@@ -332,6 +339,10 @@ func errorCode(err error) string {
 	var refusal Refusal
 	if errors.As(err, &refusal) {
 		return refusal.Code
+	}
+	var diagnostic *remote.Diagnostic
+	if errors.As(err, &diagnostic) {
+		return diagnostic.Code
 	}
 	_, code := plainError(err)
 	return code
