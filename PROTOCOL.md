@@ -103,17 +103,19 @@ that write error. `remote-dashboard.json` adds `link` (the link port
 and the loopback target) and `link_owned`, under the same write-ahead ownership rules as the
 dashboard mapping. Setup (`link-name`) validates the name (lower-case letters, digits,
 hyphens and dots, at most 253 bytes, labels of 1 to 63 bytes with alphanumeric ends) and the
-port (1 to 65535, not the dashboard's HTTPS port; 47672 by default), checks that Serve does
-not already use a new port, journals the mapping, opens a `127.0.0.1` TLS listener and adds
-`tailscale serve --bg --tcp=PORT tcp://127.0.0.1:N`. A port that Serve already uses is refused
-with `tailscale_serve_conflict` (409) and its next step, before setup saves the name or the
-port or removes the old mapping, so the saved link stays as it was (#788). A failure after
-the save and before the new mapping is journaled puts the saved name and port back. A change
-of Serve between the check and the new mapping can still give the code after the journal
-write; link status then shows the new port. A maintainer route or another daemon route that
-meets a Tailscale diagnostic answers with its code (409). Remote enable and restore open the
-listener, then the mapping; remote disable closes link connections and the listener and
-cancels open invitations, then removes the mapping; pairs stay. A disable whose record write fails keeps the link closed.
+port (1 to 65535, not the dashboard's HTTPS port; 47672 by default), checks the port with
+Serve (a new port, or the saved port of a rename) before it saves anything, journals the
+mapping, opens a `127.0.0.1` TLS listener and adds `tailscale serve --bg --tcp=PORT
+tcp://127.0.0.1:N`. A port that Serve already uses is refused with `tailscale_serve_conflict`
+(409) and its next step, and the saved name, port and mapping stay as they were (#788). A
+failed step after the save puts the saved name and port back, except after a changed port's
+new mapping is journaled; a failed removal of the old mapping also opens the old link again.
+A change of Serve between the check and a changed port's new mapping can still give the code
+after the journal write; link status then shows the new port. A maintainer route or another
+daemon route that meets a Tailscale diagnostic answers with its code (409). Remote enable and
+restore open the listener, then the mapping; remote disable closes link connections and the
+listener and cancels open invitations, then removes the mapping; pairs stay. A disable whose
+record write fails keeps the link closed.
 
 The listener takes TLS 1.3 only, with a client certificate required and session tickets off;
 `VerifyConnection` admits a paired or pending key, or any key while an invitation is open, and
@@ -1703,7 +1705,7 @@ of inbox storage and acknowledgement. While a message waits for a further notice
 Replies include `ok`. Success returns `session` or `sessions`; failures report a fixed `code`:
 `unauthorized` (401), `foreign_origin` (403), `invalid_request` (400), `session_not_found` (404),
 `session_conflict` (409), `repository_git_unavailable` (503), `repository_git_timeout` (503),
-the message codes above, a Tailscale diagnostic's code (409), or `storage_error` (500). Repository discovery reports the Git
+the message codes above, or `storage_error` (500). Repository discovery reports the Git
 execution or timeout category without returning command stderr or machine paths. Its Git
 calls for one request share a six-second limit. A `repository_git_timeout` refusal gives
 `details.calls_ms`, the time of each Git call of the request in order, and `details.limit_ms`.

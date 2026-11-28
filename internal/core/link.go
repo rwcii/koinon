@@ -1348,7 +1348,8 @@ func (d *Daemon) linkSetupLocked(ctx context.Context, name string, port int) err
 	// The name and the port are saved only after the port passes its Serve check, so a
 	// refused port leaves the saved name, port and mapping as they were (#788). The save comes
 	// before the old link closes, so a failed write changes nothing, and undo puts the saved
-	// name and port back when a later step fails before the new mapping is journaled.
+	// name and port back when a later step fails, except after a changed port's new mapping
+	// is journaled.
 	var oldName string
 	var oldPort int
 	write := func(name string, port int) error {
