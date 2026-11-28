@@ -2430,8 +2430,8 @@ of items. Reads move no inbox read or acknowledgement marker and no memory curso
   resolution, and `form_notes` when the text of a `decision` item does not follow the card form:
   a list of what to correct, from the request, so a retry gets the same notes. A `decision` or
   `task` item whose request leaves `recipients` out and that has none also gets a note that
-  names the missing recipients, because its verdict reaches no agent; an explicit empty list
-  gets none (#805). A note refuses
+  names the missing recipients, because its verdict reaches only its author; an explicit empty
+  list gets none (#805). A note refuses
   nothing and changes no state. Expired retry records are deleted by the maintenance sweep in bounded control
   deletions.
 - `POST /v1/decisions/edit` takes `caller`, `reference`, `if_revision` and at least one

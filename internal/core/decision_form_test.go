@@ -202,8 +202,8 @@ func TestDecisionFormNotesInReplies(t *testing.T) {
 }
 
 // A decision or task card that leaves its recipients out and has none gets a form note,
-// because its verdict reaches no agent; an explicit empty list, a named recipient and an fyi
-// card get none (#805).
+// because its verdict reaches only its author; an explicit empty list, a named recipient and an
+// fyi card get none (#805).
 func TestCardRecipientNotes(t *testing.T) {
 	d, root := startTestDaemon(t)
 	secret, err := ReadSecret(root)

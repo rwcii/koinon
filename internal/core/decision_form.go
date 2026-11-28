@@ -46,12 +46,13 @@ const (
 		"defers a goal that the maintainer set says so in its heading, and names it as a limit in Fast or " +
 		"complete. ASD-STE100 applies to the sentences: short active sentences, one idea each, and common words."
 	// CardRecipientsNote is the form note for a decision or task card that names no recipient
-	// and did not ask for none: its verdict reaches no agent's inbox, wake or decision_pending
-	// (#805).
-	CardRecipientsNote = "recipients: name the agents that act on the verdict; with no recipient, the verdict " +
-		"reaches no agent. Send an empty list for a card that no agent acts on."
+	// and did not ask for none: its verdict reaches only its author (#537), and the board shows
+	// no agent for it (#805).
+	CardRecipientsNote = "recipients: name the agents that act on the verdict; with no recipient, only the card's " +
+		"author gets the verdict and the board shows no agent for it. Send an empty list for a card that no other " +
+		"agent acts on."
 	// CardFormReply tells an author what form_notes in a reply means.
-	CardFormReply = "The reply has form_notes when a decision card does not follow the form: correct the card " +
+	CardFormReply = "The reply has form_notes when a card does not follow the form: correct the card " +
 		"with decision_edit. A note does not refuse the card."
 )
 

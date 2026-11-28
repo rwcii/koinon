@@ -264,8 +264,8 @@ terminal-copy commands are printable ASCII. The `decision_create` and `decision_
 text gives the form at each write, and the reply has `form_notes` when a decision card does
 not follow it, for example a missing **Fix loop:** or **On track:** label or an answer that
 is not one of the fixed answers: correct the card with `decision_edit`. A decision or task card
-that leaves its recipients out and has none also gets a note, because its verdict reaches no
-agent; `--no-recipients` (an empty list) is for a card that no agent acts on. A note does not
+that leaves its recipients out and has none also gets a note, because its verdict reaches only
+its author; `--no-recipients` (an empty list) is for a card that no other agent acts on. A note does not
 refuse the card. Known key formats are refused. Credentials,
 personal data, private session IDs and peer message bodies stay in their own stores; a card
 holds the decision's own text. Markdown renders as

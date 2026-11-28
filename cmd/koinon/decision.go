@@ -50,7 +50,7 @@ func decisionCommand(ctx context.Context, args []string, out io.Writer) error {
 		flags.Var(&commands, "command", "terminal-copy command (repeat for each)")
 		flags.Var(&recipients, "recipient", "participant address or peer name (repeat for each)")
 		noCommands = flags.Bool("no-commands", false, "store an empty command list")
-		noRecipients = flags.Bool("no-recipients", false, "store an empty recipient list, for a card that no agent acts on (no form note)")
+		noRecipients = flags.Bool("no-recipients", false, "store an empty recipient list, for a card that no other agent acts on (no form note)")
 		if op == "create" {
 			text("key", "idempotency key, fixed before the first attempt")
 			deadline = flags.Float64("deadline", 0, "retry deadline in Unix seconds, at most 24 hours ahead")
