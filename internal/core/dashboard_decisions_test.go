@@ -722,6 +722,25 @@ func TestDecisionBoardNamesCardAndComputer(t *testing.T) {
 		}
 	}
 	check(host)
+	// The browser holds the refresh under the pointer only when the page turns the hold on;
+	// only the decision board does (PDR 007, Decision 2).
+	listTag := func(path string) string {
+		t.Helper()
+		body := dashboardDo(t, d, "GET", path, client.cookie, nil, nil).body
+		start := strings.Index(body, `<div id="list"`)
+		if start < 0 {
+			t.Fatalf("%s has no list: %s", path, body)
+		}
+		return body[start : start+strings.Index(body[start:], ">")+1]
+	}
+	if got := listTag("/dashboard/decisions"); !strings.Contains(got, ` data-hold-pointer="true"`) {
+		t.Fatalf("decision board list does not hold under the pointer: %s", got)
+	}
+	for _, path := range []string{"/dashboard/sessions", "/dashboard/rooms"} {
+		if got := listTag(path); strings.Contains(got, "data-hold-pointer") {
+			t.Fatalf("%s list holds under the pointer: %s", path, got)
+		}
+	}
 	d.link.mu.Lock()
 	s, err := link.ReadState(d.root)
 	if err == nil {
