@@ -52,7 +52,8 @@ const (
 		"author gets the verdict and the board shows no agent for it. Send an empty list for a card that no other " +
 		"agent acts on."
 	// CardFormReply tells an author what form_notes in a reply means.
-	CardFormReply = "The reply has form_notes when a card does not follow the form: correct the card " +
+	CardFormReply = "The reply has form_notes when a decision card does not follow the form, or a decision or task card " +
+		"leaves its recipients out and has none: correct the card " +
 		"with decision_edit. A note does not refuse the card."
 )
 

@@ -6,8 +6,8 @@ into a dated release section when promoted to `main`.
 ## Unreleased
 
 - A decision or task card created or edited with its recipients left out and none stored now
-  gets a form note that names the missing recipients (#805). Such a card's verdict reached only
-  its author, and the board showed no agent for it. An explicit empty list (`recipients: []`, or
+  gets a form note that names the missing recipients (#805). Such a card's verdict reaches only
+  its author, and the board shows no agent for it; only the note is new. An explicit empty list (`recipients: []`, or
   `--no-recipients` in the CLI) is still for a card that no other agent acts on, and gets no
   note.
 

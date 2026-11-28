@@ -384,7 +384,7 @@ refusals for a separate decision (#493). The command boxes (Decision 3) and ASD-
 
 The recipients note: a defect found during use on 2026-11-24 (#805, a request record; the
 agents' design, with no maintainer decision). A stop card was created with no recipients, and
-the maintainer saw that no agent was tagged on it. Its verdict went only to its author (#537).
+Robert Capps saw that no agent was tagged on it. Its verdict went only to its author (#537).
 The note does not refuse the card, under "remove all limit text" (#487). Alternatives
 considered: refuse a decision or task card with no recipients, which #487 rules out; add the
 author as a default recipient, which changes nothing because the author already gets the
