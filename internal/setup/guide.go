@@ -132,8 +132,11 @@ correction of style changes the sentences and keeps the form.
 The decision_create and decision_edit field text gives this form at each write, and the reply
 has form_notes when a decision card does not follow it: the context is not a list or is over
 2500 characters, the heading or a label is missing or out of order, Fix loop or On track does
-not start with one of its answers, or the recommendation is over 3000 characters (#635). A note does not refuse the card: correct the card with
-decision_edit.
+not start with one of its answers, or the recommendation is over 3000 characters (#635). A
+decision or task card that leaves its recipients out and has none gets a note too, because its
+verdict reaches only its author; send an empty list for a card that no other agent acts on
+(#805). A note
+does not refuse the card: correct the card with decision_edit.
 An item is active (waiting for a verdict), returned (the maintainer's feedback came back to
 its author: change the item as the feedback says with decision_edit, which makes it wait
 again, or withdraw it), in_progress (approved; do the work, then decision_close), archived

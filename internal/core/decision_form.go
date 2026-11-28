@@ -9,7 +9,8 @@ import (
 // The card form reaches an author at each write (CARD-FORM-AT-WRITE-635 in PDR 007,
 // Decision 1, #635): the tool field text and the command usage hold these rules, and the
 // create and edit replies hold CardFormNotes. A session can lose the guide at a compaction;
-// the tool text and the reply come with each write.
+// the tool text and the reply come with each write. The replies also hold
+// CardRecipientsNote, from PDR 007, Decision 4 (#805).
 const (
 	cardContextRunes        = 2500
 	cardRecommendationRunes = 3000
@@ -45,8 +46,15 @@ const (
 		"maintainer does not take it. Then each open point with how to handle it. A recommendation that drops or " +
 		"defers a goal that the maintainer set says so in its heading, and names it as a limit in Fast or " +
 		"complete. ASD-STE100 applies to the sentences: short active sentences, one idea each, and common words."
+	// CardRecipientsNote is the form note for a decision or task card that names no recipient
+	// and did not ask for none: its verdict reaches only its author (#537), and the board shows
+	// no agent for it (#805).
+	CardRecipientsNote = "recipients: name the agents that act on the verdict; with no recipient, only the card's " +
+		"author gets the verdict and the board shows no agent for it. Send an empty list for a card that no other " +
+		"agent acts on."
 	// CardFormReply tells an author what form_notes in a reply means.
-	CardFormReply = "The reply has form_notes when a decision card does not follow the form: correct the card " +
+	CardFormReply = "The reply has form_notes when a decision card does not follow the form, or a decision or task card " +
+		"leaves its recipients out and has none: correct the card " +
 		"with decision_edit. A note does not refuse the card."
 )
 
@@ -106,6 +114,16 @@ func CardFormNotes(kind, context, recommendation string) []string {
 	}
 	if len(notes) == 0 {
 		return nil
+	}
+	return notes
+}
+
+// cardRecipientNotes adds CardRecipientsNote to notes for a decision or task card that has no
+// recipient after a write that left the recipients out. An explicit empty list is the author's
+// choice and gets no note, as an fyi card gets none (#805).
+func cardRecipientNotes(notes []string, kind string, omitted bool, recipients int) []string {
+	if (kind == "decision" || kind == "task") && omitted && recipients == 0 {
+		return append(notes, CardRecipientsNote)
 	}
 	return notes
 }

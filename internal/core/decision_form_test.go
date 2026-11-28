@@ -161,8 +161,10 @@ func TestDecisionFormNotesInReplies(t *testing.T) {
 		t.Fatal(err)
 	}
 	caller := Key{"deepseek", "synthetic-dsh-form"}
+	// The writes of this test send an explicit empty recipient list, so only the text form
+	// gives notes; TestCardRecipientNotes checks the recipients note.
 	body := map[string]any{"caller": caller, "reference": "FORM-1", "title": "Synthetic", "kind": "decision",
-		"context": "A paragraph.", "recommendation": "Prose.", "key": "form-key", "deadline": d.store.clock() + 600}
+		"context": "A paragraph.", "recommendation": "Prose.", "recipients": []string{}, "key": "form-key", "deadline": d.store.clock() + 600}
 	notes := func(result map[string]any) []any {
 		list, _ := result["result"].(map[string]any)["form_notes"].([]any)
 		return list
@@ -173,12 +175,12 @@ func TestDecisionFormNotesInReplies(t *testing.T) {
 		t.Fatalf("create: %d %v", status, created)
 	}
 	status, edited := post(t, address, secret, "/v1/decisions/edit", map[string]any{"caller": caller, "reference": "FORM-1", "if_revision": 1,
-		"context": goodCardContext})
+		"context": goodCardContext, "recipients": []string{}})
 	if status != 200 || len(notes(edited)) != 6 || edited["result"].(map[string]any)["revision"] != 2.0 {
 		t.Fatalf("partial edit checks the merged item: %d %v", status, edited)
 	}
 	status, edited = post(t, address, secret, "/v1/decisions/edit", map[string]any{"caller": caller, "reference": "FORM-1", "if_revision": 2,
-		"recommendation": goodCardRecommendation})
+		"recommendation": goodCardRecommendation, "recipients": []string{}})
 	if _, present := edited["result"].(map[string]any)["form_notes"]; status != 200 || present {
 		t.Fatalf("a repaired card has no notes: %d %v", status, edited)
 	}
@@ -193,8 +195,85 @@ func TestDecisionFormNotesInReplies(t *testing.T) {
 		t.Fatalf("get after the replay: %d %v", status, got)
 	}
 	status, task := post(t, address, secret, "/v1/decisions/create", map[string]any{"caller": caller, "reference": "FORM-2", "title": "Synthetic",
-		"kind": "task", "context": "A paragraph.", "key": "form-task", "deadline": d.store.clock() + 600})
+		"kind": "task", "context": "A paragraph.", "recipients": []string{}, "key": "form-task", "deadline": d.store.clock() + 600})
 	if _, present := task["result"].(map[string]any)["form_notes"]; status != 200 || present {
 		t.Fatalf("task: %d %v", status, task)
+	}
+}
+
+// A decision or task card that leaves its recipients out and has none gets a form note,
+// because its verdict reaches only its author; an explicit empty list, a named recipient and an
+// fyi card get none (#805).
+func TestCardRecipientNotes(t *testing.T) {
+	d, root := startTestDaemon(t)
+	secret, err := ReadSecret(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	address := d.Addresses()[0]
+	if _, err := d.store.Register(context.Background(), Registration{Family: "deepseek", ID: "synthetic-dsh-recipients", Directory: t.TempDir(), TTLSeconds: 60}); err != nil {
+		t.Fatal(err)
+	}
+	caller := Key{"deepseek", "synthetic-dsh-recipients"}
+	hasNote := func(result map[string]any) bool {
+		list, _ := result["result"].(map[string]any)["form_notes"].([]any)
+		for _, note := range list {
+			if note == CardRecipientsNote {
+				return true
+			}
+		}
+		return false
+	}
+	create := func(reference, kind string, recipients any) map[string]any {
+		t.Helper()
+		body := map[string]any{"caller": caller, "reference": reference, "title": "Synthetic", "kind": kind,
+			"context": goodCardContext, "recommendation": goodCardRecommendation, "key": "key-" + reference, "deadline": d.store.clock() + 600}
+		if recipients != nil {
+			body["recipients"] = recipients
+		}
+		status, created := post(t, address, secret, "/v1/decisions/create", body)
+		if status != 200 {
+			t.Fatalf("create %s: %d %v", reference, status, created)
+		}
+		return created
+	}
+	edit := func(reference string, fields map[string]any) map[string]any {
+		t.Helper()
+		body := map[string]any{"caller": caller, "reference": reference, "if_revision": 1}
+		for k, v := range fields {
+			body[k] = v
+		}
+		status, edited := post(t, address, secret, "/v1/decisions/edit", body)
+		if status != 200 {
+			t.Fatalf("edit %s: %d %v", reference, status, edited)
+		}
+		return edited
+	}
+	for _, c := range []struct {
+		reference, kind string
+		recipients      any
+		want            bool
+	}{
+		{"R-decision", "decision", nil, true},
+		{"R-task", "task", nil, true},
+		{"R-fyi", "fyi", nil, false},
+		{"R-empty", "decision", []string{}, false},
+		{"R-named", "decision", []string{"synthetic-peer"}, false},
+	} {
+		if got := hasNote(create(c.reference, c.kind, c.recipients)); got != c.want {
+			t.Fatalf("create %s: recipients note %v, want %v", c.reference, got, c.want)
+		}
+	}
+	if !hasNote(edit("R-decision", map[string]any{"order": 2})) {
+		t.Fatal("an edit that leaves the recipients out of a card with none has no recipients note")
+	}
+	if hasNote(edit("R-task", map[string]any{"recipients": []string{"synthetic-peer"}})) {
+		t.Fatal("an edit that names a recipient has the recipients note")
+	}
+	if hasNote(edit("R-named", map[string]any{"order": 2})) {
+		t.Fatal("an edit of a card with a recipient has the recipients note")
+	}
+	if hasNote(edit("R-empty", map[string]any{"recipients": []string{}})) {
+		t.Fatal("an edit to an explicit empty list has the recipients note")
 	}
 }

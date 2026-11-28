@@ -30,7 +30,8 @@ func (d *Daemon) decisionRoutes(mux *http.ServeMux) {
 			return
 		}
 		d.store.ToolCall(request.Caller)
-		result.FormNotes = CardFormNotes(deref(request.Kind), deref(request.Context), deref(request.Recommendation))
+		result.FormNotes = cardRecipientNotes(CardFormNotes(deref(request.Kind), deref(request.Context), deref(request.Recommendation)),
+			deref(request.Kind), request.Recipients == nil, len(result.Recipients))
 		respond(w, 200, map[string]any{"ok": true, "result": result})
 	})
 	mux.HandleFunc("POST /v1/decisions/edit", func(w http.ResponseWriter, r *http.Request) {
@@ -54,7 +55,8 @@ func (d *Daemon) decisionRoutes(mux *http.ServeMux) {
 			return
 		}
 		d.store.ToolCall(request.Caller)
-		item.FormNotes = CardFormNotes(item.Kind, item.Context, item.Recommendation)
+		item.FormNotes = cardRecipientNotes(CardFormNotes(item.Kind, item.Context, item.Recommendation),
+			item.Kind, request.Recipients == nil, len(item.Recipients))
 		respond(w, 200, map[string]any{"ok": true, "result": item})
 	})
 	mux.HandleFunc("POST /v1/decisions/list", func(w http.ResponseWriter, r *http.Request) {

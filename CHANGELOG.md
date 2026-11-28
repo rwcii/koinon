@@ -13,6 +13,12 @@ into a dated release section when promoted to `main`.
   pointer hold. The verdict's audit record ends with `at HOST`, the Host of the page that
   posted it (PDR 007, Decision 2).
 
+- A decision or task card created or edited with its recipients left out and none stored now
+  gets a form note about the missing recipients (#805). Such a card's verdict reaches only its
+  author, and the board shows no agent for it; only the note is new. An explicit empty list
+  (`recipients: []`, or `--no-recipients` in the CLI) is still for a card that no other agent
+  acts on, and gets no note.
+
 - Koinon submits a wake notice or a pickup command in a Codex pane with startup warnings again
   (#825). In an 80-column pane, Codex CLI 0.172.0 keeps the mark `⚠ N warnings · f2 to view`
   alone on the last footer row while the input holds text. The daemon did not read that row

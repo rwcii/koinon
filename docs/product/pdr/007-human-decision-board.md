@@ -3,7 +3,7 @@ pdr: "007"
 title: "Human Decision Board"
 status: draft
 created: "2026-10-12"
-updated: "2026-11-27"
+updated: "2026-11-28"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -130,6 +130,8 @@ context is not a list or is over 2500 characters, when the heading or a label is
 of order, when Fix loop or On track does not start with one of its answers, or when the
 recommendation is over 3000 characters. A note refuses nothing and changes
 no state; the author corrects the card with `decision_edit` (CARD-FORM-AT-WRITE-635, #635).
+A `decision` or `task` card that leaves its recipients out and has none also gets a form note;
+Decision 4 holds that note (#805).
 
 **Provenance:** Requested in #206 (issue body, requirements 1, 2, 5, 6, 8, 10, 11, 12 and
 the settled point on rows); a request record. Agent withdrawal: requested in #504 (issue body,
@@ -172,8 +174,9 @@ has nothing to say. Card form at the write:
 - **Reason and scope:** the tool text and the reply come with each write, in each family. The two
   sizes come from the cards with a list context since 2026-10-31: 75% have a context under 2280
   characters and a recommendation under 3114. A note does not refuse, under "remove all limit
-  text" (#487), so an agent can leave a note unanswered. Scope: `decision` items; tasks and fyi
-  items get no notes.
+  text" (#487), so an agent can leave a note unanswered. Scope: the text form notes are for
+  `decision` items; tasks and fyi items get none. The recipients note on `decision` and `task`
+  cards is in Decision 4 (#805). It is the agents' design, not part of this decision.
 - **Review when:** agents leave notes unanswered and cards drift again.
 
 Fix loop and On track:
@@ -370,7 +373,10 @@ Command boxes show plain ASCII. A command with other characters is refused when 
 Each new verdict, an `fyi` acknowledgement included, reaches each named recipient (#206's
 `relayTo`) and the item's author (#537) once, with no loss and no
 duplicate record; the notice can repeat. A recipient that does not resolve is flagged, and
-its delivery is recorded as skipped with the reason. Each recipient has a durable delivery record with an
+its delivery is recorded as skipped with the reason. A `decision` or `task` card that leaves
+its recipients out and has none gets a form note in the create or edit reply, because its
+verdict reaches only its author and the board shows no agent for it; an explicit empty list,
+for a card that no other agent acts on, gets none (#805). Each recipient has a durable delivery record with an
 acknowledgement. The content-free wake notice carries the verdict ID; it can repeat after a
 crash, and the receiver ignores an ID it has handled. Each agent reads the verdict record
 itself through an interface every family can use. The records are stored data that agents
@@ -414,6 +420,18 @@ Reason: limit text with no source makes agents of different families refuse each
 Scope: agent-facing text, skills, setup blocks and the docs and records that restate them. The #487 audit lists the code
 refusals for a separate decision (#493). The command boxes (Decision 3) and ASD-STE100 card prose
 (Decision 1) keep their sources and stay.
+
+The recipients note: a defect found during use on 2026-11-24 (#805, a request record; the
+agents' design, with no maintainer decision). A stop card was created with no recipients, and
+Robert Capps saw that no agent was tagged on it. A verdict on a card with no recipients goes
+only to its author (#537).
+The note does not refuse the card, under "remove all limit text" (#487). Alternatives
+considered: refuse a decision or task card with no recipients, which #487 rules out; add the
+author as a default recipient, which changes nothing because the author already gets the
+verdict; also note an explicit empty list or an fyi card, which would note a card that an
+author made with no recipients on purpose. Limit: whether a card's empty list was explicit is
+not stored, so an edit that leaves `recipients` out of such a card gets the note; the author
+sends the empty list again.
 
 ### Alternatives Considered
 
@@ -465,3 +483,4 @@ blocks, which the maintainer copies into a terminal, hold printable ASCII only. 
 | 2026-11-18 | Decision 4: remote recipients on a paired computer get notices and read and acknowledge at the card's computer (#746; PDR 011, Decision 2, amendment BOARD-LINK-746) |
 | 2026-11-25 | Executive summary: the board is built (#353, #358, #360) (#822) |
 | 2026-11-27 | Decision 2: the board names its computer and each verdict form its card, the refresh holds under the pointer and a selection, and the verdict audit names the page's Host (#800) |
+| 2026-11-28 | Decision 4: a `decision` or `task` card with no recipients that left them out gets a form note; Decision 1 points to it (#805) |
