@@ -113,7 +113,8 @@ cat "$FAKE/card.json"
 
 // fakeWorker is a claude worker. It logs its directory and whether a forge or Koinon
 // variable reached it, and answers with the verdict in $FAKE/verdict-LENS: APPROVE, REJECT,
-// NONE (no verdict line) or EXIT (a failed worker).
+// NONE (no verdict line), EXIT (a failed worker) or APIERROR (a worker that stops on an API
+// error and writes its JSON error answer, #835).
 const fakeWorker = `#!/bin/sh
 prompt=$(cat)
 lens=$(printf '%s\n' "$prompt" | sed -n 's/^You are the \([a-z-]*\) lens.*/\1/p')
@@ -124,6 +125,10 @@ lens=$(printf '%s\n' "$prompt" | sed -n 's/^You are the \([a-z-]*\) lens.*/\1/p'
 } >> "$FAKE/workers"
 verdict=$(cat "$FAKE/verdict-$lens" 2>/dev/null || echo APPROVE)
 [ "$verdict" != EXIT ] || exit 3
+if [ "$verdict" = APIERROR ]; then
+	jq -n '{is_error: true, api_error_status: 429, result: "Synthetic usage limit"}'
+	exit 1
+fi
 report="Synthetic $lens report."
 [ "$verdict" = NONE ] || report="$report
 VERDICT: $verdict"
@@ -667,6 +672,7 @@ func TestPreflightRunScript(t *testing.T) {
 		{"a lens rejects", "REJECT", "code rejects", 1},
 		{"a report without a verdict line", "NONE", "code failed: the report has no last VERDICT line", 2},
 		{"a worker fails", "EXIT", "code failed: the claude worker exited with status 3", 2},
+		{"a worker stops on an API error", "APIERROR", "code failed: the claude worker exited with status 1: 429: Synthetic usage limit", 2},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			e := newGateEnv(t)
@@ -680,6 +686,30 @@ func TestPreflightRunScript(t *testing.T) {
 			}
 		})
 	}
+	// One API error for every lens is said once: no lens reviewed the head (#835).
+	t.Run("every lens stops on the same API error", func(t *testing.T) {
+		e := newGateEnv(t)
+		repo := gateRepository(t, e, true)
+		for _, lens := range []string{"security", "code", "standards", "refusal", "wording"} {
+			e.write(t, "verdict-"+lens, "APIERROR")
+		}
+		reports := t.TempDir()
+		out, err := e.run(t, repo, "preflight-run.sh", []string{"PREFLIGHT_REPORTS=" + reports}, "--base", "base")
+		exit, _ := err.(*exec.ExitError)
+		want := "every lens failed with the same reason, so no lens reviewed the head: the claude worker exited with status 1: 429: Synthetic usage limit"
+		if exit == nil || exit.ExitCode() != 2 || !strings.Contains(out, want) {
+			t.Fatalf("%v %s", err, out)
+		}
+	})
+	t.Run("one failed lens is not said for every lens", func(t *testing.T) {
+		e := newGateEnv(t)
+		repo := gateRepository(t, e, true)
+		e.write(t, "verdict-code", "APIERROR")
+		out, _ := e.run(t, repo, "preflight-run.sh", []string{"PREFLIGHT_REPORTS=" + t.TempDir()}, "--base", "base")
+		if strings.Contains(out, "every lens failed") {
+			t.Fatalf("one failed lens said as every lens: %s", out)
+		}
+	})
 	t.Run("first adoption uses the head's policy", func(t *testing.T) {
 		e := newGateEnv(t)
 		repo := gateRepository(t, e, false)

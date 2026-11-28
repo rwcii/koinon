@@ -123,6 +123,8 @@ echo "preflight-run: head $head, base $base ($merge_base), lens policy from $pol
 echo "preflight-run: reports in $out"
 status=0
 results=
+ran=0
+same=
 for lens in $lenses; do
 	brief=$(brief_of "$lens")
 	prompt=$out/$lens.prompt.md
@@ -160,6 +162,12 @@ EOF
 	reason=
 	if [ "$worker" -ne 0 ]; then
 		reason="the claude worker exited with status $worker"
+		# A worker that stops on an API error, such as a usage limit, still writes its JSON
+		# answer; its status and text name the cause (#835).
+		detail=$(jq -r 'select(.is_error == true) | [(.api_error_status // empty | tostring), (.result // empty)]
+			| map(select(. != "")) | join(": ")' "$raw" 2>/dev/null | tr -d '\r' | tr '\n' ' ' | cut -c1-300 |
+			sed 's/[[:space:]]*$//')
+		[ -z "$detail" ] || reason="$reason: $detail"
 	else
 		jq -r '.result // empty' "$raw" >"$report" 2>/dev/null || reason="the claude worker's answer is not JSON"
 		jq '{event_key: (.session_id // "unknown"), usage: (.usage // "unknown"), cost_usd: (.total_cost_usd // "unknown"),
@@ -186,11 +194,21 @@ EOF
 		status=2
 		;;
 	esac
+	# One reason for every lens means that no lens reviewed the head (#835).
+	ran=$((ran + 1))
+	if [ "$verdict" = failed ] && { [ "$ran" -eq 1 ] || [ "$reason" = "$same" ]; }; then
+		same=$reason
+	else
+		same=
+	fi
 	results="$results$(jq -cn --arg lens "$lens" --arg verdict "$verdict" --arg reason "$reason" \
 		'{lens: $lens, verdict: $verdict, reason: $reason}')
 "
 done
 
+if [ "$ran" -gt 1 ] && [ -n "$same" ]; then
+	echo "preflight-run: every lens failed with the same reason, so no lens reviewed the head: $same" >&2
+fi
 printf '%s' "$results" | jq -s --arg head "$head" --arg base "$base" --arg merge_base "$merge_base" --arg run "$run" \
 	--arg policy "$policy_source" --argjson status "$status" \
 	'{head: $head, base: $base, merge_base: $merge_base, run: $run, family: "claude", policy: $policy,

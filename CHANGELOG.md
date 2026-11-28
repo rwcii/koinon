@@ -5,6 +5,10 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A preflight lens whose worker stops on an API error, such as a usage limit, now names the
+  error's status and text after "the claude worker exited with status N" (#835). When every
+  lens fails with the same reason, the run says once that no lens reviewed the head.
+
 - A verdict on the decision board is harder to give on the wrong card (#800). The board's title
   names its computer (its link name, or its host name), each verdict form shows "Answer
   REFERENCE, revision N, on COMPUTER" above buttons that name the card ("Approve REFERENCE"),
