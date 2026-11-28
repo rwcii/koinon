@@ -9,7 +9,8 @@ import (
 // The card form reaches an author at each write (CARD-FORM-AT-WRITE-635 in PDR 007,
 // Decision 1, #635): the tool field text and the command usage hold these rules, and the
 // create and edit replies hold CardFormNotes. A session can lose the guide at a compaction;
-// the tool text and the reply come with each write.
+// the tool text and the reply come with each write. The replies also hold
+// CardRecipientsNote, from PDR 007, Decision 4 (#805).
 const (
 	cardContextRunes        = 2500
 	cardRecommendationRunes = 3000

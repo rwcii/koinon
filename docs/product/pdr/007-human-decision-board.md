@@ -130,6 +130,8 @@ context is not a list or is over 2500 characters, when the heading or a label is
 of order, when Fix loop or On track does not start with one of its answers, or when the
 recommendation is over 3000 characters. A note refuses nothing and changes
 no state; the author corrects the card with `decision_edit` (CARD-FORM-AT-WRITE-635, #635).
+A `decision` or `task` card that leaves its recipients out and has none also gets a form note;
+Decision 4 holds that note (#805).
 
 **Provenance:** Requested in #206 (issue body, requirements 1, 2, 5, 6, 8, 10, 11, 12 and
 the settled point on rows); a request record. Agent withdrawal: requested in #504 (issue body,
@@ -172,8 +174,9 @@ has nothing to say. Card form at the write:
 - **Reason and scope:** the tool text and the reply come with each write, in each family. The two
   sizes come from the cards with a list context since 2026-10-31: 75% have a context under 2280
   characters and a recommendation under 3114. A note does not refuse, under "remove all limit
-  text" (#487), so an agent can leave a note unanswered. Scope: `decision` items; tasks and fyi
-  items get no notes.
+  text" (#487), so an agent can leave a note unanswered. Scope: the text form notes are for
+  `decision` items; tasks and fyi items get none. The recipients note on `decision` and `task`
+  cards is in Decision 4 (#805). It is the agents' design, not part of this decision.
 - **Review when:** agents leave notes unanswered and cards drift again.
 
 Fix loop and On track:
@@ -442,4 +445,4 @@ blocks, which the maintainer copies into a terminal, hold printable ASCII only. 
 | 2026-11-09 | Decision 1: the card labels Fix loop and On track (#638, CARD-LOOP-SCOPE) |
 | 2026-11-18 | Decision 4: remote recipients on a paired computer get notices and read and acknowledge at the card's computer (#746; PDR 011, Decision 2, amendment BOARD-LINK-746) |
 | 2026-11-25 | Executive summary: the board is built (#353, #358, #360) (#822) |
-| 2026-11-28 | Decision 4: a `decision` or `task` card with no recipients that left them out gets a form note (#805) |
+| 2026-11-28 | Decision 4: a `decision` or `task` card with no recipients that left them out gets a form note; Decision 1 points to it (#805) |

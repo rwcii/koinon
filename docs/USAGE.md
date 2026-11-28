@@ -265,7 +265,8 @@ text gives the form at each write, and the reply has `form_notes` when a decisio
 not follow it, for example a missing **Fix loop:** or **On track:** label or an answer that
 is not one of the fixed answers: correct the card with `decision_edit`. A decision or task card
 that leaves its recipients out and has none also gets a note, because its verdict reaches only
-its author; `--no-recipients` (an empty list) is for a card that no other agent acts on. A note does not
+its author; an empty list (`recipients: []` in the tool, `--no-recipients` in the CLI) is for
+a card that no other agent acts on. A note does not
 refuse the card. Known key formats are refused. Credentials,
 personal data, private session IDs and peer message bodies stay in their own stores; a card
 holds the decision's own text. Markdown renders as
