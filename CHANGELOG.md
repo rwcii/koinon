@@ -5,6 +5,14 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A verdict on the decision board is harder to give on the wrong card (#800). The board's title
+  names its computer (its link name, or its host name), each verdict form shows "Answer
+  REFERENCE, revision N, on COMPUTER" above buttons that name the card ("Approve REFERENCE"),
+  and the board's card list no longer refreshes while the pointer is over a card or any part
+  of a text selection is in it, so it does not move under a click. A touch screen gets no
+  pointer hold. The verdict's audit record ends with `at HOST`, the Host of the page that
+  posted it (PDR 007, Decision 2).
+
 - `koinon link name` with a link port that Tailscale Serve already uses answers
   `tailscale_serve_conflict` with its next step, not `storage_error` (#788). The saved name and
   port, and the old Serve mapping of a changed port, now stay as they were; before, the refused

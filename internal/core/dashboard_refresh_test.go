@@ -14,7 +14,7 @@ const refreshScript = `
 const fs = require('fs');
 const vm = require('vm');
 function run(name, script) {
-  const state = { focused: false, requests: 0, complete: null };
+  const state = { focused: false, requests: 0, complete: null, selection: null };
   const input = { tagName: 'TEXTAREA' };
   // The list's disclosures: one with a form, one read-only with a data-key, one read-only
   // without. Replacing the list's HTML replaces them with closed ones.
@@ -30,7 +30,7 @@ function run(name, script) {
     { tagName: 'INPUT', type: 'checkbox', checked: false, defaultChecked: false }];
   let html = 'unsaved edit form';
   const list = {
-    dataset: { refresh: '5000' }, details: fresh(), fields: fields(), checked: false, held: false,
+    dataset: { refresh: '5000', holdPointer: name.startsWith('board-') ? 'true' : undefined }, details: fresh(), fields: fields(), checked: false, held: false, hovered: false,
     get innerHTML() { return html; },
     set innerHTML(v) { html = v; this.details = fresh(); this.fields = fields(); },
     querySelector(selector) {
@@ -39,6 +39,8 @@ function run(name, script) {
         'details[open] form': d => d.open && d.form,
         'form[data-busy]': () => false
       };
+      if (selector === 'article.card:hover') { return this.hovered ? {} : null; }
+      if (selector === '[data-page-title]') { return html.startsWith('renamed') ? { dataset: { pageTitle: 'Decisions on renamed' } } : null; }
       return selector.split(', ').some(part => {
         if (part === 'input[form=bulk]:checked') { return this.checked; }
         if (!match[part]) { throw new Error('unmodelled selector ' + part); }
@@ -59,13 +61,17 @@ function run(name, script) {
   };
   Object.defineProperty(state, 'open', { set(v) { list.details[0].open = v; } });
   let tick;
+  const heading = { textContent: 'Decisions on old' };
+  state.heading = heading;
   const document = {
     getElementById(id) { return id === "list" ? list : null; }, visibilityState: 'visible', addEventListener() {},
+    querySelector(selector) { return selector === 'main > h1' ? heading : null; }, title: 'Koinon · Decisions on old',
     get activeElement() { return state.focused ? input : null; }
   };
-  const context = { document, URL, AbortController, window: { location: { href: 'http://localhost/dashboard/memory', reload() { state.reloaded = true; } }, setInterval(f, ms) { if (ms === 5000) { tick = f; } }, setTimeout() {}, clearTimeout() {}, addEventListener() {} },
+  const context = { document, URL, AbortController, window: { getSelection() { return state.selection; }, matchMedia(q) { return { matches: q === '(hover: hover)' && !state.touch }; }, location: { href: 'http://localhost/dashboard/memory', reload() { state.reloaded = true; } }, setInterval(f, ms) { if (ms === 5000) { tick = f; } }, setTimeout() {}, clearTimeout() {}, addEventListener() {} },
     fetch() { state.requests++; return new Promise(resolve => { state.complete = resolve; }); } };
   vm.runInNewContext(fs.readFileSync(process.argv[2], 'utf8'), context);
+  state.document = document;
   return script(state, () => tick(), list).then(result => console.log(name + ' ' + result));
 }
 const answer = state => state.complete({ ok: true, text: async () => 'replacement fragment' });
@@ -88,6 +94,27 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
   await run('implicit-select-reset', async (state, tick, list) => { list.fields[3].selectedIndex = 2; tick(); answer(state); await settle(); list.fields[3].selectedIndex = 1; tick(); answer(state); await settle(); return list.innerHTML + ' held ' + list.held; });
   await run('checkbox-changed', async (state, tick, list) => { list.fields[4].checked = true; tick(); return state.requests + ' ' + list.innerHTML; });
   await run('typed-then-cleared', async (state, tick, list) => { list.fields[0].value = 'x'; tick(); answer(state); await settle(); list.fields[0].value = ''; tick(); answer(state); await settle(); return list.innerHTML + ' held ' + list.held; });
+  // On the decision board a pointer over a card or a text selection with any part in the
+  // list holds the refresh; after the pointer leaves, or for a selection outside the list, the
+  // list is replaced again. A touch screen, whose main pointer cannot hover, keeps a stale
+  // :hover after a tap and gets no pointer hold. Other views keep no such hold (#800). The model selection gives
+  // its two ends, each in the list or not, and whether it runs across the whole list;
+  // containsNode(list, true) is true when any part of the list is selected, as in a browser.
+  const selected = (list, anchorIn, focusIn, across) => ({ isCollapsed: false, rangeCount: 1,
+    containsNode(node, partial) { return node === list && partial === true && (anchorIn || focusIn || across); } });
+  await run('board-pointer-over', async (state, tick, list) => { list.hovered = true; tick(); answer(state); await settle(); return state.requests + ' ' + list.innerHTML; });
+  await run('board-touch-hover', async (state, tick, list) => { state.touch = true; list.hovered = true; tick(); answer(state); await settle(); return list.innerHTML; });
+  // A refreshed board fragment carries the page title, so a changed computer name reaches the
+  // heading and the tab title; a fragment without one leaves both as they are.
+  await run('board-title-follows', async (state, tick, list) => { tick(); state.complete({ ok: true, text: async () => 'renamed fragment' }); await settle(); return state.heading.textContent + ' | ' + state.document.title; });
+  await run('board-title-kept', async (state, tick, list) => { tick(); answer(state); await settle(); return state.heading.textContent + ' | ' + state.document.title; });
+  await run('board-pointer-left', async (state, tick, list) => { list.hovered = true; tick(); list.hovered = false; answer(state); await settle(); return list.innerHTML; });
+  await run('board-selection-in-list', async (state, tick, list) => { state.selection = selected(list, true, true, false); tick(); answer(state); await settle(); return state.requests + ' ' + list.innerHTML; });
+  await run('board-selection-leaves-list', async (state, tick, list) => { state.selection = selected(list, true, false, false); tick(); answer(state); await settle(); return state.requests + ' ' + list.innerHTML; });
+  await run('board-selection-enters-list', async (state, tick, list) => { state.selection = selected(list, false, true, false); tick(); answer(state); await settle(); return state.requests + ' ' + list.innerHTML; });
+  await run('board-selection-across-list', async (state, tick, list) => { state.selection = selected(list, false, false, true); tick(); answer(state); await settle(); return state.requests + ' ' + list.innerHTML; });
+  await run('board-selection-elsewhere', async (state, tick, list) => { state.selection = selected(list, false, false, false); tick(); answer(state); await settle(); return list.innerHTML; });
+  await run('other-view-hover-selection', async (state, tick, list) => { list.hovered = true; state.selection = selected(list, true, true, false); tick(); answer(state); await settle(); return list.innerHTML; });
   // A fault page loads the whole view once its list reads again (#507).
   await run('fault-recovers', async (state, tick, list) => { list.dataset.reload = 'true'; tick(); answer(state); await settle(); return list.innerHTML + ' reloaded ' + (state.reloaded === true); });
   await run('fault-persists', async (state, tick, list) => { list.dataset.reload = 'true'; tick(); state.complete({ ok: false }); await settle(); return list.innerHTML + ' reloaded ' + (state.reloaded === true); });
@@ -99,7 +126,8 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
 // open read-only disclosure with a data-key does not hold it and is open again after (#373).
 // A session selected for a bulk action holds it, so the selection stays (#429). A field with
 // input not yet sent holds it also without focus, and the list is marked held (#510). A fault
-// page loads the whole view once the list reads again (#507).
+// page loads the whole view once the list reads again (#507). On the decision board, a pointer
+// over a card or a text selection with any part in the list holds it too (#800).
 func TestRefreshKeepsFormsInUse(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
@@ -130,6 +158,14 @@ func TestRefreshKeepsFormsInUse(t *testing.T) {
 		"select-changed 1 unsaved edit form\nimplicit-select-changed 1 unsaved edit form\n" +
 		"implicit-select-reset replacement fragment held false\ncheckbox-changed 1 unsaved edit form\n" +
 		"typed-then-cleared replacement fragment held false\n" +
+		"board-pointer-over 1 unsaved edit form\nboard-touch-hover replacement fragment\n" +
+		"board-title-follows Decisions on renamed | Koinon · Decisions on renamed\n" +
+		"board-title-kept Decisions on old | Koinon · Decisions on old\n" +
+		"board-pointer-left replacement fragment\n" +
+		"board-selection-in-list 1 unsaved edit form\nboard-selection-leaves-list 1 unsaved edit form\n" +
+		"board-selection-enters-list 1 unsaved edit form\nboard-selection-across-list 1 unsaved edit form\n" +
+		"board-selection-elsewhere replacement fragment\n" +
+		"other-view-hover-selection replacement fragment\n" +
 		"fault-recovers unsaved edit form reloaded true\nfault-persists unsaved edit form reloaded false\n"
 	if string(out) != want {
 		t.Fatalf("refresh:\n%s\nwant:\n%s", out, strings.TrimSpace(want))
