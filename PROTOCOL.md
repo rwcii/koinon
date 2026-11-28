@@ -3373,8 +3373,9 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     Decision 3). The notices are `decision_approved`, `decision_declined`, `decision_feedback`,
     `decision_completed` and `decision_acknowledged`; refusals are `stale_revision`,
     `decided`, `invalid_verdict`, `feedback_required` and `hidden_command`. The board's title
-    names this computer, by its link name or, without one, its host name, and each verdict
-    form shows "Answer REFERENCE, revision N, on COMPUTER" above buttons that name the
+    names this computer, by its link name or, without one, its host name; the list refresh
+    carries the title, so a changed link name reaches the heading and the tab title as well as
+    the forms. Each verdict form shows "Answer REFERENCE, revision N, on COMPUTER" above buttons that name the
     reference, such as "Approve REFERENCE" (PDR 007, Decision 2). The verdict's audit record
     ends with `at HOST`, the Host of the page that posted it.
   - `send` (`to`, `body`): a message from `maintainer`; the recipient's wake works as for any
@@ -3388,8 +3389,8 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
     repositories; the sessions view shows the launch record's list with each session registered with it.
 - **Audit log.** A request that fails the session, host, origin or CSRF check writes no record.
   After those checks, each action writes one record: time, action, target (which ends with
-  ` by dashboard`, PDR 009, Decision 4, and for a verdict also with ` at HOST`, the Host of
-  the page that posted it, PDR 007, Decision 2), result (`accepted`,
+  ` by dashboard`, PDR 009, Decision 4, followed for a verdict by ` at HOST`, the Host of the
+  page that posted it, PDR 007, Decision 2), result (`accepted`,
   `refused`, `started` while a launch runs, or `unknown`) and a fixed reason code. A record never
   holds a message body, a credential or a secret; a send records the peer name of the session
   that received it, the body size, the message ID and, for a send to an alias, `via ALIAS`. An

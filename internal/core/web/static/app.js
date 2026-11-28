@@ -103,6 +103,14 @@
         if (list.dataset.reload) { window.location.reload(); return; }
         var open = Array.prototype.map.call(list.querySelectorAll("details[open][data-key]"), function (d) { return d.dataset.key; });
         list.innerHTML = html;
+        // The board's fragment carries its title, which names this computer; a changed link
+        // name then reaches the heading and the tab title too, not only the verdict forms (#800).
+        var named = holdPointer ? list.querySelector("[data-page-title]") : null;
+        var heading = named ? document.querySelector("main > h1") : null;
+        if (heading) {
+          heading.textContent = named.dataset.pageTitle;
+          document.title = "Koinon · " + named.dataset.pageTitle;
+        }
         list.querySelectorAll("details[data-key]").forEach(function (d) {
           if (open.indexOf(d.dataset.key) >= 0) { d.open = true; }
         });

@@ -40,6 +40,7 @@ function run(name, script) {
         'form[data-busy]': () => false
       };
       if (selector === 'article.card:hover') { return this.hovered ? {} : null; }
+      if (selector === '[data-page-title]') { return html.startsWith('renamed') ? { dataset: { pageTitle: 'Decisions on renamed' } } : null; }
       return selector.split(', ').some(part => {
         if (part === 'input[form=bulk]:checked') { return this.checked; }
         if (!match[part]) { throw new Error('unmodelled selector ' + part); }
@@ -60,13 +61,17 @@ function run(name, script) {
   };
   Object.defineProperty(state, 'open', { set(v) { list.details[0].open = v; } });
   let tick;
+  const heading = { textContent: 'Decisions on old' };
+  state.heading = heading;
   const document = {
     getElementById(id) { return id === "list" ? list : null; }, visibilityState: 'visible', addEventListener() {},
+    querySelector(selector) { return selector === 'main > h1' ? heading : null; }, title: 'Koinon · Decisions on old',
     get activeElement() { return state.focused ? input : null; }
   };
   const context = { document, URL, AbortController, window: { getSelection() { return state.selection; }, matchMedia(q) { return { matches: q === '(hover: hover)' && !state.touch }; }, location: { href: 'http://localhost/dashboard/memory', reload() { state.reloaded = true; } }, setInterval(f, ms) { if (ms === 5000) { tick = f; } }, setTimeout() {}, clearTimeout() {}, addEventListener() {} },
     fetch() { state.requests++; return new Promise(resolve => { state.complete = resolve; }); } };
   vm.runInNewContext(fs.readFileSync(process.argv[2], 'utf8'), context);
+  state.document = document;
   return script(state, () => tick(), list).then(result => console.log(name + ' ' + result));
 }
 const answer = state => state.complete({ ok: true, text: async () => 'replacement fragment' });
@@ -99,6 +104,10 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
     containsNode(node, partial) { return node === list && partial === true && (anchorIn || focusIn || across); } });
   await run('board-pointer-over', async (state, tick, list) => { list.hovered = true; tick(); answer(state); await settle(); return state.requests + ' ' + list.innerHTML; });
   await run('board-touch-hover', async (state, tick, list) => { state.touch = true; list.hovered = true; tick(); answer(state); await settle(); return list.innerHTML; });
+  // A refreshed board fragment carries the page title, so a changed computer name reaches the
+  // heading and the tab title; a fragment without one leaves both as they are.
+  await run('board-title-follows', async (state, tick, list) => { tick(); state.complete({ ok: true, text: async () => 'renamed fragment' }); await settle(); return state.heading.textContent + ' | ' + state.document.title; });
+  await run('board-title-kept', async (state, tick, list) => { tick(); answer(state); await settle(); return state.heading.textContent + ' | ' + state.document.title; });
   await run('board-pointer-left', async (state, tick, list) => { list.hovered = true; tick(); list.hovered = false; answer(state); await settle(); return list.innerHTML; });
   await run('board-selection-in-list', async (state, tick, list) => { state.selection = selected(list, true, true, false); tick(); answer(state); await settle(); return state.requests + ' ' + list.innerHTML; });
   await run('board-selection-leaves-list', async (state, tick, list) => { state.selection = selected(list, true, false, false); tick(); answer(state); await settle(); return state.requests + ' ' + list.innerHTML; });
@@ -150,6 +159,8 @@ func TestRefreshKeepsFormsInUse(t *testing.T) {
 		"implicit-select-reset replacement fragment held false\ncheckbox-changed 1 unsaved edit form\n" +
 		"typed-then-cleared replacement fragment held false\n" +
 		"board-pointer-over 1 unsaved edit form\nboard-touch-hover replacement fragment\n" +
+		"board-title-follows Decisions on renamed | Koinon · Decisions on renamed\n" +
+		"board-title-kept Decisions on old | Koinon · Decisions on old\n" +
 		"board-pointer-left replacement fragment\n" +
 		"board-selection-in-list 1 unsaved edit form\nboard-selection-leaves-list 1 unsaved edit form\n" +
 		"board-selection-enters-list 1 unsaved edit form\nboard-selection-across-list 1 unsaved edit form\n" +

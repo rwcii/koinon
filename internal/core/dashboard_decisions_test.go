@@ -720,6 +720,12 @@ func TestDecisionBoardNamesCardAndComputer(t *testing.T) {
 			!strings.Contains(card, ">Provide feedback on D-1</button>") {
 			t.Fatalf("board for %s: %s", computer, body)
 		}
+		// The refreshed list carries the title, so the page script can update the heading
+		// and the tab title after a link-name change.
+		fragment := dashboardDo(t, d, "GET", "/dashboard/decisions?fragment=1", client.cookie, nil, nil).body
+		if !strings.Contains(fragment, `<div class="board" data-page-title="Decisions on `+computer+`">`) {
+			t.Fatalf("fragment for %s: %s", computer, fragment)
+		}
 	}
 	check(host)
 	// The browser holds the refresh under the pointer only when the page turns the hold on;
