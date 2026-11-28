@@ -31,13 +31,16 @@ const (
 
 // Link refusals.
 var (
-	ErrLinkRemoteOff   = Refusal{"link_remote_required", "turn Remote on with koinon remote enable on this computer first"}
-	ErrLinkNotSetUp    = Refusal{"link_setup_required", "set this computer's name first: Name this computer in Settings, Computers, or koinon link name"}
-	ErrLinkNoPair      = Refusal{"link_pair_not_found", "no paired computer has that name or ID; see koinon link status"}
-	ErrLinkSelf        = Refusal{"link_invitation_self", "this invitation is from this computer; paste it on the other computer"}
-	ErrLinkPaired      = Refusal{"link_already_paired", "this computer is already paired with that computer; unpair it first to pair it again"}
-	ErrLinkNameUsed    = Refusal{"link_name_used", "another paired computer uses that name; choose another"}
-	ErrLinkPortSame    = Refusal{"link_port_invalid", "the link port must differ from the Remote dashboard port"}
+	ErrLinkRemoteOff = Refusal{"link_remote_required", "turn Remote on with koinon remote enable on this computer first"}
+	ErrLinkNotSetUp  = Refusal{"link_setup_required", "set this computer's name first: Name this computer in Settings, Computers, or koinon link name"}
+	ErrLinkNoPair    = Refusal{"link_pair_not_found", "no paired computer has that name or ID; see koinon link status"}
+	ErrLinkSelf      = Refusal{"link_invitation_self", "this invitation is from this computer; paste it on the other computer"}
+	ErrLinkPaired    = Refusal{"link_already_paired", "this computer is already paired with that computer; unpair it first to pair it again"}
+	ErrLinkNameUsed  = Refusal{"link_name_used", "another paired computer uses that name; choose another"}
+	ErrLinkPortSame  = Refusal{"link_port_invalid", "the link port must differ from the Remote dashboard port"}
+	// ErrLinkOldMapping is a port change whose old Serve mapping someone else changed: another
+	// port does not help (#788 preflight).
+	ErrLinkOldMapping  = Refusal{"link_old_mapping_changed", "Tailscale Serve no longer forwards the old link port to this computer's link; keep that configuration and move or remove it yourself, then try again"}
 	ErrLinkPortRange   = Refusal{"link_port_invalid", "use a link port of 1 to 65535 that differs from the Remote dashboard port"}
 	ErrLinkNameInvalid = Refusal{"link_name_invalid", "use lower-case letters, digits, hyphens and dots, at most 253 characters"}
 	ErrLinkTextInvalid = Refusal{"link_invitation_invalid", "paste the whole invitation from the other computer's Add a computer step"}
@@ -1417,7 +1420,13 @@ func (d *Daemon) linkSetupLocked(ctx context.Context, name string, port int) err
 		d.closeLinkLocked()
 		if err := rt.manager.RemoveTCP(ctx, *c.Link); err != nil {
 			held.Close()
-			return undo(errors.Join(err, d.openLinkLocked(nil)))
+			var diagnostic *remote.Diagnostic
+			if errors.As(err, &diagnostic) && diagnostic.Code == "tailscale_serve_conflict" {
+				err = errors.Join(ErrLinkOldMapping, err)
+			}
+			// The saved name and port come back before the old link opens again.
+			err = undo(err)
+			return errors.Join(err, d.openLinkLocked(nil))
 		}
 		c.LinkOwned = false
 		if err := writeRemoteConfig(d.root, c); err != nil {

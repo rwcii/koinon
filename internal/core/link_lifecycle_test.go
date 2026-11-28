@@ -404,3 +404,32 @@ func TestLinkSetupFailedRemoveRestoresSavedLink(t *testing.T) {
 		t.Fatal("a failed removal left the old link closed")
 	}
 }
+
+// A port change whose old Serve mapping someone else changed is refused with its own code,
+// not the advice to choose another port, and the saved link stays as it was (#788 preflight).
+func TestLinkSetupChangedOldMappingRefused(t *testing.T) {
+	n := &linkNet{}
+	a := newLinkHost(t, n, "alpha", "100.64.0.1")
+	a.fake.mu.Lock()
+	owned := a.fake.config.TCP["47672"]
+	a.fake.config.TCP["47672"] = remote.TCPConfig{TCPForward: "127.0.0.1:9999"}
+	a.fake.mu.Unlock()
+	t.Cleanup(func() {
+		a.fake.mu.Lock()
+		a.fake.config.TCP["47672"] = owned
+		a.fake.mu.Unlock()
+	})
+	err := a.d.linkSetup(context.Background(), "renamed", 47681)
+	if errorCode(err) != ErrLinkOldMapping.Code {
+		t.Fatalf("port change with a changed old mapping: %v", err)
+	}
+	if s := a.state(t); s.Name != "alpha" || s.Port != link.DefaultPort {
+		t.Fatalf("a refused port change changed the saved link: name %q port %d", s.Name, s.Port)
+	}
+	a.fake.mu.Lock()
+	_, added := a.fake.config.TCP["47681"]
+	a.fake.mu.Unlock()
+	if added {
+		t.Fatal("a refused port change added the new mapping")
+	}
+}

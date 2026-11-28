@@ -270,7 +270,10 @@ route to tailnet addresses, so the daemon makes each link connection through tai
 
 The link port is 47672 unless you choose another with `koinon link name --port PORT` or in
 Settings, Computers, **Change this computer's name or link port**. A paired computer learns
-a new port only when you unpair and pair again.
+a new port only when you unpair and pair again. A port that Tailscale Serve already uses is
+refused with `tailscale_serve_conflict`, and the saved name and port stay as they were. When
+Serve no longer forwards the old port to the link, a port change is refused with
+`link_old_mapping_changed`.
 
 The tailnet policy must allow TCP on the link port between your computers, as for the
 dashboard's HTTPS port. `koinon remote status` shows an example entry only for the HTTPS

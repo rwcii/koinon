@@ -192,7 +192,7 @@ func init() {
 	} {
 		noticeText[code] = text
 	}
-	for _, r := range []Refusal{ErrLinkRemoteOff, ErrLinkNotSetUp, ErrLinkNoPair, ErrLinkSelf, ErrLinkPaired, ErrLinkNameUsed,
+	for _, r := range []Refusal{ErrLinkOldMapping, ErrLinkRemoteOff, ErrLinkNotSetUp, ErrLinkNoPair, ErrLinkSelf, ErrLinkPaired, ErrLinkNameUsed,
 		ErrLinkPortRange, ErrLinkUnreachable, ErrLinkWrongKey, ErrLinkInvitation, ErrLinkLimit, ErrLinkNameInvalid, ErrLinkTextInvalid,
 		ErrLinkComputerUnknown, ErrLinkMaintainerRemote, ErrLinkAddressInvalid, ErrLinkQueueFull, ErrLinkMessageGone,
 		ErrLinkReplyPairGone, ErrLinkReplyTarget, ErrLinkReplyLocal} {

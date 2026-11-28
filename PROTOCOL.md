@@ -110,6 +110,8 @@ tcp://127.0.0.1:N`. A port that Serve already uses is refused with `tailscale_se
 (409) and its next step, and the saved name, port and mapping stay as they were (#788). A
 failed step after the save puts the saved name and port back, except after a changed port's
 new mapping is journaled; a failed removal of the old mapping also opens the old link again.
+When Serve no longer forwards the old port to the link, the removal is refused with
+`link_old_mapping_changed` (409), because another port does not help.
 A change of Serve between the check and a changed port's new mapping can still give the code
 after the journal write; link status then shows the new port. A maintainer route or another
 daemon route that meets a Tailscale diagnostic answers with its code (409) and its next step.

@@ -24,8 +24,10 @@ into a dated release section when promoted to `main`.
   dashboard notice give its next step. The saved name and port, and the old Serve mapping of a
   changed port, now stay as they were; before, the refused port was saved and
   `koinon link status` showed it with the listener off. A failed step after the save puts the
-  saved name and port back, except after a changed port's new mapping is journaled. Other daemon routes that
-  meet a Tailscale diagnostic also answer with its code (409) and its next step, not
+  saved name and port back, except after a changed port's new mapping is journaled. A port
+  change whose old Serve mapping someone else changed answers `link_old_mapping_changed`.
+  Other daemon routes that meet a Tailscale diagnostic also answer with its code (409) and its
+  next step, not
   `storage_error`. The same code, such as `tailscale_missing`, now shows in place of
   `storage_error` in a pair's link status observation, a queued link message's retry reason, a
   `computer_offline` answer, audit refusal codes and operation receipts. A dashboard notice
