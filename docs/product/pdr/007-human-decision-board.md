@@ -293,12 +293,11 @@ question.
   so two computers' boards look alike; and the 5-second refresh replaced the card list while
   the pointer was over it. The question: close both paths, or only name the computer and the
   card.
-- **Decision:** on the decision board (card VERDICT-RIGHT-CARD, revision 1), "approved", for the
-  recommendation "Close both paths to a wrong-card verdict in one PR": the board names its
-  computer, each verdict form shows "Answer REFERENCE, revision N, on COMPUTER" and each button
-  names the action and the reference, the list refresh also holds while the pointer is over a
-  card or a text selection is in the list, and the verdict's audit record adds the Host of the
-  page that posted it.
+- **Decision:** on the decision board, "approved", for the recommendation "Close both paths to a
+  wrong-card verdict in one PR": the board names its computer, each verdict form shows "Answer
+  REFERENCE, revision N, on COMPUTER" and each button names the action and the reference, the
+  list refresh also holds while the pointer is over a card or a text selection is in the list,
+  and the verdict's audit record adds the Host of the page that posted it.
 - **Reason and scope:** the recommendation's reason: a verdict is the maintainer's instruction
   and approval (PDR 005, Decision 3), so a verdict on a card that the maintainer did not read
   can decline or approve work that the maintainer never saw, and the cause of #800 cannot be
