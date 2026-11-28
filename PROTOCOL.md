@@ -3220,9 +3220,8 @@ from elsewhere. Peer message bodies appear here, escaped, and nowhere else outsi
   list is open, a form field in it has focus, or a field holds unsent input (a text value,
   select or checkbox that differs from the loaded one, with or without focus, #510), so an
   open confirmation, edit form or verdict note stays. On the decision board it also waits
-  while the pointer is over the list, for 10 seconds after a touch, scroll, wheel or key on
-  the page, and while a text selection is in the list, so the list does not move under a
-  click or a tap (PDR 007, Decision 2). Connectivity reads can continue
+  while the pointer is over a card (`:hover`) and while a text selection is in the list, so
+  the list does not move under a click (PDR 007, Decision 2). Connectivity reads can continue
   while replacement is held; they do not make the displayed data fresh. The page shows
   the host, connection state and last successful displayed-data refresh, and labels data
   stale after 15 seconds without one. Foregrounding or reconnecting requests an immediate

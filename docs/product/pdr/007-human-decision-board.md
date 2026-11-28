@@ -259,9 +259,8 @@ covers the maintainer's verdicts on this board, not agent-to-agent work verdicts
 The board shows which card and which computer a verdict is for (#800). Its title names this
 computer, by its link name or, without one, its host name ("Decisions on COMPUTER"). Each
 verdict form shows "Answer REFERENCE, revision N, on COMPUTER" above buttons that name the
-reference. The board's card list does not refresh while the pointer is over it, for 10 seconds
-after a touch, scroll, wheel or key on the page, or while a text selection is in it, so a click
-or a tap does not land in another card's form. The audit record of a dashboard verdict names
+reference. The board's card list does not refresh while the pointer is over a card or a text
+selection is in the list, so a click does not land in another card's form. The audit record of a dashboard verdict names
 the Host of the page that posted it.
 
 **Provenance:** Requested in #206 (issue body, requirements 3 and 4, and the settled point
@@ -291,20 +290,19 @@ question.
   so two computers' boards look alike; and the 5-second refresh replaced the card list while
   the pointer was over it. The question: close both paths, or only name the computer and the
   card.
-- **Decision:** on the decision board (revision 1), "approved", for the recommendation "Close
+- **Decision:** on the decision board (card VERDICT-RIGHT-CARD, revision 1), "approved", for the recommendation "Close
   both paths to a wrong-card verdict in one PR": the board names its computer, each verdict
   form shows "Answer REFERENCE, revision N, on COMPUTER" and each button names the action and
   the reference, the list refresh also holds while the pointer is over a card or a text
   selection is in the list, and the verdict's audit record adds the Host of the page that
-  posted it. The hold for 10 seconds after a touch, scroll, wheel or key is the agents' design
-  for touch screens, where no pointer stays over the list; the preflight review of the change
-  found that gap.
+  posted it.
 - **Reason and scope:** the recommendation's reason: a verdict is the maintainer's instruction
   and approval (PDR 005, Decision 3), so a verdict on a card that the maintainer did not read
   can decline or approve work that the maintainer never saw, and the cause of #800 cannot be
   found from the records. The scope is the decision board's page and list, and the audit
   record of a dashboard verdict; the other views keep their refresh. A held refresh shows
-  older data while the person works on the list.
+  older data while the pointer rests on a card. On a touch screen no pointer rests on a card,
+  so this hold does not protect a tap; that is a separate decision.
 
 ### Alternatives Considered
 

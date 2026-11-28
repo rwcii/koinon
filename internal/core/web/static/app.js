@@ -37,21 +37,13 @@
     }
     return false;
   }
-  // On the decision board, a pointer over the list, a touch, scroll, wheel or key on the page
-  // in the last 10 seconds, or a text selection in the list holds the refresh, so the list
-  // does not move under a click or a tap (#800; PDR 007, Decision 2).
+  // On the decision board, a pointer over a card or a text selection in the list holds the
+  // refresh, so the list does not move under a click (#800; PDR 007, Decision 2). :hover
+  // follows a pointer that rests still while the page loads or the layout changes.
   var holdPointer = list.dataset.holdPointer === "true";
-  var pointerIn = false, touchedAt = 0;
-  if (holdPointer) {
-    list.addEventListener("pointerenter", function () { pointerIn = true; });
-    list.addEventListener("pointerleave", function () { pointerIn = false; });
-    ["pointerdown", "touchstart", "scroll", "wheel", "keydown"].forEach(function (type) {
-      document.addEventListener(type, function () { touchedAt = Date.now(); }, { capture: true, passive: true });
-    });
-  }
   function boardHeld() {
     if (!holdPointer) { return false; }
-    if (pointerIn || Date.now() - touchedAt < 10000) { return true; }
+    if (list.querySelector("article.card:hover") !== null) { return true; }
     var s = window.getSelection ? window.getSelection() : null;
     return s !== null && !s.isCollapsed && s.rangeCount > 0 && list.contains(s.getRangeAt(0).commonAncestorContainer);
   }
