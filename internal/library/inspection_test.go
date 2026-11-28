@@ -340,6 +340,8 @@ func TestFactStateNamesRefusalCause(t *testing.T) {
 		{"no sources", strings.Replace(good, "- AGENTS.md\n", "", 1), "invalid", FactsSourcesMissing, ""},
 		{"bare source", strings.Replace(good, "- AGENTS.md", "AGENTS.md", 1), "invalid", FactsSourceInvalid, ""},
 		{"absolute source", strings.Replace(good, "- AGENTS.md", "- /synthetic/AGENTS.md", 1), "invalid", FactsSourceInvalid, ""},
+		{"parent source", strings.Replace(good, "- AGENTS.md", "- ..", 1), "invalid", FactsSourceInvalid, ""},
+		{"parent path source", strings.Replace(good, "- AGENTS.md", "- ../AGENTS.md", 1), "invalid", FactsSourceInvalid, ""},
 		{"empty field", good + "## Handoff path\n\n", "incomplete", FactsFieldMissing, "Handoff path"},
 		{"undeclared", good + "## Sources [source: synthetic]\nx\n", "invalid", FactsHeadingUndeclared, ""},
 	} {

@@ -91,7 +91,7 @@ func ParseFactValues(data []byte, name string, schema *Facts) (FactValues, error
 			continue
 		}
 		ref := strings.TrimPrefix(line, "- ")
-		if ref == line || ref == "" || strings.ContainsAny(ref, "\\:#`") || path.IsAbs(ref) || path.Clean(ref) != ref || ref == "." || strings.HasPrefix(ref, "../") {
+		if ref == line || ref == "" || strings.ContainsAny(ref, "\\:#`") || path.IsAbs(ref) || path.Clean(ref) != ref || ref == "." || ref == ".." || strings.HasPrefix(ref, "../") {
 			return FactValues{}, FactError{Code: FactsSourceInvalid}
 		}
 		values.Sources = append(values.Sources, ref)

@@ -102,12 +102,13 @@ file leaves out takes its default. `library_state` gives the facts `state`
 (`no-sidecar-needed`, `missing-required`, `present-valid`, `incomplete`, `invalid`,
 `inspection-error` or `unavailable`) and, for a refused file, a `reason` (#818):
 
-- `facts_text_invalid`: the file is empty, over 64 KiB, not UTF-8, or has control
-  characters other than tab and line ends;
+- `facts_text_invalid`: the file is empty, not UTF-8, or has control characters other than
+  tab and line ends (a file over 64 KiB is not read: its state is `inspection-error`, with
+  reason `item_too_large`);
 - `facts_preamble`: a line before the first `## ` heading is not blank and not a `# ` title;
 - `facts_heading_duplicate`: a heading comes twice;
 - `facts_version`, `facts_skill_mismatch`, `facts_sources_missing`: `Version` is not `1`,
-  `Skill` is not the item's name, or `Sources` is empty;
+  `Skill` is not the item's name, or `Sources` is absent or empty;
 - `facts_source_invalid`: a `Sources` line does not start with `- `, or its path is
   absolute, not clean, outside the repository, or has `\`, `:`, `#` or a backtick;
 - `facts_heading_undeclared`: a heading that the skill does not declare, such as

@@ -560,7 +560,8 @@ func TestContextCycleArtifactHandoffPathFact(t *testing.T) {
 		}
 	}
 	os.WriteFile(facts, []byte("## Version\n2\n"), 0o644)
-	if err := ready(name); !artifactRefused(err, "directory cannot be read from .koinon/skills/handoff.md") {
+	// The refusal names the facts reason (#818).
+	if err := ready(name); !artifactRefused(err, "directory cannot be read from .koinon/skills/handoff.md: facts_version") {
 		t.Fatalf("invalid facts: %v", err)
 	}
 }

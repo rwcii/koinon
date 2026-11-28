@@ -6,7 +6,8 @@ into a dated release section when promoted to `main`.
 ## Unreleased
 
 - `library_state` now gives a `reason` for an `invalid` or `incomplete` facts file, such as
-  `facts_source_invalid` for a `Sources` line without `- ` (#818). An `incomplete` state
+  `facts_source_invalid` for a `Sources` line without `- ` (#818). A `Sources` path of `..`
+  is now refused too, as other paths outside the repository are. An `incomplete` state
   also names the missing `heading`. A managed context cycle that cannot read the Handoff path
   fact names the same reason in its refusal. docs/USAGE.md describes the facts file format,
   with an example and each reason.
