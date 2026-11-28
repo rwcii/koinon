@@ -5,6 +5,11 @@ into a dated release section when promoted to `main`.
 
 ## Unreleased
 
+- A decision or task card created or edited with no recipients now gets a form note that names
+  them (#805). Its verdict reached no agent: no inbox message, no wake and no `decision_pending`
+  entry. An explicit empty list (`recipients: []`, or `--no-recipients` in the CLI) is still for
+  a card that no agent acts on, and gets no note.
+
 - Koinon submits a wake notice or a pickup command in a Codex pane with startup warnings again
   (#825). In an 80-column pane, Codex CLI 0.172.0 keeps the mark `⚠ N warnings · f2 to view`
   alone on the last footer row while the input holds text. The daemon did not read that row

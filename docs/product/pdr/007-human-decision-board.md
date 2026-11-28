@@ -3,7 +3,7 @@ pdr: "007"
 title: "Human Decision Board"
 status: draft
 created: "2026-10-12"
-updated: "2026-11-25"
+updated: "2026-11-28"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -334,7 +334,10 @@ Command boxes show plain ASCII. A command with other characters is refused when 
 Each new verdict, an `fyi` acknowledgement included, reaches each named recipient (#206's
 `relayTo`) and the item's author (#537) once, with no loss and no
 duplicate record; the notice can repeat. A recipient that does not resolve is flagged, and
-its delivery is recorded as skipped with the reason. Each recipient has a durable delivery record with an
+its delivery is recorded as skipped with the reason. A `decision` or `task` card that leaves
+its recipients out and has none gets a form note in the create or edit reply, because its
+verdict would reach no agent; an explicit empty list, for a card that no agent acts on, gets
+none (#805). Each recipient has a durable delivery record with an
 acknowledgement. The content-free wake notice carries the verdict ID; it can repeat after a
 crash, and the receiver ignores an ID it has handled. Each agent reads the verdict record
 itself through an interface every family can use. The records are stored data that agents
@@ -428,3 +431,4 @@ blocks, which the maintainer copies into a terminal, hold printable ASCII only. 
 | 2026-11-09 | Decision 1: the card labels Fix loop and On track (#638, CARD-LOOP-SCOPE) |
 | 2026-11-18 | Decision 4: remote recipients on a paired computer get notices and read and acknowledge at the card's computer (#746; PDR 011, Decision 2, amendment BOARD-LINK-746) |
 | 2026-11-25 | Executive summary: the board is built (#353, #358, #360) (#822) |
+| 2026-11-28 | Decision 4: a `decision` or `task` card with no recipients that left them out gets a form note (#805) |
