@@ -9,7 +9,6 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
-	"strings"
 )
 
 // InspectionContext is filled by the native client after its registered repository and
@@ -31,11 +30,13 @@ type TargetState struct {
 }
 
 type FactState struct {
-	State        string    `json:"state"`
-	Digest       string    `json:"digest,omitempty"`
-	SchemaDigest string    `json:"schema_digest,omitempty"`
-	Required     []string  `json:"required,omitempty"`
-	Reason       string    `json:"reason,omitempty"`
+	State        string   `json:"state"`
+	Digest       string   `json:"digest,omitempty"`
+	SchemaDigest string   `json:"schema_digest,omitempty"`
+	Required     []string `json:"required,omitempty"`
+	Reason       string   `json:"reason,omitempty"`
+	// Heading is the schema heading of a missing fact, with reason facts_field_missing.
+	Heading      string    `json:"heading,omitempty"`
 	Decision     *Decision `json:"decision,omitempty"`
 	DecisionSeq  int64     `json:"decision_seq,omitempty"`
 	DecisionNote string    `json:"decision_reason,omitempty"`
@@ -278,9 +279,14 @@ func inspectFacts(root ReadRoot, item Item) *FactState {
 	}
 	state.Digest = digest(data)
 	if _, err := ParseFactValues(data, item.Name, item.Facts); err != nil {
-		state.State = "invalid"
-		if strings.HasPrefix(err.Error(), "missing fact:") {
-			state.State = "incomplete"
+		// The reason names the refusal cause, so an author can correct the file (#818).
+		state.State, state.Reason = "invalid", FactsTextInvalid
+		var refused FactError
+		if errors.As(err, &refused) {
+			state.Reason, state.Heading = refused.Code, refused.Heading
+			if refused.Code == FactsFieldMissing {
+				state.State = "incomplete"
+			}
 		}
 		return state
 	}

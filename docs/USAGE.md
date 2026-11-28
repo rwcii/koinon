@@ -77,6 +77,44 @@ project evidence: optional absent sidecars need no file; required missing/incomp
 affect the step that needs them. A marked guidance fragment is compared independently of
 surrounding instructions. A collection also reports every declared target.
 
+A facts file is `.koinon/skills/NAME.md` in the project, plain text that Koinon reads and
+never runs. An optional `# ` title line can come first. Then each fact is a `## ` heading
+with its value on the lines below it, and each heading comes once:
+
+```markdown
+# Repository facts — pickup
+
+## Version
+1
+## Skill
+pickup
+## Sources
+- AGENTS.md
+- CONTRIBUTING.md
+## Handoff path
+_handoff/<agent>/ in main checkout
+```
+
+`Version` is `1`, `Skill` is the item's name, and `Sources` lists one or more
+repository-relative paths, each on a line that starts with `- `. The other headings are
+the ones that the skill's repository-facts section declares; a declared heading that the
+file leaves out takes its default. `library_state` gives the facts `state`
+(`no-sidecar-needed`, `missing-required`, `present-valid`, `incomplete`, `invalid`,
+`inspection-error` or `unavailable`) and, for a refused file, a `reason` (#818):
+
+- `facts_text_invalid`: the file is empty, over 64 KiB, not UTF-8, or has control
+  characters other than tab and line ends;
+- `facts_preamble`: a line before the first `## ` heading is not blank and not a `# ` title;
+- `facts_heading_duplicate`: a heading comes twice;
+- `facts_version`, `facts_skill_mismatch`, `facts_sources_missing`: `Version` is not `1`,
+  `Skill` is not the item's name, or `Sources` is empty;
+- `facts_source_invalid`: a `Sources` line does not start with `- `, or its path is
+  absolute, not clean, outside the repository, or has `\`, `:`, `#` or a backtick;
+- `facts_heading_undeclared`: a heading that the skill does not declare, such as
+  `## Sources [source: X]`;
+- `facts_field_missing` (state `incomplete`): a required heading is absent, or a heading is
+  present with no value; `heading` names it.
+
 Known same-name copies are checked in both scopes. Matching content is
 `duplicate_discovery`; differing content is `name_conflict`. Unreadable/unverified roots
 report collision limitations. This does not say which copy a native invocation selects.

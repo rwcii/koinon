@@ -1,8 +1,6 @@
 package library
 
 import (
-	"errors"
-	"fmt"
 	"path"
 	"strings"
 	"unicode"
@@ -22,13 +20,40 @@ type FactValues struct {
 // (#623).
 var retiredFacts = map[string][]string{"ship": {"Decision record"}}
 
+// FactError is a refused facts file. Code names the cause (#818); Heading is the schema
+// heading of a missing fact, never text from the file.
+type FactError struct {
+	Code    string
+	Heading string
+}
+
+func (e FactError) Error() string {
+	if e.Heading != "" {
+		return e.Code + ": " + e.Heading
+	}
+	return e.Code
+}
+
+// The FactError codes, one for each refusal cause.
+const (
+	FactsTextInvalid       = "facts_text_invalid"       // empty, over the size bound, not UTF-8, or with control characters
+	FactsPreamble          = "facts_preamble"           // a line before the first "## " heading that is not blank or a "# " title
+	FactsHeadingDuplicate  = "facts_heading_duplicate"  // a heading given twice
+	FactsVersion           = "facts_version"            // Version is not 1
+	FactsSkillMismatch     = "facts_skill_mismatch"     // Skill is not the item's name
+	FactsSourcesMissing    = "facts_sources_missing"    // Sources is empty or absent
+	FactsSourceInvalid     = "facts_source_invalid"     // a Sources line without "- ", or a path that is not repository-relative
+	FactsFieldMissing      = "facts_field_missing"      // a required heading is absent, or a heading is present and empty
+	FactsHeadingUndeclared = "facts_heading_undeclared" // a heading that the item's schema does not declare
+)
+
 func ParseFactValues(data []byte, name string, schema *Facts) (FactValues, error) {
 	if schema == nil || len(data) == 0 || len(data) > MaxItemBytes || !utf8.Valid(data) {
-		return FactValues{}, errors.New("invalid or oversized fact file")
+		return FactValues{}, FactError{Code: FactsTextInvalid}
 	}
 	text := strings.ReplaceAll(string(data), "\r\n", "\n")
 	if strings.ContainsFunc(text, func(r rune) bool { return unicode.IsControl(r) && r != '\n' && r != '\t' }) {
-		return FactValues{}, errors.New("fact data contains controls")
+		return FactValues{}, FactError{Code: FactsTextInvalid}
 	}
 	headings := map[string]string{}
 	heading := ""
@@ -36,14 +61,14 @@ func ParseFactValues(data []byte, name string, schema *Facts) (FactValues, error
 		if strings.HasPrefix(line, "## ") {
 			heading = strings.TrimPrefix(line, "## ")
 			if _, exists := headings[heading]; exists {
-				return FactValues{}, errors.New("duplicate fact heading")
+				return FactValues{}, FactError{Code: FactsHeadingDuplicate}
 			}
 			headings[heading] = ""
 			continue
 		}
 		if heading == "" {
 			if strings.TrimSpace(line) != "" && !strings.HasPrefix(line, "# ") {
-				return FactValues{}, errors.New("unexpected fact preamble")
+				return FactValues{}, FactError{Code: FactsPreamble}
 			}
 			continue
 		}
@@ -52,8 +77,13 @@ func ParseFactValues(data []byte, name string, schema *Facts) (FactValues, error
 	for k, v := range headings {
 		headings[k] = strings.TrimSpace(v)
 	}
-	if headings["Version"] != "1" || headings["Skill"] != name || headings["Sources"] == "" {
-		return FactValues{}, errors.New("facts require Version 1, matching Skill and Sources")
+	switch {
+	case headings["Version"] != "1":
+		return FactValues{}, FactError{Code: FactsVersion}
+	case headings["Skill"] != name:
+		return FactValues{}, FactError{Code: FactsSkillMismatch}
+	case headings["Sources"] == "":
+		return FactValues{}, FactError{Code: FactsSourcesMissing}
 	}
 	values := FactValues{Fields: map[string]string{}, Sources: []string{}}
 	for _, line := range strings.Split(headings["Sources"], "\n") {
@@ -62,7 +92,7 @@ func ParseFactValues(data []byte, name string, schema *Facts) (FactValues, error
 		}
 		ref := strings.TrimPrefix(line, "- ")
 		if ref == line || ref == "" || strings.ContainsAny(ref, "\\:#`") || path.IsAbs(ref) || path.Clean(ref) != ref || ref == "." || strings.HasPrefix(ref, "../") {
-			return FactValues{}, errors.New("source must be a repository-relative evidence path")
+			return FactValues{}, FactError{Code: FactsSourceInvalid}
 		}
 		values.Sources = append(values.Sources, ref)
 	}
@@ -72,7 +102,7 @@ func ParseFactValues(data []byte, name string, schema *Facts) (FactValues, error
 	for _, field := range schema.Fields {
 		value, present := headings[field.Heading]
 		if present && value == "" || !present && field.Required {
-			return FactValues{}, fmt.Errorf("missing fact: %s", field.Heading)
+			return FactValues{}, FactError{Code: FactsFieldMissing, Heading: field.Heading}
 		}
 		if !present {
 			if field.Default != nil {
@@ -86,7 +116,7 @@ func ParseFactValues(data []byte, name string, schema *Facts) (FactValues, error
 		delete(headings, heading)
 	}
 	if len(headings) != 0 {
-		return FactValues{}, errors.New("undeclared fact heading")
+		return FactValues{}, FactError{Code: FactsHeadingUndeclared}
 	}
 	return values, nil
 }

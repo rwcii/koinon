@@ -2261,6 +2261,11 @@ sequence. Outdated requires a retained adopted baseline. Edited content wins ove
 recommendation; a read failure has no guessed aggregate state. Collections have at most
 32 targets and a 64 KiB aggregate read bound. Facts are a separate fixed, bounded project
 sidecar with schema digest and validation state; local facts are not canonical catalog bytes.
+An `invalid` or `incomplete` facts state has a `reason` that names the cause:
+`facts_text_invalid`, `facts_preamble`, `facts_heading_duplicate`, `facts_version`,
+`facts_skill_mismatch`, `facts_sources_missing`, `facts_source_invalid`,
+`facts_heading_undeclared`, or `facts_field_missing` with the schema `heading` (#818). A
+reason holds no text from the file.
 No response contains adopted file bodies, resolved private home paths or native provenance IDs.
 Read-only state records no decision and moves no memory cursor.
 

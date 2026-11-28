@@ -317,3 +317,38 @@ func TestGuidanceFragmentDoesNotDependOnOutsideFinalNewline(t *testing.T) {
 		previous = state.Targets[0].Digest
 	}
 }
+
+// Each refusal cause of a facts file has its own reason, so an author can correct the file;
+// the reason never holds text from the file (#818).
+func TestFactStateNamesRefusalCause(t *testing.T) {
+	c, _ := Embedded("dev")
+	root := t.TempDir()
+	ctx := InspectionContext{Family: "codex", Scope: "project", ProjectRoot: root, Repository: "/synthetic/common"}
+	read, _ := c.Read("codex", "skill.pickup")
+	file := filepath.Join(root, read.Item.Facts.Filename)
+	if err := os.MkdirAll(filepath.Dir(file), 0700); err != nil {
+		t.Fatal(err)
+	}
+	good := "# Repository facts\n\n## Version\n1\n## Skill\npickup\n## Sources\n- AGENTS.md\n"
+	for _, test := range []struct{ name, text, state, reason, heading string }{
+		{"valid", good, "present-valid", "", ""},
+		{"control", good + "## Handoff path\na\x07b\n", "invalid", FactsTextInvalid, ""},
+		{"preamble", "synthetic preamble\n" + good, "invalid", FactsPreamble, ""},
+		{"duplicate", good + "## Sources\n- README.md\n", "invalid", FactsHeadingDuplicate, ""},
+		{"version", strings.Replace(good, "## Version\n1", "## Version\n2", 1), "invalid", FactsVersion, ""},
+		{"skill", strings.Replace(good, "## Skill\npickup", "## Skill\ncheck", 1), "invalid", FactsSkillMismatch, ""},
+		{"no sources", strings.Replace(good, "- AGENTS.md\n", "", 1), "invalid", FactsSourcesMissing, ""},
+		{"bare source", strings.Replace(good, "- AGENTS.md", "AGENTS.md", 1), "invalid", FactsSourceInvalid, ""},
+		{"absolute source", strings.Replace(good, "- AGENTS.md", "- /synthetic/AGENTS.md", 1), "invalid", FactsSourceInvalid, ""},
+		{"empty field", good + "## Handoff path\n\n", "incomplete", FactsFieldMissing, "Handoff path"},
+		{"undeclared", good + "## Sources [source: synthetic]\nx\n", "invalid", FactsHeadingUndeclared, ""},
+	} {
+		if err := os.WriteFile(file, []byte(test.text), 0600); err != nil {
+			t.Fatal(err)
+		}
+		facts := (Inspector{}).InspectItem(c, ctx, "skill.pickup", nil).Facts
+		if facts == nil || facts.State != test.state || facts.Reason != test.reason || facts.Heading != test.heading {
+			t.Errorf("%s: facts state %+v, want %s %q %q", test.name, facts, test.state, test.reason, test.heading)
+		}
+	}
+}
