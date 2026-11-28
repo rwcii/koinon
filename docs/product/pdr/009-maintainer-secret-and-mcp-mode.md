@@ -3,7 +3,7 @@ pdr: "009"
 title: "Maintainer Secret and Maintainer MCP Mode"
 status: modified
 created: "2026-10-25"
-updated: "2026-11-12"
+updated: "2026-11-28"
 authors:
   - "Robert Capps"
 reviewers: []
@@ -266,17 +266,17 @@ Each maintainer action records `via`: `dashboard`, or `mcp:` plus the `--client`
 audit log, the dashboard and `decision_history` show it. Agents see the same
 `sender_family: maintainer` as today; they do not see `via`.
 
-**Provenance:** Robert Capps, 2026-10-25, answering whether each maintainer action should
-record its client: "yes, record the client on #470"
+**Provenance:** Robert Capps, 2026-10-25, answering whether each maintainer action should record
+its client: "yes, record the client on #470"
 ([comment](https://github.com/rwcii/koinon/issues/470#issuecomment-6400924866)). Until the
-maintainer MCP mode exists, a login with the secret records `maintainer_login` with the
-client `dashboard` in the audit log. Built (#470, PR 2): each audit record of a maintainer
-action, also a refused one, ends its target with `by dashboard` or `by mcp:NAME`, and a
-dashboard verdict's then with `at HOST`, the Host of the page that posted it (PDR 007,
-Decision 2); each verdict
-stores `via`, which the dashboard's verdict history and the maintainer's `decision_history`
-show and the agents' `decision_history` does not; an acknowledgement of the maintainer's inbox
-records `mcp:NAME` as the acknowledging operation, as the dashboard records `dashboard`.
+maintainer MCP mode exists, a login with the secret records `maintainer_login` with the client
+`dashboard` in the audit log. Built (#470, PR 2): each audit record of a maintainer action, also
+a refused one, ends its target with `by dashboard` or `by mcp:NAME`; each verdict stores `via`,
+which the dashboard's verdict history and the maintainer's `decision_history` show and the
+agents' `decision_history` does not; an acknowledgement of the maintainer's inbox records
+`mcp:NAME` as the acknowledging operation, as the dashboard records `dashboard`. Built (#800): a
+dashboard verdict's target then ends with `at HOST`, the Host of the page that posted it
+(PDR 007, Decision 2).
 
 ### User Impact
 
@@ -303,3 +303,4 @@ use Koinon as intended from acting as the maintainer.
 | 2026-10-26 | Decision 3's change notices built (#470, PR 3). Decision 3 records that each long poll moves the idle limit, so a quiet subscribed client keeps its token, as the first client requested |
 | 2026-11-11 | Link the private remote surface in ADR 002 and PDR 010. |
 | 2026-11-12 | Record the remote surface's QR sign-in and seven-day idle limit in Decision 2 as a change, accepted by Robert Capps (#645). |
+| 2026-11-28 | Decision 4: a dashboard verdict's audit target ends with `at HOST` (#800; PDR 007, Decision 2). |

@@ -292,7 +292,8 @@ item; **Completed**, **Declined** or **Provide feedback** on a task; **Acknowled
 item. The board's title names its computer ("Decisions on COMPUTER"), and each card's form
 says "Answer REFERENCE, revision N, on COMPUTER" above buttons that name the card, so check
 both before you answer. The board's list does not refresh while the pointer is over a card or
-text in it is selected (PDR 007, Decision 2). The Markdown note is optional, except for **Provide feedback**, where it is your
+any part of a text selection is in it (PDR 007, Decision 2); a touch screen gets no pointer
+hold. The Markdown note is optional, except for **Provide feedback**, where it is your
 guidance. The buttons are disabled while the request runs, and
 the answer shows on the card. A card with a hidden command (one that fails the printable-ASCII
 rule) cannot be approved. The verdict applies to the revision

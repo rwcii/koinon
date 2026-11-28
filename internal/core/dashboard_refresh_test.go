@@ -64,7 +64,7 @@ function run(name, script) {
     getElementById(id) { return id === "list" ? list : null; }, visibilityState: 'visible', addEventListener() {},
     get activeElement() { return state.focused ? input : null; }
   };
-  const context = { document, URL, AbortController, window: { getSelection() { return state.selection; }, location: { href: 'http://localhost/dashboard/memory', reload() { state.reloaded = true; } }, setInterval(f, ms) { if (ms === 5000) { tick = f; } }, setTimeout() {}, clearTimeout() {}, addEventListener() {} },
+  const context = { document, URL, AbortController, window: { getSelection() { return state.selection; }, matchMedia(q) { return { matches: q === '(hover: hover)' && !state.touch }; }, location: { href: 'http://localhost/dashboard/memory', reload() { state.reloaded = true; } }, setInterval(f, ms) { if (ms === 5000) { tick = f; } }, setTimeout() {}, clearTimeout() {}, addEventListener() {} },
     fetch() { state.requests++; return new Promise(resolve => { state.complete = resolve; }); } };
   vm.runInNewContext(fs.readFileSync(process.argv[2], 'utf8'), context);
   return script(state, () => tick(), list).then(result => console.log(name + ' ' + result));
@@ -91,12 +91,14 @@ const settle = () => new Promise(resolve => setImmediate(resolve));
   await run('typed-then-cleared', async (state, tick, list) => { list.fields[0].value = 'x'; tick(); answer(state); await settle(); list.fields[0].value = ''; tick(); answer(state); await settle(); return list.innerHTML + ' held ' + list.held; });
   // On the decision board a pointer over a card or a text selection with any part in the
   // list holds the refresh; after the pointer leaves, or for a selection outside the list, the
-  // list is replaced again. Other views keep no such hold (#800). The model selection gives
+  // list is replaced again. A touch screen, whose main pointer cannot hover, keeps a stale
+  // :hover after a tap and gets no pointer hold. Other views keep no such hold (#800). The model selection gives
   // its two ends, each in the list or not, and whether it runs across the whole list;
   // containsNode(list, true) is true when any part of the list is selected, as in a browser.
   const selected = (list, anchorIn, focusIn, across) => ({ isCollapsed: false, rangeCount: 1,
     containsNode(node, partial) { return node === list && partial === true && (anchorIn || focusIn || across); } });
   await run('board-pointer-over', async (state, tick, list) => { list.hovered = true; tick(); answer(state); await settle(); return state.requests + ' ' + list.innerHTML; });
+  await run('board-touch-hover', async (state, tick, list) => { state.touch = true; list.hovered = true; tick(); answer(state); await settle(); return list.innerHTML; });
   await run('board-pointer-left', async (state, tick, list) => { list.hovered = true; tick(); list.hovered = false; answer(state); await settle(); return list.innerHTML; });
   await run('board-selection-in-list', async (state, tick, list) => { state.selection = selected(list, true, true, false); tick(); answer(state); await settle(); return state.requests + ' ' + list.innerHTML; });
   await run('board-selection-leaves-list', async (state, tick, list) => { state.selection = selected(list, true, false, false); tick(); answer(state); await settle(); return state.requests + ' ' + list.innerHTML; });
@@ -147,7 +149,8 @@ func TestRefreshKeepsFormsInUse(t *testing.T) {
 		"select-changed 1 unsaved edit form\nimplicit-select-changed 1 unsaved edit form\n" +
 		"implicit-select-reset replacement fragment held false\ncheckbox-changed 1 unsaved edit form\n" +
 		"typed-then-cleared replacement fragment held false\n" +
-		"board-pointer-over 1 unsaved edit form\nboard-pointer-left replacement fragment\n" +
+		"board-pointer-over 1 unsaved edit form\nboard-touch-hover replacement fragment\n" +
+		"board-pointer-left replacement fragment\n" +
 		"board-selection-in-list 1 unsaved edit form\nboard-selection-leaves-list 1 unsaved edit form\n" +
 		"board-selection-enters-list 1 unsaved edit form\nboard-selection-across-list 1 unsaved edit form\n" +
 		"board-selection-elsewhere replacement fragment\n" +
