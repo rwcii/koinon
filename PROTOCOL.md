@@ -2440,7 +2440,7 @@ of items. Reads move no inbox read or acknowledgement marker and no memory curso
   `archived` item reopens it: the item becomes `active`, its current verdict gets `superseded_at`, in the
   same transaction; the verdict's deliveries do not change. The result is the full item at
   its new revision, with `form_notes` for the item's text as on a create, and the recipients
-  note when the edit leaves `recipients` out and the item has none.
+  note when the edit leaves `recipients` out of a `decision` or `task` item that has none.
 - `POST /v1/decisions/list` takes `caller`, `filter` (`waiting`: active `decision` and
   `task` items; `active`, `returned`, `in_progress`, `archived`; or `mine`: items with a recipient name that is now the
   caller's peer name or the participant address it holds, also when the name did not resolve
